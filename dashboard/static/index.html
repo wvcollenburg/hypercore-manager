@@ -70,10 +70,9 @@
   .header-left { display: flex; align-items: center; gap: 16px; }
   .logo {
     width: 36px; height: 36px;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
-    border-radius: 8px; display: flex; align-items: center; justify-content: center;
-    font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 14px; color: #fff;
+    display: flex; align-items: center; justify-content: center;
   }
+  .logo img { width: 36px; height: 36px; object-fit: contain; }
   .header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
   .header h1 span { color: var(--text-secondary); font-weight: 400; }
   .header-right { display: flex; align-items: center; gap: 16px; }
@@ -761,7 +760,7 @@
 
 <div class="header">
   <div class="header-left">
-    <div class="logo">HC</div>
+    <div class="logo"><img src="/static/img/LogoBall.png" alt="Scale Computing"></div>
     <h1>HyperCore <span>Dashboard</span></h1>
   </div>
   <div class="header-right">
