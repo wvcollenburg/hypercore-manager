@@ -76,8 +76,8 @@ The optional **SC//Foresight** module extends the platform with long-range capac
 ## Quick Start
 
 ```bash
-git clone <repository-url> HyperCoreBalancer
-cd HyperCoreBalancer
+git clone https://github.com/wvcollenburg/hypercore-manager.git
+cd hypercore-manager
 
 cp .env.template .env
 # Edit .env — set SC_HOST, SC_USERNAME, SC_PASSWORD, and change all CHANGE_ME values
@@ -209,6 +209,9 @@ Sentinel exposes a REST API on port 8081 (internal to the Docker network; proxie
 Sentinel can push signed capacity snapshots to an SC//Foresight-Central viewer instance every 4 hours. Customers control which fields are anonymised before data leaves the cluster. Snapshots can also be exported manually as an AES-256-GCM encrypted `.hcb` file for offline transfer.
 
 See [docs/phase4-data-sharing.md](docs/phase4-data-sharing.md) for the setup guide.
+
+The central viewer that receives these snapshots is a separate deployment:
+**[SC//Foresight-Central](https://github.com/wvcollenburg/sc-foresight-central)** — multi-tenant MSP capacity viewer.
 
 ---
 
@@ -356,6 +359,14 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 |----------|----------|
 | [DEPLOY.md](DEPLOY.md) | Prerequisites, environment variables, security hardening, backup/restore, upgrade procedure, health checks, troubleshooting |
 | [docs/phase4-data-sharing.md](docs/phase4-data-sharing.md) | Data sharing setup: enrollment, anonymisation, `.hcb` file format, troubleshooting |
+
+---
+
+## Related Projects
+
+| Repository | Description |
+|------------|-------------|
+| [SC//Foresight-Central](https://github.com/wvcollenburg/sc-foresight-central) | Multi-tenant MSP viewer — aggregates capacity snapshots pushed by Sentinel across all enrolled customer clusters |
 
 ---
 
