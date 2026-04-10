@@ -4,6 +4,7 @@
 
 # ── Secrets & environment ────────────────────────────────────────────────────
 .env
+.claude/
 *.env
 !.env.template
 
