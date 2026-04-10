@@ -26,6 +26,7 @@ env/
 pip-wheel-metadata/
 
 # ── Testing & coverage ───────────────────────────────────────────────────────
+tests/
 .pytest_cache/
 .coverage
 htmlcov/
