@@ -1,0 +1,7 @@
+requests
+python-dotenv
+pandas
+prophet
+influxdb-client
+urllib3
+psycopg2-binary

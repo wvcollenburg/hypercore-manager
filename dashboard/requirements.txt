@@ -1,0 +1,9 @@
+flask
+flask-cors
+influxdb-client
+gunicorn
+psycopg2-binary
+reportlab
+pillow
+pyotp
+qrcode

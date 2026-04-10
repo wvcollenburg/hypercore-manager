@@ -1,0 +1,55 @@
+# =============================================================================
+# HyperCore Cluster Balancer / SC//Foresight — .gitignore
+# =============================================================================
+
+# ── Secrets & environment ────────────────────────────────────────────────────
+.env
+*.env
+!.env.template
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.tox/
+.venv/
+venv/
+env/
+pip-wheel-metadata/
+
+# ── Testing & coverage ───────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+coverage.xml
+nosetests.xml
+
+# ── IDEs & editors ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Docker build artefacts ───────────────────────────────────────────────────
+*.tar
+*.tar.gz
+
+# ── Logs & temporary files ───────────────────────────────────────────────────
+*.log
+*.tmp
+*.bak
+
+# ── Documentation source (keep README, exclude Word/binary docs) ─────────────
+*.docx
+SENTINEL.md

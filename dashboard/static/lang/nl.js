@@ -1,0 +1,480 @@
+/* HyperCore Manager — Nederlands (Dutch) vertalingen */
+window.LANG = {
+  // Header
+  'header.connecting':    'Verbinden...',
+  'header.connected':     'Verbonden',
+  'header.disconnected':  'Niet verbonden',
+  'header.refresh':       '\u21bb Vernieuwen',
+
+  // Nav tabs
+  'nav.modules':          'Modules',
+  'nav.settings':         '\u2699 Instellingen',
+
+  // Infraviewer sub-tabs
+  'iv.nodes_drives':      'Nodes & Schijven',
+  'iv.vms_storage':       "VM's & Opslag",
+
+  // Clusterbalancer sub-tabs
+  'cb.miglog':            'Migratielog',
+  'cb.balancer_settings': 'Balancer-instellingen',
+
+  // Sentinel sub-tabs
+  'sentinel.tab.overview':    'Overzicht',
+  'sentinel.tab.forecasts':   'Prognoses',
+  'sentinel.tab.rightsizing': 'Correcte sizing',
+  'sentinel.tab.exhaustion':  'Uitputting',
+  'sentinel.tab.reports':     'Rapporten',
+  'sentinel.tab.whatif':      'Wat-als',
+  'sentinel.tab.settings':    'Instellingen',
+  'sentinel.tab.datasharing': 'Datadeling',
+
+  // Time range / grouping controls
+  'time.range':           'Bereik:',
+  'vm.group_by':          'Groepeer per:',
+  'vm.group_none':        'Geen',
+  'vm.group_no_tag':      '(geen tag)',
+  'vm.group_label.tag':   'Tag',
+  'vm.group_label.node':  'Node',
+  'vm.group_label.vlan':  'VLAN',
+  'vm.group_label.peer':  'Server',
+  'vm.performance_details': 'Prestatiedetails',
+
+  // Chart titles
+  'chart.node_cpu':       'Node CPU-gebruik over tijd',
+  'chart.cluster_iops':   'Totale cluster-IOPS over tijd',
+  'chart.cluster_ram':    'Cluster RAM-gebruik',
+  'chart.cluster_storage':'Cluster opslaggebruik',
+  'chart.vm_cpu':         "VM CPU-gebruik (top 5)",
+  'chart.vsd_latency':    'VSD-latentie (top 5 op schrijflatentie)',
+  'chart.vm_net':         'VM netwerkgebruik \u2014 top 5 (RX + TX)',
+  'chart.miglog':         'Migratie log',
+
+  // Section / panel headings
+  'section.capacity_forecasts': 'Capaciteitsprognoses',
+  'section.resize_advice':      'Concrete aanpassingsadviezen (C3\u2013C6)',
+  'section.exhaustion_alerts':  'Capaciteitsuitputtingswaarschuwingen',
+  'section.whatif':             'What-If scenariomodellering (D5)',
+
+  // IOPS stat labels
+  'iops.p95':   '95e percentiel:',
+  'iops.min':   'Min:',
+  'iops.max':   'Max:',
+  'iops.iops':  'IOPS',
+  'iops.insufficient': '95e percentiel: onvoldoende gegevens',
+
+  // Loading states
+  'loading.nodes':      'Node-statistieken laden...',
+  'loading.vms':        "VM-statistieken laden...",
+  'loading.migrations': 'Migratiegebeurtenissen laden...',
+  'loading.settings':   'Instellingen laden...',
+  'loading.capacity':   'Capaciteitsintelligentie laden...',
+  'loading.forecasts':  'Prognoses laden...',
+  'loading.resize':     'Vergrotingsadvies laden...',
+  'loading.exhaustion': 'Uitputtingsgegevens laden...',
+  'loading.simulation': 'Simulatie uitvoeren...',
+  'loading.modules':    'Modules ontdekken...',
+
+  // Empty / error states
+  'empty.no_api':               'Kan geen verbinding maken met API',
+  'empty.no_nodes':             'Nog geen nodegegevens. Werkt de collector?',
+  'empty.no_vms':               "Nog geen VM-gegevens.",
+  'empty.no_migrations':        'Nog geen migratiegebeurtenissen geregistreerd.',
+  'empty.no_measurements':      'Geen metingen gevonden.',
+  'empty.no_forecasts':         'Geen prognosegegevens beschikbaar.',
+  'empty.no_resize':            'Nog geen concreet vergrotingsadvies.',
+  'empty.no_exhaustion':        'Geen uitputtingswaarschuwingen.',
+  'empty.sentinel_unavailable': 'SC//Foresight-gegevens niet beschikbaar \u2014 werkt Sentinel?',
+  'empty.settings_failed':      'Kan instellingen niet laden.',
+  'empty.sentinel_settings_unavail': 'Sentinel niet beschikbaar \u2014 instellingen kunnen niet worden geladen.',
+  'empty.settings_load_failed': 'Instellingen laden mislukt: {msg}',
+
+  // Metric labels
+  'metric.cpu_usage':   'CPU-gebruik',
+  'metric.memory_used': 'Geheugengebruik',
+  'metric.vcpu_ratio':  'vCPU-verhouding',
+  'metric.data_points': 'Datapunten',
+  'metric.network_rx':  'Netwerk RX',
+  'metric.network_tx':  'Netwerk TX',
+
+  // Physical drive sub-items
+  'drive.physical_drives': '\u25c9 Fysieke schijven',
+  'drive.slot':      'Positie',
+  'drive.healthy':   'Gezond',
+  'drive.degraded':  'Gedegradeerd',
+  'drive.used':      'Gebruikt',
+  'drive.temperature': 'Temperatuur',
+  'drive.errors':    'Fouten',
+
+  // Virtual storage device sub-items
+  'vsd.devices':       '\u25c8 Virtuele schijven',
+  'vsd.read':          'Lezen',
+  'vsd.write':         'Schrijven',
+  'vsd.read_latency':  'Leeslatentie',
+  'vsd.write_latency': 'Schrijflatentie',
+
+  // Migration log table
+  'mig.time':      'Tijd',
+  'mig.vm':        'VM',
+  'mig.migration': 'Migratie',
+  'mig.engine':    'Engine',
+  'mig.mode':      'Modus',
+  'mig.reason':    'Reden',
+
+  // VM detail modal
+  'vm.modal.cpu':          'CPU-gebruik',
+  'vm.modal.network':      'Netwerk (RX / TX)',
+  'vm.modal.disk_iops':    'Schijf-IOPS (per VSD)',
+  'vm.modal.disk_latency': 'Schijflatentie (per VSD)',
+
+  // Settings controls
+  'settings.apply':      'Toepassen',
+  'settings.unsaved':    '\u25cf niet opgeslagen',
+  'settings.applied_n':  '{n} wijziging(en) toegepast',
+  'settings.save_failed':'Opslaan mislukt: {msg}',
+  'settings.restart_required': 'Herstart vereiste instellingen',
+  'settings.restart_note': 'Herstart vereiste instellingen \u2014 verzamelinterval, trendinterval, resultaatcontrole-interval, poorten, InfluxDB / PostgreSQL / HyperCore-inloggegevens, webhook-URL, geheim en leverparameters moeten worden ingesteld via omgevingsvariabelen in docker-compose en vereisen een containerherstart.',
+
+  // Info popup
+  'info.what':     'Wat het doet',
+  'info.benefits': 'Voordelen',
+  'info.careful':  'Wees voorzichtig',
+
+  // Settings group labels
+  'group.master':      'Hoofdinstellingen',
+  'group.reactive':    'Reactieve balancer',
+  'group.predictive':  'Voorspellende engine',
+  'group.collector':   'Collector',
+  'group.dashboard':   'Dashboard',
+  'group.rightsizing': 'Correcte sizing-drempels',
+  'group.forecast':    'Prognose & Analyse',
+  'group.maintenance': 'Onderhoud',
+
+  // Sentinel overview
+  'sentinel.cluster_health':    'Clustergezondheid',
+  'sentinel.severity':          'Ernst',
+  'sentinel.bottleneck':        'Knelpuntresource',
+  'sentinel.efficiency':        'Effici\u00ebntie-index',
+  'sentinel.as_of':             'Vanaf',
+  'sentinel.active_forecasts':  'Actieve prognoses',
+  'sentinel.over_provisioned':  "Overgeprovisioneerde VM's",
+  'sentinel.under_provisioned': "Ondergeprovisioneerde VM's",
+  'sentinel.worst_exhaustion':  'Ergste uitputting',
+  'sentinel.days':              'dagen',
+  'sentinel.already_exhausted': 'al uitgeput',
+  'sentinel.exhaustion_in':     'uitputting over',
+  'sentinel.warming_title':     'SC//Foresight is aan het opwarmen',
+  'sentinel.warming_running':   'Sentinel werkt en verzamelt statistieken. De eerste capaciteitsanalyse zal binnenkort aanbevelingen geven.',
+  'sentinel.warming_first_run': 'Eerste analyse wordt nu uitgevoerd\u2026',
+  'sentinel.warming_first_in':  'Eerste analyse over',
+  'sentinel.warming_started':   'Gestart',
+
+  // Forecast table
+  'forecast.dimension':    'Dimensie',
+  'forecast.horizon':      'Horizon',
+  'forecast.node_entity':  'Node / Entiteit',
+  'forecast.current':      'Huidig',
+  'forecast.forecast':     'Prognose',
+  'forecast.confidence':   'Betrouwbaarheid',
+  'forecast.exhaustion':   'Uitputting',
+  'forecast.severity':     'Ernst',
+  'forecast.showing':      '{n} van {total} prognoses getoond \u2014 rijen met lage betrouwbaarheid verborgen.',
+  'forecast.no_significant': 'Geen significante prognoses voor dit filter (alle resultaten hebben lage betrouwbaarheid of INFO-ernst).',
+  'forecast.all_dimensions': 'Alle dimensies',
+  'forecast.all_horizons':   'Alle horizons',
+
+  // Right-sizing table
+  'rs.vm_name':           'VM-naam',
+  'rs.direction':         'Richting',
+  'rs.current_vcpu':      'Huidige vCPU',
+  'rs.recommended':       'Aanbevolen',
+  'rs.change_pct':        'Wijziging%',
+  'rs.risk':              'Risico',
+  'rs.severity':          'Ernst',
+  'rs.confidence':        'Betrouwbaarheid',
+  'rs.reclaim':           'Terugwinnen%',
+  'rs.reduce':            '\u2193 Verminderen',
+  'rs.increase':          '\u2191 Verhogen',
+  'rs.act_now':           'Nu handelen',
+  'rs.recommended_action':'Aanbevolen',
+  'rs.low_priority':      'Lage prioriteit',
+
+  // Exhaustion table
+  'ex.dimension':      'Dimensie',
+  'ex.node':           'Node',
+  'ex.days_left':      'Dagen over',
+  'ex.exhaustion_date':'Uitputtingsdatum',
+  'ex.growth_rate':    'Groeisnelheid/dag',
+  'ex.severity':       'Ernst',
+
+  // Dimension labels
+  'dim.cpu':     'CPU',
+  'dim.ram':     'RAM',
+  'dim.storage': 'Opslag',
+  'dim.latency': 'Latentie',
+  'dim.network': 'Netwerk',
+
+  // What-If panel
+  'whatif.scenario':         'Scenario',
+  'whatif.add_nodes':        'Nodes toevoegen',
+  'whatif.add_vms':          "VM's toevoegen",
+  'whatif.add_vms_like':     "VM's toevoegen zoals\u2026",
+  'whatif.count':            'Aantal',
+  'whatif.storage_per_node': 'Opslag / node (TB, optioneel)',
+  'whatif.ram_per_node':     'RAM / node (GB, optioneel)',
+  'whatif.template_vm':      'Sjabloon-VM',
+  'whatif.run_simulation':   '\u25b6 Simulatie uitvoeren',
+  'whatif.exhaustion_changes': 'WIJZIGINGEN UITPUTTINGSDATUM',
+  'whatif.baseline':         'BASISLIJN (huidig)',
+  'whatif.simulated':        'GESIMULEERD',
+  'whatif.nodes':            'node(s)',
+  'whatif.vms':              "VM's",
+  'whatif.vms_like':         "VM's zoals",
+  'whatif.bottleneck_changed': '(gewijzigd)',
+  'whatif.dimension':        'DIMENSIE',
+  'whatif.baseline_col':     'BASISLIJN',
+  'whatif.simulated_col':    'GESIMULEERD',
+  'whatif.gained':           'GEWONNEN',
+  'whatif.unchanged':        'ongewijzigd',
+  'whatif.no_exhaustion':    'Geen uitputtingsgegevens beschikbaar.',
+  'whatif.assumptions':      'Aannames:',
+  'whatif.sim_failed':       'Simulatie mislukt:',
+  'whatif.enter_template_vm':'Voer een sjabloon-VM-naam in.',
+  'whatif.nodes_label':      'nodes',
+  'whatif.vms_label':        "VM's",
+  'whatif.bottleneck':       'Knelpunt:',
+  'whatif.none':             'geen',
+
+  // Reports / PDF
+  'reports.branding_title':      'Rapportopmaak (E7)',
+  'reports.branding_desc':       'Pas de voorpagina van het PDF-rapport aan. Instellingen worden per cluster opgeslagen en toegepast op elk gegenereerd rapport.',
+  'reports.company_name':        'Bedrijfsnaam',
+  'reports.accent_colour':       'Accentkleur',
+  'reports.logo':                'Logo (PNG of JPG, max 500 KB)',
+  'reports.logo_remove':         '\u2715 Verwijderen',
+  'reports.logo_too_large':      'Logo moet kleiner zijn dan 500 KB.',
+  'reports.save_branding':       'Opmaak opslaan',
+  'reports.saved':               '\u2713 Opgeslagen',
+  'reports.pdf_title':           'SC//Foresight Rapporten (E5-E6)',
+  'reports.pdf_desc':            'Genereer een volledig capaciteitsintelligentie-PDF-rapport op basis van de laatste analysegegevens. Het rapport bevat prognoses, aanbevelingen voor rechtsizing, uitputtingswaarschuwingen en vergrotingsadvies.',
+  'reports.download_pdf':        '\u2193 PDF-rapport downloaden',
+  'reports.generating':          'Genereren\u2026',
+  'reports.building':            'Rapport wordt opgebouwd, even geduld\u2026',
+  'reports.contents':            'Rapportinhoud',
+  'reports.contents_summary':    '\u25c6 Managementsamenvatting met cluster-gezondheidsscore',
+  'reports.contents_exhaustion': '\u25c6 Uitputtingswaarschuwingen (op urgentie geordend)',
+  'reports.contents_forecasts':  '\u25c6 Capaciteitsprognoses \u2014 30d, 90d, 180d, 365d horizons',
+  'reports.contents_rightsizing':"\u25c6 VM-aanbevelingen voor rechtsizing",
+  'reports.contents_resize':     '\u25c6 Concreet vergrotingsadvies met risicoklassificatie',
+
+  // Data Sharing panel
+  'sharing.connection_title':   'Verbinding',
+  'sharing.connection_desc':    'Configureer het SC//Foresight-Central viewer-eindpunt om geplande snapshot-pushes in te schakelen.',
+  'sharing.enabled':            'Delen ingeschakeld',
+  'sharing.viewer_url':         'Viewer URL',
+  'sharing.bearer_token':       'Bearer Token',
+  'sharing.save_connection':    'Verbinding opslaan',
+  'sharing.anon_title':         'Anonimisering',
+  'sharing.anon_desc':          'Anonimisering gebruikt stabiele pseudoniemen \u2014 trends blijven intact.',
+  'sharing.anon_vm_names':      'VM-namen anonimiseren',
+  'sharing.anon_node_ids':      'Node-identificatoren anonimiseren',
+  'sharing.anon_cluster':       'Clusternaam anonimiseren',
+  'sharing.save_anon':          'Anonimisering opslaan',
+  'sharing.manual_title':       'Handmatige acties',
+  'sharing.test_push':          'Test Push',
+  'sharing.download_hcb':       'Snapshot downloaden (.hcb)',
+  'sharing.preview_snapshot':   'Snapshot voorvertonen (JSON)',
+  'sharing.last_sync_never':    'Laatste synchronisatie: nooit',
+  'sharing.last_sync':          'Laatste synchronisatie:',
+  'sharing.token_hint_saved':   'Token is opgeslagen. Voer een nieuwe waarde in om het te vervangen.',
+  'sharing.token_placeholder_saved': '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022  (opgeslagen \u2014 leeg laten om te behouden)',
+  'sharing.connection_saved':   'Verbindingsinstellingen opgeslagen',
+  'sharing.anon_saved':         'Anonimiseringsinstellingen opgeslagen',
+  'sharing.load_failed':        'Kan delingsinstellingen niet laden',
+  'sharing.test_push_sending':  'Testpush verzenden\u2026',
+  'sharing.test_push_ok':       'Testpush geslaagd (HTTP {code})',
+  'sharing.test_push_failed':   'Testpush mislukt:',
+  'sharing.test_push_error':    'Testpush fout:',
+
+  // HCB export modal
+  'hcb.title':     'Snapshot exporteren (.hcb)',
+  'hcb.desc':      'Stel een wachtwoordzin in om dit bestand te versleutelen. U moet dezelfde wachtwoordzin invoeren bij het importeren in SC//Foresight-Central.',
+  'hcb.passphrase':'Wachtwoordzin',
+  'hcb.confirm':   'Wachtwoordzin bevestigen',
+  'hcb.cancel':    'Annuleren',
+  'hcb.download':  'Downloaden',
+  'hcb.required':  'Wachtwoordzin is vereist.',
+  'hcb.mismatch':  'Wachtwoordzinnen komen niet overeen.',
+
+  // Modules tab
+  'modules.tools':           'Tools',
+  'modules.grafana_desc':    'Geavanceerde dataverkenning en aangepaste dashboards',
+  'modules.open_grafana':    'Grafana openen',
+  'modules.grafana_note':    'Grafana wordt standaard niet gestart. Start het met:',
+  'modules.discovered_title':'Ontdekte datamodules',
+  'modules.auto_appear':     'Elke container die naar InfluxDB schrijft, verschijnt hier automatisch.',
+
+  // Grafana status
+  'grafana.running':    '\u25cf Actief',
+  'grafana.not_running':'\u25cb Niet actief',
+  'grafana.checking':   'Controleren...',
+
+  // Auto-discovered module fallback desc
+  'module.auto_desc': 'Automatisch ontdekte databron',
+
+  // ─── Info popup body text (ⓘ) — TODO: translate to Dutch ────────────────
+  'info.DRY_RUN.what':      'The balancer analyses the cluster and decides which VMs to migrate, but stops short of actually executing any moves. All decision logic runs normally — you see the outcomes in the logs.',
+  'info.DRY_RUN.benefits':  'Essential safety net when first deploying or after changing thresholds significantly. Lets you validate behaviour before committing to live migrations.',
+  'info.DRY_RUN.careful':   'While enabled, real resource imbalances are NOT corrected. A cluster under heavy load will stay imbalanced for as long as Dry Run is on.',
+
+  'info.VERBOSITY.what':      'Controls how much detail appears in the balancer container logs. 0 = errors only \u00b7 1 = decisions \u00b7 2 = scoring detail \u00b7 3 = full debug trace.',
+  'info.VERBOSITY.benefits':  'Higher levels are invaluable for diagnosing why a migration did or did not trigger. Lower levels keep logs clean in production.',
+  'info.VERBOSITY.careful':   'Level 3 on a busy cluster with many VMs and nodes produces very large log volumes. Use it temporarily for debugging, then dial back.',
+
+  'info.CPU_UPPER_THRESHOLD_PERCENT.what':      'CPU utilisation percentage above which a node is considered overloaded and becomes a migration source candidate.',
+  'info.CPU_UPPER_THRESHOLD_PERCENT.benefits':  'Lowering the threshold makes balancing more proactive, keeping nodes cooler. Raising it tolerates higher utilisation before acting.',
+  'info.CPU_UPPER_THRESHOLD_PERCENT.careful':   'Set too low (e.g. 30%) and the balancer churns VMs constantly based on normal usage spikes. Always pair with AVG_WINDOW to smooth out short bursts before deciding.',
+
+  'info.RAM_UPPER_THRESHOLD_PERCENT.what':      'RAM utilisation percentage above which a node is flagged as memory-pressured and may have VMs migrated away from it.',
+  'info.RAM_UPPER_THRESHOLD_PERCENT.benefits':  'Prevents nodes from reaching dangerously high RAM usage by triggering migrations early.',
+  'info.RAM_UPPER_THRESHOLD_PERCENT.careful':   'Must always be set below RAM_HARD_LIMIT. Setting it too close to the hard limit leaves little reaction window before a node becomes critical.',
+
+  'info.RAM_LIMIT_PERCENT.what':      'Hard RAM ceiling \u2014 nodes at or above this percentage cannot receive incoming VM migrations regardless of any other condition.',
+  'info.RAM_LIMIT_PERCENT.benefits':  'Absolute guard against out-of-memory events. Even if the balancer wants to place a VM somewhere, this limit is never violated.',
+  'info.RAM_LIMIT_PERCENT.careful':   'Must be higher than RAM_UPPER_THRESHOLD. If set equal to or below the threshold, every node is simultaneously a migration source and unable to accept \u2014 migrations become impossible.',
+
+  'info.MAX_VCPU_RATIO.what':      'Maximum ratio of vCPUs allocated to VMs vs physical CPU cores on a node (e.g. 2.0\u00d7 means 2 vCPUs per physical core).',
+  'info.MAX_VCPU_RATIO.benefits':  'Higher values allow more VMs per node through CPU overcommit, improving density. Lower values reserve physical capacity for latency-sensitive workloads.',
+  'info.MAX_VCPU_RATIO.careful':   'Excessive overcommit (above 4\u20136\u00d7) noticeably degrades VM CPU performance under real load. The right value depends on your workload mix \u2014 idle VMs tolerate high ratios; compute-heavy ones do not.',
+
+  'info.SAMPLE_INTERVAL_SECONDS.what':      'How often (in seconds) the balancer reads current node CPU and RAM usage to update its rolling averages.',
+  'info.SAMPLE_INTERVAL_SECONDS.benefits':  'Shorter intervals give finer-grained averages. Longer intervals reduce API polling frequency on the HyperCore cluster.',
+  'info.SAMPLE_INTERVAL_SECONDS.careful':   'Very short intervals produce noisy readings from brief spikes. Always pair with an appropriate AVG_WINDOW_MINUTES to smooth the data before making a decision.',
+
+  'info.AVG_WINDOW_MINUTES.what':      'Length of the rolling window (in minutes) used to average CPU and RAM samples before any balancing decision is made.',
+  'info.AVG_WINDOW_MINUTES.benefits':  'A longer window ignores transient spikes and bases decisions on sustained load. A shorter window reacts faster to genuine load changes.',
+  'info.AVG_WINDOW_MINUTES.careful':   'The window must contain at least 2 samples. Minimum meaningful value: (2 \u00d7 SAMPLE_INTERVAL_SECONDS) / 60 minutes. If the window is shorter than one sample interval, decisions are based on a single reading.',
+
+  'info.VM_MOVE_COOLDOWN_MINUTES.what':      'After a VM is migrated, it cannot be selected for migration again for this many minutes.',
+  'info.VM_MOVE_COOLDOWN_MINUTES.benefits':  'Prevents a single VM from being shuffled repeatedly in quick succession, giving the cluster time to stabilise after each move.',
+  'info.VM_MOVE_COOLDOWN_MINUTES.careful':   'Set too high and a VM that genuinely needs to move again must wait a long time. Setting to 0 removes all per-VM protection against migration storms.',
+
+  'info.MIGRATION_COOLDOWN_MINUTES.what':      'Global lock \u2014 after any VM migration completes, no further migrations are initiated for this many minutes cluster-wide.',
+  'info.MIGRATION_COOLDOWN_MINUTES.benefits':  'Prevents cascading migrations. One move changes the load landscape; this window lets the cluster settle before the next decision.',
+  'info.MIGRATION_COOLDOWN_MINUTES.careful':   'Too high stalls balancing entirely on a heavily loaded cluster. Too low (or 0) can trigger rapid sequential migrations that destabilise rather than help.',
+
+  'info.CPU_TARGET_TOLERANCE_PERCENT.what':      'When ranking target nodes in CPU_FOCUS mode, nodes whose average CPU falls within this percentage band are treated as equal on CPU, and the one with lower RAM usage is preferred.',
+  'info.CPU_TARGET_TOLERANCE_PERCENT.benefits':  'Prevents a trivially lower CPU reading from sending a VM to a node that is already more RAM-constrained. Produces more balanced placement overall.',
+  'info.CPU_TARGET_TOLERANCE_PERCENT.careful':   'Set too wide and significantly more-loaded nodes can be chosen over lighter ones. The default of 5% is a safe starting point for most clusters.',
+
+  'info.EXCLUDE_NODE_IPS.what':      'Comma-separated list of node IP addresses that the balancer will completely ignore \u2014 it will never migrate VMs to or from these nodes.',
+  'info.EXCLUDE_NODE_IPS.benefits':  'Protects nodes undergoing maintenance, dedicated workload hosts, or nodes under investigation from being touched by the balancer.',
+  'info.EXCLUDE_NODE_IPS.careful':   'Excluding nodes reduces the balancer\'s available headroom. Excluded nodes still accumulate load and can become overloaded without the balancer intervening.',
+
+  'info.PREDICTIVE_BALANCING_ENABLED.what':      'Enables "The Oracle" \u2014 a Prophet-based forecasting engine that analyses historical trends and proactively migrates VMs before predicted resource exhaustion.',
+  'info.PREDICTIVE_BALANCING_ENABLED.benefits':  'Prevents overload before it happens rather than reacting after the fact. Especially valuable for workloads with predictable daily or weekly patterns.',
+  'info.PREDICTIVE_BALANCING_ENABLED.careful':   'Requires at least MIN_HISTORY_HOURS of historical data per VM in InfluxDB. Running with insufficient history causes VMs to be silently skipped. Each run is CPU-intensive \u2014 ensure the container has adequate resources.',
+
+  'info.PREDICTIVE_THRESHOLD.what':      'Predicted future resource usage percentage that, if forecast to be exceeded within the LEAD_TIME window, triggers a proactive migration.',
+  'info.PREDICTIVE_THRESHOLD.benefits':  'Lower values are more aggressive, acting on smaller predicted exceedances. Higher values reserve action for near-certain overloads only.',
+  'info.PREDICTIVE_THRESHOLD.careful':   'Set too low and normal daily usage peaks trigger unnecessary migrations. Set too high and genuine overload events may not be caught in time.',
+
+  'info.PREDICTIVE_LEAD_TIME_HOURS.what':      'How far ahead (in hours) The Oracle looks when deciding whether a VM needs to be moved before a predicted resource spike.',
+  'info.PREDICTIVE_LEAD_TIME_HOURS.benefits':  'Larger lead times give more flexibility for scheduling migrations during quiet periods, particularly useful for workloads with sharp, well-predicted peaks.',
+  'info.PREDICTIVE_LEAD_TIME_HOURS.careful':   'Prophet\'s confidence intervals widen significantly beyond 24\u201348h, making very long lead times less reliable. Long lead times may also trigger migrations too far in advance of actual risk.',
+
+  'info.PREDICTIVE_MIN_HISTORY_HOURS.what':      'Minimum hours of historical data a VM must have in InfluxDB before The Oracle will attempt to forecast it.',
+  'info.PREDICTIVE_MIN_HISTORY_HOURS.benefits':  'Prevents garbage forecasts from newly provisioned VMs with insufficient history to reveal usage patterns.',
+  'info.PREDICTIVE_MIN_HISTORY_HOURS.careful':   'Set too high and recently created VMs are never protected. The default 336h (14 days) captures at least two full weekly cycles \u2014 the recommended minimum for Prophet to detect patterns reliably.',
+
+  'info.PREDICTIVE_LOOKBACK_DAYS.what':      'How many days of historical metric data are fed to Prophet when training each forecast. Longer lookbacks capture longer-term seasonal patterns.',
+  'info.PREDICTIVE_LOOKBACK_DAYS.benefits':  'More data allows Prophet to detect weekly and monthly patterns more reliably, improving forecast accuracy.',
+  'info.PREDICTIVE_LOOKBACK_DAYS.careful':   'More data means longer training time per VM. With many VMs and limited MAX_WORKERS, very long lookbacks can make forecast runs take hours. Also, InfluxDB\'s long-term bucket retention must cover this entire window.',
+
+  'info.PREDICTIVE_MAX_WORKERS.what':      'Number of parallel Python processes used to train Prophet forecasts simultaneously across multiple VMs.',
+  'info.PREDICTIVE_MAX_WORKERS.benefits':  'Higher worker counts reduce total forecast run time proportionally, which matters on large clusters with many VMs.',
+  'info.PREDICTIVE_MAX_WORKERS.careful':   'Should not exceed the container\'s CPU limit (default 2.0 cores). More workers than cores causes them to compete and actually slows total throughput. Match this value to the balancer\'s CPU limit in docker-compose.',
+
+  'info.PREDICTIVE_INTERVAL_SECONDS.what':      'How frequently The Oracle runs a full forecast cycle across all VMs, in seconds. Default 43200 = every 12 hours.',
+  'info.PREDICTIVE_INTERVAL_SECONDS.benefits':  'More frequent runs keep predictions fresh and catch emerging trends sooner. Useful if your workload changes rapidly throughout the day.',
+  'info.PREDICTIVE_INTERVAL_SECONDS.careful':   'Each full run is CPU-intensive, especially with many VMs. Intervals shorter than 3600s on large clusters risk back-to-back runs without recovery time. Monitor container CPU usage when reducing this value.',
+
+  'info.PREDICTIVE_RESERVATION_MINUTES.what':      'When the Oracle decides a node is heading for overload and queues migrations away from it, that node is immediately locked as a migration target until this many minutes after the predicted peak.',
+  'info.PREDICTIVE_RESERVATION_MINUTES.benefits':  'Prevents the reactive engine from routing other VMs back onto a node the Oracle just flagged, which would undo the proactive work. Also stops the reactive engine from making the problem worse while the predictive migrations are executing one by one.',
+  'info.PREDICTIVE_RESERVATION_MINUTES.careful':   'Set too high and a node that recovers quickly stays blocked from receiving VMs for longer than necessary, reducing balancing headroom cluster-wide. Set to 0 to disable reservations entirely \u2014 not recommended when predictive balancing is active.',
+
+  'info.POLL_INTERVAL.what':      'How often (in seconds) the Collector fetches node and VM metrics from the HyperCore API and writes them to InfluxDB.',
+  'info.POLL_INTERVAL.benefits':  'Shorter intervals produce more granular historical data for both the dashboard graphs and The Oracle\'s training dataset.',
+  'info.POLL_INTERVAL.careful':   'Too short increases API load on the HyperCore cluster and InfluxDB write pressure. Below 15s risks rate-limiting or degraded cluster API performance. 30s is the recommended minimum.',
+
+  'info.SLOW_POLL_INTERVAL.what':      'Extended collection interval used for less time-sensitive data such as static node properties and disk metadata.',
+  'info.SLOW_POLL_INTERVAL.benefits':  'Reduces unnecessary API calls for information that changes rarely, keeping overall HyperCore API load low.',
+  'info.SLOW_POLL_INTERVAL.careful':   'Too long can allow stale metadata to persist in InfluxDB. For most deployments 300s (5 min) is a sensible balance.',
+
+  'info.INFLUX_WRITE_RETRIES.what':      'How many times the Collector retries a failed InfluxDB write before giving up and logging an error.',
+  'info.INFLUX_WRITE_RETRIES.benefits':  'Handles brief InfluxDB restarts, container restarts, or transient network blips without dropping metric data.',
+  'info.INFLUX_WRITE_RETRIES.careful':   'Very high values can stall the collection loop if InfluxDB is genuinely unreachable. Total blocking time = WRITE_RETRIES \u00d7 RETRY_DELAY \u2014 keep the product well below POLL_INTERVAL to avoid skipping a collection cycle.',
+
+  'info.INFLUX_RETRY_DELAY.what':      'Seconds to wait between successive InfluxDB write retry attempts after a failed write.',
+  'info.INFLUX_RETRY_DELAY.benefits':  'Gives InfluxDB time to recover between retries rather than hammering it with immediate successive requests.',
+  'info.INFLUX_RETRY_DELAY.careful':   'Total blocking time = WRITE_RETRIES \u00d7 RETRY_DELAY. For example, 3 retries \u00d7 10s = 30s blocked \u2014 ensure this product is below POLL_INTERVAL to avoid collection gaps.',
+
+  'info.STALE_SECONDS.what':      'How many seconds can elapse since the last successful Collector write before the dashboard marks a node\'s data as stale and shows a warning indicator.',
+  'info.STALE_SECONDS.benefits':  'Quickly surfaces collection failures, network issues, or InfluxDB problems before they silently affect dashboard accuracy.',
+  'info.STALE_SECONDS.careful':   'Set too low (below POLL_INTERVAL) and nodes will always appear stale. Should be at least 2\u20133\u00d7 POLL_INTERVAL to account for normal write timing variance.',
+
+  'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.what':      'VMs consistently using less than this % of allocated CPU over the analysis window are flagged as over-provisioned (C1).',
+  'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.benefits':  'Identifies VMs with too many vCPUs allocated, freeing up capacity that can be reassigned to under-provisioned VMs or allow higher VM density on the same hardware.',
+  'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.careful':   'Set too high and intentionally reserved VMs (standby servers, batch jobs with variable load) get incorrectly flagged. Consider your workload mix before lowering below 20%.',
+
+  'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.what':      'Average CPU usage above this % over the analysis window triggers Signal 1 of the under-provisioned model. Either avg or P95 threshold can fire independently.',
+  'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.benefits':  'Catches VMs that are consistently near capacity \u2014 sustained high utilisation is the strongest indicator that a VM needs more vCPUs.',
+  'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.careful':   'Set too low and VMs with occasional spikes but healthy averages will be missed. This signal works best alongside the P95 threshold, which catches burst patterns the average smooths out.',
+
+  'info.SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD.what':      'P95 CPU usage above this % triggers burst-pattern under-provisioning (Signal 1). Catches VMs that spike to near-capacity even when their average looks healthy.',
+  'info.SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD.benefits':  'Surfaces VMs that look fine on average but regularly starve for CPU during busy periods \u2014 a common source of end-user performance complaints that average metrics hide.',
+  'info.SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD.careful':   'P95 at 90% is aggressive. Brief spikes are normal on shared HyperCore clusters. Raise this threshold if you see too many false positives on workloads with short, predictable bursts.',
+
+  'info.SENTINEL_ANALYSIS_WINDOW_DAYS.what':      'How many days of InfluxDB metric history are used for right-sizing analysis and recurring spike detection. Applies to C1, C2 Signal 1, and C2 Signal 3. Minimum 7 days.',
+  'info.SENTINEL_ANALYSIS_WINDOW_DAYS.benefits':  'A longer window captures more complete usage patterns including weekday/weekend variation. The default 14 days covers two full weekly cycles \u2014 the recommended minimum for pattern detection.',
+  'info.SENTINEL_ANALYSIS_WINDOW_DAYS.careful':   'Shortening below 7 days risks recommendations based on atypical data (e.g. a single busy week). Extending beyond 30 days means the analysis is slower to react to genuine workload changes.',
+
+  'info.SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES.what':      'Minimum number of times a CPU spike must recur at the same weekday and hour bucket before Sentinel flags it as a recurring pattern (C2 Signal 3).',
+  'info.SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES.benefits':  'Prevents a one-off incident from triggering a right-sizing recommendation. Requiring 3 or more occurrences means the pattern is genuinely repeating, not a fluke.',
+  'info.SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES.careful':   'Raising too high means real daily patterns need many days to appear (at 5, a daily spike needs 5 days of data). Lowering to 1 means any single spike at an hour triggers the signal.',
+
+  'info.SENTINEL_ANOMALY_FILTER_ENABLED.what':      'Applies an IQR-fence outlier removal pass to each time series before fitting the linear regression forecast model (B9). Outliers beyond 1.5\u00d7 IQR are excluded from the regression.',
+  'info.SENTINEL_ANOMALY_FILTER_ENABLED.benefits':  'Prevents a brief outage, maintenance window, or traffic spike from skewing the regression line and producing an inaccurate long-term forecast.',
+  'info.SENTINEL_ANOMALY_FILTER_ENABLED.careful':   'Disabling makes forecasts more sensitive to anomalies. Useful only if you specifically want unusual events to influence predictions. In most production environments, leave this on.',
+
+  'info.SENTINEL_FORECAST_30D_ENABLED.what':      'Enables the 30-day short-term capacity forecast (B1) for all tracked resource dimensions: CPU, RAM, storage capacity, storage latency, and network.',
+  'info.SENTINEL_FORECAST_30D_ENABLED.benefits':  'Tactical view for immediate capacity decisions \u2014 are we about to run out of something in the next month? Drives the most urgent exhaustion alerts.',
+  'info.SENTINEL_FORECAST_30D_ENABLED.careful':   'Disabling suppresses all 30-day exhaustion alerts across the dashboard and API. Only turn off if you are deliberately reducing analysis scope or troubleshooting unexpected behaviour.',
+
+  'info.SENTINEL_FORECAST_90D_ENABLED.what':      'Enables the 90-day quarterly capacity forecast (B2). Aligned with typical IT planning and budget cycles.',
+  'info.SENTINEL_FORECAST_90D_ENABLED.benefits':  'Answers \'do we need to act this quarter?\' \u2014 the primary horizon for procurement planning and workload-growth conversations.',
+  'info.SENTINEL_FORECAST_90D_ENABLED.careful':   'Disabling removes all 90-day exhaustion alerts. Only disable if you want to reduce PostgreSQL write volume and are confident 30-day coverage is sufficient.',
+
+  'info.SENTINEL_FORECAST_180D_ENABLED.what':      'Enables the 6-month strategic capacity forecast (B3).',
+  'info.SENTINEL_FORECAST_180D_ENABLED.benefits':  'Identifies the next hardware purchase window before it becomes urgent. Reveals growth trends that are invisible at the 30 and 90-day horizons.',
+  'info.SENTINEL_FORECAST_180D_ENABLED.careful':   'Confidence scores for 180-day forecasts are typically lower \u2014 less data relative to the horizon. The dashboard automatically suppresses forecasts with confidence below 10%.',
+
+  'info.SENTINEL_FORECAST_365D_ENABLED.what':      'Enables the 12-month strategic capacity forecast (B4). The longest supported horizon.',
+  'info.SENTINEL_FORECAST_365D_ENABLED.benefits':  'Used for annual capacity planning and pre-sales growth conversations. Shows the full year trajectory for each resource dimension.',
+  'info.SENTINEL_FORECAST_365D_ENABLED.careful':   'Forecast confidence at 365 days is the lowest of all horizons and should be treated as directional only. The data-coverage confidence penalty suppresses very uncertain forecasts automatically.',
+
+  'info.SENTINEL_RETENTION_MONTHS.what':      'How many months forecast snapshots and right-sizing records are kept before the automated cleanup job removes them. Audit records (recommendation_events) are kept indefinitely regardless.',
+  'info.SENTINEL_RETENTION_MONTHS.benefits':  'Prevents the PostgreSQL database from growing unboundedly. 12 months is sufficient for trend analysis and historical report generation.',
+  'info.SENTINEL_RETENTION_MONTHS.careful':   'Lowering aggressively (e.g. 1\u20132 months) removes older recommendations from the dashboard and API, limiting historical comparison. Raising it increases database storage proportionally.',
+
+  'info.SENTINEL_OUTCOME_TRACKER_ENABLED.what':      'When enabled, Sentinel polls HyperCore every 6 hours to detect whether VMs that received a right-sizing recommendation were subsequently resized (C7). Results are written back to the audit table.',
+  'info.SENTINEL_OUTCOME_TRACKER_ENABLED.benefits':  'Closes the feedback loop on recommendations \u2014 shows whether advice was acted on and what the before/after spec looks like. Powers the \'Outcomes\' view in the API.',
+  'info.SENTINEL_OUTCOME_TRACKER_ENABLED.careful':   'Requires SC_HOST, SC_USERNAME, and SC_PASSWORD to be set (HyperCore API credentials \u2014 env vars, restart required). Disable here if those are not configured or if HyperCore API polling is a concern.',
+
+  'info.SENTINEL_OUTCOME_CHECK_DELAY_HOURS.what':      'How many hours after a right-sizing recommendation is issued before Sentinel first checks whether the VM was actually resized. Default 48 hours.',
+  'info.SENTINEL_OUTCOME_CHECK_DELAY_HOURS.benefits':  'Gives operators enough time to act on a recommendation before the check runs, avoiding premature \'no_action\' outcomes being logged.',
+  'info.SENTINEL_OUTCOME_CHECK_DELAY_HOURS.careful':   'Setting too low (e.g. 1 hour) means most checks log \'no_action\' before the operator has had time to act. Setting very high delays outcome visibility in the history view.',
+
+  'info.SENTINEL_WEBHOOK_ENABLED.what':      'Master switch for the outbound webhook dispatcher (F5). When enabled, Sentinel fires signed HTTP POST alerts to SENTINEL_WEBHOOK_URL for new CRITICAL and EMERGENCY events.',
+  'info.SENTINEL_WEBHOOK_ENABLED.benefits':  'Pushes critical capacity alerts to external systems (Slack, PagerDuty, ticketing tools) in real time without polling the API. Each request is signed with HMAC-SHA256 for verification.',
+  'info.SENTINEL_WEBHOOK_ENABLED.careful':   'Has no effect unless SENTINEL_WEBHOOK_URL is also set (environment variable \u2014 restart required). Toggling this off suppresses all outbound alerts without a restart.',
+};

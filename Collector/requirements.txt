@@ -1,0 +1,4 @@
+requests
+influxdb-client
+urllib3
+psycopg2-binary
