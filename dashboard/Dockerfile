@@ -2,7 +2,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies (curl for vendor assets, git + docker-compose for auto-update)
-RUN apt-get update && apt-get install -y curl git && rm -rf /var/lib/apt/lists/* && \
+RUN apt-get update && apt-get install -y curl git docker.io && rm -rf /var/lib/apt/lists/* && \
     curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64" \
       -o /usr/local/bin/docker-compose && \
     chmod +x /usr/local/bin/docker-compose && \

@@ -1616,16 +1616,25 @@ def _do_apply_update():
             log(f'docker-compose build failed: {(r.stderr or r.stdout).strip()}')
             _write_update_patch({'apply_in_progress': False})
             return
-        log('Build done. Restarting containers...')
+        log('Build done. Spawning restart container...')
         _write_update_patch({'update_available': False})
-        # Detach from the current process group so the restart survives this
-        # container being replaced mid-operation.
+        # Spawn a completely separate container to run docker-compose up -d.
+        # It is not in this container's cgroup, so it survives the dashboard
+        # being replaced mid-restart and completes the job independently.
+        project = os.getenv('COMPOSE_PROJECT_NAME', 'drsproject')
         subprocess.Popen(
-            ['docker-compose', '--profile', 'full', 'up', '-d'],
-            cwd=_REPO_PATH,
+            [
+                'docker', 'run', '--rm',
+                '--name', 'hcm-auto-updater',
+                '-v', '/var/run/docker.sock:/var/run/docker.sock',
+                '-v', f'{_REPO_PATH}:{_REPO_PATH}',
+                '--env-file', f'{_REPO_PATH}/.env',
+                '-w', _REPO_PATH,
+                f'{project}-dashboard',
+                'docker-compose', '--profile', 'full', 'up', '-d',
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
         )
         log('Done. Containers are restarting — page will reload shortly.')
         _write_update_patch({'apply_in_progress': False})
