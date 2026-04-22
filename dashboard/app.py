@@ -1540,6 +1540,15 @@ def _write_update_patch(patch):
             json.dump(state, f)
 
 
+def _git(*args, timeout=10):
+    """Run a git command in _REPO_PATH and return stdout, or '' on failure."""
+    r = subprocess.run(
+        ['git', '-C', _REPO_PATH] + list(args),
+        capture_output=True, text=True, timeout=timeout,
+    )
+    return r.stdout.strip() if r.returncode == 0 else ''
+
+
 def _check_for_update():
     try:
         r = subprocess.run(
@@ -1552,20 +1561,29 @@ def _check_for_update():
                 'last_checked': datetime.now(timezone.utc).isoformat(),
             })
             return
-        local = subprocess.run(
-            ['git', '-C', _REPO_PATH, 'rev-parse', 'HEAD'],
-            capture_output=True, text=True, timeout=10,
-        ).stdout.strip()
-        remote = subprocess.run(
-            ['git', '-C', _REPO_PATH, 'rev-parse', '@{u}'],
-            capture_output=True, text=True, timeout=10,
-        ).stdout.strip()
+
+        local  = _git('rev-parse', 'HEAD')
+        remote = _git('rev-parse', '@{u}')
+
+        # Human-readable labels: "2026-04-22 · abc1234"
+        current_label = _git('log', '-1', '--pretty=format:%cd · %h',
+                             '--date=format:%Y-%m-%d', 'HEAD')
+        remote_label  = _git('log', '-1', '--pretty=format:%cd · %h',
+                             '--date=format:%Y-%m-%d', '@{u}')
+
+        # Commit subjects in remote not yet in local
+        changelog_raw = _git('log', 'HEAD..@{u}', '--pretty=format:%s', '--no-merges')
+        changelog = [l for l in changelog_raw.splitlines() if l.strip()] if changelog_raw else []
+
         _write_update_patch({
             'update_available': bool(local and remote and local != remote),
-            'current_sha': local[:7] if local else None,
-            'remote_sha':  remote[:7] if remote else None,
-            'last_checked': datetime.now(timezone.utc).isoformat(),
-            'error': None,
+            'current_sha':   local[:7]  if local  else None,
+            'remote_sha':    remote[:7] if remote else None,
+            'current_label': current_label or (local[:7] if local else None),
+            'remote_label':  remote_label  or (remote[:7] if remote else None),
+            'changelog':     changelog,
+            'last_checked':  datetime.now(timezone.utc).isoformat(),
+            'error':         None,
         })
     except Exception as exc:
         _write_update_patch({
@@ -1677,6 +1695,9 @@ def api_update_status():
         'update_available':  state.get('update_available', False),
         'current_sha':       state.get('current_sha'),
         'remote_sha':        state.get('remote_sha'),
+        'current_label':     state.get('current_label'),
+        'remote_label':      state.get('remote_label'),
+        'changelog':         state.get('changelog', []),
         'last_checked':      state.get('last_checked'),
         'error':             state.get('error'),
         'apply_in_progress': state.get('apply_in_progress', False),

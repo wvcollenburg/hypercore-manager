@@ -573,6 +573,19 @@
     overflow-y: auto; display: none; line-height: 1.7;
   }
   .update-log.visible { display: block; }
+  .update-changelog {
+    background: var(--bg-primary); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 14px; display: none;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--text-secondary); max-height: 140px; overflow-y: auto;
+    line-height: 1.85;
+  }
+  .update-changelog.visible { display: block; }
+  .update-changelog-title {
+    font-size: 10px; color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: 0.6px; margin-bottom: 6px;
+  }
+  .update-changelog-entry::before { content: '·  '; color: var(--accent-cyan); }
   /* Update badge in header */
   .update-badge-btn {
     background: none; border: 1px solid transparent; border-radius: 6px;
@@ -4103,17 +4116,27 @@ async function loadUpdateStatus() {
 }
 
 function _applyUpdateState(d) {
-  const badgeBtn   = document.getElementById('updateBadgeBtn');
-  const statusTxt  = document.getElementById('updateStatusText');
-  const applyBtn   = document.getElementById('updateApplyBtn');
-  const logEl      = document.getElementById('updateLog');
-  const currentSha = document.getElementById('updateCurrentSha');
-  const remoteSha  = document.getElementById('updateRemoteSha');
+  const badgeBtn    = document.getElementById('updateBadgeBtn');
+  const statusTxt   = document.getElementById('updateStatusText');
+  const applyBtn    = document.getElementById('updateApplyBtn');
+  const logEl       = document.getElementById('updateLog');
+  const currentSha  = document.getElementById('updateCurrentSha');
+  const remoteSha   = document.getElementById('updateRemoteSha');
   const lastChecked = document.getElementById('updateLastChecked');
+  const changelogEl = document.getElementById('updateChangelog');
 
-  if (d.current_sha) currentSha.textContent = d.current_sha;
-  if (d.remote_sha)  remoteSha.textContent  = d.remote_sha;
+  if (d.current_label || d.current_sha) currentSha.textContent = d.current_label || d.current_sha;
+  if (d.remote_label  || d.remote_sha)  remoteSha.textContent  = d.remote_label  || d.remote_sha;
   if (d.last_checked) lastChecked.textContent = 'checked ' + _timeAgo(new Date(d.last_checked));
+
+  if (d.update_available && d.changelog && d.changelog.length) {
+    changelogEl.innerHTML =
+      '<div class="update-changelog-title">What\'s in this update</div>' +
+      d.changelog.map(c => `<div class="update-changelog-entry">${_escHtml(c)}</div>`).join('');
+    changelogEl.classList.add('visible');
+  } else {
+    changelogEl.classList.remove('visible');
+  }
 
   if (d.apply_in_progress) {
     statusTxt.textContent = '⟳ Update in progress...';
@@ -4262,6 +4285,7 @@ setTimeout(loadUpdateStatus, 6000);
         <button class="update-apply-btn" id="updateApplyBtn" onclick="applyUpdate()" style="display:none;">⬆ Apply update</button>
       </div>
     </div>
+    <div class="update-changelog" id="updateChangelog"></div>
     <div class="update-log" id="updateLog"></div>
   </div>
 </div>
