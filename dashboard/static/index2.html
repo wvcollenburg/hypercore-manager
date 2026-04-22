@@ -58,24 +58,21 @@
 body{font-family:'Antonio','Segoe UI',sans-serif;background:var(--lc-bg);color:var(--lc-text);height:100vh;overflow:hidden;letter-spacing:.04em}
 
 /* ─── FRAME ───────────────────────────────────────────────────────── */
-.lcars-frame{position:relative;display:flex;flex-direction:column;height:100vh}
-.lcars-top-row{display:flex;height:var(--topbar-h);flex-shrink:0;position:relative;z-index:10}
-.lcars-bot-row{display:flex;height:var(--botbar-h);flex-shrink:0;position:relative;z-index:10}
-.lcars-mid-row{display:flex;flex:1;overflow:hidden;position:relative}
+.lcars-frame{display:flex;flex-direction:row;height:100vh;overflow:hidden}
+.lcars-right-col{flex:1;display:flex;flex-direction:column;overflow:hidden}
 
 /* ─── TOP ELBOW ───────────────────────────────────────────────── */
 .lcars-cap-top{
-  width:var(--sidebar-w);flex-shrink:0;background:var(--lc-orange);
-  border-radius:var(--elbow-r) 0 0 0;position:relative;overflow:hidden
+  height:var(--topbar-h);background:var(--lc-orange);
+  border-top-left-radius:var(--elbow-r);position:relative;flex-shrink:0
 }
-/* Inner concave corner: black cut with radius matching elbow */
 .lcars-cap-top::after{
-  content:'';position:absolute;bottom:-2px;right:-2px;
-  width:calc(var(--elbow-r) + 4px);height:calc(var(--elbow-r) + 4px);
-  background:var(--lc-bg);border-radius:var(--elbow-r) 0 0 0
+  content:'';position:absolute;bottom:0;right:0;
+  width:var(--elbow-r);height:var(--elbow-r);
+  background:var(--lc-bg);border-top-left-radius:100%
 }
 .lcars-topbar{
-  flex:1;background:var(--lc-orange);
+  height:var(--topbar-h);flex-shrink:0;background:var(--lc-orange);
   border-radius:0 var(--elbow-r) var(--elbow-r) 0;
   display:flex;align-items:center;padding:0 24px 0 16px;gap:12px;overflow:hidden
 }
@@ -117,17 +114,17 @@ body.fetching .fetch-spinner{display:block}
 
 /* ─── BOTTOM ELBOW ─────────────────────────────────────────────── */
 .lcars-cap-bot{
-  width:var(--sidebar-w);flex-shrink:0;background:var(--lc-orange);
-  border-radius:0 0 0 var(--elbow-r);position:relative;overflow:hidden
+  height:var(--botbar-h);background:var(--lc-orange);
+  border-bottom-left-radius:var(--elbow-r);position:relative;flex-shrink:0
 }
 .lcars-cap-bot::after{
-  content:'';position:absolute;top:-2px;right:-2px;
-  width:calc(var(--elbow-r) + 4px);height:calc(var(--elbow-r) + 4px);
-  background:var(--lc-bg);border-radius:0 0 0 var(--elbow-r)
+  content:'';position:absolute;top:0;right:0;
+  width:var(--elbow-r);height:var(--elbow-r);
+  background:var(--lc-bg);border-bottom-left-radius:100%
 }
 .lcars-botbar{
-  flex:1;background:var(--lc-orange);
-  border-radius:var(--elbow-r) 0 0 var(--elbow-r);
+  height:var(--botbar-h);flex-shrink:0;background:var(--lc-orange);
+  border-radius:0 var(--elbow-r) var(--elbow-r) 0;
   display:flex;align-items:center;padding:0 20px;gap:16px;overflow:hidden
 }
 .lcars-botbar-text{font-size:12px;font-weight:700;color:rgba(0,0,0,.55);text-transform:uppercase;letter-spacing:.15em;white-space:nowrap}
@@ -135,7 +132,7 @@ body.fetching .fetch-spinner{display:block}
 .lcars-botbar-right{margin-left:auto;font-size:11px;font-weight:700;color:rgba(0,0,0,.5);text-transform:uppercase;letter-spacing:.12em;display:flex;align-items:center;gap:6px}
 
 /* ─── SIDEBAR ───────────────────────────────────────────────────────── */
-.lcars-sidebar{width:var(--sidebar-w);flex-shrink:0;display:flex;flex-direction:column;padding:6px 0;overflow:hidden;background:var(--lc-bg)}
+.lcars-sidebar{width:var(--sidebar-w);flex-shrink:0;display:flex;flex-direction:column;overflow:hidden;background:var(--lc-bg)}
 .lc-bar{width:100%;flex-shrink:0;margin:3px 0}
 .lc-bar-sm{height:5px}.lc-bar-md{height:9px}.lc-bar-lg{height:18px}
 .lc-bar-orange{background:var(--lc-orange-d)}.lc-bar-lilac{background:var(--lc-lilac)}
@@ -484,9 +481,58 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
 <body>
 <div class="lcars-frame">
 
-  <!-- TOP ROW: elbow cap + header bar -->
-  <div class="lcars-top-row">
+  <!-- LCARS SIDEBAR (full height — cap-top + nav + cap-bot) -->
+  <div class="lcars-sidebar">
     <div class="lcars-cap-top"></div>
+    <div class="lc-bar lc-bar-md lc-bar-orange"></div>
+    <div class="lc-bar lc-bar-sm lc-bar-lilac"></div>
+    <div class="lc-bar lc-bar-sm lc-bar-gold"></div>
+    <div class="lc-bar lc-bar-sm lc-bar-peach"></div>
+    <div style="height:8px"></div>
+
+    <button class="nav-tab nav-tab-infraviewer active" data-tab="infraviewer" onclick="switchTab('infraviewer')">
+      <span class="nav-tab-line1">SC//</span>
+      <span class="nav-tab-line2">Infraviewer</span>
+    </button>
+    <button class="nav-tab nav-tab-balancer" data-tab="clusterbalancer" onclick="switchTab('clusterbalancer')">
+      <span class="nav-tab-line1">SC//</span>
+      <span class="nav-tab-line2">Clusterbalancer</span>
+    </button>
+    <button class="nav-tab nav-tab-foresight" data-tab="sentinel" onclick="switchTab('sentinel')">
+      <span class="nav-tab-line1">SC//</span>
+      <span class="nav-tab-line2">Foresight</span>
+    </button>
+
+    <div style="height:10px"></div>
+    <div class="lc-bar lc-bar-sm lc-bar-blue"></div>
+    <div class="lc-bar lc-bar-sm lc-bar-purple"></div>
+    <div style="height:10px"></div>
+
+    <button class="nav-tab nav-tab-modules" data-tab="modules" onclick="switchTab('modules')">
+      <span class="nav-tab-line1">System</span>
+      <span class="nav-tab-line2">Modules</span>
+    </button>
+    <button class="nav-tab nav-tab-settings" data-tab="settings" onclick="switchTab('settings')">
+      <span class="nav-tab-line1">⚙</span>
+      <span class="nav-tab-line2">Settings</span>
+    </button>
+
+    <div class="sidebar-spacer"></div>
+    <div class="lc-bar lc-bar-sm lc-bar-orange"></div>
+    <div class="lc-bar lc-bar-sm lc-bar-tan"></div>
+
+    <a href="/logout" style="text-decoration:none;display:block">
+      <div class="nav-tab nav-tab-logout-btn">
+        <span class="nav-tab-line1">⏻</span>
+        <span class="nav-tab-line2">Sign Out</span>
+      </div>
+    </a>
+    <div class="lc-bar lc-bar-sm lc-bar-orange"></div>
+    <div class="lcars-cap-bot"></div>
+  </div><!-- /.lcars-sidebar -->
+
+  <!-- RIGHT COLUMN: topbar + scrollable content + botbar -->
+  <div class="lcars-right-col">
     <div class="lcars-topbar">
       <div>
         <div class="lcars-topbar-title">HyperCore</div>
@@ -514,58 +560,6 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
         </div>
       </div>
     </div>
-  </div>
-
-  <!-- MIDDLE ROW: sidebar + content -->
-  <div class="lcars-mid-row">
-
-    <!-- LCARS SIDEBAR NAV -->
-    <div class="lcars-sidebar">
-      <div class="lc-bar lc-bar-md lc-bar-orange"></div>
-      <div class="lc-bar lc-bar-sm lc-bar-lilac"></div>
-      <div class="lc-bar lc-bar-sm lc-bar-gold"></div>
-      <div class="lc-bar lc-bar-sm lc-bar-peach"></div>
-      <div style="height:8px"></div>
-
-      <button class="nav-tab nav-tab-infraviewer active" data-tab="infraviewer" onclick="switchTab('infraviewer')">
-        <span class="nav-tab-line1">SC//</span>
-        <span class="nav-tab-line2">Infraviewer</span>
-      </button>
-      <button class="nav-tab nav-tab-balancer" data-tab="clusterbalancer" onclick="switchTab('clusterbalancer')">
-        <span class="nav-tab-line1">SC//</span>
-        <span class="nav-tab-line2">Clusterbalancer</span>
-      </button>
-      <button class="nav-tab nav-tab-foresight" data-tab="sentinel" onclick="switchTab('sentinel')">
-        <span class="nav-tab-line1">SC//</span>
-        <span class="nav-tab-line2">Foresight</span>
-      </button>
-
-      <div style="height:10px"></div>
-      <div class="lc-bar lc-bar-sm lc-bar-blue"></div>
-      <div class="lc-bar lc-bar-sm lc-bar-purple"></div>
-      <div style="height:10px"></div>
-
-      <button class="nav-tab nav-tab-modules" data-tab="modules" onclick="switchTab('modules')">
-        <span class="nav-tab-line1">System</span>
-        <span class="nav-tab-line2">Modules</span>
-      </button>
-      <button class="nav-tab nav-tab-settings" data-tab="settings" onclick="switchTab('settings')">
-        <span class="nav-tab-line1">⚙</span>
-        <span class="nav-tab-line2">Settings</span>
-      </button>
-
-      <div class="sidebar-spacer"></div>
-      <div class="lc-bar lc-bar-sm lc-bar-orange"></div>
-      <div class="lc-bar lc-bar-sm lc-bar-tan"></div>
-
-      <a href="/logout" style="text-decoration:none;display:block">
-        <div class="nav-tab nav-tab-logout-btn">
-          <span class="nav-tab-line1">⏻</span>
-          <span class="nav-tab-line2">Sign Out</span>
-        </div>
-      </a>
-      <div class="lc-bar lc-bar-sm lc-bar-orange"></div>
-    </div><!-- /.lcars-sidebar -->
 
     <!-- CONTENT AREA -->
     <div class="lcars-content">
@@ -1099,11 +1093,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
 </div>
       <div class="settings-toast" id="settingsToast"></div>
     </div><!-- /.lcars-content -->
-  </div><!-- /.lcars-mid-row -->
 
-  <!-- BOTTOM ROW: elbow cap + footer bar -->
-  <div class="lcars-bot-row">
-    <div class="lcars-cap-bot"></div>
     <div class="lcars-botbar">
       <span class="lcars-botbar-text">Stardate</span>
       <span id="lcarsStardate">—</span>
@@ -1111,7 +1101,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
       <span class="lcars-botbar-text">HyperCore Manager</span>
       <div class="lcars-botbar-right" id="lcarsSystemMsg">All Systems Nominal</div>
     </div>
-  </div>
+  </div><!-- /.lcars-right-col -->
 
 </div><!-- /.lcars-frame -->
 <script>
