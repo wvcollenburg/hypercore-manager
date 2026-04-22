@@ -4165,6 +4165,9 @@ function closeUpdateModal(e) {
   if (e && e.target !== document.getElementById('updateModalBackdrop')) return;
   document.getElementById('updateModalBackdrop').classList.remove('visible');
   if (_updatePollTimer) { clearInterval(_updatePollTimer); _updatePollTimer = null; }
+  const logEl = document.getElementById('updateLog');
+  logEl.innerHTML = '';
+  logEl.classList.remove('visible');
 }
 
 async function checkUpdateNow() {
