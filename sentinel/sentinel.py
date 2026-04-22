@@ -184,6 +184,39 @@ def analysis_loop(cfg: config.Config, stop: threading.Event, reader) -> None:
             _malloc_trim()
 
 
+def pruning_loop(cfg: config.Config, stop: threading.Event, reader) -> None:
+    """
+    Every vm_prune_interval_seconds (default 900 / 15 min):
+      1. Ask InfluxDB which VMs have been active in the last 2× the interval.
+      2. Delete right-sizing, resize, and network-forecast rows for any VM
+         not in that active set.
+
+    The interval is re-read from live tunables each cycle so it can be changed
+    without a container restart.  The active-window is always 2× the interval
+    so brief collector hiccups (e.g. a missed poll cycle) never trigger a false
+    purge.  If InfluxDB returns an empty VM set the cycle is skipped entirely
+    as a safety guard against outage-induced mass deletion.
+    """
+    from writer import Writer
+    writer  = Writer(cfg)
+    interval = cfg.vm_prune_interval_seconds
+
+    while not stop.is_set():
+        stop.wait(interval)
+        if stop.is_set():
+            break
+
+        live_cfg = tunables.apply_live(cfg)
+        interval = live_cfg.vm_prune_interval_seconds
+        window_minutes = max(interval * 2 // 60, 10)
+
+        try:
+            active_vms = reader.query_active_vms(window_minutes)
+            writer.prune_stale_vms(active_vms)
+        except Exception:
+            logger.exception('VM pruning cycle failed')
+
+
 def outcome_loop(cfg: config.Config, stop: threading.Event) -> None:
     """C7: Periodically detect whether right-sized VMs were actually resized."""
     if not cfg.outcome_tracker_enabled:
@@ -233,6 +266,7 @@ def main() -> None:
         extra={
             'collection_interval_s':   cfg.collection_interval_seconds,
             'trend_interval_s':        cfg.trend_interval_seconds,
+            'prune_interval_s':        cfg.vm_prune_interval_seconds,
             'outcome_interval_s':      cfg.outcome_check_interval_seconds,
             'outcome_tracker_enabled': cfg.outcome_tracker_enabled,
             'webhook_enabled':         cfg.webhook_enabled and bool(cfg.webhook_url),
@@ -275,6 +309,7 @@ def main() -> None:
     threads = [
         threading.Thread(target=connectivity_loop, args=(cfg, stop, reader), name='connectivity', daemon=True),
         threading.Thread(target=analysis_loop,     args=(cfg, stop, reader), name='analysis',     daemon=True),
+        threading.Thread(target=pruning_loop,      args=(cfg, stop, reader), name='pruning',      daemon=True),
         threading.Thread(target=outcome_loop,      args=(cfg, stop),         name='outcome',      daemon=True),
         threading.Thread(target=webhook_loop,      args=(cfg, stop),         name='webhook',      daemon=True),
     ]

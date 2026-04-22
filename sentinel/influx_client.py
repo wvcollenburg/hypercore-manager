@@ -344,6 +344,27 @@ from(bucket: "{self._cfg.influx_bucket}")
         rows = self._query(flux)
         return {r['vm_uuid']: int(r['value'] or 0) for r in rows if r.get('vm_uuid')}
 
+    def query_active_vms(self, window_minutes: int) -> dict[str, str]:
+        """
+        Return VMs seen in the last window_minutes from vm_metrics.
+        Returns {vm_uuid: vm_name} for all VMs with recent InfluxDB data.
+        Used by the pruning loop to identify stale VM records in PostgreSQL.
+        """
+        flux = f'''
+from(bucket: "{self._cfg.influx_bucket}")
+  |> range(start: -{window_minutes}m)
+  |> filter(fn: (r) => r._measurement == "vm_metrics" and r._field == "cpu_usage")
+  |> group(columns: ["vm_uuid", "vm_name"])
+  |> last()
+  |> keep(columns: ["vm_uuid", "vm_name"])
+'''
+        rows = self._query(flux)
+        return {
+            r['vm_uuid']: r.get('vm_name', '')
+            for r in rows
+            if r.get('vm_uuid')
+        }
+
     def ping(self) -> int:
         """
         Lightweight connectivity and data-flow check.

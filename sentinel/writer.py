@@ -67,6 +67,74 @@ class Writer:
     # Cleanup
     # ------------------------------------------------------------------
 
+    def prune_stale_vms(self, active_vms: dict[str, str]) -> int:
+        """
+        Delete forecast and right-sizing rows for VMs no longer active in InfluxDB.
+
+        active_vms: {vm_uuid: vm_name} — VMs confirmed active in the recent window.
+
+        Skips entirely when active_vms is empty to guard against a false-positive
+        purge caused by an InfluxDB outage.  Returns total deleted row count.
+
+        For forecast_snapshots, only rows whose entity_label was previously a known
+        VM name (i.e. present in right_sizing) are targeted, so node-level network
+        forecasts sharing the same resource_dimension are left untouched.
+        """
+        if not active_vms:
+            log.warning('prune_stale_vms: active VM set is empty — skipping to avoid false purge')
+            return 0
+
+        active_uuids = list(active_vms.keys())
+        cluster_id   = self._cfg.cluster_id
+        total        = 0
+        stale_names: list[str] = []
+
+        try:
+            with db.connect(self._cfg) as conn:
+                with conn.cursor() as cur:
+                    # Collect stale VM names from right_sizing before deleting —
+                    # used to safely target only VM-keyed rows in forecast_snapshots.
+                    cur.execute(
+                        '''SELECT DISTINCT vm_name FROM recommendations.right_sizing
+                           WHERE cluster_id = %s AND NOT (vm_uuid = ANY(%s))''',
+                        (cluster_id, active_uuids),
+                    )
+                    stale_names = [row[0] for row in cur.fetchall()]
+
+                    cur.execute(
+                        '''DELETE FROM recommendations.right_sizing
+                           WHERE cluster_id = %s AND NOT (vm_uuid = ANY(%s))''',
+                        (cluster_id, active_uuids),
+                    )
+                    total += cur.rowcount
+
+                    cur.execute(
+                        '''DELETE FROM recommendations.resize_recommendations
+                           WHERE cluster_id = %s AND NOT (vm_uuid = ANY(%s))''',
+                        (cluster_id, active_uuids),
+                    )
+                    total += cur.rowcount
+
+                    if stale_names:
+                        cur.execute(
+                            '''DELETE FROM recommendations.forecast_snapshots
+                               WHERE cluster_id = %s
+                                 AND resource_dimension = 'network'
+                                 AND entity_label = ANY(%s)''',
+                            (cluster_id, stale_names),
+                        )
+                        total += cur.rowcount
+
+            if total:
+                log.info(
+                    'Pruned stale VM records',
+                    extra={'deleted': total, 'stale_vms': stale_names},
+                )
+        except Exception:
+            log.exception('prune_stale_vms failed')
+
+        return total
+
     def run_retention_cleanup(self) -> None:
         """Call the PostgreSQL cleanup function to purge expired rows."""
         try:

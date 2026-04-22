@@ -135,6 +135,14 @@ TUNABLES: dict = {
         label='Webhook Enabled', unit='',
         description='Enable outbound webhook alerts for CRITICAL/EMERGENCY events (F5). Requires SENTINEL_WEBHOOK_URL.',
     ),
+    # ── VM staleness pruning ─────────────────────────────────────────────────
+    'SENTINEL_VM_PRUNE_INTERVAL_SECONDS': TunableDef(
+        env_var='SENTINEL_VM_PRUNE_INTERVAL_SECONDS',
+        default=900, type_hint='int', live_reload=True,
+        cfg_field='vm_prune_interval_seconds',
+        label='VM Prune Interval', unit='s',
+        description='How often Sentinel removes forecast and right-sizing records for VMs no longer active in InfluxDB. Default 900s (15 min).',
+    ),
 }
 
 

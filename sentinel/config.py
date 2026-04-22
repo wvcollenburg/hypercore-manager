@@ -151,6 +151,12 @@ class Config:
         default_factory=lambda: _int('SENTINEL_OUTCOME_CHECK_INTERVAL_SECONDS', 21600)
     )
 
+    # ── VM staleness pruning ─────────────────────────────────────────────────
+    # How often Sentinel scans for and removes stale VM records (seconds).
+    vm_prune_interval_seconds: int = field(
+        default_factory=lambda: _int('SENTINEL_VM_PRUNE_INTERVAL_SECONDS', 900)
+    )
+
 
 def load() -> Config:
     """Return a Config instance populated from the current environment."""
