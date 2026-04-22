@@ -1595,16 +1595,36 @@ def _do_apply_update():
                 json.dump(state, f)
 
     try:
+        log('Stashing local changes...')
+        stash = subprocess.run(
+            ['git', '-C', _REPO_PATH, 'stash'],
+            capture_output=True, text=True, timeout=30,
+        )
+        had_stash = 'No local changes' not in stash.stdout
+
         log('Pulling latest code...')
         r = subprocess.run(
             ['git', '-C', _REPO_PATH, 'pull'],
             capture_output=True, text=True, timeout=60,
         )
         if r.returncode != 0:
+            if had_stash:
+                subprocess.run(['git', '-C', _REPO_PATH, 'stash', 'pop'],
+                               capture_output=True)
             log(f'git pull failed: {(r.stderr or r.stdout).strip()}')
             _write_update_patch({'apply_in_progress': False})
             return
         log(r.stdout.strip() or 'Already up to date.')
+
+        if had_stash:
+            log('Restoring local settings...')
+            pop = subprocess.run(
+                ['git', '-C', _REPO_PATH, 'stash', 'pop'],
+                capture_output=True, text=True, timeout=30,
+            )
+            if pop.returncode != 0:
+                log(f'Warning: stash pop had conflicts — manual resolve needed on server.')
+                log('Run: git -C /path/to/repo stash pop')
 
         log('Building new images (no downtime yet)...')
         r = subprocess.run(
