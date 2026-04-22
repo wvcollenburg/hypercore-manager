@@ -1606,18 +1606,29 @@ def _do_apply_update():
             return
         log(r.stdout.strip() or 'Already up to date.')
 
-        log('Rebuilding and restarting containers (this takes a minute)...')
+        log('Building new images (no downtime yet)...')
         r = subprocess.run(
-            ['docker-compose', '--profile', 'full', 'up', '--build', '-d'],
+            ['docker-compose', '--profile', 'full', 'build'],
             capture_output=True, text=True, timeout=600,
             cwd=_REPO_PATH,
         )
         if r.returncode != 0:
-            log(f'docker-compose failed: {(r.stderr or r.stdout).strip()}')
+            log(f'docker-compose build failed: {(r.stderr or r.stdout).strip()}')
             _write_update_patch({'apply_in_progress': False})
             return
+        log('Build done. Restarting containers...')
+        _write_update_patch({'update_available': False})
+        # Detach from the current process group so the restart survives this
+        # container being replaced mid-operation.
+        subprocess.Popen(
+            ['docker-compose', '--profile', 'full', 'up', '-d'],
+            cwd=_REPO_PATH,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
         log('Done. Containers are restarting — page will reload shortly.')
-        _write_update_patch({'apply_in_progress': False, 'update_available': False})
+        _write_update_patch({'apply_in_progress': False})
     except Exception as exc:
         log(f'Error: {exc}')
         _write_update_patch({'apply_in_progress': False})
