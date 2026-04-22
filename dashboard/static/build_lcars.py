@@ -111,12 +111,7 @@ body{font-family:'Antonio','Segoe UI',sans-serif;background:var(--lc-bg);color:v
 /* ─── TOP ELBOW ───────────────────────────────────────────────── */
 .lcars-cap-top{
   height:var(--topbar-h);background:var(--lc-orange);
-  border-top-left-radius:var(--elbow-r);position:relative;flex-shrink:0
-}
-.lcars-cap-top::after{
-  content:'';position:absolute;bottom:0;right:0;
-  width:var(--elbow-r);height:var(--elbow-r);
-  background:var(--lc-bg);border-top-left-radius:100%
+  border-top-left-radius:var(--elbow-r);flex-shrink:0
 }
 .lcars-topbar{
   height:var(--topbar-h);flex-shrink:0;background:var(--lc-orange);
@@ -162,12 +157,7 @@ body.fetching .fetch-spinner{display:block}
 /* ─── BOTTOM ELBOW ─────────────────────────────────────────────── */
 .lcars-cap-bot{
   height:var(--botbar-h);background:var(--lc-orange);
-  border-bottom-left-radius:var(--elbow-r);position:relative;flex-shrink:0
-}
-.lcars-cap-bot::after{
-  content:'';position:absolute;top:0;right:0;
-  width:var(--elbow-r);height:var(--elbow-r);
-  background:var(--lc-bg);border-bottom-left-radius:100%
+  border-bottom-left-radius:var(--elbow-r);flex-shrink:0
 }
 .lcars-botbar{
   height:var(--botbar-h);flex-shrink:0;background:var(--lc-orange);
