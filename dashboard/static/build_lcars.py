@@ -214,21 +214,30 @@ body.fetching .fetch-spinner{display:block}
 .tab-content{display:none}
 .tab-content.active{display:block}
 .iv-sub-nav,.cb-sub-nav,.sentinel-sub-nav{
-  display:flex;border-bottom:2px solid var(--lc-orange-d);
-  margin-bottom:12px;margin-left:-20px;margin-right:-20px;
-  padding:0 20px;background:#060200;overflow-x:auto;flex-shrink:0
+  display:flex;align-items:center;gap:4px;
+  margin-bottom:14px;margin-left:-20px;margin-right:-20px;
+  padding:8px 20px;background:#060200;
+  border-bottom:2px solid var(--lc-orange-d);
+  overflow-x:auto;flex-shrink:0
 }
 .iv-sub-tab,.cb-sub-tab,.sentinel-sub-tab{
-  padding:7px 13px;font-family:'Antonio',sans-serif;font-size:12px;font-weight:700;
-  color:var(--lc-text-mut);text-transform:uppercase;letter-spacing:.1em;cursor:pointer;
-  border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .15s;user-select:none;white-space:nowrap
+  padding:5px 16px;font-family:'Antonio',sans-serif;font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.12em;cursor:pointer;
+  border-radius:4px;border:1px solid;
+  transition:all .15s;user-select:none;white-space:nowrap
 }
-.iv-sub-tab:hover{color:var(--lc-orange)}
-.cb-sub-tab:hover{color:var(--lc-lilac)}
-.sentinel-sub-tab:hover{color:var(--lc-cyan)}
-.iv-sub-tab.active{color:var(--lc-orange);border-bottom-color:var(--lc-orange)}
-.cb-sub-tab.active{color:var(--lc-lilac);border-bottom-color:var(--lc-lilac)}
-.sentinel-sub-tab.active{color:var(--lc-cyan);border-bottom-color:var(--lc-cyan)}
+/* Infraviewer — orange family */
+.iv-sub-tab{color:var(--lc-orange-d);border-color:var(--lc-orange-d);background:transparent}
+.iv-sub-tab:hover{color:var(--lc-orange);border-color:var(--lc-orange);background:rgba(255,153,0,.1)}
+.iv-sub-tab.active{color:#000;background:var(--lc-orange);border-color:var(--lc-orange)}
+/* Clusterbalancer — lilac family */
+.cb-sub-tab{color:var(--lc-purple);border-color:var(--lc-purple);background:transparent}
+.cb-sub-tab:hover{color:var(--lc-lilac);border-color:var(--lc-lilac);background:rgba(204,136,255,.1)}
+.cb-sub-tab.active{color:#000;background:var(--lc-lilac);border-color:var(--lc-lilac)}
+/* Sentinel/Foresight — cyan family */
+.sentinel-sub-tab{color:var(--lc-blue);border-color:var(--lc-blue);background:transparent}
+.sentinel-sub-tab:hover{color:var(--lc-cyan);border-color:var(--lc-cyan);background:rgba(102,187,238,.1)}
+.sentinel-sub-tab.active{color:#000;background:var(--lc-cyan);border-color:var(--lc-cyan)}
 .iv-panel,.cb-panel,.sentinel-panel{display:none}
 .iv-panel.active,.cb-panel.active,.sentinel-panel.active{display:block}
 
