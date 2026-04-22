@@ -1624,7 +1624,7 @@ def _do_apply_update():
         project = os.getenv('COMPOSE_PROJECT_NAME', 'drsproject')
         subprocess.Popen(
             [
-                'docker', 'run', '--rm',
+                'docker', 'run', '-d', '--rm',
                 '--name', 'hcm-auto-updater',
                 '-v', '/var/run/docker.sock:/var/run/docker.sock',
                 '-v', f'{_REPO_PATH}:{_REPO_PATH}',
