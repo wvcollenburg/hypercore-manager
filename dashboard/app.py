@@ -1618,11 +1618,11 @@ def _do_apply_update():
             return
         log('Build done. Spawning restart container...')
         _write_update_patch({'update_available': False})
-        # Spawn a completely separate container to run docker-compose up -d.
-        # It is not in this container's cgroup, so it survives the dashboard
-        # being replaced mid-restart and completes the job independently.
         project = os.getenv('COMPOSE_PROJECT_NAME', 'drsproject')
-        subprocess.Popen(
+        # Remove stale updater container if a previous run left one behind
+        subprocess.run(['docker', 'rm', '-f', 'hcm-auto-updater'],
+                       capture_output=True)
+        r = subprocess.run(
             [
                 'docker', 'run', '-d', '--rm',
                 '--name', 'hcm-auto-updater',
@@ -1633,10 +1633,13 @@ def _do_apply_update():
                 f'{project}-dashboard',
                 'docker-compose', '--profile', 'full', 'up', '-d',
             ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            capture_output=True, text=True, timeout=30,
         )
-        log('Done. Containers are restarting — page will reload shortly.')
+        if r.returncode != 0:
+            log(f'docker run failed: {(r.stderr or r.stdout).strip()}')
+            _write_update_patch({'apply_in_progress': False})
+            return
+        log(f'Restart container spawned ({r.stdout.strip()[:12]}). Page will reload shortly.')
         _write_update_patch({'apply_in_progress': False})
     except Exception as exc:
         log(f'Error: {exc}')
