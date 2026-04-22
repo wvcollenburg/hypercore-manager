@@ -1038,7 +1038,7 @@
     <!-- Right-Sizing panel -->
     <div class="sentinel-panel" id="spanel-rightsizing">
       <div class="chart-container">
-        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span data-i18n="section.resize_advice">Concrete Resize Advice (C3\u2013C6)</span></div>
+        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span data-i18n="section.resize_advice">Concrete Resize Advice</span></div>
         <div id="sentinelResizeTable"><div class="loading"><div class="spinner"></div><span data-i18n="loading.resize">Loading resize advice...</span></div></div>
       </div>
     </div>
@@ -1054,9 +1054,9 @@
     <!-- Reports panel -->
     <div class="sentinel-panel" id="spanel-reports">
 
-      <!-- E7: Branding configuration -->
+      <!-- Report branding configuration -->
       <div class="chart-container" style="margin-bottom:16px;">
-        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="reports.branding_title">Report Branding (E7)</span></div>
+        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="reports.branding_title">Report Branding</span></div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="reports.branding_desc">
           Customise the PDF report cover page. Settings are saved per-cluster and applied to every generated report.
         </p>
@@ -1096,7 +1096,7 @@
 
       <!-- Download section -->
       <div class="chart-container">
-        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="reports.pdf_title">SC//Foresight Reports (E5-E6)</span></div>
+        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="reports.pdf_title">SC//Foresight Reports</span></div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="reports.pdf_desc">
           Generate a full capacity intelligence PDF report from the latest analysis data.
           The report includes forecasts, right-sizing recommendations, exhaustion alerts, and resize advice.
@@ -1119,12 +1119,12 @@
         </div>
       </div>
     </div>
-    <!-- What-If panel (D5) -->
+    <!-- What-If analysis panel -->
     <div class="sentinel-panel" id="spanel-whatif">
       <div class="chart-container">
         <div class="chart-title">
           <div class="chart-title-dot" style="background:var(--accent-purple)"></div>
-          <span data-i18n="section.whatif">What-If Scenario Modelling (D5)</span>
+          <span data-i18n="section.whatif">What-If Scenario Modelling</span>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;">
           Simulate the effect of adding nodes or VMs on cluster health, exhaustion dates, and bottlenecks.
@@ -1185,7 +1185,7 @@
       </div>
     </div>
 
-    <!-- Settings panel (Phase 3.5 — T4) -->
+    <!-- Sentinel settings panel -->
     <div class="sentinel-panel" id="spanel-sentsettings">
       <div id="sentSettingsContent">
         <div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div>
@@ -1196,7 +1196,7 @@
       </div>
     </div>
 
-    <!-- Data Sharing panel (Phase 4 — H3/H4/H5) -->
+    <!-- Data sharing and external export panel -->
     <div class="sentinel-panel" id="spanel-datasharing">
 
       <!-- Section 1: Connection -->
@@ -2312,9 +2312,9 @@ const CTRL_INFO = {
     careful: 'While enabled, real resource imbalances are NOT corrected. A cluster under heavy load will stay imbalanced for as long as Dry Run is on.'
   },
   VERBOSITY: {
-    what: 'Controls how much detail appears in the balancer container logs. 0 = errors only · 1 = decisions · 2 = scoring detail · 3 = full debug trace.',
+    what: 'Controls how much detail appears in the balancer container logs. 0 = errors only · 1 = decisions · 2 = scoring detail · 3 = full trace.',
     benefits: 'Higher levels are invaluable for diagnosing why a migration did or did not trigger. Lower levels keep logs clean in production.',
-    careful: 'Level 3 on a busy cluster with many VMs and nodes produces very large log volumes. Use it temporarily for debugging, then dial back.'
+    careful: 'Level 3 on a busy cluster with many VMs and nodes produces very large log volumes. Use level 3 sparingly — on a busy cluster it generates very large log volumes.'
   },
   CPU_UPPER_THRESHOLD_PERCENT: {
     what: 'CPU utilisation percentage above which a node is considered overloaded and becomes a migration source candidate.',
@@ -2710,7 +2710,7 @@ document.addEventListener('click', function(e) {
 });
 
 // =============================================================================
-// SC//Foresight — Sentinel dashboard (E1–E6)
+// SC//Foresight — Sentinel dashboard
 // =============================================================================
 
 let _sentinelLoaded = false;
@@ -2732,7 +2732,7 @@ async function loadSentinel() {
     _sentinelLoaded = true;
     await loadSentinelOverview();
     loadBranding();          // E7: pre-fill branding form in the background
-    _loadWhatifVmList();     // D5: populate VM picker datalist
+    _loadWhatifVmList();     // Populate the VM name picker datalist
   }
 }
 
@@ -2776,7 +2776,7 @@ function severityColor(s) {
           INFO:'var(--accent-green)'}[s] || 'var(--accent-green)';
 }
 
-// ── Overview (E3 / health score + summary tiles) ───────────────────────────
+// ── Overview: health score and summary tiles ───────────────────────────
 
 async function loadSentinelOverview() {
   const el = document.getElementById('sentinelOverview');
@@ -2897,7 +2897,7 @@ async function loadSentinelOverview() {
   `;
 }
 
-// ── Forecasts (E1) ────────────────────────────────────────────────────────
+// ── Forecasts ────────────────────────────────────────────────────────
 
 function fmtMetricVal(val, dimension) {
   if (val == null) return '—';
@@ -2958,7 +2958,7 @@ async function loadSentinelForecasts() {
     </div>`;
 }
 
-// ── Right-Sizing + Resize Advice (E2) ─────────────────────────────────────
+// ── Right-Sizing and Resize Advice ─────────────────────────────────────
 
 async function loadSentinelRightsizing() {
   const rezData = await apiFetch('/api/sentinel/resize?limit=100');
@@ -2993,7 +2993,7 @@ async function loadSentinelRightsizing() {
     </tbody></table></div>`;
 }
 
-// ── Exhaustion (E4) ───────────────────────────────────────────────────────
+// ── Exhaustion ───────────────────────────────────────────────────────
 
 async function loadSentinelExhaustion() {
   const data = await apiFetch('/api/sentinel/exhaustion?limit=50');
@@ -3613,13 +3613,13 @@ function switchCbPanel(p) {
 }
 
 // =============================================================================
-// SC//Foresight — Sentinel Settings (Phase 3.5 T4)
+// SC//Foresight — Sentinel Settings
 // =============================================================================
 
 const SENT_INFO = {
   SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD: {
     label: 'OVER-PROV CPU THRESHOLD',
-    what: 'VMs consistently using less than this % of allocated CPU over the analysis window are flagged as over-provisioned (C1).',
+    what: 'VMs consistently using less than this % of allocated CPU over the analysis window are flagged as over-provisioned.',
     benefits: 'Identifies VMs with too many vCPUs allocated, freeing up capacity that can be reassigned to under-provisioned VMs or allow higher VM density on the same hardware.',
     careful: 'Set too high and intentionally reserved VMs (standby servers, batch jobs with variable load) get incorrectly flagged. Consider your workload mix before lowering below 20%.',
   },
@@ -3637,43 +3637,43 @@ const SENT_INFO = {
   },
   SENTINEL_ANALYSIS_WINDOW_DAYS: {
     label: 'ANALYSIS WINDOW',
-    what: 'How many days of InfluxDB metric history are used for right-sizing analysis and recurring spike detection. Applies to C1, C2 Signal 1, and C2 Signal 3. Minimum 7 days.',
+    what: 'How many days of InfluxDB metric history are used for right-sizing analysis and recurring spike detection. Minimum 7 days.',
     benefits: 'A longer window captures more complete usage patterns including weekday/weekend variation. The default 14 days covers two full weekly cycles — the recommended minimum for pattern detection.',
     careful: 'Shortening below 7 days risks recommendations based on atypical data (e.g. a single busy week). Extending beyond 30 days means the analysis is slower to react to genuine workload changes.',
   },
   SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES: {
     label: 'MIN SPIKE OCCURRENCES',
-    what: 'Minimum number of times a CPU spike must recur at the same weekday and hour bucket before Sentinel flags it as a recurring pattern (C2 Signal 3).',
+    what: 'Minimum number of times a CPU spike must recur at the same weekday and hour bucket before Sentinel flags it as a recurring pattern.',
     benefits: 'Prevents a one-off incident from triggering a right-sizing recommendation. Requiring 3 or more occurrences means the pattern is genuinely repeating, not a fluke.',
     careful: 'Raising too high means real daily patterns need many days to appear (at 5, a daily spike needs 5 days of data). Lowering to 1 means any single spike at an hour triggers the signal.',
   },
   SENTINEL_ANOMALY_FILTER_ENABLED: {
     label: 'ANOMALY FILTER',
-    what: 'Applies an IQR-fence outlier removal pass to each time series before fitting the linear regression forecast model (B9). Outliers beyond 1.5× IQR are excluded from the regression.',
+    what: 'Applies an IQR-fence outlier removal pass to each time series before fitting the linear regression forecast model. Outliers beyond 1.5× IQR are excluded from the regression.',
     benefits: 'Prevents a brief outage, maintenance window, or traffic spike from skewing the regression line and producing an inaccurate long-term forecast.',
     careful: 'Disabling makes forecasts more sensitive to anomalies. Useful only if you specifically want unusual events to influence predictions. In most production environments, leave this on.',
   },
   SENTINEL_FORECAST_30D_ENABLED: {
     label: '30D FORECAST',
-    what: 'Enables the 30-day short-term capacity forecast (B1) for all tracked resource dimensions: CPU, RAM, storage capacity, storage latency, and network.',
+    what: 'Enables the 30-day short-term capacity forecast for all tracked resource dimensions: CPU, RAM, storage capacity, storage latency, and network.',
     benefits: 'Tactical view for immediate capacity decisions — are we about to run out of something in the next month? Drives the most urgent exhaustion alerts.',
     careful: 'Disabling suppresses all 30-day exhaustion alerts across the dashboard and API. Only turn off if you are deliberately reducing analysis scope or troubleshooting unexpected behaviour.',
   },
   SENTINEL_FORECAST_90D_ENABLED: {
     label: '90D FORECAST',
-    what: 'Enables the 90-day quarterly capacity forecast (B2). Aligned with typical IT planning and budget cycles.',
+    what: 'Enables the 90-day quarterly capacity forecast. Aligned with typical IT planning and budget cycles.',
     benefits: "Answers 'do we need to act this quarter?' — the primary horizon for procurement planning and workload-growth conversations.",
     careful: 'Disabling removes all 90-day exhaustion alerts. Only disable if you want to reduce PostgreSQL write volume and are confident 30-day coverage is sufficient.',
   },
   SENTINEL_FORECAST_180D_ENABLED: {
     label: '180D FORECAST',
-    what: 'Enables the 6-month strategic capacity forecast (B3).',
+    what: 'Enables the 6-month strategic capacity forecast.',
     benefits: 'Identifies the next hardware purchase window before it becomes urgent. Reveals growth trends that are invisible at the 30 and 90-day horizons.',
     careful: 'Confidence scores for 180-day forecasts are typically lower — less data relative to the horizon. The dashboard automatically suppresses forecasts with confidence below 10%.',
   },
   SENTINEL_FORECAST_365D_ENABLED: {
     label: '365D FORECAST',
-    what: 'Enables the 12-month strategic capacity forecast (B4). The longest supported horizon.',
+    what: 'Enables the 12-month strategic capacity forecast. The longest supported horizon.',
     benefits: 'Used for annual capacity planning and pre-sales growth conversations. Shows the full year trajectory for each resource dimension.',
     careful: 'Forecast confidence at 365 days is the lowest of all horizons and should be treated as directional only. The data-coverage confidence penalty suppresses very uncertain forecasts automatically.',
   },
@@ -3685,7 +3685,7 @@ const SENT_INFO = {
   },
   SENTINEL_OUTCOME_TRACKER_ENABLED: {
     label: 'OUTCOME TRACKER',
-    what: 'When enabled, Sentinel polls HyperCore every 6 hours to detect whether VMs that received a right-sizing recommendation were subsequently resized (C7). Results are written back to the audit table.',
+    what: 'When enabled, Sentinel polls HyperCore every 6 hours to detect whether VMs that received a right-sizing recommendation were subsequently resized. Results are written back to the audit table.',
     benefits: "Closes the feedback loop on recommendations — shows whether advice was acted on and what the before/after spec looks like. Powers the 'Outcomes' view in the API.",
     careful: 'Requires SC_HOST, SC_USERNAME, and SC_PASSWORD to be set (HyperCore API credentials — env vars, restart required). Disable here if those are not configured or if HyperCore API polling is a concern.',
   },
@@ -3697,7 +3697,7 @@ const SENT_INFO = {
   },
   SENTINEL_WEBHOOK_ENABLED: {
     label: 'WEBHOOK ENABLED',
-    what: 'Master switch for the outbound webhook dispatcher (F5). When enabled, Sentinel fires signed HTTP POST alerts to SENTINEL_WEBHOOK_URL for new CRITICAL and EMERGENCY events.',
+    what: 'Master switch for the outbound webhook dispatcher. When enabled, Sentinel fires signed HTTP POST alerts to SENTINEL_WEBHOOK_URL for new CRITICAL and EMERGENCY events.',
     benefits: 'Pushes critical capacity alerts to external systems (Slack, PagerDuty, ticketing tools) in real time without polling the API. Each request is signed with HMAC-SHA256 for verification.',
     careful: 'Has no effect unless SENTINEL_WEBHOOK_URL is also set (environment variable — restart required). Toggling this off suppresses all outbound alerts without a restart.',
   },
@@ -3899,7 +3899,7 @@ async function loadBalancerSettings() {
 }
 
 // =============================================================================
-// SC//Foresight — Data Sharing (Phase 4 — H3/H4/H5)
+// SC//Foresight — Data Sharing
 // =============================================================================
 
 let _bearerTokenSaved = false;

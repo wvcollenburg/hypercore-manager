@@ -51,9 +51,9 @@ window.LANG = {
 
   // Section / panel headings
   'section.capacity_forecasts': 'Kapazit\u00e4tsprognosen',
-  'section.resize_advice':      'Konkrete Gr\u00f6\u00dfe\u00e4nderungsempfehlungen (C3\u2013C6)',
+  'section.resize_advice':      'Konkrete Gr\u00f6\u00dfe\u00e4nderungsempfehlungen',
   'section.exhaustion_alerts':  'Ressourcenerschöpfungswarnungen',
-  'section.whatif':             'Was-w\u00e4re-wenn-Szenariomodellierung (D5)',
+  'section.whatif':             'Was-w\u00e4re-wenn-Szenariomodellierung',
 
   // IOPS stat labels
   'iops.p95':   '95. Perzentil:',
@@ -245,7 +245,7 @@ window.LANG = {
   'whatif.none':             'keiner',
 
   // Reports / PDF
-  'reports.branding_title':      'Berichtsbranding (E7)',
+  'reports.branding_title':      'Berichtsbranding',
   'reports.branding_desc':       'Passen Sie die PDF-Berichtsdeckseite an. Einstellungen werden pro Cluster gespeichert und auf jeden generierten Bericht angewendet.',
   'reports.company_name':        'Firmenname',
   'reports.accent_colour':       'Akzentfarbe',
@@ -254,7 +254,7 @@ window.LANG = {
   'reports.logo_too_large':      'Logo muss unter 500\u00a0KB sein.',
   'reports.save_branding':       'Branding speichern',
   'reports.saved':               '\u2713 Gespeichert',
-  'reports.pdf_title':           'SC//Foresight Berichte (E5-E6)',
+  'reports.pdf_title':           'SC//Foresight Berichte',
   'reports.pdf_desc':            'Generieren Sie einen vollst\u00e4ndigen Kapazit\u00e4tsintelligenz-PDF-Bericht aus den neuesten Analysedaten. Der Bericht enth\u00e4lt Prognosen, Gr\u00f6\u00dfenänderungsempfehlungen, Ersch\u00f6pfungswarnungen und Gr\u00f6\u00dfenänderungshinweise.',
   'reports.download_pdf':        '\u2193 PDF-Bericht herunterladen',
   'reports.generating':          'Wird generiert\u2026',
@@ -326,7 +326,7 @@ window.LANG = {
   'info.DRY_RUN.benefits':  'Essential safety net when first deploying or after changing thresholds significantly. Lets you validate behaviour before committing to live migrations.',
   'info.DRY_RUN.careful':   'While enabled, real resource imbalances are NOT corrected. A cluster under heavy load will stay imbalanced for as long as Dry Run is on.',
 
-  'info.VERBOSITY.what':      'Controls how much detail appears in the balancer container logs. 0 = errors only \u00b7 1 = decisions \u00b7 2 = scoring detail \u00b7 3 = full debug trace.',
+  'info.VERBOSITY.what':      'Controls how much detail appears in the balancer container logs. 0 = errors only \u00b7 1 = decisions \u00b7 2 = scoring detail \u00b7 3 = full trace.',
   'info.VERBOSITY.benefits':  'Higher levels are invaluable for diagnosing why a migration did or did not trigger. Lower levels keep logs clean in production.',
   'info.VERBOSITY.careful':   'Level 3 on a busy cluster with many VMs and nodes produces very large log volumes. Use it temporarily for debugging, then dial back.',
 
@@ -422,7 +422,7 @@ window.LANG = {
   'info.STALE_SECONDS.benefits':  'Quickly surfaces collection failures, network issues, or InfluxDB problems before they silently affect dashboard accuracy.',
   'info.STALE_SECONDS.careful':   'Set too low (below POLL_INTERVAL) and nodes will always appear stale. Should be at least 2\u20133\u00d7 POLL_INTERVAL to account for normal write timing variance.',
 
-  'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.what':      'VMs consistently using less than this % of allocated CPU over the analysis window are flagged as over-provisioned (C1).',
+  'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.what':      'VMs consistently using less than this % of allocated CPU over the analysis window are flagged as over-provisioned.',
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.benefits':  'Identifies VMs with too many vCPUs allocated, freeing up capacity that can be reassigned to under-provisioned VMs or allow higher VM density on the same hardware.',
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.careful':   'Set too high and intentionally reserved VMs (standby servers, batch jobs with variable load) get incorrectly flagged. Consider your workload mix before lowering below 20%.',
 
@@ -434,31 +434,31 @@ window.LANG = {
   'info.SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD.benefits':  'Surfaces VMs that look fine on average but regularly starve for CPU during busy periods \u2014 a common source of end-user performance complaints that average metrics hide.',
   'info.SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD.careful':   'P95 at 90% is aggressive. Brief spikes are normal on shared HyperCore clusters. Raise this threshold if you see too many false positives on workloads with short, predictable bursts.',
 
-  'info.SENTINEL_ANALYSIS_WINDOW_DAYS.what':      'How many days of InfluxDB metric history are used for right-sizing analysis and recurring spike detection. Applies to C1, C2 Signal 1, and C2 Signal 3. Minimum 7 days.',
+  'info.SENTINEL_ANALYSIS_WINDOW_DAYS.what':      'How many days of InfluxDB metric history are used for right-sizing analysis and recurring spike detection. Minimum 7 days.',
   'info.SENTINEL_ANALYSIS_WINDOW_DAYS.benefits':  'A longer window captures more complete usage patterns including weekday/weekend variation. The default 14 days covers two full weekly cycles \u2014 the recommended minimum for pattern detection.',
   'info.SENTINEL_ANALYSIS_WINDOW_DAYS.careful':   'Shortening below 7 days risks recommendations based on atypical data (e.g. a single busy week). Extending beyond 30 days means the analysis is slower to react to genuine workload changes.',
 
-  'info.SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES.what':      'Minimum number of times a CPU spike must recur at the same weekday and hour bucket before Sentinel flags it as a recurring pattern (C2 Signal 3).',
+  'info.SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES.what':      'Minimum number of times a CPU spike must recur at the same weekday and hour bucket before Sentinel flags it as a recurring pattern.',
   'info.SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES.benefits':  'Prevents a one-off incident from triggering a right-sizing recommendation. Requiring 3 or more occurrences means the pattern is genuinely repeating, not a fluke.',
   'info.SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES.careful':   'Raising too high means real daily patterns need many days to appear (at 5, a daily spike needs 5 days of data). Lowering to 1 means any single spike at an hour triggers the signal.',
 
-  'info.SENTINEL_ANOMALY_FILTER_ENABLED.what':      'Applies an IQR-fence outlier removal pass to each time series before fitting the linear regression forecast model (B9). Outliers beyond 1.5\u00d7 IQR are excluded from the regression.',
+  'info.SENTINEL_ANOMALY_FILTER_ENABLED.what':      'Applies an IQR-fence outlier removal pass to each time series before fitting the linear regression forecast model. Outliers beyond 1.5\u00d7 IQR are excluded from the regression.',
   'info.SENTINEL_ANOMALY_FILTER_ENABLED.benefits':  'Prevents a brief outage, maintenance window, or traffic spike from skewing the regression line and producing an inaccurate long-term forecast.',
   'info.SENTINEL_ANOMALY_FILTER_ENABLED.careful':   'Disabling makes forecasts more sensitive to anomalies. Useful only if you specifically want unusual events to influence predictions. In most production environments, leave this on.',
 
-  'info.SENTINEL_FORECAST_30D_ENABLED.what':      'Enables the 30-day short-term capacity forecast (B1) for all tracked resource dimensions: CPU, RAM, storage capacity, storage latency, and network.',
+  'info.SENTINEL_FORECAST_30D_ENABLED.what':      'Enables the 30-day short-term capacity forecast for all tracked resource dimensions: CPU, RAM, storage capacity, storage latency, and network.',
   'info.SENTINEL_FORECAST_30D_ENABLED.benefits':  'Tactical view for immediate capacity decisions \u2014 are we about to run out of something in the next month? Drives the most urgent exhaustion alerts.',
   'info.SENTINEL_FORECAST_30D_ENABLED.careful':   'Disabling suppresses all 30-day exhaustion alerts across the dashboard and API. Only turn off if you are deliberately reducing analysis scope or troubleshooting unexpected behaviour.',
 
-  'info.SENTINEL_FORECAST_90D_ENABLED.what':      'Enables the 90-day quarterly capacity forecast (B2). Aligned with typical IT planning and budget cycles.',
+  'info.SENTINEL_FORECAST_90D_ENABLED.what':      'Enables the 90-day quarterly capacity forecast. Aligned with typical IT planning and budget cycles.',
   'info.SENTINEL_FORECAST_90D_ENABLED.benefits':  'Answers \'do we need to act this quarter?\' \u2014 the primary horizon for procurement planning and workload-growth conversations.',
   'info.SENTINEL_FORECAST_90D_ENABLED.careful':   'Disabling removes all 90-day exhaustion alerts. Only disable if you want to reduce PostgreSQL write volume and are confident 30-day coverage is sufficient.',
 
-  'info.SENTINEL_FORECAST_180D_ENABLED.what':      'Enables the 6-month strategic capacity forecast (B3).',
+  'info.SENTINEL_FORECAST_180D_ENABLED.what':      'Enables the 6-month strategic capacity forecast.',
   'info.SENTINEL_FORECAST_180D_ENABLED.benefits':  'Identifies the next hardware purchase window before it becomes urgent. Reveals growth trends that are invisible at the 30 and 90-day horizons.',
   'info.SENTINEL_FORECAST_180D_ENABLED.careful':   'Confidence scores for 180-day forecasts are typically lower \u2014 less data relative to the horizon. The dashboard automatically suppresses forecasts with confidence below 10%.',
 
-  'info.SENTINEL_FORECAST_365D_ENABLED.what':      'Enables the 12-month strategic capacity forecast (B4). The longest supported horizon.',
+  'info.SENTINEL_FORECAST_365D_ENABLED.what':      'Enables the 12-month strategic capacity forecast. The longest supported horizon.',
   'info.SENTINEL_FORECAST_365D_ENABLED.benefits':  'Used for annual capacity planning and pre-sales growth conversations. Shows the full year trajectory for each resource dimension.',
   'info.SENTINEL_FORECAST_365D_ENABLED.careful':   'Forecast confidence at 365 days is the lowest of all horizons and should be treated as directional only. The data-coverage confidence penalty suppresses very uncertain forecasts automatically.',
 
@@ -466,7 +466,7 @@ window.LANG = {
   'info.SENTINEL_RETENTION_MONTHS.benefits':  'Prevents the PostgreSQL database from growing unboundedly. 12 months is sufficient for trend analysis and historical report generation.',
   'info.SENTINEL_RETENTION_MONTHS.careful':   'Lowering aggressively (e.g. 1\u20132 months) removes older recommendations from the dashboard and API, limiting historical comparison. Raising it increases database storage proportionally.',
 
-  'info.SENTINEL_OUTCOME_TRACKER_ENABLED.what':      'When enabled, Sentinel polls HyperCore every 6 hours to detect whether VMs that received a right-sizing recommendation were subsequently resized (C7). Results are written back to the audit table.',
+  'info.SENTINEL_OUTCOME_TRACKER_ENABLED.what':      'When enabled, Sentinel polls HyperCore every 6 hours to detect whether VMs that received a right-sizing recommendation were subsequently resized. Results are written back to the audit table.',
   'info.SENTINEL_OUTCOME_TRACKER_ENABLED.benefits':  'Closes the feedback loop on recommendations \u2014 shows whether advice was acted on and what the before/after spec looks like. Powers the \'Outcomes\' view in the API.',
   'info.SENTINEL_OUTCOME_TRACKER_ENABLED.careful':   'Requires SC_HOST, SC_USERNAME, and SC_PASSWORD to be set (HyperCore API credentials \u2014 env vars, restart required). Disable here if those are not configured or if HyperCore API polling is a concern.',
 
@@ -474,7 +474,7 @@ window.LANG = {
   'info.SENTINEL_OUTCOME_CHECK_DELAY_HOURS.benefits':  'Gives operators enough time to act on a recommendation before the check runs, avoiding premature \'no_action\' outcomes being logged.',
   'info.SENTINEL_OUTCOME_CHECK_DELAY_HOURS.careful':   'Setting too low (e.g. 1 hour) means most checks log \'no_action\' before the operator has had time to act. Setting very high delays outcome visibility in the history view.',
 
-  'info.SENTINEL_WEBHOOK_ENABLED.what':      'Master switch for the outbound webhook dispatcher (F5). When enabled, Sentinel fires signed HTTP POST alerts to SENTINEL_WEBHOOK_URL for new CRITICAL and EMERGENCY events.',
+  'info.SENTINEL_WEBHOOK_ENABLED.what':      'Master switch for the outbound webhook dispatcher. When enabled, Sentinel fires signed HTTP POST alerts to SENTINEL_WEBHOOK_URL for new CRITICAL and EMERGENCY events.',
   'info.SENTINEL_WEBHOOK_ENABLED.benefits':  'Pushes critical capacity alerts to external systems (Slack, PagerDuty, ticketing tools) in real time without polling the API. Each request is signed with HMAC-SHA256 for verification.',
   'info.SENTINEL_WEBHOOK_ENABLED.careful':   'Has no effect unless SENTINEL_WEBHOOK_URL is also set (environment variable \u2014 restart required). Toggling this off suppresses all outbound alerts without a restart.',
 };
