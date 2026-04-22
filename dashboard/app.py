@@ -38,6 +38,8 @@ import json
 import os
 import re
 import secrets
+import subprocess
+import threading
 import urllib.request
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
@@ -1511,6 +1513,148 @@ def api_otp_disable():
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# Auto-update
+# =============================================================================
+
+_REPO_PATH       = os.getenv('SC_REPO_PATH', '/repo')
+_UPDATE_FILE     = '/tmp/hcm_update.json'
+_UPDATE_FILE_LOCK = threading.Lock()
+
+
+def _read_update_file():
+    try:
+        with open(_UPDATE_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, ValueError):
+        return {}
+
+
+def _write_update_patch(patch):
+    with _UPDATE_FILE_LOCK:
+        state = _read_update_file()
+        state.update(patch)
+        with open(_UPDATE_FILE, 'w') as f:
+            json.dump(state, f)
+
+
+def _check_for_update():
+    try:
+        r = subprocess.run(
+            ['git', '-C', _REPO_PATH, 'fetch', '--quiet'],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode != 0:
+            _write_update_patch({
+                'error': (r.stderr or r.stdout).strip() or 'git fetch failed',
+                'last_checked': datetime.now(timezone.utc).isoformat(),
+            })
+            return
+        local = subprocess.run(
+            ['git', '-C', _REPO_PATH, 'rev-parse', 'HEAD'],
+            capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+        remote = subprocess.run(
+            ['git', '-C', _REPO_PATH, 'rev-parse', '@{u}'],
+            capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+        _write_update_patch({
+            'update_available': bool(local and remote and local != remote),
+            'current_sha': local[:7] if local else None,
+            'remote_sha':  remote[:7] if remote else None,
+            'last_checked': datetime.now(timezone.utc).isoformat(),
+            'error': None,
+        })
+    except Exception as exc:
+        _write_update_patch({
+            'error': str(exc),
+            'last_checked': datetime.now(timezone.utc).isoformat(),
+        })
+
+
+def _update_check_daemon():
+    import time
+    _check_for_update()
+    while True:
+        time.sleep(86400)
+        _check_for_update()
+
+
+threading.Thread(target=_update_check_daemon, daemon=True, name='hcm-update-checker').start()
+
+
+def _do_apply_update():
+    def log(msg):
+        ts = datetime.now(timezone.utc).strftime('%H:%M:%S')
+        with _UPDATE_FILE_LOCK:
+            state = _read_update_file()
+            state.setdefault('apply_log', []).append(f'[{ts}] {msg}')
+            with open(_UPDATE_FILE, 'w') as f:
+                json.dump(state, f)
+
+    try:
+        log('Pulling latest code...')
+        r = subprocess.run(
+            ['git', '-C', _REPO_PATH, 'pull'],
+            capture_output=True, text=True, timeout=60,
+        )
+        if r.returncode != 0:
+            log(f'git pull failed: {(r.stderr or r.stdout).strip()}')
+            _write_update_patch({'apply_in_progress': False})
+            return
+        log(r.stdout.strip() or 'Already up to date.')
+
+        log('Rebuilding and restarting containers (this takes a minute)...')
+        r = subprocess.run(
+            ['docker-compose', '--profile', 'full', 'up', '--build', '-d'],
+            capture_output=True, text=True, timeout=600,
+            cwd=_REPO_PATH,
+        )
+        if r.returncode != 0:
+            log(f'docker-compose failed: {(r.stderr or r.stdout).strip()}')
+            _write_update_patch({'apply_in_progress': False})
+            return
+        log('Done. Containers are restarting — page will reload shortly.')
+        _write_update_patch({'apply_in_progress': False, 'update_available': False})
+    except Exception as exc:
+        log(f'Error: {exc}')
+        _write_update_patch({'apply_in_progress': False})
+
+
+@app.route('/api/update/status')
+@require_auth
+def api_update_status():
+    state = _read_update_file()
+    return jsonify({
+        'update_available':  state.get('update_available', False),
+        'current_sha':       state.get('current_sha'),
+        'remote_sha':        state.get('remote_sha'),
+        'last_checked':      state.get('last_checked'),
+        'error':             state.get('error'),
+        'apply_in_progress': state.get('apply_in_progress', False),
+        'apply_log':         state.get('apply_log', []),
+    })
+
+
+@app.route('/api/update/check', methods=['POST'])
+@require_auth
+def api_update_check():
+    threading.Thread(target=_check_for_update, daemon=True).start()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/update/apply', methods=['POST'])
+@require_auth
+@require_admin
+def api_update_apply():
+    state = _read_update_file()
+    if state.get('apply_in_progress'):
+        return jsonify({'error': 'Update already in progress'}), 409
+    _write_update_patch({'apply_in_progress': True, 'apply_log': []})
+    threading.Thread(target=_do_apply_update, daemon=True).start()
+    return jsonify({'ok': True})
 
 
 # =============================================================================

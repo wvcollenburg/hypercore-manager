@@ -201,6 +201,13 @@ services:
       # Sentinel REST API (D5 what-if proxy)
       - SENTINEL_API_URL=http://sentinel:8081
       - SENTINEL_API_TOKEN=${SENTINEL_API_TOKEN:-}
+      # Auto-update: repo is always at /repo inside the container via volume mount
+      - SC_REPO_PATH=/repo
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-drsproject}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SC_REPO_PATH:-/opt/hypercore-manager}:/repo:rw
+      - ${SC_SSH_KEY_PATH:-/root/.ssh}:/root/.ssh:ro
     depends_on:
       influxdb:
         condition: service_healthy

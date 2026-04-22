@@ -518,6 +518,79 @@
   }
   .vm-modal-chart-wrap { position: relative; height: 160px; }
 
+  /* Update modal */
+  .update-modal-backdrop {
+    display: none; position: fixed; inset: 0; z-index: 10200;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(2px);
+    align-items: center; justify-content: center;
+  }
+  .update-modal-backdrop.visible { display: flex; }
+  .update-modal {
+    background: var(--bg-secondary); border: 1px solid var(--border-active);
+    border-radius: 12px; padding: 24px 28px; min-width: 460px; max-width: 540px;
+    width: 90vw; display: flex; flex-direction: column; gap: 16px;
+  }
+  .update-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .update-modal-title {
+    font-family: 'JetBrains Mono', monospace; font-size: 13px;
+    font-weight: 600; color: var(--text-primary); letter-spacing: 0.5px;
+  }
+  .update-modal-close {
+    background: none; border: none; cursor: pointer; color: var(--text-muted);
+    font-size: 18px; padding: 2px 6px; border-radius: 4px; line-height: 1;
+  }
+  .update-modal-close:hover { color: var(--text-primary); }
+  .update-meta {
+    display: flex; gap: 20px; font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--text-muted); flex-wrap: wrap;
+  }
+  .update-sha { color: var(--accent-cyan); }
+  .update-status-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .update-status-text { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+  .update-status-text.available { color: var(--accent-amber); }
+  .update-status-text.uptodate  { color: var(--accent-green); }
+  .update-status-text.checking  { color: var(--text-muted); }
+  .update-status-text.error     { color: var(--accent-red); }
+  .update-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .update-apply-btn {
+    padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    font-family: 'Space Grotesk', sans-serif; font-weight: 500;
+    background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.4);
+    color: var(--accent-amber); transition: all 0.2s;
+  }
+  .update-apply-btn:hover:not(:disabled) {
+    background: rgba(245,158,11,0.2); box-shadow: 0 0 8px rgba(245,158,11,0.25);
+  }
+  .update-apply-btn:disabled { opacity: 0.5; cursor: default; }
+  .update-log {
+    background: var(--bg-primary); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px; font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--text-secondary); max-height: 180px;
+    overflow-y: auto; display: none; line-height: 1.7;
+  }
+  .update-log.visible { display: block; }
+  /* Update badge in header */
+  .update-badge-btn {
+    background: none; border: 1px solid transparent; border-radius: 6px;
+    cursor: pointer; padding: 5px 10px; font-size: 12px;
+    font-family: 'Space Grotesk', sans-serif; color: var(--text-muted);
+    transition: all 0.2s; white-space: nowrap;
+  }
+  .update-badge-btn:hover { border-color: var(--border); color: var(--text-secondary); }
+  .update-badge-btn.has-update {
+    color: var(--accent-amber); border-color: rgba(245,158,11,0.4);
+    background: rgba(245,158,11,0.06);
+    animation: upd-pulse 2.5s ease-in-out infinite;
+  }
+  @keyframes upd-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+    50%       { box-shadow: 0 0 0 4px rgba(245,158,11,0.15); }
+  }
+
   /* Toast notification */
   .settings-toast {
     position: fixed; bottom: 24px; right: 24px; z-index: 9999;
@@ -769,6 +842,7 @@
       <span class="status-text" id="statusText">Connecting...</span>
     </div>
     <button class="refresh-btn" data-i18n="header.refresh" onclick="refreshAll()">↻ Refresh</button>
+    <button class="update-badge-btn" id="updateBadgeBtn" onclick="openUpdateModal()" title="Software update">⬆ Update</button>
     <div class="lang-picker" id="langPicker">
       <button class="lang-btn" id="langBtn" onclick="toggleLangDropdown(event)">
         <span style="font-size:13px;">🌐</span><span style="font-size:9px;opacity:0.6;">▾</span>
@@ -4014,6 +4088,135 @@ function sharingPreviewSnapshot() {
 }
 
 // =============================================================================
+// Auto-update
+// =============================================================================
+let _updatePollTimer = null;
+
+async function loadUpdateStatus() {
+  try {
+    const d = await apiFetch('/api/update/status');
+    if (d) _applyUpdateState(d);
+  } catch (_) {}
+}
+
+function _applyUpdateState(d) {
+  const badgeBtn   = document.getElementById('updateBadgeBtn');
+  const statusTxt  = document.getElementById('updateStatusText');
+  const applyBtn   = document.getElementById('updateApplyBtn');
+  const logEl      = document.getElementById('updateLog');
+  const currentSha = document.getElementById('updateCurrentSha');
+  const remoteSha  = document.getElementById('updateRemoteSha');
+  const lastChecked = document.getElementById('updateLastChecked');
+
+  if (d.current_sha) currentSha.textContent = d.current_sha;
+  if (d.remote_sha)  remoteSha.textContent  = d.remote_sha;
+  if (d.last_checked) lastChecked.textContent = 'checked ' + _timeAgo(new Date(d.last_checked));
+
+  if (d.apply_in_progress) {
+    statusTxt.textContent = '⟳ Update in progress...';
+    statusTxt.className = 'update-status-text checking';
+    applyBtn.style.display = ''; applyBtn.disabled = true;
+    badgeBtn.classList.add('has-update');
+    _startApplyPoll();
+  } else if (d.update_available) {
+    statusTxt.textContent = '● Update available';
+    statusTxt.className = 'update-status-text available';
+    applyBtn.style.display = ''; applyBtn.disabled = false;
+    badgeBtn.classList.add('has-update');
+    badgeBtn.title = 'Update available — click to apply';
+  } else if (d.error) {
+    statusTxt.textContent = '⚠ Check failed: ' + d.error;
+    statusTxt.className = 'update-status-text error';
+    applyBtn.style.display = 'none';
+    badgeBtn.classList.remove('has-update');
+  } else {
+    statusTxt.textContent = '✓ Up to date';
+    statusTxt.className = 'update-status-text uptodate';
+    applyBtn.style.display = 'none';
+    badgeBtn.classList.remove('has-update');
+    badgeBtn.title = 'Software update';
+  }
+
+  if (d.apply_log && d.apply_log.length) {
+    logEl.innerHTML = d.apply_log.map(l => '<div>' + _escHtml(l) + '</div>').join('');
+    logEl.classList.add('visible');
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+}
+
+function _timeAgo(date) {
+  const s = Math.floor((Date.now() - date) / 1000);
+  if (s < 60)    return 'just now';
+  if (s < 3600)  return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function _escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function openUpdateModal() {
+  document.getElementById('updateModalBackdrop').classList.add('visible');
+  loadUpdateStatus();
+}
+
+function closeUpdateModal(e) {
+  if (e && e.target !== document.getElementById('updateModalBackdrop')) return;
+  document.getElementById('updateModalBackdrop').classList.remove('visible');
+  if (_updatePollTimer) { clearInterval(_updatePollTimer); _updatePollTimer = null; }
+}
+
+async function checkUpdateNow() {
+  const btn = document.getElementById('updateCheckNowBtn');
+  btn.disabled = true; btn.textContent = '⟳ Checking...';
+  try {
+    await fetch(API_BASE + '/api/update/check', { method: 'POST' });
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      await loadUpdateStatus();
+      if (++attempts >= 15) clearInterval(poll);
+    }, 2000);
+  } finally {
+    setTimeout(() => { btn.disabled = false; btn.textContent = '↻ Check now'; }, 4000);
+  }
+}
+
+async function applyUpdate() {
+  const btn = document.getElementById('updateApplyBtn');
+  btn.disabled = true;
+  const logEl = document.getElementById('updateLog');
+  logEl.innerHTML = ''; logEl.classList.add('visible');
+  try {
+    const r = await fetch(API_BASE + '/api/update/apply', { method: 'POST' });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      showToast(err.error || 'Update failed to start', 'err');
+      btn.disabled = false; return;
+    }
+    _startApplyPoll();
+  } catch(e) {
+    showToast(e.message, 'err'); btn.disabled = false;
+  }
+}
+
+function _startApplyPoll() {
+  if (_updatePollTimer) return;
+  _updatePollTimer = setInterval(async () => {
+    const d = await apiFetch('/api/update/status').catch(() => null);
+    if (!d) return;
+    _applyUpdateState(d);
+    if (!d.apply_in_progress) {
+      clearInterval(_updatePollTimer); _updatePollTimer = null;
+    }
+  }, 2000);
+}
+
+// Refresh badge every 5 minutes while page is open; initial check after 6s
+setInterval(loadUpdateStatus, 300000);
+setTimeout(loadUpdateStatus, 6000);
+
+// =============================================================================
 // Data quality banner
 // =============================================================================
 (async function checkDataQuality() {
@@ -4033,5 +4236,29 @@ function sharingPreviewSnapshot() {
 </script>
 
 <div id="dataQualityBanner"></div>
+
+<!-- Update modal -->
+<div class="update-modal-backdrop" id="updateModalBackdrop" onclick="closeUpdateModal(event)">
+  <div class="update-modal">
+    <div class="update-modal-header">
+      <span class="update-modal-title">HyperCore Update</span>
+      <button class="update-modal-close" onclick="closeUpdateModal()">✕</button>
+    </div>
+    <div class="update-meta">
+      <span>Current: <span class="update-sha" id="updateCurrentSha">—</span></span>
+      <span>Remote: <span class="update-sha" id="updateRemoteSha">—</span></span>
+      <span id="updateLastChecked" style="margin-left:auto;">never checked</span>
+    </div>
+    <div class="update-status-row">
+      <span class="update-status-text" id="updateStatusText">—</span>
+      <div class="update-actions">
+        <button class="refresh-btn" id="updateCheckNowBtn" onclick="checkUpdateNow()">↻ Check now</button>
+        <button class="update-apply-btn" id="updateApplyBtn" onclick="applyUpdate()" style="display:none;">⬆ Apply update</button>
+      </div>
+    </div>
+    <div class="update-log" id="updateLog"></div>
+  </div>
+</div>
+
 </body>
 </html>
