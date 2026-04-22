@@ -192,6 +192,7 @@ body.fetching .fetch-spinner{display:block}
 .sidebar-spacer{flex:1}
 .nav-tabs{display:none!important}
 .nav-logout{display:none!important}
+.main > .nav-tab{display:none!important}
 .nav-tab{
   display:block;width:100%;border:none;border-radius:20px 0 0 20px;
   color:#000;font-family:'Antonio',sans-serif;font-size:12px;font-weight:700;
