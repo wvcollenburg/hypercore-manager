@@ -331,6 +331,7 @@ def get_vms():
 @require_auth
 def get_drives():
     range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+    include_stale = request.args.get('include_stale', 'false').lower() == 'true'
     client = get_influx_client()
     try:
         query = f'''
@@ -341,12 +342,12 @@ def get_drives():
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
         '''
         result = client.query_api().query(org=INFLUX_ORG, query=query)
-        
+
         drives = {}
         for table in result:
             for record in table.records:
                 drive_uuid = record.values.get('drive_uuid', 'unknown')
-                
+
                 if drive_uuid not in drives:
                     drives[drive_uuid] = {
                         'uuid': drive_uuid,
@@ -355,7 +356,7 @@ def get_drives():
                         'slot': record.values.get('drive_slot', '?'),
                         'history': []
                     }
-                
+
                 entry = {
                     'time': record.get_time().isoformat(),
                     'used_bytes': record.values.get('used_bytes'),
@@ -367,9 +368,14 @@ def get_drives():
                 if temp is not None:
                     entry['temperature'] = temp
                 drives[drive_uuid]['history'].append(entry)
-        
-        # Filter out drives that haven't reported recently
-        active = [d for d in drives.values() if not is_stale(d['history'])]
+
+        # For current-state views (drive health cards) filter out stale drives.
+        # For historical charts (include_stale=true) keep all drives so that
+        # capacity/usage totals correctly reflect what was present at each point in time.
+        if include_stale:
+            active = list(drives.values())
+        else:
+            active = [d for d in drives.values() if not is_stale(d['history'])]
         return jsonify(active)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -561,6 +567,9 @@ def get_data_quality():
     """
     Checks the last 14 days of node_metrics for collection gaps.
     A gap is any 1-hour window with zero data points.
+    Only active nodes (still reporting recently) are included — removed or
+    failed nodes would otherwise inflate the gap count for every hour since
+    they went silent.
     Returns {reliable, gap_count, total_gap_hours, checked_hours}.
     """
     WINDOW_DAYS   = 14
@@ -568,11 +577,35 @@ def get_data_quality():
 
     client = get_influx_client()
     try:
+        # Step 1: find nodes that have reported recently (active nodes only).
+        stale_secs = config_db.get('STALE_SECONDS') or STALE_SECONDS
+        active_query = f'''
+from(bucket: "{INFLUX_BUCKET}")
+  |> range(start: -{stale_secs}s)
+  |> filter(fn: (r) => r._measurement == "node_metrics")
+  |> filter(fn: (r) => r._field == "cpu_usage")
+  |> keep(columns: ["node_uuid"])
+  |> distinct(column: "node_uuid")
+'''
+        active_tables = client.query_api().query(active_query, org=INFLUX_ORG)
+        active_uuids  = [row.values['node_uuid']
+                         for table in active_tables
+                         for row in table.records
+                         if row.values.get('node_uuid')]
+
+        if not active_uuids:
+            # No active nodes — nothing meaningful to check.
+            return jsonify({'reliable': True, 'gap_count': 0,
+                            'total_gap_hours': 0, 'checked_hours': 0})
+
+        # Step 2: check for gaps only within those active nodes.
+        node_filter = ' or '.join(f'r.node_uuid == "{uid}"' for uid in active_uuids)
         query = f'''
 from(bucket: "{INFLUX_BUCKET}")
   |> range(start: -{WINDOW_DAYS}d)
   |> filter(fn: (r) => r._measurement == "node_metrics")
   |> filter(fn: (r) => r._field == "cpu_usage")
+  |> filter(fn: (r) => {node_filter})
   |> aggregateWindow(every: 1h, fn: count, createEmpty: true)
   |> keep(columns: ["_time", "_value"])
 '''

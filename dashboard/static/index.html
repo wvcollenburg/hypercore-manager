@@ -1589,14 +1589,15 @@ function renderVsdsForVm(vmUuid) {
 // ─── Load Nodes + Drives ───
 async function loadNodes() {
   const h = nodeHours;
-  const [nodeData, driveData, vsdData, configData] = await Promise.all([
+  const [nodeData, driveData, allDriveData, vsdData, configData] = await Promise.all([
     apiFetch(`/api/nodes?hours=${h}`),
     apiFetch(`/api/drives?hours=${h}`),
+    apiFetch(`/api/drives?hours=${h}&include_stale=true`),
     apiFetch(`/api/vsds?hours=${h}`),
     apiFetch('/api/config')
   ]);
   const maxVcpuRatio = configData ? (configData.find(c => c.key === 'MAX_VCPU_RATIO')?.value ?? 2.0) : 2.0;
-  
+
   if (!nodeData) { document.getElementById('nodeCards').innerHTML = `<div class="empty-state">${t('empty.no_api')}</div>`; setStatus(false); return; }
   setStatus(true);
   cachedDrives = driveData || [];
@@ -1773,9 +1774,10 @@ async function loadNodes() {
   });
 
   // ─── Cluster Storage chart ───
-  // Sum used_bytes and capacity_bytes across all physical drives per timestamp
+  // Use allDriveData (includes stale/removed drives) so that historical capacity
+  // correctly reflects what was present at each point in time, not just today's nodes.
   const storUsedMap = new Map(), storCapMap = new Map();
-  for (const drive of (driveData || [])) {
+  for (const drive of (allDriveData || [])) {
     for (const h2 of drive.history) {
       const t = h2.time;
       if (h2.used_bytes     != null) storUsedMap.set(t, (storUsedMap.get(t) || 0) + h2.used_bytes);
