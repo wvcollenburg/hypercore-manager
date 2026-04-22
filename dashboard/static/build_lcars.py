@@ -10,7 +10,7 @@ with open(original_path, 'r', encoding='utf-8') as f:
     original_lines = f.readlines()
 
 # Extract sections (0-indexed)
-tab_html = ''.join(original_lines[873:1391])   # tab panel HTML inside .main
+tab_html = ''.join(original_lines[872:1391])   # nav-tabs div + tab panel HTML
 js_block  = ''.join(original_lines[1392:4265]) # <script> ... </script>
 end_html  = ''.join(original_lines[4265:])     # update modal + closing HTML
 
@@ -628,11 +628,9 @@ BODY_FRAME = """\
         <div class="nav-tab" data-tab="settings"></div>
       </div>
 
-      <div class="main">
 """
 
 BODY_CLOSE = """\
-      </div><!-- /.main -->
       <div class="settings-toast" id="settingsToast"></div>
     </div><!-- /.lcars-content -->
   </div><!-- /.lcars-mid-row -->
