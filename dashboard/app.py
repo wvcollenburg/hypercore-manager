@@ -1619,6 +1619,9 @@ def _do_apply_update():
         log('Build done. Spawning restart container...')
         _write_update_patch({'update_available': False})
         project = os.getenv('COMPOSE_PROJECT_NAME', 'drsproject')
+        # _REPO_PATH is /repo inside the container, but the Docker daemon needs
+        # the real host-side path for volume mounts.
+        host_repo = os.getenv('SC_HOST_REPO_PATH', _REPO_PATH)
         # Remove stale updater container if a previous run left one behind
         subprocess.run(['docker', 'rm', '-f', 'hcm-auto-updater'],
                        capture_output=True)
@@ -1627,9 +1630,9 @@ def _do_apply_update():
                 'docker', 'run', '-d', '--rm',
                 '--name', 'hcm-auto-updater',
                 '-v', '/var/run/docker.sock:/var/run/docker.sock',
-                '-v', f'{_REPO_PATH}:{_REPO_PATH}',
+                '-v', f'{host_repo}:/repo',
                 '--env-file', f'{_REPO_PATH}/.env',
-                '-w', _REPO_PATH,
+                '-w', '/repo',
                 f'{project}-dashboard',
                 'docker-compose', '--profile', 'full', 'up', '-d',
             ],

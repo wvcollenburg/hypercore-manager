@@ -201,8 +201,11 @@ services:
       # Sentinel REST API (D5 what-if proxy)
       - SENTINEL_API_URL=http://sentinel:8081
       - SENTINEL_API_TOKEN=${SENTINEL_API_TOKEN:-}
-      # Auto-update: repo is always at /repo inside the container via volume mount
+      # Auto-update: repo is always at /repo inside the container via volume mount.
+      # SC_HOST_REPO_PATH carries the real host-side path so docker run can mount
+      # it correctly when spawning the updater container.
       - SC_REPO_PATH=/repo
+      - SC_HOST_REPO_PATH=${SC_REPO_PATH:-/opt/hypercore-manager}
       - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-drsproject}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
