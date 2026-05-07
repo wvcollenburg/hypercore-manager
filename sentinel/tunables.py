@@ -106,6 +106,13 @@ TUNABLES: dict = {
         label='365d Forecast', unit='',
         description='Enable 12-month strategic capacity forecast (B4).',
     ),
+    'SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION': TunableDef(
+        env_var='SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION',
+        default=0.5, type_hint='float', live_reload=True,
+        cfg_field='forecast_min_r2_for_exhaustion',
+        label='Min r² for Exhaustion', unit='',
+        description='Minimum r² required before a positive slope produces an exhaustion date. Suppresses spurious alerts on near-flat series; raise toward 1.0 to require a stronger trend, lower toward 0.0 to disable the gate.',
+    ),
     # ── Maintenance ─────────────────────────────────────────────────────────
     'SENTINEL_RETENTION_MONTHS': TunableDef(
         env_var='SENTINEL_RETENTION_MONTHS',

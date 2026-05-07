@@ -70,6 +70,16 @@ class Config:
     # before fitting the linear regression model.
     anomaly_filter_enabled: bool = field(default_factory=lambda: _bool('SENTINEL_ANOMALY_FILTER_ENABLED', True))
 
+    # ── Forecast statistical gate ────────────────────────────────────────────
+    # Minimum r² required before a positive slope is allowed to produce an
+    # exhaustion date.  A linear fit with r² below this threshold is mostly
+    # noise — extrapolating it forward yields exhaustion dates that wobble
+    # cycle-to-cycle and don't reflect a real trend.  Default 0.5 (the linear
+    # model must explain ≥50% of variance).  Set to 0.0 to disable the gate.
+    forecast_min_r2_for_exhaustion: float = field(
+        default_factory=lambda: _float('SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION', 0.5)
+    )
+
     # ── Right-sizing thresholds ──────────────────────────────────────────────
     # C1: flag VMs using less than this % of allocated CPU
     cpu_over_provisioned_threshold: float = field(

@@ -3517,6 +3517,12 @@ const SENT_INFO = {
     benefits: 'Prevents a brief outage, maintenance window, or traffic spike from skewing the regression line and producing an inaccurate long-term forecast.',
     careful: 'Disabling makes forecasts more sensitive to anomalies. Useful only if you specifically want unusual events to influence predictions. In most production environments, leave this on.',
   },
+  SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION: {
+    label: 'MIN R² FOR EXHAUSTION',
+    what: 'Minimum r² (fraction of variance explained by the linear trend) required before a positive slope is allowed to produce an exhaustion date. Linear fits below this threshold are treated as noise rather than a real trend.',
+    benefits: 'Suppresses spurious exhaustion alerts on near-flat series. A fit with r² of 0.2 explains only 20% of variance — extrapolating it forward produces dates that wander cycle to cycle. The default 0.5 keeps alerts focused on meaningful trends.',
+    careful: 'Raising too high (e.g. 0.9) hides real but gradual trends — you may miss a genuine exhaustion runway. Setting to 0 disables the gate so any positive slope produces an exhaustion date regardless of fit quality.',
+  },
   SENTINEL_FORECAST_30D_ENABLED: {
     label: '30D FORECAST',
     what: 'Enables the 30-day short-term capacity forecast (B1) for all tracked resource dimensions: CPU, RAM, storage capacity, storage latency, and network.',
@@ -3587,6 +3593,7 @@ const SENT_GROUPS = [
       'SENTINEL_FORECAST_180D_ENABLED',
       'SENTINEL_FORECAST_365D_ENABLED',
       'SENTINEL_ANOMALY_FILTER_ENABLED',
+      'SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION',
     ],
   },
   {
@@ -3609,6 +3616,7 @@ const SENT_RANGES = {
   SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES:     [1,  20,  1  ],
   SENTINEL_RETENTION_MONTHS:                    [1,  60,  1  ],
   SENTINEL_OUTCOME_CHECK_DELAY_HOURS:           [1,  168, 1  ],
+  SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION:      [0,  1,   0.05],
 };
 
 // Staged edits per group — same dirty-tracking pattern as balancer settings.

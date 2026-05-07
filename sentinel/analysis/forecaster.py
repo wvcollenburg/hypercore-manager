@@ -160,12 +160,16 @@ def _project(fit: dict, days_ahead: int) -> float:
     return fit['slope'] * (x_now + days_ahead) + fit['intercept']
 
 
-def _exhaustion_date(fit: dict, capacity: float) -> date | None:
+def _exhaustion_date(fit: dict, capacity: float, min_r2: float = 0.0) -> date | None:
     """
     Calculate when the linear trend crosses capacity.
-    Returns None if the trend is flat/declining or never reaches capacity.
+    Returns None if the trend is flat/declining, never reaches capacity, or
+    the fit's r² is below `min_r2` (linear model isn't a meaningful descriptor
+    of the data — extrapolating it would amplify noise into spurious dates).
     """
     if fit['slope'] <= 0 or capacity is None:
+        return None
+    if fit['r2'] < min_r2:
         return None
     x_now    = (datetime.now(timezone.utc) - fit['t0']).total_seconds() / 86400.0
     current  = fit['slope'] * x_now + fit['intercept']
@@ -301,7 +305,10 @@ def _forecast_cluster_ram(
         )
 
     projected   = _project(fit, horizon)
-    exhaustion  = _exhaustion_date(fit, capacity) if capacity else None
+    exhaustion  = (
+        _exhaustion_date(fit, capacity, min_r2=cfg.forecast_min_r2_for_exhaustion)
+        if capacity else None
+    )
     severity    = _severity_from_exhaustion(exhaustion)
     current     = sum((n.ram_mean or 0.0) for n in nodes.values())
 
@@ -372,7 +379,7 @@ def _forecast_cluster_cpu(
         )
 
     projected  = _project(fit, horizon)
-    exhaustion = _exhaustion_date(fit, capacity)
+    exhaustion = _exhaustion_date(fit, capacity, min_r2=cfg.forecast_min_r2_for_exhaustion)
     severity   = _severity_from_exhaustion(exhaustion)
     means      = [node.cpu_mean for node in nodes.values() if node.cpu_mean is not None]
     current    = float(sum(means) / len(means)) if means else None
