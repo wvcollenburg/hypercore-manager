@@ -2551,6 +2551,16 @@ async function loadSentinelOverview() {
                      score >= 70   ? 'var(--accent-purple)' :
                      score >= 50   ? 'var(--accent-amber)' : 'var(--accent-red)';
 
+  const cs = h.component_scores || {};
+  const _dimOrder = ['cpu', 'ram', 'storage_capacity', 'storage_latency', 'network'];
+  const breakdownDims = _dimOrder.filter(d => cs[d] != null);
+  const _scoreColor = s =>
+    s == null ? 'var(--text-muted)' :
+    s >= 90   ? 'var(--accent-green)' :
+    s >= 70   ? 'var(--accent-purple)' :
+    s >= 40   ? 'var(--accent-amber)' :
+                'var(--accent-red)';
+
   el.innerHTML = `
     <div class="health-gauge">
       <div class="health-score-circle" style="border-color:${gaugeColor};color:${gaugeColor};">
@@ -2579,6 +2589,27 @@ async function loadSentinelOverview() {
         </div>
       </div>
     </div>
+
+    ${breakdownDims.length ? `
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin-top:12px;">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px;">${t('sentinel.health_breakdown')}</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${breakdownDims.map(d => {
+          const s = cs[d];
+          const color = _scoreColor(s);
+          const w = Math.max(0, Math.min(100, s));
+          return `
+            <div style="display:flex;align-items:center;gap:12px;font-size:12px;">
+              <span style="min-width:140px;color:var(--text-secondary)">${dimLabel(d)}</span>
+              <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
+                <div style="height:100%;width:${w}%;background:${color};transition:width 0.3s ease;"></div>
+              </div>
+              <span style="min-width:36px;text-align:right;color:${color};font-weight:600;">${Math.round(s)}</span>
+            </div>`;
+        }).join('')}
+      </div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:10px;line-height:1.5;">${t('sentinel.health_breakdown_hint')}</div>
+    </div>` : ''}
 
     <div class="sentinel-tiles">
       <div class="sentinel-tile">

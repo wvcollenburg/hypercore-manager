@@ -695,7 +695,7 @@ def sentinel_summary():
             with conn.cursor() as cur:
                 cur.execute(
                     '''SELECT health_score, bottleneck_resource, efficiency_index,
-                              severity, calculated_at
+                              severity, calculated_at, component_scores, growth_rates
                        FROM recommendations.cluster_health_scores
                        WHERE cluster_id = %s AND expires_at > NOW()
                        ORDER BY calculated_at DESC LIMIT 1''',
@@ -734,11 +734,13 @@ def sentinel_summary():
         return jsonify({
             'cluster_id': cid,
             'health': {
-                'score':      float(health_row['health_score']) if health_row else None,
-                'bottleneck': health_row['bottleneck_resource'] if health_row else None,
-                'efficiency': float(health_row['efficiency_index']) if health_row and health_row['efficiency_index'] is not None else None,
-                'severity':   health_row['severity'] if health_row else None,
-                'as_of':      health_row['calculated_at'].isoformat() if health_row and health_row['calculated_at'] else None,
+                'score':            float(health_row['health_score']) if health_row else None,
+                'bottleneck':       health_row['bottleneck_resource'] if health_row else None,
+                'efficiency':       float(health_row['efficiency_index']) if health_row and health_row['efficiency_index'] is not None else None,
+                'severity':         health_row['severity'] if health_row else None,
+                'as_of':            health_row['calculated_at'].isoformat() if health_row and health_row['calculated_at'] else None,
+                'component_scores': health_row['component_scores'] if health_row else None,
+                'growth_rates':     health_row['growth_rates']     if health_row else None,
             },
             'right_sizing': {
                 'over_provisioned':  sizing.get('over_provisioned',  0),
