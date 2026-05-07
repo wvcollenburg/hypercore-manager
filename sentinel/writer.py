@@ -275,7 +275,14 @@ class Writer:
         Extract exhaustion-relevant forecasts and write to resource_exhaustion table.
         Only forecasts with an exhaustion_date or CRITICAL/EMERGENCY severity are written.
         Deduplicated to the most severe forecast per (cluster, node, dimension).
+
+        The cluster_id's existing rows are always deleted first — even when the
+        current cycle produces no new rows — so stale exhaustion alerts from a
+        previous cycle don't linger after the underlying trend has resolved.
         """
+        if not forecasts:
+            return
+
         # Pick one record per (cluster_id, node_uuid, dimension) — most severe
         best: dict[tuple, ForecastResult] = {}
         severity_order = {'EMERGENCY': 5, 'CRITICAL': 4, 'WARNING': 3, 'ATTENTION': 2, 'INFO': 1}
@@ -287,8 +294,7 @@ class Writer:
                 best[key] = f
 
         rows = [f for f in best.values() if f.exhaustion_date is not None or f.severity in ('CRITICAL', 'EMERGENCY')]
-        if not rows:
-            return
+        cluster_id = forecasts[0].cluster_id
 
         inserted_ids = []
         try:
@@ -296,7 +302,7 @@ class Writer:
                 with conn.cursor() as cur:
                     cur.execute(
                         'DELETE FROM recommendations.resource_exhaustion WHERE cluster_id = %s',
-                        [rows[0].cluster_id],
+                        [cluster_id],
                     )
                     for f in rows:
                         days = (f.exhaustion_date - date.today()).days if f.exhaustion_date else None

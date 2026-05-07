@@ -447,6 +447,10 @@ window.LANG = {
   'info.SENTINEL_ANOMALY_FILTER_ENABLED.benefits':  'Prevents a brief outage, maintenance window, or traffic spike from skewing the regression line and producing an inaccurate long-term forecast.',
   'info.SENTINEL_ANOMALY_FILTER_ENABLED.careful':   'Disabling makes forecasts more sensitive to anomalies. Useful only if you specifically want unusual events to influence predictions. In most production environments, leave this on.',
 
+  'info.SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION.what':      'Minimum r\u00b2 (fraction of variance explained by the linear trend) required before a positive slope is allowed to produce an exhaustion date. Linear fits below this threshold are treated as noise rather than a real trend.',
+  'info.SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION.benefits':  'Suppresses spurious exhaustion alerts on near-flat series. A fit with r\u00b2 of 0.2 explains only 20% of variance \u2014 extrapolating it forward produces dates that wander cycle to cycle. The default 0.5 keeps alerts focused on meaningful trends.',
+  'info.SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION.careful':   'Raising too high (e.g. 0.9) hides real but gradual trends \u2014 you may miss a genuine exhaustion runway. Setting to 0 disables the gate so any positive slope produces an exhaustion date regardless of fit quality.',
+
   'info.SENTINEL_FORECAST_30D_ENABLED.what':      'Enables the 30-day short-term capacity forecast for all tracked resource dimensions: CPU, RAM, storage capacity, storage latency, and network.',
   'info.SENTINEL_FORECAST_30D_ENABLED.benefits':  'Tactical view for immediate capacity decisions \u2014 are we about to run out of something in the next month? Drives the most urgent exhaustion alerts.',
   'info.SENTINEL_FORECAST_30D_ENABLED.careful':   'Disabling suppresses all 30-day exhaustion alerts across the dashboard and API. Only turn off if you are deliberately reducing analysis scope or troubleshooting unexpected behaviour.',
