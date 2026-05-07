@@ -15,6 +15,15 @@ Per-node CPU/RAM forecasts are still emitted but as informational signals only
 imbalance — a node trending hotter than the cluster — but are not the leading
 capacity signal.
 
+Cluster aggregates are bucketed to daily means before fitting.  Test VMs that
+exist for only a few hours, nightly tear-down/reset cycles, and other
+intraday churn would otherwise dominate the regression on a short window
+(14d, 30d) — each spike's leverage is amplified when it sits at the right
+edge of the data and the rest of the window is flat.  A daily mean per node
+collapses sub-day churn to a single value, so a VM that only ever existed
+for one day contributes only as much weight as any other day, and a real
+trend across days is what the slope captures.
+
 N+1 capacity:
     For CPU and RAM the cluster forecast uses N+1 capacity — the cluster's
     capacity minus the largest single node.  That gives headroom to survive
@@ -213,20 +222,33 @@ def _maybe_filter(
 def _aggregate_series(
     series: list[tuple[list[datetime], list[float]]],
     agg:    Literal['sum', 'mean'],
+    bucket: Literal['minute', 'day'] = 'day',
 ) -> tuple[list[datetime], list[float]]:
     """
     Combine per-entity time series into a single cluster-wide series.
 
-    Samples are bucketed by minute (raw timestamps are not aligned across
-    nodes/drives).  Within a bucket, an entity's samples are averaged.  Across
-    entities at each bucket, values are aggregated by `agg`.  Missing entity
-    values are forward-filled from that entity's last observed bucket so a
-    transient sample gap on one node does not produce an artificial drop in
-    the cluster aggregate.  Buckets before every entity has been observed at
+    Samples are bucketed by `bucket` (default 'day').  Daily bucketing
+    collapses intraday spikes from short-lived test VMs, nightly resets, and
+    other sub-day churn into a single mean per entity per day, so the cluster
+    fit reflects real cross-day trends rather than placement / test noise.
+    A 14-day window therefore produces ~14 cluster data points instead of
+    thousands of minute-level samples — fewer points but each one represents
+    a real day of cluster behaviour.
+
+    Within a bucket, an entity's samples are averaged.  Across entities at
+    each bucket, values are aggregated by `agg`.  Missing entity values are
+    forward-filled from that entity's last observed bucket so a transient
+    sample gap on one node does not produce an artificial drop in the
+    cluster aggregate.  Buckets before every entity has been observed at
     least once are dropped.
     """
     if not series:
         return [], []
+
+    def _truncate(t: datetime) -> datetime:
+        if bucket == 'day':
+            return t.replace(hour=0, minute=0, second=0, microsecond=0)
+        return t.replace(second=0, microsecond=0)
 
     entity_buckets: list[dict[datetime, float]] = []
     all_buckets: set[datetime] = set()
@@ -234,7 +256,7 @@ def _aggregate_series(
     for times, values in series:
         per_bucket: dict[datetime, list[float]] = {}
         for t, v in zip(times, values):
-            b = t.replace(second=0, microsecond=0)
+            b = _truncate(t)
             per_bucket.setdefault(b, []).append(v)
         averaged = {b: sum(vs) / len(vs) for b, vs in per_bucket.items()}
         entity_buckets.append(averaged)
