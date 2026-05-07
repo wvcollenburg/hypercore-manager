@@ -293,25 +293,41 @@ docker compose --profile sentinel build
 
 ### 3. Apply database migrations
 
-The `postgres/init/` SQL scripts run **automatically on a fresh install only**. On an upgrade
-you must apply any new numbered scripts manually. Check which scripts are new since your last
-deployment and run them in order:
+Migrations are now applied **automatically** by the dashboard container.
+
+- The dashboard runs the migration runner ([dashboard/migrations.py](dashboard/migrations.py))
+  in a background thread on every startup, and again as part of the Apply Update flow.
+- Successfully-applied filenames are recorded in `public.schema_migrations`; only files
+  not yet recorded get re-executed.
+- On the first run after deploying the runner against an existing install, every `*.sql`
+  in `postgres/init/` is "applied" — the scripts are required to be idempotent
+  (`IF NOT EXISTS`, `DO $$ ... $$` guards, etc.) so reapplying ones that were already in
+  place is a no-op. They're then recorded so subsequent runs only apply new files.
+
+In practice this means a normal upgrade is just:
 
 ```bash
-# Example: applying scripts 015 and 016 on an existing install
-docker exec -i sc_postgres psql -U sentinel hypercore_balancer \
-  < postgres/init/015_sharing_prefs.sql
-
-docker exec -i sc_postgres psql -U sentinel hypercore_balancer \
-  < postgres/init/016_vcpu_columns.sql
+git pull
+docker compose --profile full build
+docker compose --profile full up -d
 ```
 
-The scripts are idempotent where possible (using `IF NOT EXISTS`, `DO $$ ... $$` guards, etc.)
-so re-running an already-applied script is safe.
+…or simply clicking **Apply Update** in the dashboard.
 
-**Tip:** Keep a note of which numbered script was the last one applied on your install. The
-highest number in `postgres/init/` on your current deployment is your baseline — any higher
-numbers in a new release need to be applied.
+If you'd rather apply migrations manually (e.g. for an air-gapped install or to inspect
+SQL before it runs), the old path still works:
+
+```bash
+docker exec -i sc_postgres psql -U sentinel hypercore_balancer \
+  < postgres/init/018_component_reasons.sql
+```
+
+The runner records files by name once they apply cleanly, so a manual run followed by
+the automatic one will skip the script the second time around.
+
+**On failure:** if a migration errors, the runner stops at that file, leaves earlier ones
+recorded, and returns. Fix the SQL and re-trigger Apply Update; it resumes from the
+failed script.
 
 ### 4. Restart containers
 
