@@ -105,19 +105,32 @@ def _compute_growth_rates(forecasts: list[ForecastResult]) -> dict[str, float]:
     """
     D3: annualised growth rate per dimension.
     slope (from model_metadata) is in value/day → multiply by 365.
-    Averaged across all nodes/entities for per-node dimensions.
+
+    When a cluster-wide forecast exists for a dimension (entity_label='Cluster',
+    node_uuid=None), its slope is used directly — it is the leading signal and
+    is invariant under VM live-migration.  Otherwise the per-entity slopes are
+    averaged as a fallback.
     """
-    accum: dict[str, list[float]] = {}
+    cluster_slope: dict[str, float] = {}
+    per_entity:    dict[str, list[float]] = {}
     for f in forecasts:
         slope = f.model_metadata.get('slope')
         if slope is None:
             continue
-        accum.setdefault(f.resource_dimension, []).append(slope * 365.0)
-    return {
-        dim: round(float(sum(v) / len(v)), 4)
-        for dim, v in accum.items()
-        if v
-    }
+        annual = slope * 365.0
+        if f.node_uuid is None and f.entity_label == 'Cluster':
+            cluster_slope[f.resource_dimension] = annual
+        else:
+            per_entity.setdefault(f.resource_dimension, []).append(annual)
+
+    out: dict[str, float] = {}
+    for dim in set(list(cluster_slope.keys()) + list(per_entity.keys())):
+        if dim in cluster_slope:
+            out[dim] = round(float(cluster_slope[dim]), 4)
+        else:
+            v = per_entity[dim]
+            out[dim] = round(float(sum(v) / len(v)), 4)
+    return out
 
 
 def _efficiency_index(rightsizing: list[RightSizingResult]) -> float:

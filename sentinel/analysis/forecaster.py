@@ -4,6 +4,24 @@ analysis/forecaster.py — Forecasting engine (B1, B2, B3, B4, B5, B6, B7, B9).
 For each resource dimension and each enabled horizon (30d, 90d, 180d, 365d),
 fits a linear trend to the collected time series and produces a ForecastResult.
 
+Capacity exhaustion forecasts for CPU, RAM, and storage are computed
+cluster-wide.  VM live-migration shifts load between nodes constantly, so a
+per-node series is non-stationary with respect to placement and produces
+misleading exhaustion dates.  The cluster-wide aggregate is invariant under
+migration and reflects real workload growth.
+
+Per-node CPU/RAM forecasts are still emitted but as informational signals only
+(severity always INFO, no exhaustion date).  They remain useful for spotting
+imbalance — a node trending hotter than the cluster — but are not the leading
+capacity signal.
+
+N+1 capacity:
+    For CPU and RAM the cluster forecast uses N+1 capacity — the cluster's
+    capacity minus the largest single node.  That gives headroom to survive
+    one node loss AND to maintain full functionality during a rolling upgrade.
+    Storage redundancy is regulated separately (SCRIBE replication factor)
+    so storage forecasts use raw cluster totals.
+
 Phase 2 additions:
   B3  6-month (180d) strategic forecast.
   B4  12-month (365d) strategic forecast.
@@ -185,6 +203,207 @@ def _maybe_filter(
 
 
 # ---------------------------------------------------------------------------
+# Cluster-wide series aggregation
+# ---------------------------------------------------------------------------
+
+def _aggregate_series(
+    series: list[tuple[list[datetime], list[float]]],
+    agg:    Literal['sum', 'mean'],
+) -> tuple[list[datetime], list[float]]:
+    """
+    Combine per-entity time series into a single cluster-wide series.
+
+    Samples are bucketed by minute (raw timestamps are not aligned across
+    nodes/drives).  Within a bucket, an entity's samples are averaged.  Across
+    entities at each bucket, values are aggregated by `agg`.  Missing entity
+    values are forward-filled from that entity's last observed bucket so a
+    transient sample gap on one node does not produce an artificial drop in
+    the cluster aggregate.  Buckets before every entity has been observed at
+    least once are dropped.
+    """
+    if not series:
+        return [], []
+
+    entity_buckets: list[dict[datetime, float]] = []
+    all_buckets: set[datetime] = set()
+
+    for times, values in series:
+        per_bucket: dict[datetime, list[float]] = {}
+        for t, v in zip(times, values):
+            b = t.replace(second=0, microsecond=0)
+            per_bucket.setdefault(b, []).append(v)
+        averaged = {b: sum(vs) / len(vs) for b, vs in per_bucket.items()}
+        entity_buckets.append(averaged)
+        all_buckets.update(averaged.keys())
+
+    if not all_buckets:
+        return [], []
+
+    out_times:  list[datetime] = []
+    out_values: list[float]    = []
+    last: list[float | None]   = [None] * len(entity_buckets)
+
+    for b in sorted(all_buckets):
+        for i, eb in enumerate(entity_buckets):
+            if b in eb:
+                last[i] = eb[b]
+        if any(v is None for v in last):
+            continue
+        contrib = [v for v in last if v is not None]
+        out_values.append(sum(contrib) if agg == 'sum' else sum(contrib) / len(contrib))
+        out_times.append(b)
+
+    return out_times, out_values
+
+
+# ---------------------------------------------------------------------------
+# Cluster-wide forecast builders (leading capacity signal)
+# ---------------------------------------------------------------------------
+
+def _forecast_cluster_ram(
+    nodes: dict[str, NodeTimeSeries],
+    horizon: int,
+    cfg: cfg_module.Config,
+    cluster_id: str,
+) -> ForecastResult | None:
+    """
+    Cluster-wide RAM allocation forecast.
+
+    Sums ram_values across nodes per timestamp bucket — invariant under VM
+    live-migration, unlike a per-node series.  Exhaustion is computed against
+    N+1 capacity (sum of node mem_capacity minus the largest node) so the
+    forecast preserves headroom for one node loss and rolling upgrades.
+    """
+    if not nodes:
+        return None
+    series = [(n.ram_times, n.ram_values) for n in nodes.values()]
+    times, values = _aggregate_series(series, agg='sum')
+    times, values = _maybe_filter(times, values, cfg)
+    fit = _fit(times, values)
+    if not fit:
+        return None
+
+    capacities = [n.mem_capacity for n in nodes.values() if n.mem_capacity]
+    capacity: float | None
+    if not capacities:
+        capacity = None
+        capacity_note = 'Cluster RAM trend — physical capacity unavailable'
+    elif len(capacities) == 1:
+        capacity = float(sum(capacities))
+        capacity_note = 'Single-node cluster — full capacity (no N+1 headroom)'
+    else:
+        total   = sum(capacities)
+        largest = max(capacities)
+        capacity = float(total - largest)
+        capacity_note = (
+            f'N+1 capacity = total ({total}) − largest node ({largest}); '
+            f'survives one node loss and rolling upgrades'
+        )
+
+    projected   = _project(fit, horizon)
+    exhaustion  = _exhaustion_date(fit, capacity) if capacity else None
+    severity    = _severity_from_exhaustion(exhaustion)
+    current     = sum((n.ram_mean or 0.0) for n in nodes.values())
+
+    return ForecastResult(
+        cluster_id=cluster_id,
+        node_uuid=None,
+        entity_label='Cluster',
+        resource_dimension='ram',
+        forecast_horizon_days=horizon,
+        current_usage=current,
+        current_capacity=capacity,
+        forecast_value=round(projected, 0),
+        confidence_score=_confidence(fit, horizon),
+        driving_metric='cluster_mem_usage_bytes',
+        exhaustion_date=exhaustion,
+        severity=severity,
+        model_metadata={
+            'slope':          fit['slope'],
+            'r2':             fit['r2'],
+            'p_value':        fit['p_value'],
+            'n_samples':      fit['n_samples'],
+            'data_span_days': round(fit['data_span_days'], 2),
+            'node_count':     len(nodes),
+            'capacity_model': 'n_plus_1' if capacities and len(capacities) > 1 else 'raw',
+            'note':           capacity_note,
+        },
+    )
+
+
+def _forecast_cluster_cpu(
+    nodes: dict[str, NodeTimeSeries],
+    horizon: int,
+    cfg: cfg_module.Config,
+    cluster_id: str,
+) -> ForecastResult | None:
+    """
+    Cluster-wide CPU usage forecast.
+
+    Mean of per-node cpu_usage % per timestamp bucket — invariant under VM
+    live-migration as a measure of total cluster CPU pressure.  Capacity is
+    set to (N-1)/N · 100% so the exhaustion crossover marks the point at
+    which the cluster can no longer absorb the loss of a single node or
+    sustain a rolling upgrade at current load.
+
+    Equal weighting assumes nodes have comparable core counts (typical for a
+    HyperCore cluster — homogeneous hardware per cluster); skew on
+    heterogeneous clusters will be small relative to the migration noise this
+    aggregation eliminates.
+    """
+    if not nodes:
+        return None
+    series = [(n.cpu_times, n.cpu_values) for n in nodes.values()]
+    times, values = _aggregate_series(series, agg='mean')
+    times, values = _maybe_filter(times, values, cfg)
+    fit = _fit(times, values)
+    if not fit:
+        return None
+
+    n = len(nodes)
+    if n == 1:
+        capacity = 100.0
+        capacity_note = 'Single-node cluster — 100% (no N+1 headroom)'
+    else:
+        capacity = (n - 1) / n * 100.0
+        capacity_note = (
+            f'N+1 capacity = {n - 1}/{n} · 100% = {capacity:.1f}% — preserves '
+            f'headroom for one node loss / rolling upgrade'
+        )
+
+    projected  = _project(fit, horizon)
+    exhaustion = _exhaustion_date(fit, capacity)
+    severity   = _severity_from_exhaustion(exhaustion)
+    means      = [node.cpu_mean for node in nodes.values() if node.cpu_mean is not None]
+    current    = float(sum(means) / len(means)) if means else None
+
+    return ForecastResult(
+        cluster_id=cluster_id,
+        node_uuid=None,
+        entity_label='Cluster',
+        resource_dimension='cpu',
+        forecast_horizon_days=horizon,
+        current_usage=current,
+        current_capacity=capacity,
+        forecast_value=round(projected, 2),
+        confidence_score=_confidence(fit, horizon),
+        driving_metric='cluster_cpu_usage_pct',
+        exhaustion_date=exhaustion,
+        severity=severity,
+        model_metadata={
+            'slope':          fit['slope'],
+            'r2':             fit['r2'],
+            'p_value':        fit['p_value'],
+            'n_samples':      fit['n_samples'],
+            'data_span_days': round(fit['data_span_days'], 2),
+            'node_count':     n,
+            'capacity_model': 'n_plus_1' if n > 1 else 'raw',
+            'note':           capacity_note,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Per-dimension forecast builders
 # ---------------------------------------------------------------------------
 
@@ -194,6 +413,14 @@ def _forecast_node_cpu(
     cfg: cfg_module.Config,
     cluster_id: str,
 ) -> ForecastResult | None:
+    """
+    Per-node CPU trend — informational only.
+
+    VM live-migration moves CPU load between nodes constantly, so a per-node
+    series is not a reliable capacity signal.  This forecast is emitted as an
+    imbalance indicator (compare against the cluster-wide forecast) with
+    severity forced to INFO and no exhaustion date.
+    """
     times, values = _maybe_filter(node.cpu_times, node.cpu_values, cfg)
     fit = _fit(times, values)
     if not fit:
@@ -201,9 +428,6 @@ def _forecast_node_cpu(
 
     seasonality: SeasonalityResult = detect_seasonality(times, values)
     projected   = _project(fit, horizon)
-    capacity    = 100.0  # CPU usage is a percentage
-    exhaustion  = _exhaustion_date(fit, capacity)
-    severity    = _severity_from_exhaustion(exhaustion)
 
     return ForecastResult(
         cluster_id=cluster_id,
@@ -212,12 +436,12 @@ def _forecast_node_cpu(
         resource_dimension='cpu',
         forecast_horizon_days=horizon,
         current_usage=node.cpu_mean,
-        current_capacity=capacity,
+        current_capacity=100.0,
         forecast_value=round(projected, 2),
         confidence_score=_confidence(fit, horizon),
         driving_metric='cpu_usage',
-        exhaustion_date=exhaustion,
-        severity=severity,
+        exhaustion_date=None,
+        severity='INFO',
         model_metadata={
             'slope':      fit['slope'],
             'r2':         fit['r2'],
@@ -226,6 +450,8 @@ def _forecast_node_cpu(
             'data_span_days': round(fit['data_span_days'], 2),
             'has_daily_pattern':  seasonality.has_daily,
             'has_weekly_pattern': seasonality.has_weekly,
+            'scope':      'node_imbalance_signal',
+            'note':       'Per-node trend — informational only (cluster-wide is the leading capacity signal)',
         },
     )
 
@@ -237,10 +463,12 @@ def _forecast_node_ram(
     cluster_id: str,
 ) -> ForecastResult | None:
     """
-    RAM allocation tracking.  HyperCore does not overcommit RAM, so right-sizing
-    is not applicable.  However, physical node RAM is finite: when allocation
-    approaches 100% of physical capacity no further VMs can start.  Exhaustion
-    is computed against node.mem_capacity when that value is available.
+    Per-node RAM allocation trend — informational only.
+
+    VM live-migration moves RAM allocation between nodes constantly, so a
+    per-node series produces misleading exhaustion dates.  This forecast is
+    emitted as an imbalance indicator with severity forced to INFO and no
+    exhaustion date.  Cluster-wide RAM is the leading capacity signal.
     """
     times, values = _maybe_filter(node.ram_times, node.ram_values, cfg)
     fit = _fit(times, values)
@@ -248,11 +476,7 @@ def _forecast_node_ram(
         return None
 
     projected = _project(fit, horizon)
-
-    # Use physical node RAM as capacity when collected; fall back to trend-only
-    capacity   = node.mem_capacity if node.mem_capacity else None
-    exhaustion = _exhaustion_date(fit, capacity) if capacity else None
-    severity   = _severity_from_exhaustion(exhaustion)
+    capacity  = node.mem_capacity if node.mem_capacity else None
 
     return ForecastResult(
         cluster_id=cluster_id,
@@ -265,7 +489,62 @@ def _forecast_node_ram(
         forecast_value=round(projected, 0),
         confidence_score=_confidence(fit, horizon),
         driving_metric='mem_usage_bytes',
-        exhaustion_date=exhaustion,
+        exhaustion_date=None,
+        severity='INFO',
+        model_metadata={
+            'slope':          fit['slope'],
+            'r2':             fit['r2'],
+            'p_value':        fit['p_value'],
+            'n_samples':      fit['n_samples'],
+            'data_span_days': round(fit['data_span_days'], 2),
+            'scope':          'node_imbalance_signal',
+            'note':           'Per-node trend — informational only (cluster-wide is the leading capacity signal)',
+        },
+    )
+
+
+def _forecast_cluster_storage(
+    storage: StorageSnapshot,
+    horizon: int,
+    cfg: cfg_module.Config,
+    cluster_id: str,
+) -> ForecastResult | None:
+    """
+    Cluster-wide storage capacity forecast.
+
+    Sums used_bytes across all drives per timestamp bucket.  SCRIBE
+    distributes blocks reasonably evenly across the cluster, so a per-node
+    storage trend is mostly placement noise — the cluster aggregate is the
+    meaningful signal.  Storage redundancy is regulated by SCRIBE replication
+    factor independently of N+1, so capacity here is the raw sum (not
+    available from current metrics, so severity is slope-based).
+    """
+    drives = list(storage.drives.values())
+    if not drives:
+        return None
+    series = [(d.times, d.values) for d in drives]
+    times, values = _aggregate_series(series, agg='sum')
+    times, values = _maybe_filter(times, values, cfg)
+    fit = _fit(times, values)
+    if not fit:
+        return None
+
+    projected = _project(fit, horizon)
+    severity: SeverityLevel = 'WARNING' if fit['slope'] > 0 and fit['r2'] > 0.7 else 'INFO'
+    latest = sum((d.latest_bytes or 0.0) for d in drives)
+
+    return ForecastResult(
+        cluster_id=cluster_id,
+        node_uuid=None,
+        entity_label='Cluster',
+        resource_dimension='storage_capacity',
+        forecast_horizon_days=horizon,
+        current_usage=latest,
+        current_capacity=None,
+        forecast_value=round(projected, 0),
+        confidence_score=_confidence(fit, horizon),
+        driving_metric='cluster_used_bytes',
+        exhaustion_date=None,
         severity=severity,
         model_metadata={
             'slope':          fit['slope'],
@@ -273,76 +552,10 @@ def _forecast_node_ram(
             'p_value':        fit['p_value'],
             'n_samples':      fit['n_samples'],
             'data_span_days': round(fit['data_span_days'], 2),
-            'note': (
-                'RAM allocation exhaustion vs. physical node capacity'
-                if capacity else
-                'RAM allocation trend only — physical capacity unavailable'
-            ),
+            'drive_count':    len(drives),
+            'note':           'Cluster-wide storage trend (capacity not exposed in metrics — slope-based severity)',
         },
     )
-
-
-def _forecast_storage_capacity(
-    storage: StorageSnapshot,
-    horizon: int,
-    cluster_id: str,
-) -> list[ForecastResult]:
-    """
-    Build one cluster-wide storage forecast plus one per node.
-    Uses the per-node latest used_bytes trends.
-    """
-    results: list[ForecastResult] = []
-
-    # ── Per-node ─────────────────────────────────────────────────────────────
-    # Group drives by node and fit a trend on the sum of used_bytes per node
-    from collections import defaultdict
-    node_drive_map: dict[str, list] = defaultdict(list)
-    for d in storage.drives.values():
-        node_drive_map[d.node_uuid].append(d)
-
-    for node_uuid, drives in node_drive_map.items():
-        # Build a per-node total used_bytes time series by summing drives at each timestamp
-        # (simplified: use the most granular drive's timeline as the base)
-        if not drives:
-            continue
-        # Use the drive with the most samples as the time axis
-        ref = max(drives, key=lambda d: len(d.values))
-        if len(ref.values) < 3:
-            continue
-
-        fit = _fit(ref.times, ref.values)
-        if not fit:
-            continue
-
-        latest = ref.latest_bytes or 0.0
-        projected = _project(fit, horizon)
-        # We don't have total capacity from InfluxDB — severity is based on growth rate
-        severity = 'WARNING' if fit['slope'] > 0 and fit['r2'] > 0.7 else 'INFO'
-
-        results.append(ForecastResult(
-            cluster_id=cluster_id,
-            node_uuid=node_uuid,
-            entity_label=None,   # filled in post-processing from nodes dict
-            resource_dimension='storage_capacity',
-            forecast_horizon_days=horizon,
-            current_usage=latest,
-            current_capacity=None,   # HyperCore capacity not exposed in metrics
-            forecast_value=round(projected, 0),
-            confidence_score=_confidence(fit, horizon),
-            driving_metric='used_bytes',
-            exhaustion_date=None,
-            severity=severity,
-            model_metadata={
-                'slope':     fit['slope'],
-                'r2':        fit['r2'],
-                'p_value':   fit['p_value'],
-                'n_samples': fit['n_samples'],
-                'data_span_days': round(fit['data_span_days'], 2),
-                'drive_uuid': ref.drive_uuid,
-            },
-        ))
-
-    return results
 
 
 def _forecast_storage_latency(
@@ -428,21 +641,35 @@ def run_forecasts(
         return results
 
     for horizon in horizons:
-        # ── CPU per node (A1) ──────────────────────────────────────────────
+        # ── Cluster-wide CPU (A1, leading capacity signal) ─────────────────
+        if nodes:
+            r = _forecast_cluster_cpu(nodes, horizon, cfg, cluster_id)
+            if r:
+                results.append(r)
+
+        # ── Cluster-wide RAM (A2, leading capacity signal) ─────────────────
+        if nodes:
+            r = _forecast_cluster_ram(nodes, horizon, cfg, cluster_id)
+            if r:
+                results.append(r)
+
+        # ── Per-node CPU (informational — imbalance signal only) ──────────
         for node in nodes.values():
             r = _forecast_node_cpu(node, horizon, cfg, cluster_id)
             if r:
                 results.append(r)
 
-        # ── RAM per node (A2) ─────────────────────────────────────────────
+        # ── Per-node RAM (informational — imbalance signal only) ──────────
         for node in nodes.values():
             r = _forecast_node_ram(node, horizon, cfg, cluster_id)
             if r:
                 results.append(r)
 
-        # ── Storage capacity (A3) ─────────────────────────────────────────
+        # ── Cluster-wide storage capacity (A3) ────────────────────────────
         if storage:
-            results.extend(_forecast_storage_capacity(storage, horizon, cluster_id))
+            r = _forecast_cluster_storage(storage, horizon, cfg, cluster_id)
+            if r:
+                results.append(r)
 
         # ── Storage latency (A4) ──────────────────────────────────────────
         if storage:
