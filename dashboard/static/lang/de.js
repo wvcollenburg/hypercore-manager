@@ -157,6 +157,7 @@ window.LANG = {
   'sentinel.as_of':             'Stand',
   'sentinel.health_breakdown':       'Komponentenaufschlüsselung',
   'sentinel.health_breakdown_hint':  'Jede Dimension wird mit 0–100 bewertet. Niedrige Werte ziehen die Gesamtgesundheit des Clusters nach unten — konzentrieren Sie sich auf die oben als Engpass markierte Dimension.',
+  'sentinel.based_on':               'basierend auf:',
   'sentinel.active_forecasts':  'Aktive Prognosen',
   'sentinel.over_provisioned':  '\u00dcberprovisionierte VMs',
   'sentinel.under_provisioned': 'Unterprovisionierte VMs',
