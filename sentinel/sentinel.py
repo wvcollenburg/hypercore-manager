@@ -55,6 +55,19 @@ import tunables
 logger = logging.getLogger('sentinel.main')
 
 
+# Event that, when set, wakes the analysis loop early so the next forecast
+# cycle runs immediately instead of waiting out trend_interval_seconds.
+# Used by the POST /api/v1/trend/run endpoint and by the shutdown signal
+# handler (so the loop exits responsively rather than sleeping the full
+# interval before noticing the stop signal).
+_trigger_event: threading.Event = threading.Event()
+
+
+def trigger_analysis() -> None:
+    """Signal the analysis loop to run on its next iteration."""
+    _trigger_event.set()
+
+
 def _malloc_trim() -> None:
     """Return freed glibc arenas to the OS (no-op on non-Linux platforms)."""
     import ctypes
@@ -163,10 +176,14 @@ def analysis_loop(cfg: config.Config, stop: threading.Event, reader) -> None:
 
     while not stop.is_set():
         # Wait for the trend interval before the first run so the connectivity
-        # loop has had a chance to confirm InfluxDB is alive.
-        stop.wait(cfg.trend_interval_seconds)
+        # loop has had a chance to confirm InfluxDB is alive.  Wake early on
+        # an external trigger (POST /api/v1/trend/run) or shutdown signal.
+        triggered = _trigger_event.wait(cfg.trend_interval_seconds)
         if stop.is_set():
             break
+        if triggered:
+            _trigger_event.clear()
+            logger.info('Analysis cycle triggered manually')
 
         # Refresh live-tunable config before each cycle — no restart needed.
         live_cfg = tunables.apply_live(cfg)
@@ -287,13 +304,16 @@ def main() -> None:
 
     health.start(port=cfg.health_port)
     health.set_trend_interval(cfg.trend_interval_seconds)
-    api.start(cfg)
+    api.start(cfg, trigger_analysis_fn=trigger_analysis)
 
     stop = threading.Event()
 
     def _handle_signal(signum, _frame):
         logger.info('Shutdown signal received', extra={'signal': signum})
         stop.set()
+        # Wake the analysis loop so it observes the stop flag immediately
+        # instead of sleeping out the rest of trend_interval_seconds.
+        _trigger_event.set()
 
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT,  _handle_signal)
