@@ -2702,11 +2702,23 @@ async function loadSentinelOverview() {
                      score >= 70   ? 'var(--accent-purple)' :
                      score >= 50   ? 'var(--accent-amber)' : 'var(--accent-red)';
 
-  const cs = h.component_scores || {};
-  const gr = h.growth_rates     || {};
-  const cm = h.cluster_metrics  || {};
+  const cs = h.component_scores  || {};
+  const gr = h.growth_rates      || {};
+  const cm = h.cluster_metrics   || {};
+  const cr = h.component_reasons || {};
   const _dimOrder = ['cpu', 'ram', 'storage_capacity', 'storage_latency', 'network'];
   const breakdownDims = _dimOrder.filter(d => cs[d] != null);
+
+  const _fmtReason = r => {
+    if (!r) return '';
+    if (r.kind === 'ha') {
+      if (r.headroom_pct == null) return '';
+      if (r.broken) return t('reason.ha_broken', {pct: Math.abs(r.headroom_pct).toFixed(1)});
+      return t('reason.ha_headroom', {pct: r.headroom_pct.toFixed(1)});
+    }
+    if (r.kind === 'forecast') return t('reason.forecast', {severity: r.severity || '—'});
+    return '';
+  };
   const _scoreColor = s =>
     s == null ? 'var(--text-muted)' :
     s >= 90   ? 'var(--accent-green)' :
@@ -2792,14 +2804,18 @@ async function loadSentinelOverview() {
           const color = _scoreColor(s);
           const w = Math.max(0, Math.min(100, s));
           const growthStr = _fmtGrowth(d, gr[d], (cm[d] || {}).capacity);
+          const reasonStr = _fmtReason(cr[d]);
           return `
-            <div style="display:flex;align-items:center;gap:12px;font-size:12px;">
-              <span style="min-width:140px;color:var(--text-secondary)">${dimLabel(d)}</span>
-              <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
-                <div style="height:100%;width:${w}%;background:${color};transition:width 0.3s ease;"></div>
+            <div style="display:flex;flex-direction:column;gap:2px;">
+              <div style="display:flex;align-items:center;gap:12px;font-size:12px;">
+                <span style="min-width:140px;color:var(--text-secondary)">${dimLabel(d)}</span>
+                <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
+                  <div style="height:100%;width:${w}%;background:${color};transition:width 0.3s ease;"></div>
+                </div>
+                <span style="min-width:36px;text-align:right;color:${color};font-weight:600;">${Math.round(s)}</span>
+                <span style="min-width:190px;text-align:right;color:var(--text-muted);font-size:11px;font-variant-numeric:tabular-nums;">${growthStr}</span>
               </div>
-              <span style="min-width:36px;text-align:right;color:${color};font-weight:600;">${Math.round(s)}</span>
-              <span style="min-width:190px;text-align:right;color:var(--text-muted);font-size:11px;font-variant-numeric:tabular-nums;">${growthStr}</span>
+              ${reasonStr ? `<div style="margin-left:152px;font-size:10px;color:var(--text-muted);">${reasonStr}</div>` : ''}
             </div>`;
         }).join('')}
       </div>
