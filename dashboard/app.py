@@ -1665,6 +1665,51 @@ def _update_check_daemon():
 threading.Thread(target=_update_check_daemon, daemon=True, name='hcm-update-checker').start()
 
 
+def _apply_migrations_on_startup():
+    """
+    Apply any pending Postgres migrations once the dashboard process boots.
+
+    Runs in a background thread with retry/back-off so that:
+      - the dashboard's HTTP server isn't blocked waiting for Postgres to be
+        reachable (the two containers start in parallel under compose);
+      - a deployment that ships a new migration but only restarts services
+        (not the user-triggered Apply Update flow) still picks it up.
+    Errors are logged but never raised — the auto-updater path
+    (_do_apply_update) is the authoritative migration application moment;
+    this is a belt-and-braces backstop.
+    """
+    import time
+
+    init_dir = os.path.join(_REPO_PATH, 'postgres', 'init')
+    if not os.path.isdir(init_dir):
+        return
+
+    delay = 2
+    for attempt in range(8):
+        try:
+            import migrations as _migrations
+            with _pg() as conn:
+                applied = _migrations.apply_pending(conn, init_dir)
+            if applied:
+                app.logger.info(
+                    'Applied %d pending migration(s) on startup: %s',
+                    len(applied), ', '.join(applied),
+                )
+            return
+        except Exception as exc:
+            app.logger.warning(
+                'Startup migration check attempt %d/%d failed: %s',
+                attempt + 1, 8, exc,
+            )
+            time.sleep(delay)
+            delay = min(delay * 2, 30)
+
+    app.logger.error('Startup migration check gave up after retries')
+
+
+threading.Thread(target=_apply_migrations_on_startup, daemon=True, name='hcm-migrations').start()
+
+
 def _do_apply_update():
     def log(msg):
         ts = datetime.now(timezone.utc).strftime('%H:%M:%S')
@@ -1716,6 +1761,23 @@ def _do_apply_update():
             log(f'docker-compose build failed: {(r.stderr or r.stdout).strip()}')
             _write_update_patch({'apply_in_progress': False})
             return
+
+        log('Applying pending database migrations...')
+        try:
+            import migrations as _migrations
+            init_dir = os.path.join(_REPO_PATH, 'postgres', 'init')
+            with _pg() as conn:
+                applied = _migrations.apply_pending(conn, init_dir)
+            if applied:
+                log(f'Applied {len(applied)} migration(s): {", ".join(applied)}')
+            else:
+                log('Schema already up-to-date — no migrations to apply.')
+        except Exception as exc:
+            log(f'Migration step failed: {exc}')
+            log('Aborting recreate — fix the migration error and re-run Apply Update.')
+            _write_update_patch({'apply_in_progress': False})
+            return
+
         log('Build done. Spawning restart container...')
         _write_update_patch({'update_available': False})
         project = os.getenv('COMPOSE_PROJECT_NAME', 'drsproject')
