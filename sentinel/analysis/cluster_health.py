@@ -75,6 +75,13 @@ class ClusterHealthResult:
     # per-dimension component health (dimension → 0–100)
     component_scores: dict[str, float] = field(default_factory=dict)
 
+    # per-dimension structured reason for that score — used by the UI to
+    # explain *why* a dimension scored what it did (HA headroom vs forecast
+    # severity vs no data).  Keyed the same as component_scores.
+    # Each value is a small dict: {"kind": "ha", "headroom_pct": float, "broken": bool}
+    # for RAM, or {"kind": "forecast", "severity": str} for the rest.
+    component_reasons: dict[str, dict] = field(default_factory=dict)
+
     # D4: registered cluster count (schema-level multi-cluster readiness marker)
     cluster_count: int = 1
 
@@ -288,12 +295,26 @@ def run_cluster_health(
     growth_rates     = _compute_growth_rates(forecasts)
     efficiency       = _efficiency_index(rightsizing)
 
+    # Reason per dimension — defaults to "forecast severity" for everything;
+    # overridden for RAM below if the HA check ran.
+    comp_reasons: dict[str, dict] = {
+        dim: {'kind': 'forecast', 'severity': sev}
+        for dim, sev in severity_by_dim.items()
+    }
+
     # RAM N-1 HA check — overrides or fills in the forecast-based RAM score.
     ram_ha_sev = 'INFO'
+    ram_headroom_pct: float | None = None
     if nodes is not None and vm_mem_assigned is not None:
         ram_headroom_pct, ram_ha_sev = _ram_ha_check(nodes, vm_mem_assigned)
         if ram_headroom_pct is not None:
             comp_scores['ram'] = _SEVERITY_HEALTH.get(ram_ha_sev, 100.0)
+            comp_reasons['ram'] = {
+                'kind':         'ha',
+                'headroom_pct': round(ram_headroom_pct, 1),
+                'broken':       ram_headroom_pct < 0,
+                'severity':     ram_ha_sev,
+            }
 
     all_sevs = list(severity_by_dim.values())
     if nodes is not None and vm_mem_assigned is not None:
@@ -310,6 +331,7 @@ def run_cluster_health(
         growth_rates=growth_rates,
         efficiency_index=efficiency,
         component_scores=comp_scores,
+        component_reasons=comp_reasons,
         cluster_count=1,   # D4: Phase 2 single-cluster; schema supports many
         severity=severity,
     )

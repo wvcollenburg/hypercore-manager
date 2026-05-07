@@ -410,8 +410,8 @@ class Writer:
                         INSERT INTO recommendations.cluster_health_scores
                             (cluster_id, health_score, bottleneck_resource,
                              growth_rates, efficiency_index, component_scores,
-                             cluster_count, severity)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                             component_reasons, cluster_count, severity)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                         RETURNING id
                         ''',
                         (
@@ -421,6 +421,7 @@ class Writer:
                             json.dumps(health.growth_rates),
                             health.efficiency_index,
                             json.dumps(health.component_scores),
+                            json.dumps(health.component_reasons),
                             health.cluster_count,
                             health.severity,
                         ),
