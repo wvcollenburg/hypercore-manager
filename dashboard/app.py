@@ -731,6 +731,27 @@ def sentinel_summary():
                 )
                 fc = cur.fetchone()
 
+                # Latest cluster-wide forecast row per dimension — gives the
+                # current_capacity used for N+1 calculations so the dashboard
+                # can express growth rates as "% of capacity per year".
+                cur.execute(
+                    '''SELECT DISTINCT ON (resource_dimension)
+                              resource_dimension, current_usage, current_capacity
+                       FROM recommendations.forecast_snapshots
+                       WHERE cluster_id = %s
+                         AND entity_label = 'Cluster'
+                         AND expires_at > NOW()
+                       ORDER BY resource_dimension, snapshot_at DESC''',
+                    [cid],
+                )
+                cluster_metrics = {
+                    r['resource_dimension']: {
+                        'usage':    float(r['current_usage'])    if r['current_usage']    is not None else None,
+                        'capacity': float(r['current_capacity']) if r['current_capacity'] is not None else None,
+                    }
+                    for r in cur.fetchall()
+                }
+
         return jsonify({
             'cluster_id': cid,
             'health': {
@@ -741,6 +762,7 @@ def sentinel_summary():
                 'as_of':            health_row['calculated_at'].isoformat() if health_row and health_row['calculated_at'] else None,
                 'component_scores': health_row['component_scores'] if health_row else None,
                 'growth_rates':     health_row['growth_rates']     if health_row else None,
+                'cluster_metrics':  cluster_metrics,
             },
             'right_sizing': {
                 'over_provisioned':  sizing.get('over_provisioned',  0),

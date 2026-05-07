@@ -2703,6 +2703,8 @@ async function loadSentinelOverview() {
                      score >= 50   ? 'var(--accent-amber)' : 'var(--accent-red)';
 
   const cs = h.component_scores || {};
+  const gr = h.growth_rates     || {};
+  const cm = h.cluster_metrics  || {};
   const _dimOrder = ['cpu', 'ram', 'storage_capacity', 'storage_latency', 'network'];
   const breakdownDims = _dimOrder.filter(d => cs[d] != null);
   const _scoreColor = s =>
@@ -2711,6 +2713,43 @@ async function loadSentinelOverview() {
     s >= 70   ? 'var(--accent-purple)' :
     s >= 40   ? 'var(--accent-amber)' :
                 'var(--accent-red)';
+
+  // Annualised growth-rate formatting per dimension.  Slope is per-day in the
+  // dimension's natural units (cpu pp/day, ram bytes/day, network bps/day,
+  // latency µs/day); growth_rates already contains slope*365.
+  const _signed = (v, fn) => {
+    if (v == null) return '—';
+    return (v < 0 ? '−' : '+') + fn(Math.abs(v));
+  };
+  const _bytesUnit = v =>
+    v >= 1024**4 ? (v/1024**4).toFixed(2) + ' TB' :
+    v >= 1024**3 ? (v/1024**3).toFixed(2) + ' GB' :
+    v >= 1024**2 ? (v/1024**2).toFixed(2) + ' MB' :
+    v >= 1024    ? (v/1024).toFixed(2)    + ' KB' :
+                   v.toFixed(0)           + ' B';
+  const _bpsUnit = v =>
+    v >= 1e9 ? (v/1e9).toFixed(2) + ' Gbps' :
+    v >= 1e6 ? (v/1e6).toFixed(2) + ' Mbps' :
+    v >= 1e3 ? (v/1e3).toFixed(2) + ' Kbps' :
+               v.toFixed(0)       + ' bps';
+  const _fmtGrowth = (dim, growth, capacity) => {
+    if (growth == null) return '';
+    let abs;
+    switch (dim) {
+      case 'cpu':              abs = _signed(growth, v => v.toFixed(2) + '%');     break;
+      case 'ram':
+      case 'storage_capacity': abs = _signed(growth, _bytesUnit);                   break;
+      case 'storage_latency':  abs = _signed(growth, v => v.toFixed(1) + ' µs');   break;
+      case 'network':          abs = _signed(growth, _bpsUnit);                     break;
+      default:                 abs = _signed(growth, v => v.toFixed(2));
+    }
+    abs += '/yr';
+    if (dim === 'ram' && capacity) {
+      const pct = (growth / capacity) * 100;
+      return abs + ' · ' + _signed(pct, v => v.toFixed(2) + '%') + '/yr';
+    }
+    return abs;
+  };
 
   el.innerHTML = `
     <div class="health-gauge">
@@ -2749,6 +2788,7 @@ async function loadSentinelOverview() {
           const s = cs[d];
           const color = _scoreColor(s);
           const w = Math.max(0, Math.min(100, s));
+          const growthStr = _fmtGrowth(d, gr[d], (cm[d] || {}).capacity);
           return `
             <div style="display:flex;align-items:center;gap:12px;font-size:12px;">
               <span style="min-width:140px;color:var(--text-secondary)">${dimLabel(d)}</span>
@@ -2756,6 +2796,7 @@ async function loadSentinelOverview() {
                 <div style="height:100%;width:${w}%;background:${color};transition:width 0.3s ease;"></div>
               </div>
               <span style="min-width:36px;text-align:right;color:${color};font-weight:600;">${Math.round(s)}</span>
+              <span style="min-width:190px;text-align:right;color:var(--text-muted);font-size:11px;font-variant-numeric:tabular-nums;">${growthStr}</span>
             </div>`;
         }).join('')}
       </div>
