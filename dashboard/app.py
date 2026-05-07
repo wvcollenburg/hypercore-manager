@@ -733,10 +733,15 @@ def sentinel_summary():
 
                 # Latest cluster-wide forecast row per dimension — gives the
                 # current_capacity used for N+1 calculations so the dashboard
-                # can express growth rates as "% of capacity per year".
+                # can express growth rates as "% of capacity per year".  The
+                # model_metadata also carries the daily_aggregate that was
+                # active when this analysis ran, so the breakdown badge
+                # reflects what the bars are *actually* based on rather than
+                # the current pending setting (which may have changed since).
                 cur.execute(
                     '''SELECT DISTINCT ON (resource_dimension)
-                              resource_dimension, current_usage, current_capacity
+                              resource_dimension, current_usage, current_capacity,
+                              model_metadata
                        FROM recommendations.forecast_snapshots
                        WHERE cluster_id = %s
                          AND entity_label = 'Cluster'
@@ -744,25 +749,15 @@ def sentinel_summary():
                        ORDER BY resource_dimension, snapshot_at DESC''',
                     [cid],
                 )
-                cluster_metrics = {
-                    r['resource_dimension']: {
+                cluster_metrics = {}
+                daily_aggregate = None
+                for r in cur.fetchall():
+                    cluster_metrics[r['resource_dimension']] = {
                         'usage':    float(r['current_usage'])    if r['current_usage']    is not None else None,
                         'capacity': float(r['current_capacity']) if r['current_capacity'] is not None else None,
                     }
-                    for r in cur.fetchall()
-                }
-
-                # Current daily-aggregate setting — shown on the breakdown card
-                # so operators know which view (mean / p95 / max) the bars are
-                # based on without having to dig into Settings.  Falls back to
-                # 'mean' when the tunable hasn't been seeded yet.
-                cur.execute(
-                    '''SELECT value FROM config.tunables
-                       WHERE cluster_id = %s AND key = 'SENTINEL_FORECAST_DAILY_AGGREGATE' ''',
-                    [cid],
-                )
-                agg_row = cur.fetchone()
-                daily_aggregate = agg_row['value'] if agg_row else 'mean'
+                    if daily_aggregate is None and r['model_metadata']:
+                        daily_aggregate = r['model_metadata'].get('daily_aggregate')
 
         return jsonify({
             'cluster_id': cid,
@@ -1209,6 +1204,34 @@ def sentinel_put_tunables():
         rq = _req.Request(
             f'{sentinel_api_url}/api/v1/tunables',
             data=payload, headers=headers, method='PUT',
+        )
+        with _req.urlopen(rq, timeout=10) as resp:
+            return jsonify(json.loads(resp.read().decode()))
+    except urllib.error.HTTPError as e:
+        body_err = e.read().decode(errors='replace')
+        return jsonify({'error': body_err}), e.code
+    except Exception as e:
+        return jsonify({'error': f'Sentinel unreachable: {e}'}), 503
+
+
+@app.route('/api/sentinel/trend/run', methods=['POST'])
+@require_auth
+@require_admin
+def sentinel_trigger_trend_run():
+    """Forward POST /api/sentinel/trend/run → sentinel /api/v1/trend/run."""
+    import urllib.request as _req
+    import urllib.error
+
+    sentinel_api_url = os.getenv('SENTINEL_API_URL', 'http://sentinel:8081')
+    sentinel_token   = os.getenv('SENTINEL_API_TOKEN', '')
+
+    try:
+        headers = {'Content-Type': 'application/json'}
+        if sentinel_token:
+            headers['Authorization'] = f'Bearer {sentinel_token}'
+        rq = _req.Request(
+            f'{sentinel_api_url}/api/v1/trend/run',
+            data=b'', headers=headers, method='POST',
         )
         with _req.urlopen(rq, timeout=10) as resp:
             return jsonify(json.loads(resp.read().decode()))
