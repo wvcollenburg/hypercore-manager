@@ -103,16 +103,18 @@ def _collect_and_analyse(reader, live_cfg, writer) -> dict:
     from analysis.resize_advisor import run_resize_advisor
     from analysis.rightsizing    import run_rightsizing
 
-    nodes   = collect_nodes(reader, live_cfg)
-    vms     = collect_vms(reader, live_cfg)
-    storage = collect_storage(reader, live_cfg)
-    vm_mem  = reader.query_vm_mem_assigned()
+    nodes       = collect_nodes(reader, live_cfg)
+    vms         = collect_vms(reader, live_cfg)
+    storage     = collect_storage(reader, live_cfg)
+    vm_mem      = reader.query_vm_mem_assigned()
+    running_vms = reader.query_running_vms()
 
     snapshot = {
         'nodes':           nodes,
         'vms':             vms,
         'storage':         storage,
         'vm_mem_assigned': vm_mem,
+        'running_vm_uuids': running_vms,
     }
 
     # Phase 1 + B3/B4/B9
