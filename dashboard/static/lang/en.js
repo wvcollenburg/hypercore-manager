@@ -155,6 +155,8 @@ window.LANG = {
   'sentinel.bottleneck':        'Bottleneck resource',
   'sentinel.efficiency':        'Efficiency index',
   'sentinel.as_of':             'As of',
+  'sentinel.health_breakdown':       'Component Health Breakdown',
+  'sentinel.health_breakdown_hint':  'Each dimension scores 0–100. Lower scores drag the overall cluster health down — focus on the dimension flagged as the bottleneck above.',
   'sentinel.active_forecasts':  'Active Forecasts',
   'sentinel.over_provisioned':  'Over-Provisioned VMs',
   'sentinel.under_provisioned': 'Under-Provisioned VMs',

@@ -155,6 +155,8 @@ window.LANG = {
   'sentinel.bottleneck':        "Ressource goulot d'\u00e9tranglement",
   'sentinel.efficiency':        "Indice d'efficacit\u00e9",
   'sentinel.as_of':             'Au',
+  'sentinel.health_breakdown':       'D\u00e9tail de la sant\u00e9 par composant',
+  'sentinel.health_breakdown_hint':  "Chaque dimension est not\u00e9e de 0 \u00e0 100. Les scores faibles font baisser la sant\u00e9 globale du cluster \u2014 concentrez-vous sur la dimension identifi\u00e9e comme goulot d'\u00e9tranglement ci-dessus.",
   'sentinel.active_forecasts':  'Pr\u00e9visions actives',
   'sentinel.over_provisioned':  'MV sur-provisonn\u00e9es',
   'sentinel.under_provisioned': 'MV sous-provisonn\u00e9es',
