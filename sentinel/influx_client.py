@@ -344,6 +344,37 @@ from(bucket: "{self._cfg.influx_bucket}")
         rows = self._query(flux)
         return {r['vm_uuid']: int(r['value'] or 0) for r in rows if r.get('vm_uuid')}
 
+    def query_running_vms(self) -> set[str]:
+        """
+        Return the set of vm_uuids whose latest vm_inventory record reports
+        vm_state == "RUNNING".
+
+        Used by the analysis layer to skip powered-off and deleted VMs.  The
+        existing query_vm_mem_assigned() filters to RUNNING records first then
+        takes last(), so it includes any VM that was running at any point in
+        the 24h window — wrong filter for "is this VM currently running".
+        Here we take last() across all states first and only keep records
+        whose latest state is RUNNING, so a VM powered off after running
+        earlier today is correctly excluded.
+
+        Returns an empty set on InfluxDB error so callers can fall back to no
+        filtering rather than purging everything.
+        """
+        flux = f'''
+from(bucket: "{self._cfg.influx_bucket}")
+  |> range(start: -24h)
+  |> filter(fn: (r) => r._measurement == "vm_inventory" and r._field == "mem_bytes")
+  |> last()
+  |> filter(fn: (r) => r.vm_state == "RUNNING")
+  |> keep(columns: ["vm_uuid"])
+'''
+        try:
+            rows = self._query(flux)
+            return {r['vm_uuid'] for r in rows if r.get('vm_uuid')}
+        except Exception:
+            log.exception('query_running_vms failed')
+            return set()
+
     def query_active_vms(self, window_minutes: int) -> dict[str, str]:
         """
         Return VMs seen in the last window_minutes from vm_metrics.

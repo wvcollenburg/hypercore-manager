@@ -314,6 +314,16 @@ def run_rightsizing(
     storage: StorageSnapshot | None  = metrics_cache.get('storage')
     results: list[RightSizingResult] = []
 
+    # Currently-RUNNING VMs from vm_inventory's latest record.  Used to skip
+    # powered-off and deleted VMs whose historical samples still sit in the
+    # 30-day analysis window (and whose preserved node_uuid would otherwise
+    # bypass the assignment check below).  An empty set means the lookup
+    # failed — fall back to no filtering rather than purging everything.
+    running_vm_uuids: set[str] = metrics_cache.get('running_vm_uuids') or set()
+    if not running_vm_uuids:
+        log.warning('Running-VM set is empty — rightsizing will not filter '
+                    'powered-off / deleted VMs this cycle')
+
     for vm in vms.values():
         if not vm.cpu_values:
             continue
@@ -325,6 +335,16 @@ def run_rightsizing(
         if not vm.node_uuid or vm.node_uuid.lower() in ('', 'unknown'):
             log.debug('Skipping VM with no node assignment (powered off/template)',
                       extra={'vm_name': vm.vm_name})
+            continue
+
+        # Skip VMs whose latest vm_inventory record is not RUNNING — covers
+        # powered-off VMs (whose old samples retain a node_uuid) and deleted
+        # VMs (no current inventory record at all).  Bypassed when the
+        # running-VM lookup returned empty so a transient InfluxDB hiccup
+        # doesn't suppress all rightsizing output.
+        if running_vm_uuids and vm.vm_uuid not in running_vm_uuids:
+            log.debug('Skipping VM not currently running',
+                      extra={'vm_name': vm.vm_name, 'vm_uuid': vm.vm_uuid})
             continue
 
         cpu_mean = vm.cpu_mean or 0.0
