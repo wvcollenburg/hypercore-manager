@@ -28,8 +28,8 @@ DEFAULT_CLUSTER_ID = os.getenv('SC_CLUSTER_ID', '00000000-0000-0000-0000-0000000
 
 TunableDef = namedtuple('TunableDef', [
     'env_var', 'default', 'type_hint', 'live_reload',
-    'cfg_field', 'label', 'unit', 'description',
-])
+    'cfg_field', 'label', 'unit', 'description', 'allowed_values',
+], defaults=[None])  # allowed_values is optional — only used for type_hint='enum'
 
 # Registry: DB key → TunableDef
 # All keys use live_reload=True — all are re-read before each analysis cycle.
@@ -112,6 +112,14 @@ TUNABLES: dict = {
         cfg_field='forecast_min_r2_for_exhaustion',
         label='Min r² for Exhaustion', unit='',
         description='Minimum r² required before a positive slope produces an exhaustion date. Suppresses spurious alerts on near-flat series; raise toward 1.0 to require a stronger trend, lower toward 0.0 to disable the gate.',
+    ),
+    'SENTINEL_FORECAST_DAILY_AGGREGATE': TunableDef(
+        env_var='SENTINEL_FORECAST_DAILY_AGGREGATE',
+        default='mean', type_hint='enum', live_reload=True,
+        cfg_field='forecast_daily_aggregate',
+        label='Daily Aggregate', unit='',
+        description='How sub-day samples roll up into the daily data point used by cluster forecasts. mean = time-weighted average, suits steady workloads. p95 = 95th-percentile sample, captures sustained peak in spiky / VDI environments without being skewed by transient spikes. max = single highest sample, worst-case visibility.',
+        allowed_values=['mean', 'p95', 'max'],
     ),
     # ── Maintenance ─────────────────────────────────────────────────────────
     'SENTINEL_RETENTION_MONTHS': TunableDef(
@@ -319,15 +327,16 @@ def get_with_meta() -> list:
             value = _env_fallback(key)
             updated_at_str = None
         result.append({
-            'key':         key,
-            'value':       value,
-            'default':     defn.default,
-            'type':        defn.type_hint,
-            'live_reload': defn.live_reload,
-            'label':       defn.label,
-            'unit':        defn.unit,
-            'description': defn.description,
-            'updated_at':  updated_at_str,
+            'key':            key,
+            'value':          value,
+            'default':        defn.default,
+            'type':           defn.type_hint,
+            'live_reload':    defn.live_reload,
+            'label':          defn.label,
+            'unit':           defn.unit,
+            'description':    defn.description,
+            'allowed_values': defn.allowed_values,
+            'updated_at':     updated_at_str,
         })
     return result
 

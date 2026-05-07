@@ -80,6 +80,22 @@ class Config:
         default_factory=lambda: _float('SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION', 0.5)
     )
 
+    # ── Cluster forecast daily aggregation ───────────────────────────────────
+    # How sub-day samples roll up into the daily data point used by cluster
+    # CPU / RAM / storage forecasts.
+    #   mean  — time-weighted average across the day.  Best for steady
+    #           workloads; understates peak in spiky / VDI environments.
+    #   p95   — 95th-percentile sample.  Captures sustained peak (busiest
+    #           ~1.2 hours of the day) without being fooled by single-spike
+    #           outliers.  Recommended for VDI and other non-persistent
+    #           workloads where capacity must absorb the daytime peak.
+    #   max   — single highest sample of the day.  Most sensitive to brief
+    #           spikes from backup jobs, deploy/teardown, etc.  Use only when
+    #           you specifically want worst-case visibility.
+    forecast_daily_aggregate: str = field(
+        default_factory=lambda: _str('SENTINEL_FORECAST_DAILY_AGGREGATE', 'mean')
+    )
+
     # ── Right-sizing thresholds ──────────────────────────────────────────────
     # C1: flag VMs using less than this % of allocated CPU
     cpu_over_provisioned_threshold: float = field(

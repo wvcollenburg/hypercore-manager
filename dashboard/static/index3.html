@@ -3595,6 +3595,12 @@ const SENT_INFO = {
     benefits: 'Suppresses spurious exhaustion alerts on near-flat series. A fit with r² of 0.2 explains only 20% of variance — extrapolating it forward produces dates that wander cycle to cycle. The default 0.5 keeps alerts focused on meaningful trends.',
     careful: 'Raising too high (e.g. 0.9) hides real but gradual trends — you may miss a genuine exhaustion runway. Setting to 0 disables the gate so any positive slope produces an exhaustion date regardless of fit quality.',
   },
+  SENTINEL_FORECAST_DAILY_AGGREGATE: {
+    label: 'DAILY AGGREGATE',
+    what: 'How sub-day samples roll up into the daily data point used by cluster CPU / RAM / storage forecasts. mean = time-weighted average across the day. p95 = the 95th-percentile sample (roughly the busiest 1.2 hours). max = single highest sample of the day.',
+    benefits: 'mean suits steady workloads where load is roughly constant. p95 captures sustained peak — best for VDI, batch-jobs, or any environment with a strong day/night pattern; the daily mean understates peak in those cases. max gives worst-case visibility but is sensitive to brief spikes (backup jobs, deploy/teardown) so use it deliberately.',
+    careful: 'Switching to p95 or max makes growth rates look higher because daytime peaks count more than off-hours idle — that is the correct signal for capacity planning, but expect the absolute numbers to shift after the change. The choice does not affect per-VM right-sizing or per-VSD latency forecasts; it only changes how the cluster aggregates are built.',
+  },
   SENTINEL_FORECAST_30D_ENABLED: {
     label: '30D FORECAST',
     what: 'Enables the 30-day short-term capacity forecast (B1) for all tracked resource dimensions: CPU, RAM, storage capacity, storage latency, and network.',
@@ -3666,6 +3672,7 @@ const SENT_GROUPS = [
       'SENTINEL_FORECAST_365D_ENABLED',
       'SENTINEL_ANOMALY_FILTER_ENABLED',
       'SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION',
+      'SENTINEL_FORECAST_DAILY_AGGREGATE',
     ],
   },
   {
@@ -3731,6 +3738,11 @@ function onSentToggle(key, gid, cbEl) {
   if (lbl) { lbl.textContent = cbEl.checked ? 'ON' : 'OFF'; lbl.style.color = cbEl.checked ? 'var(--accent-cyan)' : 'var(--text-secondary)'; }
   _sentMarkDirty(gid);
 }
+function onSentSelect(key, gid, selEl) {
+  if (!_sStagedSent[gid]) _sStagedSent[gid] = {};
+  _sStagedSent[gid][key] = selEl.value;
+  _sentMarkDirty(gid);
+}
 
 function _renderSentControl(meta, gid, readOnly = false) {
   const labelRow = `<div class="ctrl-label-row"><div class="ctrl-label">${meta.label}${meta.unit ? '<span style="color:var(--text-muted);margin-left:3px;">'+meta.unit+'</span>' : ''}</div>${_infoBtn(meta.key)}</div>`;
@@ -3752,6 +3764,21 @@ function _renderSentControl(meta, gid, readOnly = false) {
           <div class="toggle-state-label" id="stgl-lbl-${meta.key}"
                style="color:${stateColor}">${stateLabel}</div>
         </div>
+      </div>`;
+  }
+
+  if (meta.type === 'enum') {
+    const opts = (meta.allowed_values || []).map(v =>
+      `<option value="${v}"${v === meta.value ? ' selected' : ''}>${v}</option>`
+    ).join('');
+    return `
+      <div class="ctrl-strip">
+        ${labelRow}
+        <select id="ssel_${meta.key}"${dis}
+                onchange="onSentSelect('${meta.key}','${gid}',this)"
+                style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:4px;font-size:12px;width:100%;">
+          ${opts}
+        </select>
       </div>`;
   }
 

@@ -851,6 +851,9 @@ def put_tunables():
         defn = _tunables.TUNABLES[key]
         try:
             val = _tunables._cast(raw_val, defn.type_hint)
+            # Enum constraint
+            if defn.type_hint == 'enum' and defn.allowed_values and val not in defn.allowed_values:
+                raise ValueError(f'Must be one of: {", ".join(defn.allowed_values)}')
             # Range checks for numeric keys
             if defn.type_hint in ('float', 'int') and defn.unit == '%':
                 if not (0 <= val <= 100):
