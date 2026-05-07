@@ -1143,6 +1143,63 @@ def build_schema() -> list[Section]:
             ],
         ),
 
+        # -------- Sentinel forecast tuning --------
+        Section(
+            key="sentinel_forecast_tuning",
+            title="Sentinel — Forecast tuning",
+            blurb="Quality gate + daily aggregation for cluster-level forecasts",
+            profiles={PROFILE_SENTINEL},
+            fields=[
+                Field(
+                    key="SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION",
+                    label="Min r² for exhaustion",
+                    type="float",
+                    default="0.5",
+                    description=(
+                        "Minimum r² a linear regression must achieve before a "
+                        "positive slope is allowed to produce an exhaustion date. "
+                        "Suppresses spurious 'will exhaust' alerts driven by noise "
+                        "on near-flat series. 0.0 disables the gate entirely."
+                    ),
+                    why_default=(
+                        "0.5 — the linear model must explain at least 50% of the "
+                        "variance, which filters out trends dominated by jitter "
+                        "without being so strict that real growth gets ignored."
+                    ),
+                    when_change=(
+                        "Raise (0.7-0.8) to suppress more borderline forecasts. "
+                        "Lower if you want exhaustion alerts on noisier series."
+                    ),
+                    profiles={PROFILE_SENTINEL},
+                ),
+                Field(
+                    key="SENTINEL_FORECAST_DAILY_AGGREGATE",
+                    label="Daily aggregate",
+                    type="choice",
+                    choices=["mean", "p95", "max"],
+                    default="mean",
+                    description=(
+                        "How sub-day samples roll up into the daily data point used "
+                        "by cluster CPU / RAM / storage forecasts. "
+                        "mean = time-weighted average (steady workloads). "
+                        "p95 = 95th percentile (sustained peak in spiky / VDI "
+                        "fleets without skew from transient spikes). "
+                        "max = single highest sample (worst-case visibility)."
+                    ),
+                    why_default=(
+                        "mean — best fit for typical mixed workloads where the "
+                        "average represents the true sustained demand."
+                    ),
+                    when_change=(
+                        "Switch to p95 in VDI / call-centre / spiky environments "
+                        "where the peak matters more than the average. Use max "
+                        "only if you size strictly for the worst observed sample."
+                    ),
+                    profiles={PROFILE_SENTINEL},
+                ),
+            ],
+        ),
+
         # -------- Sentinel right-sizing --------
         Section(
             key="sentinel_rightsize",
