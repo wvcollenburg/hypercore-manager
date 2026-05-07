@@ -4,6 +4,7 @@
 
 # ── Secrets & environment ────────────────────────────────────────────────────
 .env
+.env.bak*
 .claude/
 *.env
 !.env.template
@@ -16,7 +17,6 @@ __pycache__/
 *.so
 *.egg
 *.egg-info/
-dist/
 build/
 .eggs/
 .tox/
