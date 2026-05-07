@@ -157,6 +157,7 @@ window.LANG = {
   'sentinel.as_of':             'Vanaf',
   'sentinel.health_breakdown':       'Gezondheid per component',
   'sentinel.health_breakdown_hint':  'Elke dimensie krijgt een score van 0\u2013100. Lage scores trekken de algehele clustergezondheid omlaag \u2014 richt je op de dimensie die hierboven als knelpunt is aangemerkt.',
+  'sentinel.based_on':               'gebaseerd op:',
   'sentinel.active_forecasts':  'Actieve prognoses',
   'sentinel.over_provisioned':  "Overgeprovisioneerde VM's",
   'sentinel.under_provisioned': "Ondergeprovisioneerde VM's",

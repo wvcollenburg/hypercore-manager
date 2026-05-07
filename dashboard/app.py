@@ -752,6 +752,18 @@ def sentinel_summary():
                     for r in cur.fetchall()
                 }
 
+                # Current daily-aggregate setting — shown on the breakdown card
+                # so operators know which view (mean / p95 / max) the bars are
+                # based on without having to dig into Settings.  Falls back to
+                # 'mean' when the tunable hasn't been seeded yet.
+                cur.execute(
+                    '''SELECT value FROM config.tunables
+                       WHERE cluster_id = %s AND key = 'SENTINEL_FORECAST_DAILY_AGGREGATE' ''',
+                    [cid],
+                )
+                agg_row = cur.fetchone()
+                daily_aggregate = agg_row['value'] if agg_row else 'mean'
+
         return jsonify({
             'cluster_id': cid,
             'health': {
@@ -763,6 +775,7 @@ def sentinel_summary():
                 'component_scores': health_row['component_scores'] if health_row else None,
                 'growth_rates':     health_row['growth_rates']     if health_row else None,
                 'cluster_metrics':  cluster_metrics,
+                'daily_aggregate':  daily_aggregate,
             },
             'right_sizing': {
                 'over_provisioned':  sizing.get('over_provisioned',  0),
