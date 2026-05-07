@@ -1052,6 +1052,34 @@ def get_export_snapshot():
         return jsonify({'error': str(e)}), 500
 
 
+@_api_app.route('/api/v1/trend/run', methods=['POST'])
+@_require_token
+def post_trend_run():
+    """
+    Trigger an immediate analysis cycle.
+
+    Signals the analysis loop to wake from its trend-interval sleep and run
+    the next forecast pass right away.  Useful after a config change or
+    forecaster code update so operators don't have to wait out the full
+    trend_interval_seconds (default 1 hour).
+
+    Returns 503 if the trigger callable was not wired up at startup.
+    """
+    trigger = _api_app.config.get('TRIGGER_ANALYSIS')
+    if trigger is None:
+        return jsonify({
+            'success': False,
+            'error':   'Trigger not configured — analysis loop is not running.',
+        }), 503
+    try:
+        trigger()
+    except Exception as e:
+        log.exception('POST /api/v1/trend/run: trigger failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+    log.info('Analysis cycle requested via API')
+    return jsonify({'success': True, 'message': 'Analysis cycle triggered'})
+
+
 @_api_app.route('/api/v1/export/test-push', methods=['POST'])
 @_require_token
 def post_export_test_push():
@@ -1221,10 +1249,17 @@ def get_export_hcb():
 # Startup
 # ---------------------------------------------------------------------------
 
-def start(cfg: cfg_module.Config) -> None:
-    """Start the REST API server in a daemon thread."""
-    _api_app.config['SENTINEL_CFG'] = cfg
-    _api_app.config['API_TOKEN']    = cfg.api_token
+def start(cfg: cfg_module.Config, trigger_analysis_fn=None) -> None:
+    """
+    Start the REST API server in a daemon thread.
+
+    trigger_analysis_fn is an optional callable that, when invoked, signals the
+    analysis loop to run on its next iteration.  Wired up by sentinel.py so the
+    POST /api/v1/trend/run endpoint can request an immediate forecast cycle.
+    """
+    _api_app.config['SENTINEL_CFG']     = cfg
+    _api_app.config['API_TOKEN']        = cfg.api_token
+    _api_app.config['TRIGGER_ANALYSIS'] = trigger_analysis_fn
 
     def _run() -> None:
         _api_app.run(
