@@ -328,17 +328,26 @@ from(bucket: "{self._cfg.influx_bucket}")
 
     def query_vm_mem_assigned(self) -> dict[str, int]:
         """
-        Return the latest mem_bytes (assigned RAM, bytes) per running VM.
-        Only RUNNING VMs are included — powered-off VMs hold no HA reservation.
+        Return the latest mem_bytes (assigned RAM, bytes) per currently-running VM.
+        Powered-off VMs hold no HA reservation and are excluded.
         Returns a dict of {vm_uuid: mem_bytes}.
-        Uses a 24-hour lookback — vm_inventory is written every collection cycle.
+
+        The grouping matters here.  Default Flux grouping after `from() filter()`
+        includes every tag — vm_state among them.  If we did `last()` first we
+        would get the last record *per (vm_uuid, vm_state) combination*, so a
+        VM that ran yesterday and is stopped today would still surface its
+        yesterday-RUNNING record and inflate the assigned total.  Explicitly
+        regrouping to just `vm_uuid` collapses every state into one stream per
+        VM, so `last()` gives the genuine most-recent record and the trailing
+        state filter keeps only those whose latest state is RUNNING.
         """
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: -24h)
-  |> filter(fn: (r) => r._measurement == "vm_inventory" and r._field == "mem_bytes"
-       and r.vm_state == "RUNNING")
+  |> filter(fn: (r) => r._measurement == "vm_inventory" and r._field == "mem_bytes")
+  |> group(columns: ["vm_uuid"])
   |> last()
+  |> filter(fn: (r) => r.vm_state == "RUNNING")
   |> keep(columns: ["_time", "_value", "vm_uuid"])
 '''
         rows = self._query(flux)
@@ -347,15 +356,13 @@ from(bucket: "{self._cfg.influx_bucket}")
     def query_running_vms(self) -> set[str]:
         """
         Return the set of vm_uuids whose latest vm_inventory record reports
-        vm_state == "RUNNING".
+        vm_state == "RUNNING".  Used by the analysis layer to skip
+        powered-off and deleted VMs.
 
-        Used by the analysis layer to skip powered-off and deleted VMs.  The
-        existing query_vm_mem_assigned() filters to RUNNING records first then
-        takes last(), so it includes any VM that was running at any point in
-        the 24h window — wrong filter for "is this VM currently running".
-        Here we take last() across all states first and only keep records
-        whose latest state is RUNNING, so a VM powered off after running
-        earlier today is correctly excluded.
+        See `query_vm_mem_assigned` for the explanation of the grouping
+        pattern — same situation: regroup to `vm_uuid` only before `last()`
+        so that filtering on `vm_state == "RUNNING"` after the fact reflects
+        each VM's *current* state, not "was running at any point in 24h".
 
         Returns an empty set on InfluxDB error so callers can fall back to no
         filtering rather than purging everything.
@@ -364,6 +371,7 @@ from(bucket: "{self._cfg.influx_bucket}")
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: -24h)
   |> filter(fn: (r) => r._measurement == "vm_inventory" and r._field == "mem_bytes")
+  |> group(columns: ["vm_uuid"])
   |> last()
   |> filter(fn: (r) => r.vm_state == "RUNNING")
   |> keep(columns: ["vm_uuid"])
