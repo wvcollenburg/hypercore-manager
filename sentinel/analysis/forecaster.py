@@ -221,26 +221,32 @@ def _maybe_filter(
 
 def _aggregate_series(
     series: list[tuple[list[datetime], list[float]]],
-    agg:    Literal['sum', 'mean'],
-    bucket: Literal['minute', 'day'] = 'day',
+    agg:        Literal['sum', 'mean'],
+    bucket:     Literal['minute', 'day']        = 'day',
+    bucket_agg: Literal['mean', 'p95', 'max']   = 'mean',
 ) -> tuple[list[datetime], list[float]]:
     """
     Combine per-entity time series into a single cluster-wide series.
 
     Samples are bucketed by `bucket` (default 'day').  Daily bucketing
     collapses intraday spikes from short-lived test VMs, nightly resets, and
-    other sub-day churn into a single mean per entity per day, so the cluster
-    fit reflects real cross-day trends rather than placement / test noise.
-    A 14-day window therefore produces ~14 cluster data points instead of
-    thousands of minute-level samples — fewer points but each one represents
-    a real day of cluster behaviour.
+    other sub-day churn into a single value per entity per day, so the
+    cluster fit reflects real cross-day trends rather than placement / test
+    noise.  A 14-day window therefore produces ~14 cluster data points
+    instead of thousands of minute-level samples — fewer points but each one
+    represents a real day of cluster behaviour.
 
-    Within a bucket, an entity's samples are averaged.  Across entities at
-    each bucket, values are aggregated by `agg`.  Missing entity values are
-    forward-filled from that entity's last observed bucket so a transient
-    sample gap on one node does not produce an artificial drop in the
-    cluster aggregate.  Buckets before every entity has been observed at
-    least once are dropped.
+    `bucket_agg` controls how samples within a bucket roll up per entity:
+        'mean' — time-weighted average; suits steady workloads.
+        'p95'  — 95th percentile; captures sustained peak (e.g. VDI
+                 daytime occupancy) without being skewed by transient spikes.
+        'max'  — single highest sample; worst-case visibility.
+
+    Across entities at each bucket, values are aggregated by `agg`.  Missing
+    entity values are forward-filled from that entity's last observed bucket
+    so a transient sample gap on one node does not produce an artificial
+    drop in the cluster aggregate.  Buckets before every entity has been
+    observed at least once are dropped.
     """
     if not series:
         return [], []
@@ -250,6 +256,13 @@ def _aggregate_series(
             return t.replace(hour=0, minute=0, second=0, microsecond=0)
         return t.replace(second=0, microsecond=0)
 
+    def _rollup(values_in_bucket: list[float]) -> float:
+        if bucket_agg == 'max':
+            return max(values_in_bucket)
+        if bucket_agg == 'p95':
+            return float(np.percentile(values_in_bucket, 95))
+        return sum(values_in_bucket) / len(values_in_bucket)
+
     entity_buckets: list[dict[datetime, float]] = []
     all_buckets: set[datetime] = set()
 
@@ -258,9 +271,9 @@ def _aggregate_series(
         for t, v in zip(times, values):
             b = _truncate(t)
             per_bucket.setdefault(b, []).append(v)
-        averaged = {b: sum(vs) / len(vs) for b, vs in per_bucket.items()}
-        entity_buckets.append(averaged)
-        all_buckets.update(averaged.keys())
+        rolled = {b: _rollup(vs) for b, vs in per_bucket.items()}
+        entity_buckets.append(rolled)
+        all_buckets.update(rolled.keys())
 
     if not all_buckets:
         return [], []
@@ -303,7 +316,7 @@ def _forecast_cluster_ram(
     if not nodes:
         return None
     series = [(n.ram_times, n.ram_values) for n in nodes.values()]
-    times, values = _aggregate_series(series, agg='sum')
+    times, values = _aggregate_series(series, agg='sum', bucket_agg=cfg.forecast_daily_aggregate)
     times, values = _maybe_filter(times, values, cfg)
     fit = _fit(times, values)
     if not fit:
@@ -383,7 +396,7 @@ def _forecast_cluster_cpu(
     if not nodes:
         return None
     series = [(n.cpu_times, n.cpu_values) for n in nodes.values()]
-    times, values = _aggregate_series(series, agg='mean')
+    times, values = _aggregate_series(series, agg='mean', bucket_agg=cfg.forecast_daily_aggregate)
     times, values = _maybe_filter(times, values, cfg)
     fit = _fit(times, values)
     if not fit:
@@ -552,7 +565,7 @@ def _forecast_cluster_storage(
     if not drives:
         return None
     series = [(d.times, d.values) for d in drives]
-    times, values = _aggregate_series(series, agg='sum')
+    times, values = _aggregate_series(series, agg='sum', bucket_agg=cfg.forecast_daily_aggregate)
     times, values = _maybe_filter(times, values, cfg)
     fit = _fit(times, values)
     if not fit:
