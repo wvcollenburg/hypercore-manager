@@ -3964,6 +3964,23 @@ async function applySentGroup(gid) {
   }
 }
 
+async function triggerSentinelAnalysisRun(btnEl) {
+  const originalLabel = btnEl ? btnEl.innerHTML : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = `<span class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:6px;"></span>${t('sentinel.analysis_triggering')}`; }
+  try {
+    const r = await fetch(`${API_BASE}/api/sentinel/trend/run`, { method: 'POST' });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${r.status}`);
+    }
+    showToast(t('sentinel.analysis_triggered'), 'ok');
+  } catch (e) {
+    showToast(t('sentinel.analysis_trigger_failed', {msg: e.message}), 'err');
+  } finally {
+    if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = originalLabel; }
+  }
+}
+
 async function loadSentinelSettings() {
   const el = document.getElementById('sentSettingsContent');
   try {
@@ -3976,7 +3993,13 @@ async function loadSentinelSettings() {
 
     const isAdmin = _currentUser?.role === 'admin';
 
-    el.innerHTML = SENT_GROUPS.map(group => {
+    const triggerBanner = isAdmin ? `
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:14px;">
+        <button class="apply-btn" style="white-space:nowrap;" onclick="triggerSentinelAnalysisRun(this)">${t('sentinel.analysis_run_now')}</button>
+        <div style="font-size:11px;color:var(--text-secondary);line-height:1.5;">${t('sentinel.analysis_run_hint')}</div>
+      </div>` : '';
+
+    el.innerHTML = triggerBanner + SENT_GROUPS.map(group => {
       const controls = group.keys
         .filter(k => byKey[k])
         .map(k => _renderSentControl(byKey[k], group.id, !isAdmin))
