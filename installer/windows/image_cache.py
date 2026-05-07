@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import ssl
 import tempfile
 import urllib.error
 import urllib.request
@@ -21,6 +22,22 @@ from typing import Callable, Optional
 DEFAULT_IMAGE_NAME = "ubuntu-24.04-server-cloudimg-amd64.img"
 DEFAULT_IMAGE_URL = f"https://cloud-images.ubuntu.com/releases/24.04/release/{DEFAULT_IMAGE_NAME}"
 DEFAULT_SHA256_URL = "https://cloud-images.ubuntu.com/releases/24.04/release/SHA256SUMS"
+
+
+def _build_ssl_context() -> ssl.SSLContext:
+    """Frozen PyInstaller builds on Windows can't reach the OS cert store, so
+    stdlib SSL fails with 'unable to get local issuer certificate'. Prefer
+    certifi's bundled CA (which PyInstaller picks up automatically), and fall
+    back to the system default for source runs where certifi isn't installed.
+    """
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
+
+
+_SSL_CONTEXT = _build_ssl_context()
 
 
 class ImageCacheError(Exception):
@@ -42,7 +59,7 @@ def _download(url: str, dest: Path, progress: Optional[Callable[[int, int], None
     """Stream a download to dest with progress callback."""
     tmp = dest.with_suffix(dest.suffix + ".part")
     try:
-        with urllib.request.urlopen(url, timeout=60) as resp:
+        with urllib.request.urlopen(url, timeout=60, context=_SSL_CONTEXT) as resp:
             total = int(resp.headers.get("Content-Length") or 0)
             done = 0
             with open(tmp, "wb") as out:
@@ -68,7 +85,7 @@ def _download(url: str, dest: Path, progress: Optional[Callable[[int, int], None
 def _expected_sha256(sha_url: str, image_name: str) -> Optional[str]:
     """Pull SHA256SUMS and look up the image's hash. Returns None if unavailable."""
     try:
-        with urllib.request.urlopen(sha_url, timeout=30) as resp:
+        with urllib.request.urlopen(sha_url, timeout=30, context=_SSL_CONTEXT) as resp:
             body = resp.read().decode("utf-8", errors="replace")
     except urllib.error.URLError:
         return None
