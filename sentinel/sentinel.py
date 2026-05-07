@@ -109,6 +109,16 @@ def _collect_and_analyse(reader, live_cfg, writer) -> dict:
     vm_mem      = reader.query_vm_mem_assigned()
     running_vms = reader.query_running_vms()
 
+    # query_vm_mem_assigned applies its RUNNING filter before last(), so it
+    # returns the last RUNNING record within 24h — which includes VMs that
+    # have since been powered off or deleted, inflating the HA assigned
+    # total.  Intersect with the currently-running set so the HA headroom
+    # check reflects only VMs that are actually running right now.  Skipped
+    # when running_vms came back empty (Influx hiccup) so we don't zero out
+    # the assigned total on a transient failure.
+    if running_vms:
+        vm_mem = {uid: mem for uid, mem in vm_mem.items() if uid in running_vms}
+
     snapshot = {
         'nodes':           nodes,
         'vms':             vms,
