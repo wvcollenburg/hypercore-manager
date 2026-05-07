@@ -1,7 +1,7 @@
 """Build the Windows deploy wizard into a single .exe via PyInstaller.
 
 Usage:
-    pip install pyinstaller
+    pip install pyinstaller certifi
     python -m installer.windows.build
 
 Output:
@@ -80,6 +80,11 @@ def main() -> int:
         sys.executable, "-m", "PyInstaller",
         "--noconfirm",
         "--clean",
+        # UPX-packed PyInstaller binaries trip Windows Defender heuristics
+        # ("Wacatac"/"Sabsik" false positives), which surfaces to end users
+        # as "Windows cannot access the specified device, path or file".
+        # Skip UPX until the .exe is code-signed.
+        "--noupx",
         "--onefile",
         "--windowed",
         "--name", "HyperCoreDeploy",
