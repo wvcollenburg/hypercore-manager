@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Connection
+# connection
 # ---------------------------------------------------------------------------
 
 def _connect():
@@ -45,7 +45,7 @@ def _connect():
 
 
 # ---------------------------------------------------------------------------
-# Schema bootstrap
+# schema bootstrap
 # ---------------------------------------------------------------------------
 
 def ensure_table() -> None:
@@ -58,8 +58,8 @@ def ensure_table() -> None:
         conn = _connect()
         try:
             with conn.cursor() as cur:
-                # Advisory lock scoped to this connection — only one worker
-                # runs the DDL at a time; others wait and then no-op.
+                # advisory lock scoped to this connection — only one worker
+                # runs the DDL at a time; others wait and then no-op
                 cur.execute('SELECT pg_advisory_xact_lock(987654321)')
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS config.users (
@@ -114,7 +114,7 @@ def seed_admin_from_env() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# public API
 # ---------------------------------------------------------------------------
 
 def has_any_users() -> bool:
