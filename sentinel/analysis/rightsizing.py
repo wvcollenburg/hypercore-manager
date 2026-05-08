@@ -105,7 +105,7 @@ def _weighted_composite(scores_weights: list[tuple[float, float]]) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Signal 1: CPU sustained
+# signal 1: CPU sustained
 # ---------------------------------------------------------------------------
 
 def _cpu_signal(vm: VMTimeSeries, cfg: cfg_module.Config, direction: str) -> tuple[float | None, dict]:
@@ -157,7 +157,7 @@ def _cpu_signal(vm: VMTimeSeries, cfg: cfg_module.Config, direction: str) -> tup
 
 
 # ---------------------------------------------------------------------------
-# Signal 2: Storage latency correlation
+# signal 2: storage latency correlation
 # ---------------------------------------------------------------------------
 
 def _latency_signal(vm_uuid: str, storage: StorageSnapshot | None) -> tuple[float | None, dict]:
@@ -221,7 +221,7 @@ def _latency_signal(vm_uuid: str, storage: StorageSnapshot | None) -> tuple[floa
 
 
 # ---------------------------------------------------------------------------
-# Signal 3: Recurring spike patterns
+# signal 3: recurring spike patterns
 # ---------------------------------------------------------------------------
 
 def _spike_signal(

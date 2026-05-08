@@ -57,7 +57,7 @@ class InfluxReader:
         log.info('InfluxDB reader initialised', extra={'url': cfg.influx_url, 'org': cfg.influx_org})
 
     # ------------------------------------------------------------------
-    # Low-level helpers
+    # low-level helpers
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -290,7 +290,7 @@ from(bucket: "{self._cfg.influx_bucket}")
                    'value': r['value']}
 
     # ------------------------------------------------------------------
-    # Small lookup queries  (lists — result sets are tiny)
+    # small lookup queries  (lists — result sets are tiny)
     # ------------------------------------------------------------------
 
     def query_vm_vcpu(self) -> dict[str, int]:

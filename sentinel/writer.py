@@ -283,7 +283,7 @@ class Writer:
         if not forecasts:
             return
 
-        # Pick one record per (cluster_id, node_uuid, dimension) — most severe
+        # pick one record per (cluster_id, node_uuid, dimension) — most severe
         best: dict[tuple, ForecastResult] = {}
         severity_order = {'EMERGENCY': 5, 'CRITICAL': 4, 'WARNING': 3, 'ATTENTION': 2, 'INFO': 1}
 
@@ -338,7 +338,7 @@ class Writer:
         self._emit_audit_events(inserted_ids, 'resource_exhaustion', 'recommendations.resource_exhaustion')
 
     # ------------------------------------------------------------------
-    # Resize recommendations (C3-C6)
+    # resize recommendations (C3-C6)
     # ------------------------------------------------------------------
 
     def write_resize_advice(self, advice: list[ResizeAdvice]) -> None:
@@ -396,7 +396,7 @@ class Writer:
         )
 
     # ------------------------------------------------------------------
-    # Cluster health (D1-D4, D6)
+    # cluster health (D1-D4, D6)
     # ------------------------------------------------------------------
 
     def write_cluster_health(self, health: ClusterHealthResult) -> None:
@@ -442,7 +442,7 @@ class Writer:
         )
 
     # ------------------------------------------------------------------
-    # Audit
+    # audit
     # ------------------------------------------------------------------
 
     def _emit_audit_events(
@@ -459,7 +459,7 @@ class Writer:
                         severity = getattr(obj, 'severity', 'INFO')
                         cluster_id = getattr(obj, 'cluster_id', self._cfg.cluster_id)
 
-                        # Build a JSON snapshot of the object for the audit record
+                        # build a JSON snapshot of the object for the audit record
                         payload = _sanitize_json({
                             k: _dt(v) if isinstance(v, (date, datetime)) else v
                             for k, v in obj.__dict__.items()
