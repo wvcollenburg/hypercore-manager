@@ -59,7 +59,7 @@ def render_netplan(net: NetworkConfig) -> str:
     body = {"network": {"version": 2, "ethernets": {"primary": eth}}}
     return json.dumps(body, indent=2)
 
-# Files/dirs that should never end up in the deploy tarball.
+# files/dirs that should never end up in the deploy tarball
 TARBALL_EXCLUDE_DIRS = {
     ".git", "__pycache__", ".claude", ".venv", "venv", "env",
     "node_modules", "tests", "dist", "build", ".pytest_cache",
@@ -170,11 +170,11 @@ def render_user_data(
         "timezone": timezone,
         "users": [
             {
-                # Don't add the user to the 'docker' group here — it doesn't
+                # don't add the user to the 'docker' group here — it doesn't
                 # exist until apt installs docker.io, and on some cloud-init
                 # versions referencing a missing group aborts the user-create
                 # module (which then blocks runcmd). Bootstrap runs
-                # `usermod -aG docker` after the package install.
+                # `usermod -aG docker` after the package install
                 "name": linux_user,
                 "groups": ["sudo"],
                 "shell": "/bin/bash",

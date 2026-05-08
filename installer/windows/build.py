@@ -66,14 +66,14 @@ def main() -> int:
     if DIST.exists():
         shutil.rmtree(DIST, ignore_errors=True)
 
-    # 1. Build the repo tarball that gets baked into the .exe.
+    # 1. build the repo tarball that gets baked into the .exe
     payload_dir = REPO_ROOT / "build" / "payload"
     payload_dir.mkdir(parents=True, exist_ok=True)
     payload_tarball = payload_dir / "repo.tar.gz"
     size = _build_payload_tarball(payload_tarball)
     print(f"Built payload tarball: {payload_tarball.name}  ({size / 1024:.1f} KB)")
 
-    # 2. Run PyInstaller. --add-data uses ';' on Windows, ':' elsewhere.
+    # 2. run PyInstaller — --add-data uses ';' on Windows, ':' elsewhere
     sep = ";" if sys.platform == "win32" else ":"
     icon_path = REPO_ROOT / "installer" / "favicon.ico"
     args = [
@@ -82,8 +82,8 @@ def main() -> int:
         "--clean",
         # UPX-packed PyInstaller binaries trip Windows Defender heuristics
         # ("Wacatac"/"Sabsik" false positives), which surfaces to end users
-        # as "Windows cannot access the specified device, path or file".
-        # Skip UPX until the .exe is code-signed.
+        # as "Windows cannot access the specified device, path or file" —
+        # skip UPX until the .exe is code-signed
         "--noupx",
         "--onefile",
         "--windowed",
@@ -93,10 +93,10 @@ def main() -> int:
         "--paths", str(REPO_ROOT),
     ]
     if icon_path.exists():
-        # --icon: shows in Windows Explorer / Start menu / taskbar.
+        # --icon: shows in Windows Explorer / start menu / taskbar
         # --add-data: bundles the .ico under sys._MEIPASS/installer/ so the
         #            wizard can call self.iconbitmap() at runtime for the
-        #            title-bar icon (separate from the .exe-file icon).
+        #            title-bar icon (separate from the .exe-file icon)
         args += ["--icon", str(icon_path)]
         args += ["--add-data", f"{icon_path}{sep}installer"]
     else:
