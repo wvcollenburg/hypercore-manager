@@ -24,17 +24,17 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Callable, Optional
 
 # ---------------------------------------------------------------------------
-# Path bootstrap so this file works from a PyInstaller bundle, the repo root,
-# or `python -m installer.windows.wizard`.
+# path bootstrap so this file works from a PyInstaller bundle, the repo root,
+# or `python -m installer.windows.wizard`
 # ---------------------------------------------------------------------------
 _THIS = Path(__file__).resolve()
 _REPO = _THIS.parent.parent.parent
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-# When frozen by PyInstaller, the bundled repo tarball lives next to the
+# when frozen by PyInstaller, the bundled repo tarball lives next to the
 # extracted scripts under sys._MEIPASS / "payload" / "repo.tar.gz". Outside
-# the bundle (dev runs) we'll build the tarball from the live repo.
+# the bundle (dev runs) we'll build the tarball from the live repo
 _BUNDLED_PAYLOAD: Optional[Path] = None
 _ICON_PATH: Optional[Path] = None
 if getattr(sys, "frozen", False):
@@ -93,7 +93,7 @@ from installer.windows.image_cache import (  # noqa: E402
 
 
 # =============================================================================
-# Wizard state
+# wizard state
 # =============================================================================
 
 @dataclass
@@ -114,7 +114,7 @@ class WizardState:
     vlan: int = 0
     timezone: str = "UTC"
 
-    # Network
+    # network
     net_mode: str = "dhcp"  # 'dhcp' | 'static'
     net_address_cidr: str = ""
     net_gateway: str = ""
@@ -125,12 +125,12 @@ class WizardState:
     linux_pass: str = ""
     ssh_pubkey: str = ""
 
-    # Dashboard credential (autogen by default; settable on the advanced page)
+    # dashboard credential (autogen by default; settable on the advanced page)
     dashboard_pass: str = ""
 
-    # Profile + values are the single source of truth for the .env we'll write.
+    # profile + values are the single source of truth for the .env we'll write.
     # Easy mode populates these from defaults+autogen. Advanced mode also lets
-    # the operator edit them directly via AdvancedSettingsPage.
+    # the operator edit them directly via AdvancedSettingsPage
     profiles: set[str] = field(default_factory=lambda: set(EASY_PROFILES))
     values: dict[str, str] = field(default_factory=dict)
     schema: list[SchemaSection] = field(default_factory=list)
@@ -138,7 +138,7 @@ class WizardState:
 
 
 # =============================================================================
-# Helpers
+# helpers
 # =============================================================================
 
 PAD = {"padx": 12, "pady": 6}
@@ -225,7 +225,7 @@ class _ConversionHeartbeat:
 
 
 # =============================================================================
-# Page framework
+# page framework
 # =============================================================================
 
 class WizardPage(ttk.Frame):
@@ -256,11 +256,11 @@ class Wizard(tk.Tk):
         self.minsize(860, 600)
 
         if _ICON_PATH:
-            # `default=` makes the icon apply to child Toplevels (dialogs) too.
+            # `default=` makes the icon apply to child Toplevels (dialogs) too
             try:
                 self.iconbitmap(default=str(_ICON_PATH))
             except tk.TclError:
-                # Some platforms / Tcl builds reject .ico — fall back to silent skip.
+                # some platforms / Tcl builds reject .ico — fall back to silent skip
                 pass
 
         try:
@@ -272,7 +272,7 @@ class Wizard(tk.Tk):
         self.pages: list[WizardPage] = []
         self.idx = 0
 
-        # Title strip
+        # title strip
         self.header = ttk.Frame(self)
         self.header.pack(fill="x")
         self.header_title = ttk.Label(self.header, font=("Segoe UI", 14, "bold"))
@@ -285,7 +285,7 @@ class Wizard(tk.Tk):
         self.body = ttk.Frame(self)
         self.body.pack(fill="both", expand=True)
 
-        # Footer
+        # footer
         ttk.Separator(self).pack(fill="x")
         self.footer = ttk.Frame(self)
         self.footer.pack(fill="x", side="bottom")
@@ -301,7 +301,7 @@ class Wizard(tk.Tk):
         self._build_pages()
         self._show(0)
 
-    # ----- Page assembly -----
+    # ----- page assembly -----
 
     def _build_pages(self) -> None:
         st = self.state_obj
@@ -374,7 +374,7 @@ class Wizard(tk.Tk):
 
 
 # =============================================================================
-# Pages
+# pages
 # =============================================================================
 
 class WelcomePage(WizardPage):
@@ -463,7 +463,7 @@ class ConnectionPage(WizardPage):
         ttk.Checkbutton(grid, text="Verify TLS certificate (off for self-signed)",
                         variable=self.tls_var).grid(row=3, column=1, sticky="w", pady=8)
 
-        # Test button + status
+        # test button + status
         action = ttk.Frame(self)
         action.pack(fill="x", **PAD)
         self.test_btn = ttk.Button(action, text="Test connection", command=self._test)
@@ -513,7 +513,7 @@ class ConnectionPage(WizardPage):
         if not self.state.cluster_pass:
             messagebox.showwarning("Password", "Please enter a password.")
             return False
-        # Normalise the IP into URL form so downstream code can use it directly.
+        # normalise the IP into URL form so downstream code can use it directly
         self.state.cluster_ip = host_only
         return True
 
@@ -528,7 +528,7 @@ class VMPage(WizardPage):
         grid.pack(fill="x", **PAD)
         grid.columnconfigure(1, weight=1)
 
-        # --- Always visible: identity + Linux account ---
+        # --- always visible: identity + Linux account ---
         ttk.Label(grid, text="VM name").grid(row=0, column=0, sticky="w", pady=4)
         self.name_var = tk.StringVar(value=state.vm_name)
         ttk.Entry(grid, textvariable=self.name_var).grid(row=0, column=1, sticky="ew", columnspan=2)
@@ -555,7 +555,7 @@ class VMPage(WizardPage):
         ttk.Entry(ssh_frame, textvariable=self.ssh_var).grid(row=0, column=0, sticky="ew")
         ttk.Button(ssh_frame, text="Browse…", command=self._pick_ssh, width=10).grid(row=0, column=1, padx=(8, 0))
 
-        # --- Always visible: Network ---
+        # --- always visible: network ---
         net = ttk.LabelFrame(self, text="Network")
         net.pack(fill="x", **PAD)
         net.columnconfigure(1, weight=1)
@@ -592,7 +592,7 @@ class VMPage(WizardPage):
                   text="    Examples: 192.168.1.50/24 ,  192.168.1.1 ,  8.8.8.8, 1.1.1.1").grid(
                       row=5, column=0, columnspan=4, sticky="w", padx=8, pady=(0, 6))
 
-        # --- Advanced-only: VM resources ---
+        # --- advanced-only: VM resources ---
         self.adv_frame = ttk.LabelFrame(self, text="VM resources (advanced)")
         self.adv_frame.pack(fill="x", **PAD)
         adv = self.adv_frame
@@ -620,7 +620,7 @@ class VMPage(WizardPage):
         self._sync_netmode()
 
     def on_show(self) -> None:
-        # VM resources are advanced-only; network frame is always shown.
+        # VM resources are advanced-only; network frame is always shown
         if self.state.mode == "easy":
             self.adv_frame.pack_forget()
         else:
@@ -666,7 +666,7 @@ class VMPage(WizardPage):
             messagebox.showwarning("Linux password", "Please enter or generate a Linux password.")
             return False
 
-        # Network
+        # network
         try:
             vlan = int(self.vlan_var.get())
         except (ValueError, tk.TclError):
@@ -791,7 +791,7 @@ class AdvancedSettingsPage(WizardPage):
             "<Configure>",
             lambda e: self._fields_canvas.itemconfigure(self._fields_canvas_window, width=e.width),
         )
-        # Mouse-wheel scrolling on the canvas
+        # mouse-wheel scrolling on the canvas
         self._fields_canvas.bind("<Enter>", lambda _e: self._fields_canvas.bind_all(
             "<MouseWheel>", self._on_mousewheel))
         self._fields_canvas.bind("<Leave>", lambda _e: self._fields_canvas.unbind_all("<MouseWheel>"))
@@ -807,7 +807,7 @@ class AdvancedSettingsPage(WizardPage):
         sb3.pack(side="right", fill="y")
         self._about_text.configure(yscrollcommand=sb3.set)
 
-        # Working state
+        # working state
         self._visible_sections: list[SchemaSection] = []
         self._field_rows: list["_FieldRow"] = []
         self._focused_field: Optional[SchemaField] = None
@@ -828,8 +828,8 @@ class AdvancedSettingsPage(WizardPage):
             return
         st.schema = build_schema()
         st.values = seed_default_values(st.schema)
-        # Inputs already collected on earlier pages — pre-fill them so the
-        # operator doesn't have to retype.
+        # inputs already collected on earlier pages — pre-fill them so the
+        # operator doesn't have to retype
         if st.cluster_ip:
             st.values["SC_HOST"] = normalize_sc_host(st.cluster_ip)
         if st.cluster_user:
@@ -838,10 +838,10 @@ class AdvancedSettingsPage(WizardPage):
             st.values["SC_PASSWORD"] = st.cluster_pass
         # Linux paths — defaults from schema are already correct (/opt/...,
         # /root/.ssh) since seed_default_values copies them. We deliberately
-        # do NOT call autofill_paths() here (would substitute Windows paths).
+        # do NOT call autofill_paths() here (would substitute Windows paths)
         st.values["SC_REPO_PATH"] = "/opt/hypercore-manager"
         st.values["SC_SSH_KEY_PATH"] = "/root/.ssh"
-        # Autogen secrets up-front so the operator sees them in the editor.
+        # autogen secrets up-front so the operator sees them in the editor
         if not st.dashboard_pass:
             st.dashboard_pass = gen_password(20)
         st.values["SC_DASHBOARD_PASSWORD"] = st.dashboard_pass
@@ -860,8 +860,8 @@ class AdvancedSettingsPage(WizardPage):
 
     def _on_profile_toggle(self) -> None:
         self._sync_profiles_from_vars()
-        # Re-run autogen: enabling Tools might have introduced a new must_change
-        # field (Grafana password) that needs a generated value.
+        # re-run autogen: enabling tools might have introduced a new must_change
+        # field (Grafana password) that needs a generated value
         apply_easy_autogen(self.state.schema, self.state.values, self.state.profiles)
         self._rebuild_section_list(keep_selection=True)
 
@@ -885,7 +885,7 @@ class AdvancedSettingsPage(WizardPage):
             glyph = self._glyph_for(s)
             self._section_list.insert("end", f"{glyph}  {s.title}")
 
-        # Restore selection
+        # restore selection
         target = 0
         if keep_selection and prev_section_key:
             for i, s in enumerate(self._visible_sections):
@@ -918,14 +918,14 @@ class AdvancedSettingsPage(WizardPage):
     # ---------------------------------------------------- section editor
 
     def _show_section(self, section: SchemaSection) -> None:
-        # Clear existing rows
+        # clear existing rows
         for row in self._field_rows:
             row.frame.destroy()
         self._field_rows = []
 
         gated_off = is_section_gated_off(section, self.state.values)
 
-        # Section blurb
+        # section blurb
         blurb = ttk.Label(self._fields_inner, text=section.blurb, foreground="#555",
                           wraplength=520, justify="left")
         blurb.grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(6, 8))
@@ -948,16 +948,16 @@ class AdvancedSettingsPage(WizardPage):
             self._field_rows.append(row)
             row_idx += 1
 
-        # Default focus + About panel content
+        # default focus + About panel content
         if self._field_rows:
             self._on_field_focus(self._field_rows[0].field_def)
 
     def _on_field_change(self, _field: SchemaField, _new_value: str) -> None:
-        # Repaint every row's status (a field can affect section gating, etc.)
-        # then refresh the section glyphs.
+        # repaint every row's status (a field can affect section gating, etc.)
+        # then refresh the section glyphs
         for row in self._field_rows:
             row.repaint_status()
-        # Update glyphs in the section list without losing selection.
+        # update glyphs in the section list without losing selection
         sel = self._section_list.curselection()
         for i, s in enumerate(self._visible_sections):
             new_label = f"{self._glyph_for(s)}  {s.title}"
@@ -1005,7 +1005,7 @@ class AdvancedSettingsPage(WizardPage):
     # ---------------------------------------------------- mouse-wheel
 
     def _on_mousewheel(self, event) -> None:
-        # Cross-platform-ish: Windows uses event.delta in multiples of 120
+        # cross-platform-ish: Windows uses event.delta in multiples of 120
         delta = -1 if event.delta > 0 else 1
         self._fields_canvas.yview_scroll(delta, "units")
 
@@ -1013,13 +1013,13 @@ class AdvancedSettingsPage(WizardPage):
 
     def on_next(self) -> bool:
         st = self.state
-        # Bring back any in-flight value from the row widgets (StringVar sync
+        # bring back any in-flight value from the row widgets (StringVar sync
         # already keeps state.values current, but cover the spinbox-without-tab
-        # case by forcing a final sync).
+        # case by forcing a final sync)
         for row in self._field_rows:
             row.commit_to_state()
-        # Validate every active field; bail if any error or unresolved
-        # must_change placeholder.
+        # validate every active field; bail if any error or unresolved
+        # must_change placeholder
         from installer.core import collect_validation_errors  # local import OK
         errors = collect_validation_errors(st.schema, st.values, st.profiles)
         if errors:
@@ -1031,14 +1031,14 @@ class AdvancedSettingsPage(WizardPage):
                 "\n\nLook for sections marked ▲ in the list.",
             )
             return False
-        # Keep dashboard_pass in sync with whatever's in values now.
+        # keep dashboard_pass in sync with whatever's in values now
         if st.values.get("SC_DASHBOARD_PASSWORD"):
             st.dashboard_pass = st.values["SC_DASHBOARD_PASSWORD"]
         return True
 
 
 # ----------------------------------------------------------------------------
-# Field row — one widget per field type
+# field row — one widget per field type
 # ----------------------------------------------------------------------------
 
 class _FieldRow:
@@ -1056,16 +1056,16 @@ class _FieldRow:
         self.frame = ttk.Frame(parent)
         self.frame.columnconfigure(2, weight=1)
 
-        # Status indicator (live)
+        # status indicator (live)
         self._status_lbl = ttk.Label(self.frame, text="•", width=2)
         self._status_lbl.grid(row=0, column=0, sticky="w")
 
-        # Label
+        # label
         self._label = ttk.Label(self.frame, text=field_def.label, width=24, anchor="w")
         self._label.grid(row=0, column=1, sticky="w", padx=(0, 6))
         self._label.bind("<Button-1>", lambda _e: self._on_focus(field_def))
 
-        # Build the widget appropriate for this field type
+        # build the widget appropriate for this field type
         current = state.values.get(field_def.key, field_def.default)
         self._var = tk.StringVar(value=current)
         self._var.trace_add("write", self._on_var_changed)
@@ -1078,7 +1078,7 @@ class _FieldRow:
     def _build_value_widget(self, f: SchemaField, current: str) -> None:
         ftype = f.type
         if ftype == "bool":
-            # Checkbox aligned with column 2
+            # checkbox aligned with column 2
             self._bool_var = tk.IntVar(value=1 if str(current).lower() == "true" else 0)
             self._bool_var.trace_add("write", self._on_bool_changed)
             cb = ttk.Checkbutton(self.frame, variable=self._bool_var,
@@ -1126,8 +1126,8 @@ class _FieldRow:
         self.repaint_status()
 
     def _on_bool_changed(self, *_a) -> None:
-        # Mirror the bool var into the underlying string var so write_env emits
-        # 'true'/'false' consistently.
+        # mirror the bool var into the underlying string var so write_env emits
+        # 'true'/'false' consistently
         self._var.set("true" if self._bool_var.get() else "false")
 
     def _on_bool_check(self) -> None:
@@ -1166,7 +1166,7 @@ class _FieldRow:
         self._status_lbl.configure(text=text, foreground=fg)
 
     def commit_to_state(self) -> None:
-        # Force-sync (covers Spinbox values that weren't committed via Enter/Tab)
+        # force-sync (covers Spinbox values that weren't committed via Enter/Tab)
         self.state.values[self.field_def.key] = self._var.get()
 
 
@@ -1182,7 +1182,7 @@ class ReviewPage(WizardPage):
 
     def on_show(self) -> None:
         s = self.state
-        # Auto-generate dashboard password now if still blank.
+        # auto-generate dashboard password now if still blank
         if not s.dashboard_pass:
             s.dashboard_pass = gen_password(20)
 
@@ -1310,9 +1310,9 @@ class DeployPage(WizardPage):
         The agent only starts at the very END of the bootstrap (after
         `docker compose up -d`), so seeing an IP here means the stack is
         actually running — not just that the VM has booted."""
-        # Helpful narration so the operator knows what's happening behind the
+        # helpful narration so the operator knows what's happening behind the
         # silence. Print at known phase boundaries (in seconds) — these are
-        # estimates, the real timing depends on bandwidth + cluster speed.
+        # estimates, the real timing depends on bandwidth + cluster speed
         narration = [
             (0,    "  Phase: cloud-init starting on the VM…"),
             (60,   "  Phase: apt-get update + installing Docker, qemu-guest-agent, etc."),
@@ -1374,9 +1374,9 @@ class DeployPage(WizardPage):
             log(f"Cluster: {normalize_sc_host(s.cluster_ip)}")
             log(f"VM: {s.vm_name}  ({s.vcpus} vCPU / {s.mem_gib} GB RAM / {s.disk_gib} GB disk)")
 
-            # Progress allocation (revised to leave the last ~15 % for the
+            # progress allocation (revised to leave the last ~15 % for the
             # post-power-on wait — when docker compose is building images on
-            # the VM and we have nothing to do but poll for the agent's IP).
+            # the VM and we have nothing to do but poll for the agent's IP)
             #   0–10  prep (render env, build tarball, build cloud-init)
             #  10–23  download Ubuntu cloud image
             #  23–26  authenticate to cluster
@@ -1385,13 +1385,13 @@ class DeployPage(WizardPage):
             #  68–85  create VM, attach disks, NIC, power-on
             #  85–99  wait for guest agent to report IP
 
-            # 1. Render env from the schema + wizard inputs.
+            # 1. render env from the schema + wizard inputs
             status("Rendering .env…")
             env_body = _build_env_for_state(s)
             log(f".env rendered: {len(env_body)} bytes")
             pct(4)
 
-            # 2. Bundle the repo (or read the one PyInstaller baked into the .exe).
+            # 2. bundle the repo (or read the one PyInstaller baked into the .exe)
             if _BUNDLED_PAYLOAD is not None:
                 status("Loading bundled repo tarball…")
                 tar_bytes = _BUNDLED_PAYLOAD.read_bytes()
@@ -1404,7 +1404,7 @@ class DeployPage(WizardPage):
             log(f"Payload disk (padded to 1 MiB sector): {_humanize_bytes(len(payload_bytes))}")
             pct(7)
 
-            # 3. Build cloud-init payload — small now, no inline tarball.
+            # 3. build cloud-init payload — small now, no inline tarball
             status("Building cloud-init userData…")
             hostname = _sanitize_hostname(s.vm_name)
             net_config = NetworkConfig(
@@ -1429,7 +1429,7 @@ class DeployPage(WizardPage):
             log(f"userData: {_humanize_bytes(len(user_data))}")
             pct(10)
 
-            # 4. Ensure cloud image is on disk.
+            # 4. ensure cloud image is on disk
             status("Fetching Ubuntu cloud image (cached after first run)…")
 
             def img_progress(stage: str, done: int, total: int) -> None:
@@ -1444,14 +1444,14 @@ class DeployPage(WizardPage):
             log(f"Image: {img_path}  ({_humanize_bytes(img_size)})")
             pct(23)
 
-            # 5. Connect.
+            # 5. connect
             status("Authenticating to HyperCore…")
             client = HyperCoreClient(normalize_sc_host(s.cluster_ip), verify_tls=s.verify_tls, timeout=60)
             client.login(s.cluster_user, s.cluster_pass)
             log("Login OK")
             pct(26)
 
-            # 6. Upload Ubuntu cloud image as the boot disk.
+            # 6. upload Ubuntu cloud image as the boot disk
             status("Uploading cloud image to cluster…")
             boot_upload_name = s.vm_name + "-" + DEFAULT_IMAGE_NAME
             boot_hb = _ConversionHeartbeat(log, "boot disk", interval=30)
@@ -1474,7 +1474,7 @@ class DeployPage(WizardPage):
             log(f"Boot VirtualDisk uuid={boot_vdisk_uuid}")
             pct(60)
 
-            # 7. Upload the repo tarball as a second VirtualDisk (raw bytes).
+            # 7. upload the repo tarball as a second VirtualDisk (raw bytes)
             status("Uploading repo payload as a second virtual disk…")
             payload_upload_name = s.vm_name + "-payload.img"
             payload_hb = _ConversionHeartbeat(log, "payload disk", interval=30)
@@ -1498,7 +1498,7 @@ class DeployPage(WizardPage):
             log(f"Payload VirtualDisk uuid={payload_vdisk_uuid}")
             pct(68)
 
-            # 8. Create VM with cloud-init data.
+            # 8. create VM with cloud-init data
             status("Creating VM with cloud-init data…")
             vm_uuid = client.create_vm(
                 name=s.vm_name,
@@ -1515,7 +1515,7 @@ class DeployPage(WizardPage):
             log(f"VirDomain uuid={vm_uuid}")
             pct(73)
 
-            # 9. Attach the boot disk (grown to the requested capacity).
+            # 9. attach the boot disk (grown to the requested capacity)
             status("Attaching boot disk to VM…")
             disk_capacity = s.disk_gib * 1024 * 1024 * 1024
             boot_block_uuid = client.attach_virtual_disk(
@@ -1524,7 +1524,7 @@ class DeployPage(WizardPage):
             log(f"Boot BlockDevice uuid={boot_block_uuid}")
             pct(78)
 
-            # 10. Attach the payload disk (exact size — don't grow).
+            # 10. attach the payload disk (exact size — don't grow)
             status("Attaching payload disk…")
             payload_block_uuid = client.attach_virtual_disk(
                 payload_vdisk_uuid, vm_uuid, type_="VIRTIO_DISK",
@@ -1533,27 +1533,27 @@ class DeployPage(WizardPage):
             log(f"Payload BlockDevice uuid={payload_block_uuid}")
             pct(81)
 
-            # 11. Set the boot disk as the (sole) boot device.
+            # 11. set the boot disk as the (sole) boot device
             client.update_vm(vm_uuid, {"bootDevices": [boot_block_uuid]})
             log("Boot device set")
 
-            # 12. Create a NIC.
+            # 12. create a NIC
             status("Adding network interface…")
             nic_uuid = client.create_nic(vm_uuid, type_="VIRTIO", vlan=s.vlan)
             log(f"NetDevice uuid={nic_uuid}  vlan={s.vlan}")
             pct(84)
 
-            # 13. Power on.
+            # 13. power on
             status("Powering on…")
             client.power_on(vm_uuid)
             log("Power on issued")
             pct(85)
 
-            # 14. Wait for the qemu-guest-agent to report an IPv4 — but the
+            # 14. wait for the qemu-guest-agent to report an IPv4 — but the
             #     bootstrap deliberately holds off on starting the agent until
             #     AFTER `docker compose up -d` finishes. So the IP-report here
             #     is genuinely "the dashboard is reachable now", not just
-            #     "the VM has booted".
+            #     "the VM has booted"
             log("")
             log("Waiting for the VM's first-boot bootstrap to finish.")
             log("The cloud-init runcmd is, in order:")
@@ -1601,7 +1601,7 @@ class DeployPage(WizardPage):
 
 
 # =============================================================================
-# Glue: build a populated .env from the WizardState
+# glue: build a populated .env from the WizardState
 # =============================================================================
 
 def _build_env_for_state(state: WizardState) -> str:
@@ -1609,15 +1609,15 @@ def _build_env_for_state(state: WizardState) -> str:
     AdvancedSettingsPage are the source of truth (they live on state.values).
     In easy mode we seed defaults + autogen secrets in one shot."""
     if state.mode == "advanced" and state.advanced_initialized:
-        # The advanced page has already populated state.schema, state.values,
-        # and state.profiles. Just emit.
+        # the advanced page has already populated state.schema, state.values,
+        # and state.profiles. Just emit
         return render_env(state.schema, state.values, state.profiles)
 
-    # Easy mode (or advanced before the operator visited the settings page).
+    # easy mode (or advanced before the operator visited the settings page)
     sections = build_schema()
     values = seed_default_values(sections)
 
-    # Operator-supplied keys
+    # operator-supplied keys
     values["SC_HOST"] = normalize_sc_host(state.cluster_ip)
     values["SC_USERNAME"] = state.cluster_user
     values["SC_PASSWORD"] = state.cluster_pass
@@ -1625,19 +1625,19 @@ def _build_env_for_state(state: WizardState) -> str:
         state.dashboard_pass = gen_password(20)
     values["SC_DASHBOARD_PASSWORD"] = state.dashboard_pass
 
-    # Force Linux paths regardless of where the wizard is running. Schema
+    # force Linux paths regardless of where the wizard is running. Schema
     # defaults are right for the target VM (/opt/hypercore-manager and
     # /root/.ssh). DO NOT call autofill_paths() — that would substitute
     # Path.cwd() from the Windows host, which Docker on the Linux VM then
-    # rejects as "invalid characters for a local volume name".
+    # rejects as "invalid characters for a local volume name"
     values["SC_REPO_PATH"] = DEFAULT_REPO_DEST
     values["SC_SSH_KEY_PATH"] = "/root/.ssh"
 
     state.profiles = set(EASY_PROFILES)
     apply_easy_autogen(sections, values, state.profiles)
 
-    # Cache schema/values back onto state so a later AdvancedSettingsPage visit
-    # picks them up (e.g. operator switched easy → advanced via Back).
+    # cache schema/values back onto state so a later AdvancedSettingsPage visit
+    # picks them up (e.g. operator switched easy → advanced via Back)
     state.schema = sections
     state.values = values
 
@@ -1645,7 +1645,7 @@ def _build_env_for_state(state: WizardState) -> str:
 
 
 # =============================================================================
-# Entry point
+# entry point
 # =============================================================================
 
 def main() -> int:
