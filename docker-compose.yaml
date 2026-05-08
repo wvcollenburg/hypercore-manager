@@ -1,38 +1,38 @@
 version: '3.8'
 
 # =============================================================================
-# RESOURCE LIMITS — READ BEFORE CHANGING
+# resource limits — read before changing
 # =============================================================================
-# Each service has a 'deploy.resources.limits' block defining its maximum CPU
-# and memory allocation. These are hard limits enforced by the kernel via
-# cgroups — a container cannot exceed them regardless of host availability.
+# each service has a 'deploy.resources.limits' block defining its maximum CPU
+# and memory allocation. these are hard limits enforced by the kernel via
+# cgroups — a container cannot exceed them regardless of host availability
 #
-# IMPORTANT: The sum of all CPU limits must not exceed the number of physical
-# CPU cores available to Docker on the host. Exceeding this causes containers
-# to compete for the same cores, increasing latency across the entire stack.
+# important: the sum of all CPU limits must not exceed the number of physical
+# CPU cores available to Docker on the host. exceeding this causes containers
+# to compete for the same cores, increasing latency across the entire stack
 #
-# Tuned for a 2-CPU host.
+# tuned for a 2-CPU host
 #
-#   Always-on services:
+#   always-on services:
 #     influxdb:  0.75 CPU   768MB
 #     balancer:  1.50 CPU  1024MB  <- dominant consumer during predictive runs
 #     collector: 0.25 CPU   128MB
 #     dashboard: 0.25 CPU   256MB
 #     postgres:  0.25 CPU   256MB  <- shared config store (replaces SQLite volume)
 #
-#   Profile-conditional (sentinel / full):
+#   profile-conditional (sentinel / full):
 #     sentinel:  0.50 CPU   512MB
 #
-#   Optional (tools profile):
+#   optional (tools profile):
 #     grafana:   0.25 CPU   128MB
 #
-# Total limits intentionally exceed physical cores because the Oracle (balancer
+# total limits intentionally exceed physical cores because the Oracle (balancer
 # spike) and Sentinel analysis runs never overlap — outside those windows the
-# entire stack uses well under 0.5 cores combined.
+# entire stack uses well under 0.5 cores combined
 #
-# The balancer's CPU limit should match or exceed SC_PREDICTIVE_MAX_WORKERS
-# in your .env file. If you reduce the CPU limit below the worker count,
-# Prophet workers will compete for cores and predictive runs will take longer.
+# the balancer's CPU limit should match or exceed SC_PREDICTIVE_MAX_WORKERS
+# in your .env file. if you reduce the CPU limit below the worker count,
+# Prophet workers will compete for cores and predictive runs will take longer
 # =============================================================================
 
 services:
@@ -91,12 +91,12 @@ services:
     build: ./Collector
     container_name: sc_collector
     environment:
-      # HyperCore Credentials
+      # HyperCore credentials
       - SC_HOST=${SC_HOST}
       - SC_USERNAME=${SC_USERNAME}
       - SC_PASSWORD=${SC_PASSWORD}
       - SC_VERIFY_SSL=${SC_VERIFY_SSL}
-      # InfluxDB Connection
+      # InfluxDB connection
       - INFLUX_URL=http://influxdb:8086
       - INFLUX_TOKEN=${INFLUX_TOKEN}
       - INFLUX_ORG=${INFLUX_ORG}
@@ -104,7 +104,7 @@ services:
       - SC_POLL_INTERVAL=${SC_POLL_INTERVAL}
       - SC_SLOW_POLL_INTERVAL=${SC_SLOW_POLL_INTERVAL}
       - INFLUX_PRIMARY_RETENTION=${INFLUX_PRIMARY_RETENTION}
-      # PostgreSQL (config store)
+      # PostgreSQL config store
       - PG_HOST=postgres
       - PG_PORT=5432
       - PG_DB=hypercore_balancer
@@ -124,17 +124,17 @@ services:
     build: ./Balancer
     container_name: sc_balancer
     environment:
-      # HyperCore Credentials
+      # HyperCore credentials
       - SC_HOST=${SC_HOST}
       - SC_USERNAME=${SC_USERNAME}
       - SC_PASSWORD=${SC_PASSWORD}
       - SC_VERIFY_SSL=${SC_VERIFY_SSL}
 
-      # Master Toggles
+      # master toggles
       - SC_DRY_RUN=${SC_DRY_RUN}
       - SC_VERBOSITY=${SC_VERBOSITY}
 
-      # --- REACTIVE ENGINE TUNING ---
+      # --- reactive engine tuning ---
       - SC_AVG_WINDOW_MINUTES=${SC_AVG_WINDOW_MINUTES}
       - SC_SAMPLE_INTERVAL_SECONDS=${SC_SAMPLE_INTERVAL_SECONDS}
       - SC_RAM_LIMIT_PERCENT=${SC_RAM_LIMIT_PERCENT}
@@ -146,7 +146,7 @@ services:
       - SC_EXCLUDE_NODE_IPS=${SC_EXCLUDE_NODE_IPS}
       - SC_CPU_TARGET_TOLERANCE_PERCENT=${SC_CPU_TARGET_TOLERANCE_PERCENT}
 
-      # --- PREDICTIVE ENGINE TUNING (The Oracle) ---
+      # --- predictive engine tuning (the Oracle) ---
       - SC_PREDICTIVE_BALANCING_ENABLED=${SC_PREDICTIVE_BALANCING_ENABLED}
       - SC_PREDICTIVE_INTERVAL_SECONDS=${SC_PREDICTIVE_INTERVAL_SECONDS}
       - SC_PREDICTIVE_THRESHOLD=${SC_PREDICTIVE_THRESHOLD}
@@ -156,12 +156,12 @@ services:
       - SC_PREDICTIVE_MAX_WORKERS=${SC_PREDICTIVE_MAX_WORKERS}
       - SC_PREDICTIVE_RESERVATION_MINUTES=${SC_PREDICTIVE_RESERVATION_MINUTES}
 
-      # Oracle InfluxDB Connection (Talks internally to the docker network)
+      # Oracle InfluxDB connection — internal to the Docker network
       - INFLUX_URL=http://influxdb:8086
       - INFLUX_TOKEN=${INFLUX_TOKEN}
       - INFLUX_ORG=${INFLUX_ORG}
       - INFLUX_BUCKET=${INFLUX_BUCKET}
-      # PostgreSQL (config store)
+      # PostgreSQL config store
       - PG_HOST=postgres
       - PG_PORT=5432
       - PG_DB=hypercore_balancer
@@ -192,18 +192,18 @@ services:
       - SC_DASHBOARD_PASSWORD=${SC_DASHBOARD_PASSWORD}
       - SC_DASHBOARD_SECRET_KEY=${SC_DASHBOARD_SECRET_KEY}
       - SC_EXCLUDE_NODE_IPS=${SC_EXCLUDE_NODE_IPS}
-      # PostgreSQL (config store)
+      # PostgreSQL config store
       - PG_HOST=postgres
       - PG_PORT=5432
       - PG_DB=hypercore_balancer
       - PG_USER=sentinel
       - PG_PASSWORD=${SENTINEL_PG_PASSWORD}
-      # Sentinel REST API (D5 what-if proxy)
+      # Sentinel REST API — D5 what-if proxy
       - SENTINEL_API_URL=http://sentinel:8081
       - SENTINEL_API_TOKEN=${SENTINEL_API_TOKEN:-}
-      # Auto-update: repo is always at /repo inside the container via volume mount.
+      # auto-update: repo is always at /repo inside the container via volume mount;
       # SC_HOST_REPO_PATH carries the real host-side path so docker run can mount
-      # it correctly when spawning the updater container.
+      # it correctly when spawning the updater container
       - SC_REPO_PATH=/repo
       - SC_HOST_REPO_PATH=${SC_REPO_PATH:-/opt/hypercore-manager}
       - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-drsproject}
@@ -233,10 +233,10 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      # -h localhost forces pg_isready over TCP. Without it, pg_isready
+      # -h localhost forces pg_isready over TCP. without it, pg_isready
       # uses the local Unix socket — which postgres binds before the TCP
-      # listener is up. Sibling containers (e.g. dashboard) then race past
-      # the depends_on health gate and hit "connection refused" on 5432.
+      # listener is up. sibling containers (e.g. dashboard) then race past
+      # the depends_on health gate and hit "connection refused" on 5432
       test: ["CMD-SHELL", "pg_isready -h localhost -U sentinel -d hypercore_balancer"]
       interval: 10s
       timeout: 5s
@@ -269,38 +269,38 @@ services:
       - SENTINEL_PG_DB=hypercore_balancer
       - SENTINEL_PG_USER=sentinel
       - SENTINEL_PG_PASSWORD=${SENTINEL_PG_PASSWORD}
-      # Phase 1 forecast toggles (B1, B2)
+      # phase 1 forecast toggles (B1, B2)
       - SENTINEL_FORECAST_30D_ENABLED=${SENTINEL_FORECAST_30D_ENABLED:-true}
       - SENTINEL_FORECAST_90D_ENABLED=${SENTINEL_FORECAST_90D_ENABLED:-true}
-      # Phase 2 strategic forecast toggles (B3, B4)
+      # phase 2 strategic forecast toggles (B3, B4)
       - SENTINEL_FORECAST_180D_ENABLED=${SENTINEL_FORECAST_180D_ENABLED:-true}
       - SENTINEL_FORECAST_365D_ENABLED=${SENTINEL_FORECAST_365D_ENABLED:-true}
-      # Phase 2 anomaly filter (B9)
+      # phase 2 anomaly filter (B9)
       - SENTINEL_ANOMALY_FILTER_ENABLED=${SENTINEL_ANOMALY_FILTER_ENABLED:-true}
-      # Right-sizing thresholds
+      # right-sizing thresholds
       - SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD=${SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD:-20.0}
       - SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD=${SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD:-80.0}
       - SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD=${SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD:-90.0}
       - SENTINEL_ANALYSIS_WINDOW_DAYS=${SENTINEL_ANALYSIS_WINDOW_DAYS:-14}
       - SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES=${SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES:-3}
-      # Data retention
+      # data retention
       - SENTINEL_RETENTION_MONTHS=${SENTINEL_RETENTION_MONTHS:-12}
-      # Collection intervals
+      # collection intervals
       - SENTINEL_COLLECTION_INTERVAL_SECONDS=${SENTINEL_COLLECTION_INTERVAL_SECONDS:-300}
       - SENTINEL_TREND_INTERVAL_SECONDS=${SENTINEL_TREND_INTERVAL_SECONDS:-3600}
-      # Phase 2 REST API (F1-F4, F6)
+      # phase 2 REST API (F1-F4, F6)
       - SENTINEL_API_PORT=8081
       - SENTINEL_API_TOKEN=${SENTINEL_API_TOKEN:-}
-      # Phase 3 HyperCore credentials (C7 outcome tracking — same as Collector)
+      # phase 3 HyperCore credentials — C7 outcome tracking, same as Collector
       - SC_HOST=${SC_HOST}
       - SC_USERNAME=${SC_USERNAME}
       - SC_PASSWORD=${SC_PASSWORD}
       - SC_VERIFY_SSL=${SC_VERIFY_SSL}
-      # Phase 3 outcome tracker (C7)
+      # phase 3 outcome tracker (C7)
       - SENTINEL_OUTCOME_TRACKER_ENABLED=${SENTINEL_OUTCOME_TRACKER_ENABLED:-true}
       - SENTINEL_OUTCOME_CHECK_DELAY_HOURS=${SENTINEL_OUTCOME_CHECK_DELAY_HOURS:-48}
       - SENTINEL_OUTCOME_CHECK_INTERVAL_SECONDS=${SENTINEL_OUTCOME_CHECK_INTERVAL_SECONDS:-21600}
-      # Phase 3 webhook alerts (F5)
+      # phase 3 webhook alerts (F5)
       - SENTINEL_WEBHOOK_ENABLED=${SENTINEL_WEBHOOK_ENABLED:-true}
       - SENTINEL_WEBHOOK_URL=${SENTINEL_WEBHOOK_URL:-}
       - SENTINEL_WEBHOOK_SECRET=${SENTINEL_WEBHOOK_SECRET:-}

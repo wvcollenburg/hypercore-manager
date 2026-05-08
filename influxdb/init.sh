@@ -1,13 +1,13 @@
 #!/bin/bash
 # =============================================================================
-# InfluxDB Initialization Script
+# InfluxDB initialization script
 # =============================================================================
-# Runs during InfluxDB first-time setup on port 9999.
-# Creates the long-term bucket and downsampling tasks.
+# runs during InfluxDB first-time setup on port 9999;
+# creates the long-term bucket and downsampling tasks
 #
-# NOTE: The primary 'metrics' bucket doesn't exist yet at this stage —
-# it gets created AFTER init scripts complete. Its retention is set
-# by the influxdb-init sidecar container which waits for full startup.
+# note: the primary 'metrics' bucket doesn't exist yet at this stage —
+# it gets created AFTER init scripts complete. its retention is set
+# by the influxdb-init sidecar container which waits for full startup
 # =============================================================================
 
 INIT_PORT="${INFLUXD_INIT_PORT:-9999}"
@@ -21,7 +21,7 @@ LONGTERM_RET_H=$(( LONGTERM_RET * 24 ))
 
 echo "[INIT] Starting configuration (init port: ${INIT_PORT})..."
 
-# ─── 1. Create long-term bucket ───
+# ─── 1. create long-term bucket ───
 echo "[INIT] Creating long-term bucket '${LONGTERM}'..."
 influx bucket create \
     --host "$INFLUX_HOST" \
@@ -31,11 +31,11 @@ influx bucket create \
     --retention "${LONGTERM_RET_H}h" 2>&1 || \
 echo "[INIT] Long-term bucket already exists."
 
-# ─── 2. Create downsampling tasks ───
+# ─── 2. create downsampling tasks ───
 echo "[INIT] Creating downsampling tasks..."
 TMPDIR=$(mktemp -d)
 
-# --- Boolean fields per measurement (these get downsampled with last()) ---
+# --- boolean fields per measurement, these get downsampled with last() ---
 declare -A BOOL_FIELDS
 BOOL_FIELDS[node_metrics]="network_online|virtualization_online|allow_running_vms"
 BOOL_FIELDS[drive_metrics]="is_healthy"
@@ -47,7 +47,7 @@ for M in node_metrics vm_metrics vsd_metrics drive_metrics; do
     BOOLS="${BOOL_FIELDS[$M]}"
 
     if [ -z "$BOOLS" ]; then
-        # No booleans — simple mean over everything
+        # no booleans — simple mean over everything
         cat > "${TMPDIR}/${M}.flux" <<FLUX
 option task = {name: "downsample_${M}_hourly", every: 1h}
 
@@ -58,7 +58,7 @@ from(bucket: "${PRIMARY}")
     |> to(bucket: "${LONGTERM}", org: "${ORG}")
 FLUX
     else
-        # Split: mean() for numeric fields, last() for boolean fields
+        # split: mean() for numeric fields, last() for boolean fields
         cat > "${TMPDIR}/${M}.flux" <<FLUX
 option task = {name: "downsample_${M}_hourly", every: 1h}
 
