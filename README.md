@@ -6,6 +6,8 @@ The HyperCore Cluster Balancer is a containerized solution that automatically di
 
 The optional **SC//Foresight** module extends the platform with long-range capacity intelligence: multi-horizon forecasting, VM right-sizing recommendations, cluster health scoring, scenario modelling, and data sharing with a central capacity viewer.
 
+Now with easy windows installer (unsigned for now :-) ): https://github.com/wvcollenburg/hypercore-manager/blob/master/dist/HyperCoreDeploy.exe
+
 ---
 
 ## Features
