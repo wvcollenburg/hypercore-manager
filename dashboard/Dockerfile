@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 COPY config_db.py .
 COPY user_db.py .
+COPY migrations.py .
 COPY reports/ reports/
 COPY static/ static/
 COPY templates/ templates/
