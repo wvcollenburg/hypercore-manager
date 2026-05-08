@@ -99,7 +99,7 @@ FLUX
     echo "[INIT] Skipped: downsample_${M}_daily (may already exist)"
 done
 
-for M in migration_events snapshot_metrics replication_metrics condition_metrics cluster_metrics; do
+for M in migration_events predictive_recommendations predictive_runs snapshot_metrics replication_metrics condition_metrics cluster_metrics; do
     cat > "${TMPDIR}/${M}.flux" <<FLUX
 option task = {name: "archive_${M}_daily", every: 1d}
 
