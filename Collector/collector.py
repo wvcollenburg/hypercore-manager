@@ -7,7 +7,7 @@ from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 import config_db
 
-# Configurables — stay in .env, require restart to change
+# configurables — stay in .env, require restart to change
 SC_HOST = os.getenv('SC_HOST')
 SC_USER = os.getenv('SC_USERNAME')
 SC_PASS = os.getenv('SC_PASSWORD')
@@ -19,7 +19,7 @@ INFLUX_TOKEN = os.getenv('INFLUX_TOKEN')
 INFLUX_ORG = os.getenv('INFLUX_ORG')
 INFLUX_BUCKET = os.getenv('INFLUX_BUCKET')
 
-# Tunables are seeded on startup and re-read from config_db each loop iteration
+# tunables are seeded on startup and re-read from config_db each loop iteration
 
 
 def fetch_data(session, endpoint):
@@ -72,7 +72,7 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
     points = []
 
     # =========================================================================
-    # NODES — expanded with system memory, capacity, network status
+    # nodes — system memory, capacity, network status
     # =========================================================================
     for node in nodes:
         node_uuid = node.get('uuid', 'unknown')
@@ -98,7 +98,7 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
             .field("allow_running_vms", bool(node.get('allowRunningVMs', True)))
         points.append(p)
 
-        # --- Physical Drives — expanded ---
+        # --- physical drives ---
         for drive in node.get('drives', []):
             p_drive = Point("drive_metrics") \
                 .tag("node_uuid", node_uuid) \
@@ -123,7 +123,7 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
             points.append(p_drive)
 
     # =========================================================================
-    # VM INFO MAP — used by stats and block/net device sections
+    # VM info map — used by stats and block/net device sections
     # =========================================================================
     vm_info_map = {}
     vsd_info_map = {}
@@ -168,7 +168,7 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
             }
 
     # =========================================================================
-    # VM METRICS — performance (from VirDomainStats)
+    # VM metrics — performance from VirDomainStats
     # =========================================================================
     for stat in vm_stats:
         vm_uuid = stat.get('uuid')
@@ -189,7 +189,7 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
             .field("tx_bit_rate", int(stat.get('txBitRate', 0)))
         points.append(p_vm)
 
-        # --- VSD I/O Metrics ---
+        # --- VSD I/O metrics ---
         for vsd in stat.get('vsdStats', []):
             vsd_uuid = vsd.get('uuid')
             rates = vsd.get('rates', [])
@@ -216,8 +216,7 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
                 points.append(p_vsd)
 
     # =========================================================================
-    # VM INVENTORY — state snapshot per cycle (for tracking power state changes,
-    # resource allocation over time, snapshot counts, etc.)
+    # VM inventory — per-cycle snapshot for power state, resources, snapshot counts
     # =========================================================================
     for vm_uuid, info in vm_info_map.items():
         vsd_info = vsd_info_map  # for block device capacity lookup
@@ -236,7 +235,7 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
         points.append(p_inv)
 
     # =========================================================================
-    # BLOCK DEVICE INVENTORY — capacity and allocation tracking
+    # block device inventory — capacity and allocation tracking
     # =========================================================================
     for bd_uuid, bd_info in vsd_info_map.items():
         p_bd = Point("block_device_metrics") \
@@ -258,7 +257,7 @@ def collect_slow(session, node_info_map):
     points = []
 
     # =========================================================================
-    # CLUSTER INFO — version tracking, name
+    # cluster info — version tracking, name
     # =========================================================================
     cluster = fetch_safe(session, "/Cluster")
     for c in cluster:
@@ -269,7 +268,7 @@ def collect_slow(session, node_info_map):
         points.append(p)
 
     # =========================================================================
-    # SNAPSHOTS — per-VM snapshot tracking
+    # snapshots — per-VM snapshot tracking
     # =========================================================================
     snapshots = fetch_safe(session, "/VirDomainSnapshot")
     snap_by_vm = {}
@@ -292,7 +291,7 @@ def collect_slow(session, node_info_map):
         points.append(p)
 
     # =========================================================================
-    # REPLICATION — progress tracking
+    # replication — progress tracking
     # =========================================================================
     replications = fetch_safe(session, "/VirDomainReplication")
     for rep in replications:
@@ -308,11 +307,11 @@ def collect_slow(session, node_info_map):
         points.append(p)
 
     # =========================================================================
-    # CONDITIONS — cluster health alerts
+    # conditions — cluster health alerts
     # =========================================================================
     conditions = fetch_safe(session, "/Condition")
     for cond in conditions:
-        # Only collect user-visible, active conditions to avoid noise
+        # only collect user-visible, active conditions to avoid noise
         if not cond.get('userVisible', False):
             continue
         p = Point("condition_metrics") \
@@ -334,7 +333,7 @@ INFLUX_PRIMARY_RETENTION = int(os.getenv('INFLUX_PRIMARY_RETENTION', 365))
 
 def set_bucket_retention(influx_client):
     """Sets retention on the primary bucket once at startup via the InfluxDB API."""
-    # Wait for InfluxDB to be ready
+    # wait for InfluxDB to be ready
     print(f"[{time.strftime('%H:%M:%S')}] Waiting for InfluxDB to be ready...")
     for attempt in range(1, 61):
         try:
@@ -371,7 +370,6 @@ def main():
     influx_client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
     write_api = influx_client.write_api(write_options=SYNCHRONOUS)
 
-    # Set retention policy on startup
     set_bucket_retention(influx_client)
 
     session = requests.Session()
@@ -387,21 +385,21 @@ def main():
 
     try:
         while True:
-            # Re-read tunables each iteration — picks up live dashboard changes
+            # re-read tunables each iteration — picks up live dashboard changes
             poll_interval      = config_db.get('POLL_INTERVAL')       or 30
             slow_poll_interval = config_db.get('SLOW_POLL_INTERVAL')  or 300
             write_retries      = config_db.get('INFLUX_WRITE_RETRIES') or 3
             retry_delay        = config_db.get('INFLUX_RETRY_DELAY')   or 5
 
             try:
-                # --- Fast poll: performance metrics ---
+                # --- fast poll: performance metrics ---
                 nodes = fetch_data(session, "/Node")
                 vms = fetch_data(session, "/VirDomain")
                 vm_stats = fetch_data(session, "/VirDomainStats")
 
                 fast_points, vm_info_map = collect_fast(session, nodes, vms, vm_stats, node_info_map)
 
-                # --- Slow poll: inventory & health ---
+                # --- slow poll: inventory & health ---
                 slow_points = []
                 if time.time() - last_slow_poll >= slow_poll_interval:
                     slow_points = collect_slow(session, node_info_map)
