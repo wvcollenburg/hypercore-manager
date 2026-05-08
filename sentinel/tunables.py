@@ -31,10 +31,10 @@ TunableDef = namedtuple('TunableDef', [
     'cfg_field', 'label', 'unit', 'description', 'allowed_values',
 ], defaults=[None])  # allowed_values is optional — only used for type_hint='enum'
 
-# Registry: DB key → TunableDef
-# All keys use live_reload=True — all are re-read before each analysis cycle.
+# registry: DB key → TunableDef
+# all keys use live_reload=True — all are re-read before each analysis cycle
 TUNABLES: dict = {
-    # ── Right-sizing thresholds ─────────────────────────────────────────────
+    # ── right-sizing thresholds ─────────────────────────────────────────────
     'SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD': TunableDef(
         env_var='SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD',
         default=20.0, type_hint='float', live_reload=True,
@@ -70,7 +70,7 @@ TUNABLES: dict = {
         label='Min Spike Occurrences', unit='',
         description='Minimum recurring CPU spikes at the same time slot before flagging a pattern (C2 Signal 3).',
     ),
-    # ── Forecast & analysis ─────────────────────────────────────────────────
+    # ── forecast & analysis ─────────────────────────────────────────────────
     'SENTINEL_ANOMALY_FILTER_ENABLED': TunableDef(
         env_var='SENTINEL_ANOMALY_FILTER_ENABLED',
         default=True, type_hint='bool', live_reload=True,
@@ -121,7 +121,7 @@ TUNABLES: dict = {
         description='How sub-day samples roll up into the daily data point used by cluster forecasts. mean = time-weighted average, suits steady workloads. p95 = 95th-percentile sample, captures sustained peak in spiky / VDI environments without being skewed by transient spikes. max = single highest sample, worst-case visibility.',
         allowed_values=['mean', 'p95', 'max'],
     ),
-    # ── Maintenance ─────────────────────────────────────────────────────────
+    # ── maintenance ─────────────────────────────────────────────────────────
     'SENTINEL_RETENTION_MONTHS': TunableDef(
         env_var='SENTINEL_RETENTION_MONTHS',
         default=12, type_hint='int', live_reload=True,
@@ -162,7 +162,7 @@ TUNABLES: dict = {
 
 
 # ---------------------------------------------------------------------------
-# Type helpers
+# type helpers
 # ---------------------------------------------------------------------------
 
 def _cast(value: Any, type_hint: str) -> Any:
@@ -182,7 +182,7 @@ def _serialize(value: Any, type_hint: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# internal helpers
 # ---------------------------------------------------------------------------
 
 def _connect():
@@ -205,7 +205,7 @@ def _env_fallback(key: str) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# public API
 # ---------------------------------------------------------------------------
 
 def seed_from_env() -> None:
@@ -235,7 +235,7 @@ def seed_from_env() -> None:
                                  _serialize(value, defn.type_hint), defn.type_hint),
                             )
                         elif raw_env is not None and row[0] == _serialize(defn.default, defn.type_hint):
-                            # Still at hardcoded default and env var is available — apply it
+                            # still at hardcoded default and env var is available — apply it
                             cur.execute(
                                 '''UPDATE config.tunables
                                       SET value = %s, updated_at = NOW()

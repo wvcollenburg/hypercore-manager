@@ -36,12 +36,12 @@ from analysis.rightsizing import RightSizingResult
 
 log = logging.getLogger(__name__)
 
-# Target CPU efficiency band for over-provisioned VMs
+# target CPU efficiency band for over-provisioned VMs
 _TARGET_CPU_AVG_LOW  = 40.0
 _TARGET_CPU_AVG_HIGH = 60.0
 _TARGET_CPU_AVG      = (_TARGET_CPU_AVG_LOW + _TARGET_CPU_AVG_HIGH) / 2.0  # 50.0
 
-# Under-provisioned target: bring p95 to 85% of the p95 threshold
+# under-provisioned target: bring p95 to 85% of the p95 threshold
 _TARGET_P95_HEADROOM_FACTOR = 0.85
 
 
@@ -55,9 +55,9 @@ class ResizeAdvice:
     sizing_direction:         str          # 'over_provisioned' | 'under_provisioned'
 
     # C3: concrete CPU change recommendation
-    # Fraction: -0.50 = reduce current allocation by 50%; +0.25 = increase by 25%.
+    # fraction: -0.50 = reduce current allocation by 50%; +0.25 = increase by 25%
     suggested_cpu_change_pct: float
-    # Recommended steady-state average CPU% after acting on the advice.
+    # recommended steady-state average CPU% after acting on the advice
     target_cpu_avg_pct:       float
 
     # C4: confidence in this advice (0–1)
@@ -170,14 +170,14 @@ def _under_provisioned_advice(
     else:
         change_pct = 0.25   # default 25% increase when p95 not available
 
-    # Estimated target average after resize
+    # estimated target average after resize
     target_avg = current_avg / (1.0 + change_pct) if (1.0 + change_pct) > 0 else current_avg
 
     return round(change_pct, 4), round(target_avg, 1), None
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# public entry point
 # ---------------------------------------------------------------------------
 
 def run_resize_advisor(
@@ -199,8 +199,8 @@ def run_resize_advisor(
         confidence        = _confidence(rs)
         risk_level, risks = _risk(rs)
 
-        # Compute recommended vCPU from current allocation and the fractional change.
-        # Round to nearest integer; minimum 1.
+        # compute recommended vCPU from current allocation and the fractional change
+        # round to nearest integer; minimum 1
         current_vcpu    = rs.current_vcpu
         if current_vcpu and current_vcpu > 0:
             recommended_vcpu = max(1, round(current_vcpu * (1.0 + cpu_change)))

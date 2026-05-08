@@ -33,7 +33,7 @@ def encrypt(plaintext_json: str, bearer_token: str) -> bytes:
     aesgcm = AESGCM(key)
     # AESGCM.encrypt returns ciphertext + tag concatenated
     ct_and_tag = aesgcm.encrypt(iv, plaintext_json.encode('utf-8'), None)
-    # Split: last 16 bytes are the tag
+    # split: last 16 bytes are the tag
     ciphertext = ct_and_tag[:-16]
     tag = ct_and_tag[-16:]
     return MAGIC + salt + iv + ciphertext + tag

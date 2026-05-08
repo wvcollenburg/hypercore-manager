@@ -55,11 +55,11 @@ import tunables
 logger = logging.getLogger('sentinel.main')
 
 
-# Event that, when set, wakes the analysis loop early so the next forecast
+# event that, when set, wakes the analysis loop early so the next forecast
 # cycle runs immediately instead of waiting out trend_interval_seconds.
-# Used by the POST /api/v1/trend/run endpoint and by the shutdown signal
+# used by the POST /api/v1/trend/run endpoint and by the shutdown signal
 # handler (so the loop exits responsively rather than sleeping the full
-# interval before noticing the stop signal).
+# interval before noticing the stop signal)
 _trigger_event: threading.Event = threading.Event()
 
 
@@ -112,10 +112,10 @@ def _collect_and_analyse(reader, live_cfg, writer) -> dict:
     # query_vm_mem_assigned applies its RUNNING filter before last(), so it
     # returns the last RUNNING record within 24h — which includes VMs that
     # have since been powered off or deleted, inflating the HA assigned
-    # total.  Intersect with the currently-running set so the HA headroom
-    # check reflects only VMs that are actually running right now.  Skipped
+    # total.  intersect with the currently-running set so the HA headroom
+    # check reflects only VMs that are actually running right now.  skipped
     # when running_vms came back empty (Influx hiccup) so we don't zero out
-    # the assigned total on a transient failure.
+    # the assigned total on a transient failure
     if running_vms:
         vm_mem = {uid: mem for uid, mem in vm_mem.items() if uid in running_vms}
 
@@ -127,17 +127,17 @@ def _collect_and_analyse(reader, live_cfg, writer) -> dict:
         'running_vm_uuids': running_vms,
     }
 
-    # Phase 1 + B3/B4/B9
+    # phase 1 + B3/B4/B9
     forecasts   = run_forecasts(snapshot, live_cfg)
     rightsizing = run_rightsizing(snapshot, live_cfg)
     writer.write_forecasts(forecasts)
     writer.write_rightsizing(rightsizing)
 
-    # Phase 2: C3-C6 concrete resize advice
+    # phase 2: C3-C6 concrete resize advice
     resize_advice = run_resize_advisor(rightsizing, live_cfg)
     writer.write_resize_advice(resize_advice)
 
-    # Phase 2: D1-D4, D6 cluster health
+    # phase 2: D1-D4, D6 cluster health
     cluster_health = run_cluster_health(
         forecasts, rightsizing, live_cfg,
         nodes=nodes,
@@ -187,9 +187,9 @@ def analysis_loop(cfg: config.Config, stop: threading.Event, reader) -> None:
     writer = Writer(cfg)
 
     while not stop.is_set():
-        # Wait for the trend interval before the first run so the connectivity
-        # loop has had a chance to confirm InfluxDB is alive.  Wake early on
-        # an external trigger (POST /api/v1/trend/run) or shutdown signal.
+        # wait for the trend interval before the first run so the connectivity
+        # loop has had a chance to confirm InfluxDB is alive.  wake early on
+        # an external trigger (POST /api/v1/trend/run) or shutdown signal
         triggered = _trigger_event.wait(cfg.trend_interval_seconds)
         if stop.is_set():
             break
@@ -197,7 +197,7 @@ def analysis_loop(cfg: config.Config, stop: threading.Event, reader) -> None:
             _trigger_event.clear()
             logger.info('Analysis cycle triggered manually')
 
-        # Refresh live-tunable config before each cycle — no restart needed.
+        # refresh live-tunable config before each cycle — no restart needed
         live_cfg = tunables.apply_live(cfg)
 
         try:
@@ -209,7 +209,7 @@ def analysis_loop(cfg: config.Config, stop: threading.Event, reader) -> None:
             logger.exception('Analysis cycle failed')
         finally:
             # _collect_and_analyse() has returned; all its locals are freed.
-            # Trim glibc arenas so the OS sees the RSS drop.
+            # trim glibc arenas so the OS sees the RSS drop
             _malloc_trim()
 
 
@@ -287,7 +287,7 @@ def main() -> None:
 
     log.configure(level=os.getenv('SENTINEL_LOG_LEVEL', 'INFO'))
 
-    # T1: seed live tunables from env vars on first start (no-op if already seeded).
+    # T1: seed live tunables from env vars on first start (no-op if already seeded)
     tunables.seed_from_env()
 
     logger.info(
@@ -323,15 +323,15 @@ def main() -> None:
     def _handle_signal(signum, _frame):
         logger.info('Shutdown signal received', extra={'signal': signum})
         stop.set()
-        # Wake the analysis loop so it observes the stop flag immediately
-        # instead of sleeping out the rest of trend_interval_seconds.
+        # wake the analysis loop so it observes the stop flag immediately
+        # instead of sleeping out the rest of trend_interval_seconds
         _trigger_event.set()
 
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT,  _handle_signal)
 
-    # Create one shared InfluxReader — the underlying HTTP connection is
-    # kept alive and reused across both the connectivity and analysis loops.
+    # create one shared InfluxReader — the underlying HTTP connection is
+    # kept alive and reused across both the connectivity and analysis loops
     from influx_client import InfluxReader
     reader = InfluxReader(cfg)
 
@@ -348,7 +348,7 @@ def main() -> None:
     for t in threads:
         t.start()
 
-    # Block main thread until shutdown signal.
+    # block main thread until shutdown signal
     stop.wait()
 
     logger.info('Waiting for loops to finish current iteration...')

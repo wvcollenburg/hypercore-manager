@@ -46,7 +46,7 @@ class SyncPushLoop:
             self._thread.join(timeout=10)
 
     def _loop(self):
-        # Stagger first push by 60s to let Sentinel fully start
+        # stagger first push by 60s to let sentinel fully start
         self._stop_event.wait(60)
         while not self._stop_event.is_set():
             self._run_push()

@@ -23,10 +23,10 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-# Autocorrelation score threshold to declare a pattern present
+# autocorrelation score threshold to declare a pattern present
 PATTERN_THRESHOLD = 0.40
 
-# Minimum samples required as a multiple of the lag being tested
+# minimum samples required as a multiple of the lag being tested
 MIN_SAMPLE_FACTOR = 2
 
 
@@ -67,7 +67,7 @@ def _resample_hourly(times: list[datetime], values: list[float]) -> np.ndarray |
     if not times or not values:
         return None
 
-    # Normalise to UTC
+    # normalise to UTC
     t0 = min(times)
     t0 = t0.replace(minute=0, second=0, microsecond=0)
     t_end = max(times)
@@ -84,7 +84,7 @@ def _resample_hourly(times: list[datetime], values: list[float]) -> np.ndarray |
         for b in buckets
     ])
 
-    # Forward-fill NaN gaps (sparse data)
+    # forward-fill NaN gaps (sparse data)
     mask = np.isnan(hourly)
     if mask.all():
         return None
@@ -110,7 +110,7 @@ def detect(times: list[datetime], values: list[float]) -> SeasonalityResult:
     if hourly is None or len(hourly) < 24:
         return SeasonalityResult(daily_score=None, weekly_score=None, monthly_score=None)
 
-    # Standardise to zero-mean unit-variance for cleaner autocorrelation
+    # standardise to zero-mean unit-variance for cleaner autocorrelation
     std = hourly.std()
     if std > 0:
         hourly = (hourly - hourly.mean()) / std

@@ -77,8 +77,8 @@ log = logging.getLogger(__name__)
 ResourceDimension = Literal['cpu', 'ram', 'storage_capacity', 'storage_latency', 'network']
 SeverityLevel     = Literal['INFO', 'ATTENTION', 'WARNING', 'CRITICAL', 'EMERGENCY']
 
-# Exhaustion severity thresholds (days until full)
-# > 365 days is informational — not yet actionable.
+# exhaustion severity thresholds (days until full)
+# > 365 days is informational — not yet actionable
 _SEVERITY_THRESHOLDS = [
     (7,   'EMERGENCY'),
     (30,  'CRITICAL'),
@@ -107,7 +107,7 @@ class ForecastResult:
 
 
 # ---------------------------------------------------------------------------
-# Internal: fit a trend line to a time series
+# internal: fit a trend line to a time series
 # ---------------------------------------------------------------------------
 
 def _fit(times: list[datetime], values: list[float]) -> dict | None:
@@ -120,7 +120,7 @@ def _fit(times: list[datetime], values: list[float]) -> dict | None:
     if n < 3:
         return None
 
-    # Convert datetimes to elapsed days from the first sample
+    # convert datetimes to elapsed days from the first sample
     t0 = times[0]
     x = np.array([(t - t0).total_seconds() / 86400.0 for t in times], dtype=float)
     y = np.array(values, dtype=float)
@@ -201,7 +201,7 @@ def _severity_from_exhaustion(exhaustion: date | None) -> SeverityLevel:
 
 
 # ---------------------------------------------------------------------------
-# B9 — Anomaly filter wrapper
+# B9 — anomaly filter wrapper
 # ---------------------------------------------------------------------------
 
 def _maybe_filter(
@@ -216,7 +216,7 @@ def _maybe_filter(
 
 
 # ---------------------------------------------------------------------------
-# Cluster-wide series aggregation
+# cluster-wide series aggregation
 # ---------------------------------------------------------------------------
 
 def _aggregate_series(
@@ -296,7 +296,7 @@ def _aggregate_series(
 
 
 # ---------------------------------------------------------------------------
-# Cluster-wide forecast builders (leading capacity signal)
+# cluster-wide forecast builders (leading capacity signal)
 # ---------------------------------------------------------------------------
 
 def _forecast_cluster_ram(
@@ -448,7 +448,7 @@ def _forecast_cluster_cpu(
 
 
 # ---------------------------------------------------------------------------
-# Per-dimension forecast builders
+# per-dimension forecast builders
 # ---------------------------------------------------------------------------
 
 def _forecast_node_cpu(
@@ -618,7 +618,7 @@ def _forecast_storage_latency(
             continue
 
         projected   = _project(fit, horizon)
-        # Severity: if read latency is trending up significantly, flag it
+        # severity: if read latency is trending up significantly, flag it
         severity: SeverityLevel = 'INFO'
         if fit['slope'] > 0 and fit['r2'] > 0.6:
             severity = 'WARNING'
@@ -653,7 +653,7 @@ def _forecast_storage_latency(
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# public entry point
 # ---------------------------------------------------------------------------
 
 def run_forecasts(
@@ -686,42 +686,42 @@ def run_forecasts(
         return results
 
     for horizon in horizons:
-        # ── Cluster-wide CPU (A1, leading capacity signal) ─────────────────
+        # ── cluster-wide CPU (A1, leading capacity signal) ─────────────────
         if nodes:
             r = _forecast_cluster_cpu(nodes, horizon, cfg, cluster_id)
             if r:
                 results.append(r)
 
-        # ── Cluster-wide RAM (A2, leading capacity signal) ─────────────────
+        # ── cluster-wide RAM (A2, leading capacity signal) ─────────────────
         if nodes:
             r = _forecast_cluster_ram(nodes, horizon, cfg, cluster_id)
             if r:
                 results.append(r)
 
-        # ── Per-node CPU (informational — imbalance signal only) ──────────
+        # ── per-node CPU (informational — imbalance signal only) ──────────
         for node in nodes.values():
             r = _forecast_node_cpu(node, horizon, cfg, cluster_id)
             if r:
                 results.append(r)
 
-        # ── Per-node RAM (informational — imbalance signal only) ──────────
+        # ── per-node RAM (informational — imbalance signal only) ──────────
         for node in nodes.values():
             r = _forecast_node_ram(node, horizon, cfg, cluster_id)
             if r:
                 results.append(r)
 
-        # ── Cluster-wide storage capacity (A3) ────────────────────────────
+        # ── cluster-wide storage capacity (A3) ────────────────────────────
         if storage:
             r = _forecast_cluster_storage(storage, horizon, cfg, cluster_id)
             if r:
                 results.append(r)
 
-        # ── Storage latency (A4) ──────────────────────────────────────────
+        # ── storage latency (A4) ──────────────────────────────────────────
         if storage:
             results.extend(_forecast_storage_latency(storage, horizon, cluster_id))
 
-        # ── Network (A5): VM-level means, node rollup ─────────────────────
-        # Forecasting network throughput at the VM level
+        # ── network (A5): VM-level means, node rollup ─────────────────────
+        # forecasting network throughput at the VM level
         for vm in vms.values():
             if len(vm.net_times) < 3:
                 continue
@@ -753,7 +753,7 @@ def run_forecasts(
                     },
                 ))
 
-    # Back-fill entity_label for storage_capacity rows using the nodes dict
+    # back-fill entity_label for storage_capacity rows using the nodes dict
     node_peer_ids = {n.node_uuid: n.node_peer_id for n in nodes.values()}
     for r in results:
         if r.entity_label is None and r.node_uuid:

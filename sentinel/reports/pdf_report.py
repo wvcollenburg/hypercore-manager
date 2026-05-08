@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# helpers
 # ---------------------------------------------------------------------------
 
 def _sev_color(sev: str | None, accent_hex: str) -> object:
@@ -82,14 +82,14 @@ def _light_table(story, rows, col_widths, accent_hex, severity_col=None,
     dark   = colors.HexColor('#1E293B')
 
     cmds = [
-        # Header
+        # header
         ('BACKGROUND',    (0, 0), (-1, header_rows - 1), h_bg),
         ('TEXTCOLOR',     (0, 0), (-1, header_rows - 1), colors.white),
         ('FONTNAME',      (0, 0), (-1, header_rows - 1), 'Helvetica-Bold'),
-        # Body
+        # body
         ('ROWBACKGROUNDS', (0, header_rows), (-1, -1), [row1, row2]),
         ('TEXTCOLOR',     (0, header_rows), (-1, -1), dark),
-        # All
+        # all
         ('FONTSIZE',      (0, 0), (-1, -1), 8),
         ('GRID',          (0, 0), (-1, -1), 0.4, border),
         ('LEFTPADDING',   (0, 0), (-1, -1), 6),
@@ -143,7 +143,7 @@ def _kpi_card(label: str, value: str, sub: str, accent: str, width: float = 88) 
 
 
 # ---------------------------------------------------------------------------
-# Report builder
+# report builder
 # ---------------------------------------------------------------------------
 
 def generate(data: dict) -> bytes:
@@ -177,7 +177,7 @@ def generate(data: dict) -> bytes:
         log.error('reportlab not installed')
         raise
 
-    # ── Branding ──────────────────────────────────────────────────────────────
+    # ── branding ──────────────────────────────────────────────────────────────
     branding     = data.get('branding') or {}
     company_name = branding.get('company_name') or ''
     accent_hex   = branding.get('accent_color') or '#3b82f6'
@@ -230,7 +230,7 @@ def generate(data: dict) -> bytes:
         return HRFlowable(width=W, thickness=0.5,
                           color=colors.HexColor('#CBD5E1'), spaceAfter=6)
 
-    # ── Unpack data ────────────────────────────────────────────────────────────
+    # ── unpack data ────────────────────────────────────────────────────────────
     health      = data.get('health') or {}
     forecasts   = data.get('forecasts') or []
     rightsizing = data.get('rightsizing') or []
@@ -246,7 +246,7 @@ def generate(data: dict) -> bytes:
     under_vms = [r for r in rightsizing if r.get('sizing_direction') == 'under_provisioned']
     total_reclaim = sum(float(r.get('capacity_reclaim_cpu_pct') or 0) for r in resize)
 
-    # Group forecasts by node for overview
+    # group forecasts by node for overview
     node_data: dict[str, dict] = {}
     for f in forecasts:
         if f.get('forecast_horizon_days') != 30:
@@ -266,11 +266,11 @@ def generate(data: dict) -> bytes:
     story = []
 
     # =========================================================================
-    # COVER PAGE
+    # cover page
     # =========================================================================
     story.append(Spacer(1, 20*mm))
 
-    # Logo
+    # logo
     if logo_b64:
         try:
             from PIL import Image as PILImage
@@ -298,7 +298,7 @@ def generate(data: dict) -> bytes:
     story.append(_muted(f"Generated: {data.get('generated_at', '—')}"))
     story.append(Spacer(1, 10*mm))
 
-    # Health score badge on cover
+    # health score badge on cover
     sev_hex = {'EMERGENCY': '#DC2626', 'CRITICAL': '#DC2626',
                 'WARNING': '#D97706', 'ATTENTION': '#7C3AED', 'INFO': '#16A34A'}.get(severity, '#64748B')
 
@@ -332,7 +332,7 @@ def generate(data: dict) -> bytes:
     story.append(PageBreak())
 
     # =========================================================================
-    # EXECUTIVE SUMMARY
+    # executive summary
     # =========================================================================
     story.append(_h2('Executive Summary'))
     story.append(_hr())
@@ -361,7 +361,7 @@ def generate(data: dict) -> bytes:
     story.append(kpi_row)
     story.append(Spacer(1, 6*mm))
 
-    # ── Narrative ─────────────────────────────────────────────────────────────
+    # ── narrative ─────────────────────────────────────────────────────────────
     story.append(_h3('Cluster Health'))
 
     sev_desc = {
@@ -381,7 +381,7 @@ def generate(data: dict) -> bytes:
         f'capacity is sitting idle.'
     ))
 
-    # Exhaustion findings
+    # exhaustion findings
     if exhaustion:
         story.append(_h3('Capacity Risk'))
         for e in sorted(exhaustion, key=lambda x: x.get('days_until_exhaustion') or 999)[:5]:
@@ -398,7 +398,7 @@ def generate(data: dict) -> bytes:
     else:
         story.append(_body('No active resource exhaustion alerts. All dimensions have sufficient runway.'))
 
-    # Right-sizing findings
+    # right-sizing findings
     story.append(_h3('Right-Sizing Opportunity'))
     if over_vms or under_vms:
         if over_vms:
@@ -423,7 +423,7 @@ def generate(data: dict) -> bytes:
     else:
         story.append(_body('No right-sizing flags are currently active.'))
 
-    # Predicted gains table
+    # predicted gains table
     if resize:
         story.append(Spacer(1, 4*mm))
         story.append(_h3('Predicted Gains if Recommendations are Applied'))
@@ -451,7 +451,7 @@ def generate(data: dict) -> bytes:
     story.append(PageBreak())
 
     # =========================================================================
-    # NODE OVERVIEW
+    # node overview
     # =========================================================================
     story.append(_h2('Node Overview'))
     story.append(_hr())
@@ -494,7 +494,7 @@ def generate(data: dict) -> bytes:
     story.append(Spacer(1, 8*mm))
 
     # =========================================================================
-    # TOP 10 VMs TO ACT ON
+    # top 10 VMs to act on
     # =========================================================================
     story.append(_h2('Top 10 VMs to Act On'))
     story.append(_hr())
@@ -506,7 +506,7 @@ def generate(data: dict) -> bytes:
     ))
     story.append(Spacer(1, 3*mm))
 
-    # Merge rightsizing + resize for richer rows, capped at 10
+    # merge rightsizing + resize for richer rows, capped at 10
     resize_by_vm = {r.get('vm_name'): r for r in resize}
     top10 = sorted(rightsizing, key=lambda r: float(r.get('composite_score') or 0),
                    reverse=True)[:10]
@@ -533,7 +533,7 @@ def generate(data: dict) -> bytes:
     story.append(PageBreak())
 
     # =========================================================================
-    # RESOURCE EXHAUSTION TIMELINE
+    # resource exhaustion timeline
     # =========================================================================
     story.append(_h2('Resource Exhaustion Timeline'))
     story.append(_hr())
@@ -567,7 +567,7 @@ def generate(data: dict) -> bytes:
     story.append(Spacer(1, 8*mm))
 
     # =========================================================================
-    # FULL RESIZE ACTION PLAN
+    # full resize action plan
     # =========================================================================
     story.append(_h2('Full Resize Action Plan'))
     story.append(_hr())
@@ -597,7 +597,7 @@ def generate(data: dict) -> bytes:
     else:
         story.append(_muted('No resize recommendations available.'))
 
-    # ── Footer ────────────────────────────────────────────────────────────────
+    # ── footer ────────────────────────────────────────────────────────────────
     story.append(Spacer(1, 10*mm))
     story.append(_hr())
     footer_parts = ['SC//Foresight  ·  Capacity Intelligence Module  ·  HyperCore Cluster Balancer']

@@ -72,7 +72,7 @@ def load_anon_config(cfg: cfg_module.Config) -> AnonConfig:
 
         sharing_enabled, anon_vm, anon_node, anon_cluster, hmac_key = row
 
-        # Generate and persist an HMAC key if one has not been set yet
+        # generate and persist an HMAC key if one has not been set yet
         if not hmac_key:
             hmac_key = secrets.token_hex(32)
             try:
@@ -105,7 +105,7 @@ def load_anon_config(cfg: cfg_module.Config) -> AnonConfig:
 
 
 # ---------------------------------------------------------------------------
-# Core pseudonym generator
+# core pseudonym generator
 # ---------------------------------------------------------------------------
 
 def _pseudonym(hmac_key: str, prefix: str, value: str) -> str:
@@ -131,7 +131,7 @@ def _pseudonym(hmac_key: str, prefix: str, value: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Public snapshot anonymiser
+# public snapshot anonymiser
 # ---------------------------------------------------------------------------
 
 def anonymise_snapshot(snapshot: dict, cfg: AnonConfig) -> dict:
@@ -166,13 +166,13 @@ def anonymise_snapshot(snapshot: dict, cfg: AnonConfig) -> dict:
     result = copy.deepcopy(snapshot)
     key = cfg.hmac_key
 
-    # Metadata block
+    # metadata block
     if cfg.anon_cluster_name and result.get('metadata'):
         meta = result['metadata']
         if meta.get('cluster_name'):
             meta['cluster_name'] = _pseudonym(key, 'cluster', meta['cluster_name'])
 
-    # Per-section record lists
+    # per-section record lists
     for section in ('forecasts', 'rightsizing', 'resize_recommendations', 'cluster_health', 'exhaustion'):
         for record in result.get(section, []):
             _anonymise_record(record, key, cfg)
@@ -189,15 +189,15 @@ def _anonymise_record(record: dict, key: str, cfg: AnonConfig) -> None:
         label = record.get('entity_label')
         if label:
             if label.startswith('Node '):
-                # Node label — handled below by anon_node_uuids block;
-                # leave untouched here so we don't double-process.
+                # node label — handled below by anon_node_uuids block;
+                # leave untouched here so we don't double-process
                 pass
             elif ' / ' in label:
-                # "vm_name / vsd_name" — anonymise VM part only; keep VSD name.
+                # "vm_name / vsd_name" — anonymise VM part only; keep VSD name
                 parts = label.split(' / ', 1)
                 record['entity_label'] = f"{_pseudonym(key, 'vm', parts[0])} / {parts[1]}"
             else:
-                # Plain VM name entity label
+                # plain VM name entity label
                 record['entity_label'] = _pseudonym(key, 'vm', label)
 
     if cfg.anon_node_uuids:

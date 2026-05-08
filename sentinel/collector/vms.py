@@ -32,7 +32,7 @@ class VMTimeSeries:
     cpu_times:  list[datetime] = field(default_factory=list)
     cpu_values: list[float]    = field(default_factory=list)
 
-    # Network bit rate samples (bits per second)
+    # network bit rate samples (bits per second)
     net_times:    list[datetime] = field(default_factory=list)
     rx_values:    list[float]    = field(default_factory=list)
     tx_values:    list[float]    = field(default_factory=list)
@@ -40,7 +40,7 @@ class VMTimeSeries:
     # vCPU allocation (latest value from vm_inventory; None if not yet fetched)
     num_vcpu:  int | None   = None
 
-    # ── Derived statistics ─────────────────────────────────────────────────
+    # ── derived statistics ─────────────────────────────────────────────────
 
     cpu_mean:  float | None = None
     cpu_p95:   float | None = None
@@ -94,7 +94,7 @@ def collect_vms(reader: InfluxReader, cfg: cfg_module.Config) -> dict[str, VMTim
     except Exception:
         log.exception('Failed to fetch VM CPU metrics')
 
-    # ── Network ──────────────────────────────────────────────────────────────
+    # ── network ──────────────────────────────────────────────────────────────
     try:
         net_rows = reader.query_vm_network(lookback)
         for row in net_rows:
