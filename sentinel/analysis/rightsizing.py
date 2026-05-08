@@ -67,7 +67,7 @@ class RightSizingResult:
     severity:             SeverityLevel
     analysis_window_days: int
 
-    # Signal scores (None = inconclusive / not applicable)
+    # signal scores (None = inconclusive / not applicable)
     cpu_signal_score:     float | None
     cpu_avg_usage_pct:    float | None
     cpu_p95_usage_pct:    float | None
@@ -81,7 +81,7 @@ class RightSizingResult:
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# helpers
 # ---------------------------------------------------------------------------
 
 def _severity(composite: float) -> SeverityLevel:
@@ -105,7 +105,7 @@ def _weighted_composite(scores_weights: list[tuple[float, float]]) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Signal 1: CPU sustained
+# signal 1: CPU sustained
 # ---------------------------------------------------------------------------
 
 def _cpu_signal(vm: VMTimeSeries, cfg: cfg_module.Config, direction: str) -> tuple[float | None, dict]:
@@ -126,7 +126,7 @@ def _cpu_signal(vm: VMTimeSeries, cfg: cfg_module.Config, direction: str) -> tup
         threshold = cfg.cpu_over_provisioned_threshold
         if mean >= threshold:
             return 0.0, {'reason': 'not_over_provisioned', 'mean': round(mean, 2)}
-        # Score = how far below threshold, normalised to [0,1]
+        # score = how far below threshold, normalised to [0,1]
         score = min(1.0, (threshold - mean) / threshold)
         return round(score, 4), {'mean': round(mean, 2), 'threshold': threshold, 'n': n}
 
@@ -140,7 +140,7 @@ def _cpu_signal(vm: VMTimeSeries, cfg: cfg_module.Config, direction: str) -> tup
         if not avg_breach and not p95_breach:
             return 0.0, {'reason': 'below_thresholds', 'mean': round(mean, 2), 'p95': round(p95, 2)}
 
-        # Score = normalised max exceedance above the relevant threshold
+        # score = normalised max exceedance above the relevant threshold
         avg_exc = max(0.0, (mean - avg_thresh) / (100.0 - avg_thresh)) if avg_breach else 0.0
         p95_exc = max(0.0, (p95  - p95_thresh) / (100.0 - p95_thresh)) if p95_breach else 0.0
         score   = min(1.0, max(avg_exc, p95_exc))
@@ -157,7 +157,7 @@ def _cpu_signal(vm: VMTimeSeries, cfg: cfg_module.Config, direction: str) -> tup
 
 
 # ---------------------------------------------------------------------------
-# Signal 2: Storage latency correlation
+# signal 2: storage latency correlation
 # ---------------------------------------------------------------------------
 
 def _latency_signal(vm_uuid: str, storage: StorageSnapshot | None) -> tuple[float | None, dict]:
@@ -193,11 +193,11 @@ def _latency_signal(vm_uuid: str, storage: StorageSnapshot | None) -> tuple[floa
         r2 = r_value ** 2
 
         if slope <= 0 or r2 < 0.1:
-            # No meaningful upward trend
+            # no meaningful upward trend
             vsd_details.append({'vsd_uuid': vsd.vsd_uuid, 'slope': round(float(slope), 4), 'r2': round(r2, 4), 'trending': False})
             continue
 
-        # Score = R² weighted by slope magnitude (normalised to current mean)
+        # score = R² weighted by slope magnitude (normalised to current mean)
         mean_lat = float(np.mean(y))
         norm_slope = (slope / mean_lat) if mean_lat > 0 else 0.0
         score = min(1.0, r2 * min(1.0, norm_slope * 10))
@@ -221,7 +221,7 @@ def _latency_signal(vm_uuid: str, storage: StorageSnapshot | None) -> tuple[floa
 
 
 # ---------------------------------------------------------------------------
-# Signal 3: Recurring spike patterns
+# signal 3: recurring spike patterns
 # ---------------------------------------------------------------------------
 
 def _spike_signal(
@@ -236,7 +236,7 @@ def _spike_signal(
     if not vm.cpu_times or len(vm.cpu_times) < cfg.recurring_spike_min_occurrences * 24:
         return None, {'reason': 'insufficient_history'}
 
-    # Check for seasonality first — signal 3 is only meaningful if there IS a pattern
+    # check for seasonality first — signal 3 is only meaningful if there IS a pattern
     seasonality = detect_seasonality(vm.cpu_times, vm.cpu_values)
     if not seasonality.any_pattern():
         return 0.0, {'reason': 'no_seasonality_detected'}
@@ -244,7 +244,7 @@ def _spike_signal(
     spike_threshold = cfg.cpu_under_provisioned_p95_threshold
     min_occ         = cfg.recurring_spike_min_occurrences
 
-    # Bucket: (hour_of_day, is_weekend)
+    # bucket: (hour_of_day, is_weekend)
     buckets: dict[tuple[int, bool], list[float]] = {}
     for t, v in zip(vm.cpu_times, vm.cpu_values):
         hour       = t.hour
@@ -259,7 +259,7 @@ def _spike_signal(
         if len(vals) < min_occ:
             continue
         qualifying_buckets.append((hour, is_weekend))
-        # Count occurrences that breach the spike threshold
+        # count occurrences that breach the spike threshold
         spikes = sum(1 for v in vals if v >= spike_threshold)
         if spikes >= min_occ:
             spike_buckets.append({
@@ -280,7 +280,7 @@ def _spike_signal(
             },
         }
 
-    # Score = fraction of qualifying buckets with recurring spikes,
+    # score = fraction of qualifying buckets with recurring spikes,
     # weighted by mean spike frequency
     frac  = len(spike_buckets) / len(qualifying_buckets)
     mean_pct = float(np.mean([b['pct'] for b in spike_buckets]))
@@ -298,7 +298,7 @@ def _spike_signal(
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# public entry point
 # ---------------------------------------------------------------------------
 
 def run_rightsizing(
@@ -314,11 +314,11 @@ def run_rightsizing(
     storage: StorageSnapshot | None  = metrics_cache.get('storage')
     results: list[RightSizingResult] = []
 
-    # Currently-RUNNING VMs from vm_inventory's latest record.  Used to skip
+    # currently-RUNNING VMs from vm_inventory's latest record.  used to skip
     # powered-off and deleted VMs whose historical samples still sit in the
     # 30-day analysis window (and whose preserved node_uuid would otherwise
-    # bypass the assignment check below).  An empty set means the lookup
-    # failed — fall back to no filtering rather than purging everything.
+    # bypass the assignment check below).  an empty set means the lookup
+    # failed — fall back to no filtering rather than purging everything
     running_vm_uuids: set[str] = metrics_cache.get('running_vm_uuids') or set()
     if not running_vm_uuids:
         log.warning('Running-VM set is empty — rightsizing will not filter '
@@ -328,20 +328,20 @@ def run_rightsizing(
         if not vm.cpu_values:
             continue
 
-        # Skip VMs not running on any node — powered-off and template VMs have no
+        # skip VMs not running on any node — powered-off and template VMs have no
         # node assignment (reported as peer unknown on the dashboard / empty node_uuid
-        # in InfluxDB).  Their cpu_usage is 0.0 for the entire window, which would
-        # falsely flag them as maximally over-provisioned.
+        # in InfluxDB).  their cpu_usage is 0.0 for the entire window, which would
+        # falsely flag them as maximally over-provisioned
         if not vm.node_uuid or vm.node_uuid.lower() in ('', 'unknown'):
             log.debug('Skipping VM with no node assignment (powered off/template)',
                       extra={'vm_name': vm.vm_name})
             continue
 
-        # Skip VMs whose latest vm_inventory record is not RUNNING — covers
+        # skip VMs whose latest vm_inventory record is not RUNNING — covers
         # powered-off VMs (whose old samples retain a node_uuid) and deleted
-        # VMs (no current inventory record at all).  Bypassed when the
+        # VMs (no current inventory record at all).  bypassed when the
         # running-VM lookup returned empty so a transient InfluxDB hiccup
-        # doesn't suppress all rightsizing output.
+        # doesn't suppress all rightsizing output
         if running_vm_uuids and vm.vm_uuid not in running_vm_uuids:
             log.debug('Skipping VM not currently running',
                       extra={'vm_name': vm.vm_name, 'vm_uuid': vm.vm_uuid})
@@ -350,11 +350,11 @@ def run_rightsizing(
         cpu_mean = vm.cpu_mean or 0.0
         cpu_p95  = vm.cpu_p95  or 0.0
 
-        # ── C1: Over-provisioned ──────────────────────────────────────────
+        # ── C1: over-provisioned ──────────────────────────────────────────
         if cpu_mean < cfg.cpu_over_provisioned_threshold:
             cpu_score, cpu_detail = _cpu_signal(vm, cfg, 'over_provisioned')
             if cpu_score is not None and cpu_score > 0:
-                composite = cpu_score  # Only one signal for C1
+                composite = cpu_score  # only one signal for C1
                 results.append(RightSizingResult(
                     cluster_id=cfg.cluster_id,
                     vm_uuid=vm.vm_uuid,
@@ -373,19 +373,19 @@ def run_rightsizing(
                     current_vcpu=vm.num_vcpu,
                 ))
 
-        # ── C2: Under-provisioned ─────────────────────────────────────────
-        # Only run if there's any indication of high CPU — avoids noisy results
+        # ── C2: under-provisioned ─────────────────────────────────────────
+        # only run if there's any indication of high CPU — avoids noisy results
         if cpu_mean >= cfg.cpu_over_provisioned_threshold:
             s1_score, s1_detail = _cpu_signal(vm, cfg, 'under_provisioned')
             s2_score, s2_detail = _latency_signal(vm.vm_uuid, storage)
             s3_score, s3_detail = _spike_signal(vm, cfg)
 
-            # Weight each signal by its statistical confidence
-            # Signals returning None have zero weight (inconclusive)
+            # weight each signal by its statistical confidence
+            # signals returning None have zero weight (inconclusive)
             s1_weight = float(len(vm.cpu_values)) / 1000.0 if s1_score is not None else 0.0
             s2_weight = 0.5 if s2_score is not None and s2_score > 0 else 0.0
             s3_weight = 0.5 if s3_score is not None and s3_score > 0 else 0.0
-            # Normalise weights so they don't exceed 1.0 each
+            # normalise weights so they don't exceed 1.0 each
             s1_weight = min(1.0, s1_weight)
 
             composite = _weighted_composite([

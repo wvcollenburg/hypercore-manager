@@ -96,7 +96,7 @@ def _fetch_before_vcpu(cfg: cfg_module.Config, vm_uuid: str, emitted_at: datetim
         )
         query_api = client.query_api()
 
-        # Look in a ±1-hour window around the recommendation time.
+        # look in a ±1-hour window around the recommendation time
         ts = emitted_at.strftime('%Y-%m-%dT%H:%M:%SZ')
         flux = f'''
 from(bucket: "{cfg.influx_bucket}")
@@ -120,7 +120,7 @@ from(bucket: "{cfg.influx_bucket}")
 
 
 # ---------------------------------------------------------------------------
-# Core logic
+# core logic
 # ---------------------------------------------------------------------------
 
 def _determine_outcome(
@@ -155,7 +155,7 @@ def run_once(cfg: cfg_module.Config) -> None:
         log.debug('Outcome tracker skipped — SC_HOST not configured')
         return
 
-    # ── 1. Load pending events ──────────────────────────────────────────────
+    # ── 1. load pending events ──────────────────────────────────────────────
     try:
         with db.connect(cfg) as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -183,7 +183,7 @@ def run_once(cfg: cfg_module.Config) -> None:
 
     log.info('Outcome tracker: checking %d pending events', len(pending))
 
-    # ── 2. Fetch current VM specs from HyperCore ────────────────────────────
+    # ── 2. fetch current VM specs from HyperCore ────────────────────────────
     hc = _HCSession(cfg)
     try:
         hc.login()
@@ -194,7 +194,7 @@ def run_once(cfg: cfg_module.Config) -> None:
     finally:
         hc.logout()
 
-    # Build lookup: vm_uuid → {num_vcpu, mem_bytes}
+    # build lookup: vm_uuid → {num_vcpu, mem_bytes}
     hc_by_uuid: dict[str, dict] = {}
     for vm in vms_raw:
         uid = vm.get('uuid') or vm.get('domainUUID') or ''
@@ -206,7 +206,7 @@ def run_once(cfg: cfg_module.Config) -> None:
 
     checked_at = datetime.now(tz=timezone.utc).isoformat()
 
-    # ── 3. Resolve each event ───────────────────────────────────────────────
+    # ── 3. resolve each event ───────────────────────────────────────────────
     for row in pending:
         event_id   = row['id']
         emitted_at = row['emitted_at']
@@ -215,7 +215,7 @@ def run_once(cfg: cfg_module.Config) -> None:
         vm_uuid          = payload.get('vm_uuid') or ''
         sizing_direction = payload.get('sizing_direction') or ''
 
-        # Current spec from HyperCore
+        # current spec from HyperCore
         hc_spec = hc_by_uuid.get(vm_uuid)
         if hc_spec is None:
             # VM no longer exists — mark as no_action, note it
@@ -241,7 +241,7 @@ def run_once(cfg: cfg_module.Config) -> None:
                 'mem_bytes':   hc_spec['mem_bytes'],
             }
 
-        # ── 4. Write outcome back to audit row ──────────────────────────────
+        # ── 4. write outcome back to audit row ──────────────────────────────
         try:
             with db.connect(cfg) as conn:
                 with conn.cursor() as cur:

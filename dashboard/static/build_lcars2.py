@@ -7,7 +7,7 @@ output_path = r'z:/Projects/programs/hypercore-manager/dashboard/static/index3.h
 with open(base_path, 'r', encoding='utf-8') as f:
     html = f.read()
 
-# ─── EXTRA CSS ────────────────────────────────────────────────────────────────
+# ─── extra CSS ────────────────────────────────────────────────────────────────
 LCARS2_CSS = """
 /* ═══════════════════════════════════════════════════════════════════
    LCARS-II  ·  ENHANCED EFFECTS LAYER
@@ -160,7 +160,7 @@ input[type=password]:focus,select:focus{
 /* 18 · PAGE TITLE ───────────────────────────────────────────────── */
 """
 
-# ─── EXTRA JS ─────────────────────────────────────────────────────────────────
+# ─── extra JS ─────────────────────────────────────────────────────────────────
 LCARS2_JS = """\
 <script>
 /* ═══ LCARS-II ENHANCED EFFECTS ═══ */
@@ -231,14 +231,14 @@ LCARS2_JS = """\
 </script>
 """
 
-# ─── INJECT ───────────────────────────────────────────────────────────────────
-# Inject CSS at end of the single <style> block
+# ─── inject ───────────────────────────────────────────────────────────────────
+# inject CSS at end of the single <style> block
 html = html.replace('</style>', LCARS2_CSS + '\n</style>', 1)
 
-# Inject JS just before </body>
+# inject JS just before </body>
 html = html.replace('</body>', LCARS2_JS + '\n</body>')
 
-# Update page title and favicon colour hint
+# update page title and favicon colour hint
 html = html.replace(
     '<title>HyperCore · LCARS Interface</title>',
     '<title>HyperCore · LCARS-II Interface</title>'

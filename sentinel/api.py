@@ -51,7 +51,7 @@ _api_app = Flask('sentinel.api')
 
 
 # ---------------------------------------------------------------------------
-# F4 — Authentication
+# F4 — authentication
 # ---------------------------------------------------------------------------
 
 def _require_token(f):
@@ -68,7 +68,7 @@ def _require_token(f):
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# helpers
 # ---------------------------------------------------------------------------
 
 def _cfg() -> cfg_module.Config:
@@ -100,7 +100,7 @@ def _rows_to_dicts(rows, description) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# F1 — Forecasts
+# F1 — forecasts
 # ---------------------------------------------------------------------------
 
 @_api_app.route('/api/v1/forecasts')
@@ -151,7 +151,7 @@ def get_forecasts():
 
 
 # ---------------------------------------------------------------------------
-# F2 — Right-sizing + resize recommendations
+# F2 — right-sizing + resize recommendations
 # ---------------------------------------------------------------------------
 
 @_api_app.route('/api/v1/rightsizing')
@@ -242,7 +242,7 @@ def get_resize_recommendations():
 
 
 # ---------------------------------------------------------------------------
-# F3 — Cluster health + resource exhaustion
+# F3 — cluster health + resource exhaustion
 # ---------------------------------------------------------------------------
 
 @_api_app.route('/api/v1/cluster-health')
@@ -319,7 +319,7 @@ def get_exhaustion():
 
 
 # ---------------------------------------------------------------------------
-# F6 — Summary
+# F6 — summary
 # ---------------------------------------------------------------------------
 
 @_api_app.route('/api/v1/summary')
@@ -331,7 +331,7 @@ def get_summary():
     try:
         with db.connect(cfg) as conn:
             with conn.cursor() as cur:
-                # Latest cluster health score
+                # latest cluster health score
                 cur.execute(
                     '''
                     SELECT health_score, bottleneck_resource, efficiency_index,
@@ -344,7 +344,7 @@ def get_summary():
                 )
                 health_row = cur.fetchone()
 
-                # Right-sizing counts by direction
+                # right-sizing counts by direction
                 cur.execute(
                     '''
                     SELECT sizing_direction, COUNT(*) AS cnt
@@ -356,7 +356,7 @@ def get_summary():
                 )
                 sizing = {row[0]: row[1] for row in cur.fetchall()}
 
-                # Worst active exhaustion alert
+                # worst active exhaustion alert
                 cur.execute(
                     '''
                     SELECT resource_dimension, days_until_exhaustion, severity
@@ -374,7 +374,7 @@ def get_summary():
                 )
                 exhaustion_row = cur.fetchone()
 
-                # Active forecast count
+                # active forecast count
                 cur.execute(
                     '''SELECT COUNT(*) FROM recommendations.forecast_snapshots
                        WHERE cluster_id = %s AND expires_at > NOW()''',
@@ -382,7 +382,7 @@ def get_summary():
                 )
                 forecast_count = cur.fetchone()[0]
 
-                # Resize advice counts by risk level
+                # resize advice counts by risk level
                 cur.execute(
                     '''
                     SELECT risk_level, COUNT(*) AS cnt
@@ -421,7 +421,7 @@ def get_summary():
 
 
 # ---------------------------------------------------------------------------
-# C7 — Right-sizing outcomes
+# C7 — right-sizing outcomes
 # ---------------------------------------------------------------------------
 
 @_api_app.route('/api/v1/outcomes')
@@ -583,7 +583,7 @@ def _fetch_source_vm_profile(cfg, vm_name: str, conn) -> tuple[dict | None, str 
         vm_uuid        = str(rs_row[0]) if rs_row else None
         vm_cpu_avg_pct = float(rs_row[1]) if rs_row and rs_row[1] is not None else None
 
-        # Sum of all VMs' CPU utilisation (denominator for fraction)
+        # sum of all VMs' CPU utilisation (denominator for fraction)
         total_cpu_pct = None
         if vm_cpu_avg_pct is not None:
             cur.execute(
@@ -611,7 +611,7 @@ def _fetch_source_vm_profile(cfg, vm_name: str, conn) -> tuple[dict | None, str 
         net_row = cur.fetchone()
         vm_network_bytes = float(net_row[0]) if net_row and net_row[0] is not None else None
 
-        # Total cluster network from the most recent snapshot window
+        # total cluster network from the most recent snapshot window
         total_network_bytes = None
         if vm_network_bytes is not None:
             cur.execute(
@@ -650,9 +650,9 @@ def _fetch_source_vm_profile(cfg, vm_name: str, conn) -> tuple[dict | None, str 
         else None
     )
 
-    # Fetch the VM's allocated RAM from InfluxDB vm_inventory (mem_bytes field).
-    # This is needed so the what-if RAM dimension uses the source VM's actual
-    # allocation rather than a cluster average.
+    # fetch the VM's allocated RAM from InfluxDB vm_inventory (mem_bytes field)
+    # this is needed so the what-if RAM dimension uses the source VM's actual
+    # allocation rather than a cluster average
     mem_bytes_allocated: int | None = None
     if vm_uuid:
         try:
@@ -728,7 +728,7 @@ def post_whatif():
     try:
         with db.connect(cfg) as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                # Latest cluster health row
+                # latest cluster health row
                 cur.execute(
                     '''
                     SELECT health_score, bottleneck_resource, efficiency_index,
@@ -741,7 +741,7 @@ def post_whatif():
                 )
                 health_row = dict(cur.fetchone() or {})
 
-                # Latest forecast snapshots (30d horizon — for growth rates)
+                # latest forecast snapshots (30d horizon — for growth rates)
                 cur.execute(
                     '''
                     SELECT resource_dimension, forecast_horizon_days,
@@ -755,7 +755,7 @@ def post_whatif():
                 )
                 forecast_rows = [dict(r) for r in cur.fetchall()]
 
-                # Latest resource exhaustion rows
+                # latest resource exhaustion rows
                 cur.execute(
                     '''
                     SELECT resource_dimension, exhaustion_date,
@@ -768,7 +768,7 @@ def post_whatif():
                 )
                 exhaustion_rows = [dict(r) for r in cur.fetchall()]
 
-                # Node count: distinct node_uuids with a cpu forecast
+                # node count: distinct node_uuids with a cpu forecast
                 cur.execute(
                     '''
                     SELECT COUNT(DISTINCT node_uuid)
@@ -792,7 +792,7 @@ def post_whatif():
                 )
                 vm_count = (cur.fetchone() or {}).get('count') or 0
 
-            # Fetch source VM profile for add_vms_like
+            # fetch source VM profile for add_vms_like
             source_vm_profile = None
             if scenario == 'add_vms_like':
                 source_vm_profile, err = _fetch_source_vm_profile(cfg, source_vm_name, conn)
@@ -817,7 +817,7 @@ def post_whatif():
 
 
 # ---------------------------------------------------------------------------
-# T2 — Live tunables (Phase 3.5)
+# T2 — live tunables (phase 3.5)
 # ---------------------------------------------------------------------------
 
 @_api_app.route('/api/v1/tunables', methods=['GET'])
@@ -851,10 +851,10 @@ def put_tunables():
         defn = _tunables.TUNABLES[key]
         try:
             val = _tunables._cast(raw_val, defn.type_hint)
-            # Enum constraint
+            # enum constraint
             if defn.type_hint == 'enum' and defn.allowed_values and val not in defn.allowed_values:
                 raise ValueError(f'Must be one of: {", ".join(defn.allowed_values)}')
-            # Range checks for numeric keys
+            # range checks for numeric keys
             if defn.type_hint in ('float', 'int') and defn.unit == '%':
                 if not (0 <= val <= 100):
                     raise ValueError('Must be between 0 and 100')
@@ -878,7 +878,7 @@ def put_tunables():
 
 
 # ---------------------------------------------------------------------------
-# H3 — Sharing preferences (GET/PUT)
+# H3 — sharing preferences (GET/PUT)
 # ---------------------------------------------------------------------------
 
 @_api_app.route('/api/v1/sharing', methods=['GET'])
@@ -950,7 +950,7 @@ def put_sharing():
     cfg  = _cfg()
     body = request.get_json(silent=True) or {}
 
-    # Validate viewer_url if provided
+    # validate viewer_url if provided
     viewer_url = body.get('viewer_url', ...)
     if viewer_url is not ... and viewer_url and not str(viewer_url).startswith('https://'):
         return jsonify({'error': 'viewer_url must start with https://'}), 400
@@ -967,7 +967,7 @@ def put_sharing():
     if not updates:
         return jsonify({'error': 'No valid fields provided'}), 400
 
-    # Build SET clause
+    # build SET clause
     set_parts = []
     params = []
     for k, v in updates.items():
@@ -987,7 +987,7 @@ def put_sharing():
         log.exception('PUT /api/v1/sharing failed')
         return jsonify({'error': str(e)}), 500
 
-    # Return the same shape as GET (re-query to get current state)
+    # return the same shape as GET (re-query to get current state)
     try:
         with db.connect(cfg) as conn:
             with conn.cursor() as cur:
@@ -1023,7 +1023,7 @@ def put_sharing():
 
 
 # ---------------------------------------------------------------------------
-# H1/H2 — Export snapshot + test-push
+# H1/H2 — export snapshot + test-push
 # ---------------------------------------------------------------------------
 
 @_api_app.route('/api/v1/export/snapshot')
@@ -1102,7 +1102,7 @@ def post_export_test_push():
 
     cfg = _cfg()
 
-    # Load sharing prefs to get viewer_url and bearer_token
+    # load sharing prefs to get viewer_url and bearer_token
     try:
         with db.connect(cfg) as conn:
             with conn.cursor() as cur:
@@ -1159,7 +1159,7 @@ def post_export_test_push():
         log.exception('POST /api/v1/export/test-push: snapshot build/sign failed')
         return jsonify({'success': False, 'status_code': None, 'error': str(e)}), 500
 
-    # Transmit to the viewer
+    # transmit to the viewer
     try:
         import urllib.request
         import urllib.error
@@ -1220,14 +1220,14 @@ def get_export_hcb():
 
     cfg = _cfg()
 
-    # Anonymisation is best-effort — silently skip if sharing_prefs table absent
+    # anonymisation is best-effort — silently skip if sharing_prefs table absent
     anon_cfg = _anonymiser.load_anon_config(cfg)
 
     try:
         snapshot = _exporter.build_snapshot(cfg)
         if anon_cfg.enabled:
             snapshot = _anonymiser.anonymise_snapshot(snapshot, anon_cfg)
-        # Sign with the passphrase so the viewer can verify integrity on import
+        # sign with the passphrase so the viewer can verify integrity on import
         signed = _exporter.sign_snapshot(snapshot, passphrase)
     except Exception as e:
         log.exception('GET /api/v1/export/hcb: snapshot build/sign failed')
@@ -1249,7 +1249,7 @@ def get_export_hcb():
 
 
 # ---------------------------------------------------------------------------
-# Startup
+# startup
 # ---------------------------------------------------------------------------
 
 def start(cfg: cfg_module.Config, trigger_analysis_fn=None) -> None:

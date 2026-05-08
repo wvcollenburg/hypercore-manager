@@ -58,29 +58,29 @@ import user_db
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
 
-# Seed tunables DB from env vars on first run (no-op if already seeded)
+# seed tunables DB from env vars on first run (no-op if already seeded)
 config_db.seed_from_env()
 
-# InfluxDB Configuration (configurables — stay in .env, require restart to change)
+# InfluxDB configuration — configurables, stay in .env, require restart to change
 INFLUX_URL = os.getenv('INFLUX_URL', 'http://influxdb:8086')
 INFLUX_TOKEN = os.getenv('INFLUX_TOKEN', 'super-secret-auth-token')
 INFLUX_ORG = os.getenv('INFLUX_ORG', 'hypercore')
 INFLUX_BUCKET = os.getenv('INFLUX_BUCKET', 'metrics')
 
-# Fallback stale threshold — live value is read from config_db per request
+# fallback stale threshold — live value is read from config_db per request
 STALE_SECONDS = int(os.getenv('SC_DASHBOARD_STALE_SECONDS', 120))
 
-# Session signing key — generated randomly at startup if not set (sessions won't
-# survive restarts in that case, but everything still works for dev).
+# session signing key — generated randomly at startup if not set (sessions won't
+# survive restarts in that case, but everything still works for dev)
 _secret_key = os.getenv('SC_DASHBOARD_SECRET_KEY', '') or secrets.token_hex(32)
 app.secret_key = _secret_key
 
-# Bootstrap the users table and seed the admin account from env vars on first run.
+# bootstrap the users table and seed the admin account from env vars on first run
 user_db.ensure_table()
 user_db.seed_admin_from_env()
 
-# Auth is enabled iff at least one user row exists. Cached at startup — restart
-# is required if the table goes from empty to populated outside of the UI.
+# auth is enabled iff at least one user row exists. Cached at startup — restart
+# is required if the table goes from empty to populated outside of the UI
 _AUTH_ENABLED = user_db.has_any_users()
 
 
@@ -113,7 +113,7 @@ def get_influx_client():
 
 
 # ---------------------------------------------------------------------------
-# PostgreSQL helper — Sentinel data lives in the recommendations schema
+# PostgreSQL helper — sentinel data lives in the recommendations schema
 # ---------------------------------------------------------------------------
 
 _PG_HOST = os.getenv('PG_HOST', 'postgres')
@@ -167,7 +167,7 @@ def is_stale(history_list):
 
 
 # =============================================================================
-# API: Node Metrics (last 1 hour, 1-minute windows)
+# API: node metrics (last 1 hour, 1-minute windows)
 # =============================================================================
 @app.route('/api/nodes')
 @require_auth
@@ -209,7 +209,7 @@ def get_nodes():
                 if 'num_threads' not in nodes[node_uuid]:
                     nodes[node_uuid]['num_threads'] = int(record.values.get('num_threads') or 0)
 
-        # Fetch latest allocated vCPUs per node from vm_inventory
+        # fetch latest allocated vCPUs per node from vm_inventory
         vcpu_query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -1h)
@@ -233,7 +233,7 @@ def get_nodes():
             node['vcpu_ratio'] = round(vcpus / threads, 2) if threads > 0 else 0.0
             node['allocated_vcpus'] = vcpus
 
-        # Fetch true current CPU per node (last measurement, independent of time range)
+        # fetch true current CPU per node (last measurement, independent of time range)
         current_query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -5m)
@@ -248,7 +248,7 @@ def get_nodes():
                 if nid in nodes:
                     nodes[nid]['current_cpu'] = record.get_value()
 
-        # Filter out nodes that haven't reported recently
+        # filter out nodes that haven't reported recently
         active = [n for n in nodes.values() if not is_stale(n['history'])]
         return jsonify(active)
     except Exception as e:
@@ -258,7 +258,7 @@ def get_nodes():
 
 
 # =============================================================================
-# API: VM Metrics (last 1 hour, 1-minute windows)
+# API: VM metrics (last 1 hour, 1-minute windows)
 # =============================================================================
 @app.route('/api/vms')
 @require_auth
@@ -282,7 +282,7 @@ def get_vms():
                 vm_name = record.values.get('vm_name', 'Unknown')
                 node_uuid = record.values.get('node_uuid', 'unknown')
 
-                # Skip records from in-flight migration state (no node assignment yet)
+                # skip records from in-flight migration state (no node assignment yet)
                 if node_uuid == 'unknown':
                     continue
 
@@ -304,7 +304,7 @@ def get_vms():
                     'tx_bit_rate': record.values.get('tx_bit_rate')
                 })
         
-        # Fetch true current CPU per VM (last measurement, independent of time range)
+        # fetch true current CPU per VM (last measurement, independent of time range)
         current_query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -5m)
@@ -319,7 +319,7 @@ def get_vms():
                 if vid in vms:
                     vms[vid]['current_cpu'] = record.get_value()
 
-        # Filter out VMs that haven't reported recently (deleted/stopped)
+        # filter out VMs that haven't reported recently (deleted/stopped)
         active = [v for v in vms.values() if not is_stale(v['history'])]
         return jsonify(active)
     except Exception as e:
@@ -329,7 +329,7 @@ def get_vms():
 
 
 # =============================================================================
-# API: Drive Metrics (physical drives, nested under nodes)
+# API: drive metrics (physical drives, nested under nodes)
 # =============================================================================
 @app.route('/api/drives')
 @require_auth
@@ -373,9 +373,9 @@ def get_drives():
                     entry['temperature'] = temp
                 drives[drive_uuid]['history'].append(entry)
 
-        # For current-state views (drive health cards) filter out stale drives.
-        # For historical charts (include_stale=true) keep all drives so that
-        # capacity/usage totals correctly reflect what was present at each point in time.
+        # for current-state views (drive health cards) filter out stale drives.
+        # for historical charts (include_stale=true) keep all drives so that
+        # capacity/usage totals correctly reflect what was present at each point in time
         if include_stale:
             active = list(drives.values())
         else:
@@ -388,7 +388,7 @@ def get_drives():
 
 
 # =============================================================================
-# API: VSD Metrics (virtual storage devices, nested under VMs)
+# API: VSD metrics (virtual storage devices, nested under VMs)
 # =============================================================================
 @app.route('/api/vsds')
 @require_auth
@@ -432,7 +432,7 @@ def get_vsds():
                     'capacity_bytes': record.values.get('capacity_bytes'),
                 })
         
-        # Filter out VSDs that haven't reported recently
+        # filter out VSDs that haven't reported recently
         active = [v for v in vsds.values() if not is_stale(v['history'])]
         return jsonify(active)
     except Exception as e:
@@ -442,7 +442,7 @@ def get_vsds():
 
 
 # =============================================================================
-# API: Migration Events (last 7 days by default)
+# API: migration events (last 7 days by default)
 # =============================================================================
 @app.route('/api/migrations')
 @require_auth
@@ -482,7 +482,7 @@ def get_migrations():
 
 
 # =============================================================================
-# API: Predictive Engine — recommendation log
+# API: predictive engine — recommendation log
 # =============================================================================
 @app.route('/api/predictions')
 @require_auth
@@ -523,7 +523,7 @@ def get_predictions():
 
 
 # =============================================================================
-# API: Predictive Engine — per-run summary log
+# API: predictive engine — per-run summary log
 # =============================================================================
 @app.route('/api/forecast_runs')
 @require_auth
@@ -569,12 +569,12 @@ def get_forecast_runs():
 
 
 # =============================================================================
-# API: Module Discovery
+# API: module discovery
 # =============================================================================
-# This is the key endpoint for extensibility. It queries InfluxDB for all
+# this is the key endpoint for extensibility. It queries InfluxDB for all
 # measurement names in the bucket. When you add a new container that writes
 # to a new measurement (e.g. "backup_events", "snapshot_metrics"), it shows
-# up here automatically — no frontend code changes needed.
+# up here automatically — no frontend code changes needed
 # =============================================================================
 @app.route('/api/modules')
 @require_auth
@@ -603,11 +603,11 @@ def get_modules():
 
 
 # =============================================================================
-# API: Generic Measurement Query
+# API: generic measurement query
 # =============================================================================
-# This lets the frontend query ANY measurement dynamically. When a new module
+# this lets the frontend query ANY measurement dynamically. When a new module
 # appears in /api/modules, the frontend can immediately query its data without
-# any backend changes.
+# any backend changes
 # =============================================================================
 @app.route('/api/query/<measurement>')
 @require_auth
@@ -619,7 +619,7 @@ def query_measurement(measurement):
         return jsonify({'error': 'Invalid hours or limit parameter'}), 400
     client = get_influx_client()
     try:
-        # Sanitize measurement name (alphanumeric + underscores only)
+        # sanitize measurement name (alphanumeric + underscores only)
         if not re.match(r'^[a-zA-Z0-9_]+$', measurement):
             return jsonify({'error': 'Invalid measurement name'}), 400
 
@@ -650,7 +650,7 @@ def query_measurement(measurement):
 
 
 # =============================================================================
-# API: Data Quality — gap detection for forecast reliability warning
+# API: data quality — gap detection for forecast reliability warning
 # =============================================================================
 @app.route('/api/data-quality')
 @require_auth
@@ -668,7 +668,7 @@ def get_data_quality():
 
     client = get_influx_client()
     try:
-        # Step 1: find nodes that have reported recently (active nodes only).
+        # step 1: find nodes that have reported recently (active nodes only)
         stale_secs = config_db.get('STALE_SECONDS') or STALE_SECONDS
         active_query = f'''
 from(bucket: "{INFLUX_BUCKET}")
@@ -685,11 +685,11 @@ from(bucket: "{INFLUX_BUCKET}")
                          if row.values.get('node_uuid')]
 
         if not active_uuids:
-            # No active nodes — nothing meaningful to check.
+            # no active nodes — nothing meaningful to check
             return jsonify({'reliable': True, 'gap_count': 0,
                             'total_gap_hours': 0, 'checked_hours': 0})
 
-        # Step 2: check for gaps only within those active nodes.
+        # step 2: check for gaps only within those active nodes
         node_filter = ' or '.join(f'r.node_uuid == "{uid}"' for uid in active_uuids)
         query = f'''
 from(bucket: "{INFLUX_BUCKET}")
@@ -723,7 +723,7 @@ from(bucket: "{INFLUX_BUCKET}")
 
 
 # =============================================================================
-# API: Tunables Config (live read/write)
+# API: tunables config (live read/write)
 # =============================================================================
 @app.route('/api/config', methods=['GET'])
 @require_auth
@@ -751,8 +751,8 @@ def post_config():
 
 
 # =============================================================================
-# SC//Foresight (Sentinel) API — E1-E6
-# All routes query the recommendations schema in PostgreSQL directly.
+# SC//Foresight (sentinel) API — E1-E6
+# all routes query the recommendations schema in PostgreSQL directly
 # =============================================================================
 
 def _sentinel_query(sql: str, params: list) -> list[dict]:
@@ -821,13 +821,13 @@ def sentinel_summary():
                 )
                 fc = cur.fetchone()
 
-                # Latest cluster-wide forecast row per dimension — gives the
+                # latest cluster-wide forecast row per dimension — gives the
                 # current_capacity used for N+1 calculations so the dashboard
                 # can express growth rates as "% of capacity per year".  The
                 # model_metadata also carries the daily_aggregate that was
                 # active when this analysis ran, so the breakdown badge
                 # reflects what the bars are *actually* based on rather than
-                # the current pending setting (which may have changed since).
+                # the current pending setting (which may have changed since)
                 cur.execute(
                     '''SELECT DISTINCT ON (resource_dimension)
                               resource_dimension, current_usage, current_capacity,
@@ -1020,7 +1020,7 @@ def sentinel_status():
             data = json.loads(resp.read().decode())
         return jsonify(data)
     except Exception:
-        # Sentinel not reachable — return minimal stub so UI can show "not running" state
+        # sentinel not reachable — return minimal stub so UI can show "not running" state
         return jsonify({'status': 'unavailable'}), 200
 
 
@@ -1106,7 +1106,7 @@ def sentinel_report_pdf():
 
 
 # ---------------------------------------------------------------------------
-# E7 — Report branding configuration
+# E7 — report branding configuration
 # ---------------------------------------------------------------------------
 
 def _get_branding() -> dict:
@@ -1158,7 +1158,7 @@ def sentinel_put_branding():
     logo_b64       = body.get('logo_b64') or ''
     logo_mime_type = str(body.get('logo_mime_type', 'image/png'))[:40]
 
-    # Validate accent_color is a 6- or 3-digit hex
+    # validate accent_color is a 6- or 3-digit hex
     import re as _re
     if not _re.match(r'^#[0-9a-fA-F]{3,6}$', accent_color):
         accent_color = '#3b82f6'
@@ -1186,7 +1186,7 @@ def sentinel_put_branding():
 
 
 # ---------------------------------------------------------------------------
-# D5 — VM list + what-if scenario modelling (proxy to Sentinel REST API)
+# D5 — VM list + what-if scenario modelling (proxy to sentinel REST API)
 # ---------------------------------------------------------------------------
 
 @app.route('/api/sentinel/vms')
@@ -1250,7 +1250,7 @@ def sentinel_whatif():
         return jsonify({'error': f'Sentinel unreachable: {e}'}), 503
 
 
-# T3 — Sentinel live tunables proxy (Phase 3.5)
+# T3 — sentinel live tunables proxy (Phase 3.5)
 
 @app.route('/api/sentinel/tunables', methods=['GET'])
 @require_auth
@@ -1333,7 +1333,7 @@ def sentinel_trigger_trend_run():
         return jsonify({'error': f'Sentinel unreachable: {e}'}), 503
 
 
-# H3 — Sharing preferences proxy (Phase 4)
+# H3 — sharing preferences proxy (Phase 4)
 
 @app.route('/api/sentinel/sharing', methods=['GET'])
 @require_auth
@@ -1481,7 +1481,7 @@ def sentinel_export_hcb():
 
 
 # =============================================================================
-# Auth routes
+# auth routes
 # =============================================================================
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -1496,7 +1496,7 @@ def login_page():
 
     if request.method == 'POST':
         if step == 'otp':
-            # Guard: must have completed the password step first
+            # guard: must have completed the password step first
             pending_username = session.get('otp_pending')
             if not pending_username:
                 return redirect(url_for('login_page'))
@@ -1525,7 +1525,7 @@ def login_page():
                 return redirect(url_for('index'))
             error = 'Invalid username or password.'
 
-    # Pass otp_enabled=True only when on the OTP step (drives login.html hint text)
+    # pass otp_enabled=True only when on the OTP step (drives login.html hint text)
     pending = session.get('otp_pending')
     otp_hint = bool(pending and user_db.get_by_username(pending or ''))
     return render_template('login.html', step=step, error=error, otp_enabled=otp_hint)
@@ -1538,7 +1538,7 @@ def logout():
 
 
 # =============================================================================
-# User management API
+# user management API
 # =============================================================================
 
 @app.route('/api/users/me')
@@ -1618,7 +1618,7 @@ def api_users_set_password(username):
     new_password = data.get('new_password', '')
     if not new_password:
         return jsonify({'error': 'new_password is required'}), 400
-    # Non-admin users must supply their current password
+    # non-admin users must supply their current password
     if is_self and not is_admin:
         if not user_db.verify_password(username, data.get('current_password', '')):
             return jsonify({'error': 'Current password is incorrect'}), 403
@@ -1667,7 +1667,7 @@ def api_otp_disable():
 
 
 # =============================================================================
-# Auto-update
+# auto-update
 # =============================================================================
 
 _REPO_PATH       = os.getenv('SC_REPO_PATH', '/repo')
@@ -1716,13 +1716,13 @@ def _check_for_update():
         local  = _git('rev-parse', 'HEAD')
         remote = _git('rev-parse', '@{u}')
 
-        # Human-readable labels: "2026-04-22 · abc1234"
+        # human-readable labels: "2026-04-22 · abc1234"
         current_label = _git('log', '-1', '--pretty=format:%cd · %h',
                              '--date=format:%Y-%m-%d', 'HEAD')
         remote_label  = _git('log', '-1', '--pretty=format:%cd · %h',
                              '--date=format:%Y-%m-%d', '@{u}')
 
-        # Commit subjects in remote not yet in local
+        # commit subjects in remote not yet in local
         changelog_raw = _git('log', 'HEAD..@{u}', '--pretty=format:%s', '--no-merges')
         changelog = [l for l in changelog_raw.splitlines() if l.strip()] if changelog_raw else []
 
@@ -1871,9 +1871,9 @@ def _do_apply_update():
         _write_update_patch({'update_available': False})
         project = os.getenv('COMPOSE_PROJECT_NAME', 'drsproject')
         # _REPO_PATH is /repo inside the container, but the Docker daemon needs
-        # the real host-side path for volume mounts.
+        # the real host-side path for volume mounts
         host_repo = os.getenv('SC_HOST_REPO_PATH', _REPO_PATH)
-        # Remove stale updater container if a previous run left one behind
+        # remove stale updater container if a previous run left one behind
         subprocess.run(['docker', 'rm', '-f', 'hcm-auto-updater'],
                        capture_output=True)
         r = subprocess.run(
@@ -1938,7 +1938,7 @@ def api_update_apply():
 
 
 # =============================================================================
-# Serve the frontend
+# serve the frontend
 # =============================================================================
 
 @app.route('/')

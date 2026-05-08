@@ -24,29 +24,29 @@ from typing import Callable, Optional
 
 
 # ============================================================================
-# Constants
+# constants
 # ============================================================================
 
 ENV_PATH = Path(".env")
 TEMPLATE_PATH = Path(".env.template")
 
-# Strings the schema treats as "still a placeholder, must be replaced".
+# strings the schema treats as "still a placeholder, must be replaced"
 PLACEHOLDERS = {"CHANGE_ME", "https://nodeip/rest/v1", "password", ""}
 
-# Profiles available in the schema. Mirrors the docker-compose --profile flags.
+# profiles available in the schema, mirrors the docker-compose --profile flags
 PROFILE_CORE = "core"
 PROFILE_SENTINEL = "sentinel"
 PROFILE_TOOLS = "tools"
 
-# Easy-mode required keys — these are filled by the operator, never autogen'd.
+# easy-mode required keys — filled by the operator, never autogen'd
 EASY_REQUIRED_KEYS = {"SC_HOST", "SC_USERNAME", "SC_PASSWORD", "SC_DASHBOARD_PASSWORD"}
 
-# Easy-mode default profile set.
+# easy-mode default profile set
 EASY_PROFILES = {PROFILE_CORE, PROFILE_SENTINEL}
 
 
 # ============================================================================
-# Data model
+# data model
 # ============================================================================
 
 @dataclass
@@ -76,7 +76,7 @@ class Section:
 
 
 # ============================================================================
-# Password / token generation
+# password / token generation
 # ============================================================================
 
 def gen_password(length: int = 24) -> str:
@@ -102,7 +102,7 @@ def gen_token(nbytes: int = 32) -> str:
 
 
 # ============================================================================
-# Auto-detection helpers
+# auto-detection helpers
 # ============================================================================
 
 def detect_repo_path() -> str:
@@ -133,7 +133,7 @@ def path_exists(p: str) -> bool:
 
 
 # ============================================================================
-# Easy-mode helpers
+# easy-mode helpers
 # ============================================================================
 
 def looks_like_host(s: str) -> bool:
@@ -173,12 +173,12 @@ def normalize_sc_host(ip: str) -> str:
 
 
 # ============================================================================
-# Schema — every variable in .env.template, with metadata for the UI
+# schema — every variable in .env.template, with metadata for the UI
 # ============================================================================
 
 def build_schema() -> list[Section]:
     return [
-        # -------- Compose --------
+        # -------- compose --------
         Section(
             key="compose",
             title="Docker Compose",
@@ -460,7 +460,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Collector --------
+        # -------- collector --------
         Section(
             key="collector",
             title="Collector",
@@ -504,7 +504,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Balancer master --------
+        # -------- balancer master --------
         Section(
             key="balancer_master",
             title="Balancer — Master Toggles",
@@ -551,7 +551,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Balancer reactive --------
+        # -------- balancer reactive --------
         Section(
             key="balancer_reactive",
             title="Balancer — Reactive Engine",
@@ -745,7 +745,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Balancer predictive --------
+        # -------- balancer predictive --------
         Section(
             key="balancer_predictive",
             title="Balancer — Predictive Engine (Oracle)",
@@ -899,7 +899,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Auto-update paths --------
+        # -------- auto-update paths --------
         Section(
             key="autoupdate",
             title="Auto-update paths",
@@ -947,7 +947,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Dashboard --------
+        # -------- dashboard --------
         Section(
             key="dashboard",
             title="Dashboard",
@@ -1029,7 +1029,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Sentinel — PostgreSQL (always-on, used by everyone) --------
+        # -------- sentinel — PostgreSQL (always on, used by everyone) --------
         Section(
             key="postgres",
             title="PostgreSQL",
@@ -1058,7 +1058,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Sentinel forecasts --------
+        # -------- sentinel forecasts --------
         Section(
             key="sentinel_forecast",
             title="Sentinel — Forecast horizons",
@@ -1113,7 +1113,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Sentinel anomaly --------
+        # -------- sentinel anomaly --------
         Section(
             key="sentinel_anomaly",
             title="Sentinel — Anomaly filter",
@@ -1143,7 +1143,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Sentinel forecast tuning --------
+        # -------- sentinel forecast tuning --------
         Section(
             key="sentinel_forecast_tuning",
             title="Sentinel — Forecast tuning",
@@ -1200,7 +1200,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Sentinel right-sizing --------
+        # -------- sentinel right-sizing --------
         Section(
             key="sentinel_rightsize",
             title="Sentinel — Right-sizing thresholds",
@@ -1266,7 +1266,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Sentinel analysis window --------
+        # -------- sentinel analysis window --------
         Section(
             key="sentinel_window",
             title="Sentinel — Analysis window",
@@ -1313,7 +1313,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Sentinel retention --------
+        # -------- sentinel retention --------
         Section(
             key="sentinel_retention",
             title="Sentinel — Data retention",
@@ -1342,7 +1342,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Sentinel intervals --------
+        # -------- sentinel intervals --------
         Section(
             key="sentinel_intervals",
             title="Sentinel — Collection intervals",
@@ -1411,7 +1411,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Sentinel API --------
+        # -------- sentinel API --------
         Section(
             key="sentinel_api",
             title="Sentinel — REST API",
@@ -1441,7 +1441,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Sentinel outcome tracker --------
+        # -------- sentinel outcome tracker --------
         Section(
             key="sentinel_outcome",
             title="Sentinel — Outcome tracker",
@@ -1509,7 +1509,7 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Sentinel webhooks --------
+        # -------- sentinel webhooks --------
         Section(
             key="sentinel_webhooks",
             title="Sentinel — Webhooks",
@@ -1686,7 +1686,7 @@ def write_env(path: Path, sections: list[Section], values: dict[str, str], profi
 
 
 # ============================================================================
-# Validation
+# validation
 # ============================================================================
 
 def validate_value(field_def: Field, value: str) -> Optional[str]:
@@ -1783,7 +1783,7 @@ def collect_path_warnings(
 
 
 # ============================================================================
-# Easy-mode autogen
+# easy-mode autogen
 # ============================================================================
 
 def apply_easy_autogen(sections: list[Section], values: dict[str, str], profiles: set[str]) -> None:

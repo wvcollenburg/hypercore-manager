@@ -38,7 +38,7 @@ class NodeTimeSeries:
     ram_times:    list[datetime] = field(default_factory=list)
     ram_values:   list[float]    = field(default_factory=list)
 
-    # ── Derived statistics (populated by _compute_stats) ──────────────────
+    # ── derived statistics (populated by _compute_stats) ──────────────────
 
     # CPU
     cpu_mean:     float | None = None
@@ -104,19 +104,19 @@ def collect_nodes(reader: InfluxReader, cfg: cfg_module.Config) -> dict[str, Nod
     except Exception:
         log.exception('Failed to fetch node RAM metrics')
 
-    # ── Derived stats ────────────────────────────────────────────────────────
+    # ── derived stats ────────────────────────────────────────────────────────
     for node in nodes.values():
         _compute_stats(node)
 
-    # ── Node RAM capacity (physical total, not usage) ─────────────────────
+    # ── node RAM capacity (physical total, not usage) ─────────────────────
     try:
         capacity_map = reader.query_node_mem_capacity()
         for uid, cap in capacity_map.items():
             if uid in nodes:
                 nodes[uid].mem_capacity = cap
             else:
-                # Node appeared in capacity query but not in metrics (e.g. offline);
-                # create a stub so the HA check can still account for its RAM.
+                # node appeared in capacity query but not in metrics (e.g. offline);
+                # create a stub so the HA check can still account for its RAM
                 nodes[uid] = NodeTimeSeries(node_uuid=uid, node_peer_id=None, mem_capacity=cap)
         log.debug('Node mem_capacity fetched', extra={'entries': len(capacity_map)})
     except Exception:

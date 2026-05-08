@@ -1,12 +1,12 @@
 /* HyperCore Manager — English (American) translations */
 window.LANG = {
-  // Header
+  // header
   'header.connecting':    'Connecting...',
   'header.connected':     'Connected',
   'header.disconnected':  'Disconnected',
   'header.refresh':       '↻ Refresh',
 
-  // Nav tabs
+  // nav tabs
   'nav.modules':          'Modules',
   'nav.settings':         '⚙ Settings',
 
@@ -28,7 +28,7 @@ window.LANG = {
   'sentinel.tab.settings':    'Settings',
   'sentinel.tab.datasharing': 'Data Sharing',
 
-  // Time range / grouping controls
+  // time range / grouping controls
   'time.range':           'Range:',
   'vm.group_by':          'Group by:',
   'vm.group_none':        'None',
@@ -39,7 +39,7 @@ window.LANG = {
   'vm.group_label.peer':  'Peer',
   'vm.performance_details': 'Performance Details',
 
-  // Chart titles
+  // chart titles
   'chart.node_cpu':       'Node CPU Usage Over Time',
   'chart.cluster_iops':   'Total Cluster IOPS Over Time',
   'chart.cluster_ram':    'Cluster RAM Usage',
@@ -49,7 +49,7 @@ window.LANG = {
   'chart.vm_net':         'VM Network Usage — top 5 (RX + TX)',
   'chart.miglog':         'Migration Event Log',
 
-  // Section / panel headings
+  // section / panel headings
   'section.capacity_forecasts': 'Capacity Forecasts',
   'section.resize_advice':      'Concrete Resize Advice',
   'section.exhaustion_alerts':  'Resource Exhaustion Alerts',
@@ -62,7 +62,7 @@ window.LANG = {
   'iops.iops':  'IOPS',
   'iops.insufficient': '95th Percentile: insufficient data',
 
-  // Loading states
+  // loading states
   'loading.nodes':      'Loading node metrics...',
   'loading.vms':        'Loading VM metrics...',
   'loading.migrations': 'Loading migration events...',
@@ -74,7 +74,7 @@ window.LANG = {
   'loading.simulation': 'Running simulation...',
   'loading.modules':    'Discovering modules...',
 
-  // Empty / error states
+  // empty / error states
   'empty.no_api':               'Could not connect to API',
   'empty.no_nodes':             'No node data yet. Is the collector running?',
   'empty.no_vms':               'No VM data yet.',
@@ -88,7 +88,7 @@ window.LANG = {
   'empty.sentinel_settings_unavail': 'Sentinel unavailable — settings cannot be loaded.',
   'empty.settings_load_failed': 'Failed to load settings: {msg}',
 
-  // Metric labels (node / VM cards)
+  // metric labels (node / VM cards)
   'metric.cpu_usage':   'CPU Usage',
   'metric.memory_used': 'Memory Used',
   'metric.vcpu_ratio':  'vCPU Ratio',
@@ -96,7 +96,7 @@ window.LANG = {
   'metric.network_rx':  'Network RX',
   'metric.network_tx':  'Network TX',
 
-  // Physical drive sub-items
+  // physical drive sub-items
   'drive.physical_drives': '◉ Physical Drives',
   'drive.slot':      'Slot',
   'drive.healthy':   'Healthy',
@@ -105,14 +105,14 @@ window.LANG = {
   'drive.temperature': 'Temperature',
   'drive.errors':    'Errors',
 
-  // Virtual storage device sub-items
+  // virtual storage device sub-items
   'vsd.devices':       '◈ Virtual Storage Devices',
   'vsd.read':          'Read',
   'vsd.write':         'Write',
   'vsd.read_latency':  'Read Latency',
   'vsd.write_latency': 'Write Latency',
 
-  // Migration log table
+  // migration log table
   'mig.time':      'Time',
   'mig.vm':        'VM',
   'mig.migration': 'Migration',
@@ -126,7 +126,7 @@ window.LANG = {
   'vm.modal.disk_iops':    'Disk IOPS (per VSD)',
   'vm.modal.disk_latency': 'Disk Latency (per VSD)',
 
-  // Settings controls
+  // settings controls
   'settings.apply':      'Apply',
   'settings.unsaved':    '● unsaved',
   'settings.applied_n':  'Applied {n} change(s)',
@@ -134,12 +134,12 @@ window.LANG = {
   'settings.restart_required': 'Restart-required settings',
   'settings.restart_note': 'Restart-required settings — collection interval, trend interval, outcome check interval, ports, InfluxDB / PostgreSQL / HyperCore credentials, webhook URL, secret and delivery parameters must be set via environment variables in docker-compose and require a container restart.',
 
-  // Info popup section labels
+  // info popup section labels
   'info.what':     'What it does',
   'info.benefits': 'Benefits',
   'info.careful':  'Be careful',
 
-  // Settings group labels
+  // settings group labels
   'group.master':      'Master Controls',
   'group.reactive':    'Reactive Balancer',
   'group.predictive':  'Predictive Engine  ·  The Oracle',
@@ -179,7 +179,7 @@ window.LANG = {
   'sentinel.warming_first_in':  'First analysis in',
   'sentinel.warming_started':   'Started',
 
-  // Forecast table
+  // forecast table
   'forecast.dimension':    'Dimension',
   'forecast.horizon':      'Horizon',
   'forecast.node_entity':  'Node / Entity',
@@ -193,7 +193,7 @@ window.LANG = {
   'forecast.all_dimensions': 'All dimensions',
   'forecast.all_horizons':   'All horizons',
 
-  // Right-sizing table
+  // right-sizing table
   'rs.vm_name':           'VM Name',
   'rs.direction':         'Direction',
   'rs.current_vcpu':      'Current vCPU',
@@ -209,7 +209,7 @@ window.LANG = {
   'rs.recommended_action':'Recommended',
   'rs.low_priority':      'Low Priority',
 
-  // Exhaustion table
+  // exhaustion table
   'ex.dimension':      'Dimension',
   'ex.node':           'Node',
   'ex.days_left':      'Days Left',
@@ -217,14 +217,14 @@ window.LANG = {
   'ex.growth_rate':    'Growth Rate/day',
   'ex.severity':       'Severity',
 
-  // Dimension labels
+  // dimension labels
   'dim.cpu':     'CPU',
   'dim.ram':     'RAM',
   'dim.storage': 'Storage',
   'dim.latency': 'Latency',
   'dim.network': 'Network',
 
-  // What-If panel
+  // what-if panel
   'whatif.scenario':         'Scenario',
   'whatif.add_nodes':        'Add Nodes',
   'whatif.add_vms':          'Add VMs',
@@ -255,7 +255,7 @@ window.LANG = {
   'whatif.bottleneck':       'Bottleneck:',
   'whatif.none':             'none',
 
-  // Reports / PDF
+  // reports / PDF
   'reports.branding_title':      'Report Branding',
   'reports.branding_desc':       'Customise the PDF report cover page. Settings are saved per-cluster and applied to every generated report.',
   'reports.company_name':        'Company Name',
@@ -277,7 +277,7 @@ window.LANG = {
   'reports.contents_rightsizing':'\u25c6 VM right-sizing recommendations',
   'reports.contents_resize':     '\u25c6 Concrete resize advice with risk classification',
 
-  // Data Sharing panel
+  // data sharing panel
   'sharing.connection_title':   'Connection',
   'sharing.connection_desc':    'Configure the SC//Foresight-Central viewer endpoint to enable scheduled snapshot pushes.',
   'sharing.enabled':            'Sharing enabled',
@@ -316,7 +316,7 @@ window.LANG = {
   'hcb.required':  'Passphrase is required.',
   'hcb.mismatch':  'Passphrases do not match.',
 
-  // Modules tab
+  // modules tab
   'modules.tools':           'Tools',
   'modules.grafana_desc':    'Advanced data exploration and custom dashboards',
   'modules.open_grafana':    'Open Grafana',
@@ -329,10 +329,10 @@ window.LANG = {
   'grafana.not_running':'\u25cb Not running',
   'grafana.checking':  'Checking...',
 
-  // Auto-discovered module fallback desc
+  // auto-discovered module fallback desc
   'module.auto_desc': 'Auto-discovered data source',
 
-  // ─── Info popup body text (ⓘ) — Balancer & Collector settings ───────────
+  // ─── info popup body text (ⓘ) — balancer & collector settings ───────────
   'info.DRY_RUN.what':      'The balancer analyses the cluster and decides which VMs to migrate, but stops short of actually executing any moves. All decision logic runs normally — you see the outcomes in the logs.',
   'info.DRY_RUN.benefits':  'Essential safety net when first deploying or after changing thresholds significantly. Lets you validate behaviour before committing to live migrations.',
   'info.DRY_RUN.careful':   'While enabled, real resource imbalances are NOT corrected. A cluster under heavy load will stay imbalanced for as long as Dry Run is on.',
@@ -433,7 +433,7 @@ window.LANG = {
   'info.STALE_SECONDS.benefits':  'Quickly surfaces collection failures, network issues, or InfluxDB problems before they silently affect dashboard accuracy.',
   'info.STALE_SECONDS.careful':   'Set too low (below POLL_INTERVAL) and nodes will always appear stale. Should be at least 2\u20133\u00d7 POLL_INTERVAL to account for normal write timing variance.',
 
-  // ─── Info popup body text (ⓘ) — Sentinel / SC//Foresight settings ────────
+  // ─── info popup body text (ⓘ) — Sentinel / SC//Foresight settings ────────
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.what':      'VMs consistently using less than this % of allocated CPU over the analysis window are flagged as over-provisioned.',
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.benefits':  'Identifies VMs with too many vCPUs allocated, freeing up capacity that can be reassigned to under-provisioned VMs or allow higher VM density on the same hardware.',
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.careful':   'Set too high and intentionally reserved VMs (standby servers, batch jobs with variable load) get incorrectly flagged. Consider your workload mix before lowering below 20%.',

@@ -27,12 +27,12 @@ logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 
-# Phase 1: single-cluster deployment. Override via SC_CLUSTER_ID env var.
+# phase 1: single-cluster deployment — override via SC_CLUSTER_ID env var
 DEFAULT_CLUSTER_ID = os.getenv('SC_CLUSTER_ID', '00000000-0000-0000-0000-000000000001')
 
-# Registry: key → (env_var_name, hardcoded_default, type_hint)
+# registry: key → (env_var_name, hardcoded_default, type_hint)
 TUNABLES = {
-    # ── Balancer: Reactive ──────────────────────────────────────────────────
+    # ── balancer: reactive ──────────────────────────────────────────────────
     'DRY_RUN':                        ('SC_DRY_RUN',                        True,   'bool'),
     'VERBOSITY':                      ('SC_VERBOSITY',                       3,      'int'),
     'AVG_WINDOW_MINUTES':             ('SC_AVG_WINDOW_MINUTES',              5,      'int'),
@@ -45,7 +45,7 @@ TUNABLES = {
     'MIGRATION_COOLDOWN_MINUTES':     ('SC_MIGRATION_COOLDOWN_MINUTES',      5,      'int'),
     'EXCLUDE_NODE_IPS':               ('SC_EXCLUDE_NODE_IPS',                '',     'list'),
     'CPU_TARGET_TOLERANCE_PERCENT':   ('SC_CPU_TARGET_TOLERANCE_PERCENT',    5.0,    'float'),
-    # ── Balancer: Predictive ────────────────────────────────────────────────
+    # ── balancer: predictive ────────────────────────────────────────────────
     'PREDICTIVE_BALANCING_ENABLED':   ('SC_PREDICTIVE_BALANCING_ENABLED',    False,  'bool'),
     'PREDICTIVE_INTERVAL_SECONDS':    ('SC_PREDICTIVE_INTERVAL_SECONDS',     43200,  'int'),
     'PREDICTIVE_LEAD_TIME_HOURS':     ('SC_PREDICTIVE_LEAD_TIME_HOURS',      1,      'int'),
@@ -54,25 +54,25 @@ TUNABLES = {
     'PREDICTIVE_LOOKBACK_DAYS':       ('SC_PREDICTIVE_LOOKBACK_DAYS',        90,     'int'),
     'PREDICTIVE_MAX_WORKERS':         ('SC_PREDICTIVE_MAX_WORKERS',          8,      'int'),
     'PREDICTIVE_RESERVATION_MINUTES': ('SC_PREDICTIVE_RESERVATION_MINUTES',  5,      'int'),
-    # ── Collector ───────────────────────────────────────────────────────────
+    # ── collector ───────────────────────────────────────────────────────────
     'POLL_INTERVAL':                  ('SC_POLL_INTERVAL',                   30,     'int'),
     'SLOW_POLL_INTERVAL':             ('SC_SLOW_POLL_INTERVAL',              300,    'int'),
     'INFLUX_WRITE_RETRIES':           ('INFLUX_WRITE_RETRIES',               3,      'int'),
     'INFLUX_RETRY_DELAY':             ('INFLUX_RETRY_DELAY',                 5,      'int'),
-    # ── Dashboard ───────────────────────────────────────────────────────────
+    # ── dashboard ───────────────────────────────────────────────────────────
     'STALE_SECONDS':                  ('SC_DASHBOARD_STALE_SECONDS',         120,    'int'),
 }
 
 
 # ---------------------------------------------------------------------------
-# Type helpers (unchanged from SQLite version)
+# type helpers — unchanged from SQLite version
 # ---------------------------------------------------------------------------
 
 def _cast(value: str, type_hint: str) -> Any:
     if type_hint == 'bool':
         return str(value).lower() in ('true', '1', 'yes', 'y')
     if type_hint == 'int':
-        return int(float(value))  # float() first handles "30.0" edge case
+        return int(float(value))  # float() first handles the "30.0" edge case
     if type_hint == 'float':
         return float(value)
     if type_hint == 'list':
@@ -89,7 +89,7 @@ def _serialize(value: Any, type_hint: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# internal helpers
 # ---------------------------------------------------------------------------
 
 def _connect() -> psycopg2.extensions.connection:
@@ -114,7 +114,7 @@ def _env_fallback(key: str) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# public API
 # ---------------------------------------------------------------------------
 
 def seed_from_env() -> None:
@@ -145,7 +145,7 @@ def seed_from_env() -> None:
                                 (DEFAULT_CLUSTER_ID, key, _serialize(value, type_hint), type_hint),
                             )
                         elif raw_env is not None and row[0] == _serialize(default, type_hint):
-                            # Still at hardcoded default — env var now available, apply it
+                            # still at hardcoded default — env var now available, apply it
                             cur.execute(
                                 '''UPDATE config.tunables
                                       SET value = %s, updated_at = NOW()

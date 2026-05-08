@@ -73,7 +73,7 @@ class _ProgressReader:
         return chunk
 
     def __len__(self) -> int:
-        # urllib uses len(data) to set Content-Length when not already set.
+        # urllib uses len(data) to set Content-Length when not already set
         return self._total
 
 
@@ -160,13 +160,13 @@ class HyperCoreClient:
             else:
                 if body_size is None:
                     raise ValueError("body_size required when raw_body is a stream")
-                # Wrap so http.client can read it AND we can report progress.
+                # wrap so http.client can read it AND we can report progress
                 body_data = _ProgressReader(raw_body, body_size, progress)
             headers["Content-Length"] = str(body_size)
 
-        # Sanity: collapse any case-duplicate headers a caller might have
+        # sanity: collapse any case-duplicate headers a caller might have
         # introduced via extra_headers (HTTP forbids duplicate Content-Length;
-        # nginx rejects requests that have it twice with a 400).
+        # nginx rejects requests that have it twice with a 400)
         headers = _normalize_headers(headers)
 
         req = urllib.request.Request(url, data=body_data, headers=headers, method=method)
@@ -214,7 +214,7 @@ class HyperCoreClient:
         last_pct = -1
         while True:
             data = self.request("GET", f"/TaskTag/{task_tag}")
-            # /TaskTag returns a list with a single entry per the spec; tolerate both shapes.
+            # /TaskTag returns a list with a single entry per the spec; tolerate both shapes
             if isinstance(data, list):
                 data = data[0] if data else {}
             state = data.get("state") or "UNINITIALIZED"
@@ -402,7 +402,7 @@ class HyperCoreClient:
             raise HyperCoreError("create_nic: no createdUUID in response")
         return result.created_uuid
 
-    # ----------------------------------------------------------------- Action
+    # ----------------------------------------------------------------- action
 
     def action(self, vm_uuid: str, action_type: str, *, node_uuid: str = "") -> None:
         """Send a VM lifecycle action (START/SHUTDOWN/STOP/REBOOT/RESET/...)."""
@@ -417,7 +417,7 @@ class HyperCoreClient:
     def power_on(self, vm_uuid: str, *, node_uuid: str = "") -> None:
         self.action(vm_uuid, "START", node_uuid=node_uuid)
 
-    # -------------------------------------------------------------- Live IPs
+    # -------------------------------------------------------------- live IPs
 
     def vm_ipv4(self, vm_uuid: str) -> list[str]:
         """Best-effort: return any IPv4 addresses the cluster has observed

@@ -58,12 +58,12 @@ import db
 
 log = logging.getLogger(__name__)
 
-# Retry delays per attempt number (1-indexed: attempt 2, 3, …)
+# retry delays per attempt number (1-indexed: attempt 2, 3, …)
 _RETRY_DELAYS = [timedelta(minutes=5), timedelta(minutes=30)]
 
 
 # ---------------------------------------------------------------------------
-# Signing
+# signing
 # ---------------------------------------------------------------------------
 
 def _sign(body: bytes, secret: str) -> str | None:
@@ -105,7 +105,7 @@ def _post(url: str, payload: dict, secret: str, timeout: int) -> tuple[int, str]
 
 
 # ---------------------------------------------------------------------------
-# Dispatcher
+# dispatcher
 # ---------------------------------------------------------------------------
 
 def _build_payload(event: dict) -> dict:
@@ -172,7 +172,7 @@ def _dispatch_event(cfg: cfg_module.Config, event: dict, attempt_count: int) -> 
             cfg.webhook_url, payload, cfg.webhook_secret, cfg.webhook_timeout_seconds
         )
     except Exception as exc:
-        # Connection/timeout error
+        # connection/timeout error
         next_retry = _next_retry_at(attempt_count)
         status     = 'dead_letter' if next_retry is None else 'failed'
         log.warning(
@@ -227,7 +227,7 @@ def _dispatch_event(cfg: cfg_module.Config, event: dict, attempt_count: int) -> 
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# public entry point
 # ---------------------------------------------------------------------------
 
 def dispatch_pending(cfg: cfg_module.Config) -> None:
@@ -245,7 +245,7 @@ def dispatch_pending(cfg: cfg_module.Config) -> None:
         with db.connect(cfg) as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
 
-                # ── New events: CRITICAL/EMERGENCY with no delivery row yet ──
+                # ── new events: CRITICAL/EMERGENCY with no delivery row yet ──
                 cur.execute(
                     '''
                     SELECT re.id, re.cluster_id, re.event_type, re.severity,
@@ -276,7 +276,7 @@ def dispatch_pending(cfg: cfg_module.Config) -> None:
                 )
                 new_events = [dict(r) for r in cur.fetchall()]
 
-                # ── Retry queue: failed deliveries past their next_retry_at ──
+                # ── retry queue: failed deliveries past their next_retry_at ──
                 cur.execute(
                     '''
                     SELECT DISTINCT ON (wd.recommendation_event_id)

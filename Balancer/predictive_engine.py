@@ -10,19 +10,19 @@ from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 import logging
 
-# Suppress Prophet's chatty terminal output
+# suppress Prophet's chatty terminal output
 warnings.filterwarnings("ignore")
 logging.getLogger('cmdstanpy').setLevel(logging.WARNING)
 
 import config_db
 
-# InfluxDB Configuration (configurables — stay in .env)
+# InfluxDB configuration — configurables, stay in .env
 INFLUX_URL = os.getenv('INFLUX_URL', "http://localhost:8086")
 INFLUX_TOKEN = os.getenv('INFLUX_TOKEN', "super-secret-auth-token")
 INFLUX_ORG = os.getenv('INFLUX_ORG', "hypercore")
 INFLUX_BUCKET = os.getenv('INFLUX_BUCKET', "metrics")
 
-# Tunables are read live from config_db at forecast time (see get_proactive_migrations)
+# tunables are read live from config_db at forecast time — see get_proactive_migrations
 
 
 class ProactiveMigration:
@@ -96,7 +96,7 @@ def _write_recommendation(rec, predicted_peak_load, vm_predicted_cpu):
 
 
 def get_proactive_migrations(vms, nodes, forecast_hours=24):
-    # Read tunables live so each Oracle run picks up any dashboard changes
+    # read tunables live so each Oracle run picks up any dashboard changes
     threshold       = config_db.get('PREDICTIVE_THRESHOLD')       or 80.0
     min_history     = config_db.get('PREDICTIVE_MIN_HISTORY_HOURS') or 336
     lookback_days   = config_db.get('PREDICTIVE_LOOKBACK_DAYS')    or 90
@@ -166,7 +166,7 @@ def _forecast_single_vm(vm, forecast_hours, lookback_days, min_history_hours):
             dt = record.get_time().replace(tzinfo=None)
             records.append({'ds': dt, 'y': record.get_value()})
 
-    # min_history_hours (default 336 = 2 weeks) gives Prophet enough data for weekly patterns.
+    # min_history_hours (default 336 = 2 weeks) gives Prophet enough data for weekly patterns
     if len(records) < min_history_hours:
         print(f"[ORACLE] Skipping {vm_name}: Not enough historical data ({len(records)} hours). Needs at least {min_history_hours}.")
         return {'skipped': 'short_history', 'name': vm_name}
@@ -211,7 +211,7 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
     skipped_short_history = 0
     skipped_other = 0
 
-    # Anti-affinity lookups — built from current placement, updated as moves are planned
+    # anti-affinity lookups — built from current placement, updated as moves are planned
     # vm_anti_by_name: vm_name → set of VM names it must not share a node with
     vm_anti_by_name = {}
     # planned_node_vm_names: node_uuid → set of VM names planned to be there
@@ -225,7 +225,7 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
         if node_uuid and node_uuid in planned_node_vm_names:
             planned_node_vm_names[node_uuid].add(name)
 
-    # Phase 1: Parallel VM forecasting
+    # phase 1: parallel VM forecasting
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(_forecast_single_vm, vm, forecast_hours, lookback_days, min_history_hours): vm.get('name', 'Unknown')
@@ -253,7 +253,7 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
             if result['current_node'] in predicted_node_loads:
                 predicted_node_loads[result['current_node']] += normalized_impact
 
-    # Phase 2: Analyze future node states and generate migration recommendations
+    # phase 2: analyze future node states and generate migration recommendations
     print("[ORACLE] Forecast complete. Analyzing future node capacities...")
     nodes_flagged = 0
     peak_node_load = 0.0
@@ -272,8 +272,8 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
         print(f"[ORACLE] WARNING: Node {source_ip} predicted to hit {future_load:.1f}% CPU. "
               f"Queuing as many moves as needed to bring it below {threshold}%.")
 
-        # Sort lightest-first: each candidate is easy to place, making it more likely
-        # we find a safe target and can iterate through multiple VMs if needed.
+        # sort lightest-first: each candidate is easy to place, making it more likely
+        # we find a safe target and can iterate through multiple VMs if needed
         vms_on_node = sorted(
             [v for v in vm_forecasts if v['current_node'] == node_uuid],
             key=lambda x: x['raw_expected_cpu']
@@ -281,9 +281,9 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
 
         for candidate_vm in vms_on_node:
             if predicted_node_loads[node_uuid] <= threshold:
-                break  # Node is now predicted safe — stop evicting
+                break  # node is now predicted safe — stop evicting
 
-            # Re-sort targets each iteration so we always pick the least-loaded one
+            # re-sort targets each iteration so we always pick the least-loaded one
             target_nodes = sorted(
                 [n for n in nodes if n['uuid'] != node_uuid],
                 key=lambda n: predicted_node_loads.get(n['uuid'], 100.0)
@@ -299,7 +299,7 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
                 target_threads = node_threads.get(best_target['uuid'], 1)
                 target_impact = candidate_vm['raw_expected_cpu'] * (candidate_vm['vcpus'] / target_threads)
 
-                # Anti-affinity: skip target if candidate's anti_X tag matches a VM there,
+                # anti-affinity: skip target if candidate's anti_X tag matches a VM there,
                 # or if any VM on the target has anti_<candidate> pointing back at us
                 tgt_names = planned_node_vm_names.get(best_target['uuid'], set())
                 tgt_anti  = {a for n in tgt_names for a in vm_anti_by_name.get(n, set())}
@@ -330,7 +330,7 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
                     source_impact = candidate_vm['raw_expected_cpu'] * (candidate_vm['vcpus'] / node_threads.get(node_uuid, 1))
                     predicted_node_loads[node_uuid]          -= source_impact
                     predicted_node_loads[best_target['uuid']] += target_impact
-                    # Update planned placement so subsequent iterations respect this move
+                    # update planned placement so subsequent iterations respect this move
                     planned_node_vm_names[node_uuid].discard(candidate_name)
                     planned_node_vm_names[best_target['uuid']].add(candidate_name)
                     print(f"[ORACLE] Queuing: {candidate_name} -> {target_ip} "
@@ -339,7 +339,7 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
                     break
 
             if not placed:
-                # If we couldn't place the lightest remaining VM, heavier ones won't fit either
+                # if we couldn't place the lightest remaining VM, heavier ones won't fit either
                 print(f"[ORACLE] No safe target for {candidate_vm['name']} — cluster headroom exhausted. "
                       f"Node {source_ip} remains at {predicted_node_loads[node_uuid]:.1f}% predicted load. "
                       f"Reactive engine will handle the rest.")

@@ -73,7 +73,7 @@ log = logging.getLogger(__name__)
 
 ScenarioType = Literal['add_nodes', 'add_vms', 'add_vms_like']
 
-# Severity-to-health mapping (mirrors cluster_health.py)
+# severity-to-health mapping (mirrors cluster_health.py)
 _SEVERITY_HEALTH = {
     'EMERGENCY': 0.0,
     'CRITICAL':  25.0,
@@ -90,7 +90,7 @@ _HEALTH_SEVERITY = [
 
 
 # ---------------------------------------------------------------------------
-# Input / output types
+# input / output types
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -126,7 +126,7 @@ class WhatIfResult:
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# helpers
 # ---------------------------------------------------------------------------
 
 def _severity_from_score(score: float) -> str:
@@ -256,16 +256,16 @@ def _simulate_add_nodes(
             continue
 
         if dim == 'cpu':
-            # Each new node adds one node-worth of CPU headroom.
-            # Current cluster CPU capacity = node_count × 100 % points.
-            # New cluster CPU capacity = new_node_count × 100 % points.
-            # But forecasts are per-node %, so capacity per-node stays at 100%.
-            # Model: cluster-wide avg CPU = current_usage × node_count / new_node_count.
+            # each new node adds one node-worth of CPU headroom
+            # current cluster CPU capacity = node_count × 100 % points
+            # new cluster CPU capacity = new_node_count × 100 % points
+            # but forecasts are per-node %, so capacity per-node stays at 100%
+            # model: cluster-wide avg CPU = current_usage × node_count / new_node_count
             if node_count == 0:
                 sim_dates[dim] = state.exhaustion_date
                 continue
 
-            # Effective extra headroom in % terms (per original cluster basis)
+            # effective extra headroom in % terms (per original cluster basis)
             extra_pct = (req.count / node_count) * 100.0
             current   = state.current_usage_pct or 0.0
             growth    = state.growth_rate_day or 0.0
@@ -286,7 +286,7 @@ def _simulate_add_nodes(
             if override is not None:
                 extra_bytes = override * req.count
             elif state.current_bytes and node_count:
-                # Assume new nodes match current cluster average storage
+                # assume new nodes match current cluster average storage
                 extra_bytes = (state.current_bytes / node_count) * req.count
             else:
                 sim_dates[dim] = state.exhaustion_date
@@ -389,17 +389,17 @@ def _simulate_add_vms(
 
         growth = state.growth_rate_day
         if growth is None or growth <= 0:
-            # No positive growth; adding VMs has no modelled effect
+            # no positive growth; adding VMs has no modelled effect
             sim_dates[dim] = state.exhaustion_date
             continue
 
         if state.exhaustion_date is not None:
-            # Anchor to stored date: more VMs → faster growth → less time remaining
+            # anchor to stored date: more VMs → faster growth → less time remaining
             days_remaining = max(0, (state.exhaustion_date - date.today()).days)
             new_days = max(0, int(days_remaining / scale_factor))
             sim_dates[dim] = date.today() + timedelta(days=new_days)
         else:
-            # No current exhaustion projected; with faster growth one may appear
+            # no current exhaustion projected; with faster growth one may appear
             new_growth = growth * scale_factor
             ref_usage  = state.current_usage_pct if dim == 'cpu' else state.current_bytes
             capacity   = 100.0 if dim == 'cpu' else ((ref_usage or 1.0) * 2.0)
@@ -485,7 +485,7 @@ def _simulate_add_vms_like(
             sim_dates[dim] = state.exhaustion_date
             continue
 
-        # ── Derive this VM's absolute contribution in the same units as dim ──
+        # ── derive this VM's absolute contribution in the same units as dim ──
         contribution: float | None = None
         source_label = 'cluster avg'
 
@@ -509,7 +509,7 @@ def _simulate_add_vms_like(
                 source_label = f'{source_vm_profile.get("vm_name")} RAM allocation'
 
         if contribution is None:
-            # Fallback: spread current load evenly across known VMs
+            # fallback: spread current load evenly across known VMs
             if vm_count > 0:
                 ref = state.current_usage_pct if dim == 'cpu' else (state.current_bytes or 0.0)
                 contribution = ref / vm_count
@@ -522,13 +522,13 @@ def _simulate_add_vms_like(
         assumptions[dim] = source_label
 
         if state.exhaustion_date is not None:
-            # Shorten existing runway by the additional load
+            # shorten existing runway by the additional load
             days_remaining = max(0, (state.exhaustion_date - date.today()).days)
             days_saved = total_increment / growth
             new_days = max(0, int(days_remaining - days_saved))
             sim_dates[dim] = date.today() + timedelta(days=new_days)
         else:
-            # No current exhaustion; project from elevated starting usage
+            # no current exhaustion; project from elevated starting usage
             ref = state.current_usage_pct if dim == 'cpu' else (state.current_bytes or 0.0)
             capacity = 100.0 if dim == 'cpu' else (ref * 2.0 or 1.0)
             new_usage = ref + total_increment
@@ -562,7 +562,7 @@ def _simulate_add_vms_like(
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# public entry point
 # ---------------------------------------------------------------------------
 
 def run_whatif(req: WhatIfRequest, pg_state: dict) -> WhatIfResult:
@@ -583,10 +583,10 @@ def run_whatif(req: WhatIfRequest, pg_state: dict) -> WhatIfResult:
     vm_count       = pg_state.get('vm_count') or 0
     efficiency     = float(health_row.get('efficiency_index') or 1.0)
 
-    # ── Build baseline exhaustion dates and dim states ───────────────────────
+    # ── build baseline exhaustion dates and dim states ───────────────────────
     dim_states: dict[str, _DimState] = {}
 
-    # Populate growth rates from 30d forecast rows (most stable)
+    # populate growth rates from 30d forecast rows (most stable)
     for row in forecast_rows:
         if row.get('forecast_horizon_days') != 30:
             continue
@@ -597,7 +597,7 @@ def run_whatif(req: WhatIfRequest, pg_state: dict) -> WhatIfResult:
         meta  = row.get('model_metadata') or {}
         slope = meta.get('slope')
         if slope is not None:
-            # Accumulate slopes; average later
+            # accumulate slopes; average later
             if state.growth_rate_day is None:
                 state.growth_rate_day = slope
             else:
@@ -608,7 +608,7 @@ def run_whatif(req: WhatIfRequest, pg_state: dict) -> WhatIfResult:
             else:
                 state.current_bytes = float(row['current_usage'])
 
-    # Populate exhaustion dates and per-dim severity from exhaustion rows
+    # populate exhaustion dates and per-dim severity from exhaustion rows
     for row in exhaustion_rows:
         dim   = row.get('resource_dimension') or ''
         state = dim_states.setdefault(dim, _DimState())
@@ -624,7 +624,7 @@ def run_whatif(req: WhatIfRequest, pg_state: dict) -> WhatIfResult:
                 state.exhaustion_date = raw_date
         state.severity = row.get('severity') or 'INFO'
 
-    # ── Baseline summary ─────────────────────────────────────────────────────
+    # ── baseline summary ─────────────────────────────────────────────────────
     baseline_exhaustion = {
         d: s.exhaustion_date.isoformat() if s.exhaustion_date else None
         for d, s in dim_states.items()
@@ -638,7 +638,7 @@ def run_whatif(req: WhatIfRequest, pg_state: dict) -> WhatIfResult:
         'vm_count':        vm_count,
     }
 
-    # ── Run scenario ─────────────────────────────────────────────────────────
+    # ── run scenario ─────────────────────────────────────────────────────────
     if req.scenario == 'add_nodes':
         simulated, assumptions = _simulate_add_nodes(
             req, baseline, dim_states, node_count
@@ -653,7 +653,7 @@ def run_whatif(req: WhatIfRequest, pg_state: dict) -> WhatIfResult:
             req, baseline, dim_states, vm_count
         )
 
-    # ── Delta ────────────────────────────────────────────────────────────────
+    # ── delta ────────────────────────────────────────────────────────────────
     health_delta = round(simulated['health_score'] - baseline['health_score'], 1)
     exhaustion_gained: dict[str, int | None] = {}
     for dim in set(list(baseline['exhaustion_dates']) + list(simulated['exhaustion_dates'])):

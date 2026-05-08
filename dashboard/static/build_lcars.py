@@ -9,12 +9,12 @@ output_path   = r'z:/Projects/programs/hypercore-manager/dashboard/static/index2
 with open(original_path, 'r', encoding='utf-8') as f:
     original_lines = f.readlines()
 
-# Extract sections (0-indexed)
+# extract sections (0-indexed)
 tab_html = ''.join(original_lines[872:1391])   # nav-tabs div + tab panel HTML
 js_block  = ''.join(original_lines[1392:4265]) # <script> ... </script>
 end_html  = ''.join(original_lines[4265:])     # update modal + closing HTML
 
-# Patch JS: LCARS color palette
+# patch JS: LCARS color palette
 js_block = js_block.replace(
     "Chart.defaults.color = '#6b7a8d';",
     "Chart.defaults.color = '#CC7700';"
@@ -668,7 +668,7 @@ LCARS_EXTRA_JS = """\
 </script>
 """
 
-# Assemble and write
+# assemble and write
 output = HEAD + BODY_FRAME + tab_html + BODY_CLOSE + js_block + LCARS_EXTRA_JS + end_html
 
 with open(output_path, 'w', encoding='utf-8') as f:

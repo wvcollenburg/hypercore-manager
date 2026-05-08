@@ -1,12 +1,12 @@
 /* HyperCore Manager — Nederlands (Dutch) vertalingen */
 window.LANG = {
-  // Header
+  // header
   'header.connecting':    'Verbinden...',
   'header.connected':     'Verbonden',
   'header.disconnected':  'Niet verbonden',
   'header.refresh':       '\u21bb Vernieuwen',
 
-  // Nav tabs
+  // nav tabs
   'nav.modules':          'Modules',
   'nav.settings':         '\u2699 Instellingen',
 
@@ -28,7 +28,7 @@ window.LANG = {
   'sentinel.tab.settings':    'Instellingen',
   'sentinel.tab.datasharing': 'Datadeling',
 
-  // Time range / grouping controls
+  // time range / grouping controls
   'time.range':           'Bereik:',
   'vm.group_by':          'Groepeer per:',
   'vm.group_none':        'Geen',
@@ -39,7 +39,7 @@ window.LANG = {
   'vm.group_label.peer':  'Server',
   'vm.performance_details': 'Prestatiedetails',
 
-  // Chart titles
+  // chart titles
   'chart.node_cpu':       'Node CPU-gebruik over tijd',
   'chart.cluster_iops':   'Totale cluster-IOPS over tijd',
   'chart.cluster_ram':    'Cluster RAM-gebruik',
@@ -49,7 +49,7 @@ window.LANG = {
   'chart.vm_net':         'VM netwerkgebruik \u2014 top 5 (RX + TX)',
   'chart.miglog':         'Migratie log',
 
-  // Section / panel headings
+  // section / panel headings
   'section.capacity_forecasts': 'Capaciteitsprognoses',
   'section.resize_advice':      'Concrete aanpassingsadviezen',
   'section.exhaustion_alerts':  'Capaciteitsuitputtingswaarschuwingen',
@@ -62,7 +62,7 @@ window.LANG = {
   'iops.iops':  'IOPS',
   'iops.insufficient': '95e percentiel: onvoldoende gegevens',
 
-  // Loading states
+  // loading states
   'loading.nodes':      'Node-statistieken laden...',
   'loading.vms':        "VM-statistieken laden...",
   'loading.migrations': 'Migratiegebeurtenissen laden...',
@@ -74,7 +74,7 @@ window.LANG = {
   'loading.simulation': 'Simulatie uitvoeren...',
   'loading.modules':    'Modules ontdekken...',
 
-  // Empty / error states
+  // empty / error states
   'empty.no_api':               'Kan geen verbinding maken met API',
   'empty.no_nodes':             'Nog geen nodegegevens. Werkt de collector?',
   'empty.no_vms':               "Nog geen VM-gegevens.",
@@ -88,7 +88,7 @@ window.LANG = {
   'empty.sentinel_settings_unavail': 'Sentinel niet beschikbaar \u2014 instellingen kunnen niet worden geladen.',
   'empty.settings_load_failed': 'Instellingen laden mislukt: {msg}',
 
-  // Metric labels
+  // metric labels
   'metric.cpu_usage':   'CPU-gebruik',
   'metric.memory_used': 'Geheugengebruik',
   'metric.vcpu_ratio':  'vCPU-verhouding',
@@ -96,7 +96,7 @@ window.LANG = {
   'metric.network_rx':  'Netwerk RX',
   'metric.network_tx':  'Netwerk TX',
 
-  // Physical drive sub-items
+  // physical drive sub-items
   'drive.physical_drives': '\u25c9 Fysieke schijven',
   'drive.slot':      'Positie',
   'drive.healthy':   'Gezond',
@@ -105,14 +105,14 @@ window.LANG = {
   'drive.temperature': 'Temperatuur',
   'drive.errors':    'Fouten',
 
-  // Virtual storage device sub-items
+  // virtual storage device sub-items
   'vsd.devices':       '\u25c8 Virtuele schijven',
   'vsd.read':          'Lezen',
   'vsd.write':         'Schrijven',
   'vsd.read_latency':  'Leeslatentie',
   'vsd.write_latency': 'Schrijflatentie',
 
-  // Migration log table
+  // migration log table
   'mig.time':      'Tijd',
   'mig.vm':        'VM',
   'mig.migration': 'Migratie',
@@ -126,7 +126,7 @@ window.LANG = {
   'vm.modal.disk_iops':    'Schijf-IOPS (per VSD)',
   'vm.modal.disk_latency': 'Schijflatentie (per VSD)',
 
-  // Settings controls
+  // settings controls
   'settings.apply':      'Toepassen',
   'settings.unsaved':    '\u25cf niet opgeslagen',
   'settings.applied_n':  '{n} wijziging(en) toegepast',
@@ -134,12 +134,12 @@ window.LANG = {
   'settings.restart_required': 'Herstart vereiste instellingen',
   'settings.restart_note': 'Herstart vereiste instellingen \u2014 verzamelinterval, trendinterval, resultaatcontrole-interval, poorten, InfluxDB / PostgreSQL / HyperCore-inloggegevens, webhook-URL, geheim en leverparameters moeten worden ingesteld via omgevingsvariabelen in docker-compose en vereisen een containerherstart.',
 
-  // Info popup
+  // info popup
   'info.what':     'Wat het doet',
   'info.benefits': 'Voordelen',
   'info.careful':  'Wees voorzichtig',
 
-  // Settings group labels
+  // settings group labels
   'group.master':      'Hoofdinstellingen',
   'group.reactive':    'Reactieve balancer',
   'group.predictive':  'Voorspellende engine',
@@ -179,7 +179,7 @@ window.LANG = {
   'sentinel.warming_first_in':  'Eerste analyse over',
   'sentinel.warming_started':   'Gestart',
 
-  // Forecast table
+  // forecast table
   'forecast.dimension':    'Dimensie',
   'forecast.horizon':      'Horizon',
   'forecast.node_entity':  'Node / Entiteit',
@@ -193,7 +193,7 @@ window.LANG = {
   'forecast.all_dimensions': 'Alle dimensies',
   'forecast.all_horizons':   'Alle horizons',
 
-  // Right-sizing table
+  // right-sizing table
   'rs.vm_name':           'VM-naam',
   'rs.direction':         'Richting',
   'rs.current_vcpu':      'Huidige vCPU',
@@ -209,7 +209,7 @@ window.LANG = {
   'rs.recommended_action':'Aanbevolen',
   'rs.low_priority':      'Lage prioriteit',
 
-  // Exhaustion table
+  // exhaustion table
   'ex.dimension':      'Dimensie',
   'ex.node':           'Node',
   'ex.days_left':      'Dagen over',
@@ -217,14 +217,14 @@ window.LANG = {
   'ex.growth_rate':    'Groeisnelheid/dag',
   'ex.severity':       'Ernst',
 
-  // Dimension labels
+  // dimension labels
   'dim.cpu':     'CPU',
   'dim.ram':     'RAM',
   'dim.storage': 'Opslag',
   'dim.latency': 'Latentie',
   'dim.network': 'Netwerk',
 
-  // What-If panel
+  // what-if panel
   'whatif.scenario':         'Scenario',
   'whatif.add_nodes':        'Nodes toevoegen',
   'whatif.add_vms':          "VM's toevoegen",
@@ -255,7 +255,7 @@ window.LANG = {
   'whatif.bottleneck':       'Knelpunt:',
   'whatif.none':             'geen',
 
-  // Reports / PDF
+  // reports / PDF
   'reports.branding_title':      'Rapportopmaak',
   'reports.branding_desc':       'Pas de voorpagina van het PDF-rapport aan. Instellingen worden per cluster opgeslagen en toegepast op elk gegenereerd rapport.',
   'reports.company_name':        'Bedrijfsnaam',
@@ -277,7 +277,7 @@ window.LANG = {
   'reports.contents_rightsizing':"\u25c6 VM-aanbevelingen voor rechtsizing",
   'reports.contents_resize':     '\u25c6 Concreet vergrotingsadvies met risicoklassificatie',
 
-  // Data Sharing panel
+  // data sharing panel
   'sharing.connection_title':   'Verbinding',
   'sharing.connection_desc':    'Configureer het SC//Foresight-Central viewer-eindpunt om geplande snapshot-pushes in te schakelen.',
   'sharing.enabled':            'Delen ingeschakeld',
@@ -316,7 +316,7 @@ window.LANG = {
   'hcb.required':  'Wachtwoordzin is vereist.',
   'hcb.mismatch':  'Wachtwoordzinnen komen niet overeen.',
 
-  // Modules tab
+  // modules tab
   'modules.tools':           'Tools',
   'modules.grafana_desc':    'Geavanceerde dataverkenning en aangepaste dashboards',
   'modules.open_grafana':    'Grafana openen',
@@ -329,10 +329,10 @@ window.LANG = {
   'grafana.not_running':'\u25cb Niet actief',
   'grafana.checking':   'Controleren...',
 
-  // Auto-discovered module fallback desc
+  // auto-discovered module fallback desc
   'module.auto_desc': 'Automatisch ontdekte databron',
 
-  // ─── Info popup body text (ⓘ) — TODO: translate to Dutch ────────────────
+  // ─── info popup body text (ⓘ) ────────────────
   'info.DRY_RUN.what':      'The balancer analyses the cluster and decides which VMs to migrate, but stops short of actually executing any moves. All decision logic runs normally — you see the outcomes in the logs.',
   'info.DRY_RUN.benefits':  'Essential safety net when first deploying or after changing thresholds significantly. Lets you validate behaviour before committing to live migrations.',
   'info.DRY_RUN.careful':   'While enabled, real resource imbalances are NOT corrected. A cluster under heavy load will stay imbalanced for as long as Dry Run is on.',

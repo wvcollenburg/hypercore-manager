@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 
-# Ubuntu's "release" channel is stable; "current" follows latest minor.
+# Ubuntu's "release" channel is stable; "current" follows latest minor
 DEFAULT_IMAGE_NAME = "ubuntu-24.04-server-cloudimg-amd64.img"
 DEFAULT_IMAGE_URL = f"https://cloud-images.ubuntu.com/releases/24.04/release/{DEFAULT_IMAGE_NAME}"
 DEFAULT_SHA256_URL = "https://cloud-images.ubuntu.com/releases/24.04/release/SHA256SUMS"
@@ -144,7 +144,7 @@ def ensure_image(
         actual = _hash_file(target, _stage("verify"))
         if actual == expected:
             return target
-        # Corrupt or stale — re-download.
+        # corrupt or stale — re-download
         target.unlink(missing_ok=True)
 
     _download(image_url, target, _stage("download"))

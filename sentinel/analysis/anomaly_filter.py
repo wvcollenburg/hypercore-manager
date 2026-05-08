@@ -60,7 +60,7 @@ def filter_series(
     iqr = q3 - q1
 
     if iqr == 0.0:
-        # All values identical or constant band — nothing meaningful to filter
+        # all values identical or constant band — nothing meaningful to filter
         return times, values
 
     lo = q1 - iqr_factor * iqr

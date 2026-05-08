@@ -58,13 +58,13 @@ from installer.core import (
 
 
 # ============================================================================
-# Constants (UI-only — schema/data lives in installer.core)
+# constants — UI-only, schema/data lives in installer.core
 # ============================================================================
 
 MIN_COLS = 80
 MIN_ROWS = 24
 
-# Color pair IDs (initialised in init_colors)
+# color pair IDs, initialised in init_colors
 C_DEFAULT = 1
 C_TITLE = 2
 C_SELECTED = 3
@@ -76,13 +76,13 @@ C_DIM = 8
 C_BORDER = 9
 
 # ============================================================================
-# Curses helpers
+# curses helpers
 # ============================================================================
 
 def init_colors() -> None:
     curses.start_color()
-    # Try to use the terminal's default background. PDCurses on Windows may
-    # not support this; fall back to an explicit black background.
+    # try to use the terminal's default background; PDCurses on Windows may
+    # not support this, so fall back to an explicit black background
     bg = -1
     try:
         curses.use_default_colors()
@@ -177,7 +177,7 @@ def wrap_text(text: str, width: int) -> list[str]:
 
 
 # ============================================================================
-# Modal dialogs
+# modal dialogs
 # ============================================================================
 
 def message_box(stdscr, title: str, lines: list[str], color_pair: int = C_DEFAULT) -> None:
@@ -257,16 +257,16 @@ def text_input(stdscr, prompt: str, initial: str = "", masked: bool = False, all
         win.erase()
         draw_box(win, 0, 0, box_h, box_w, "Edit value")
         addstr_safe(win, 1, 2, prompt[: box_w - 4], curses.color_pair(C_HELP))
-        # Input line
+        # input line
         input_y = 3
         addstr_safe(win, input_y, 2, "> ", curses.color_pair(C_DEFAULT) | curses.A_BOLD)
         display = "".join(buf) if show else "*" * len(buf)
-        # Scroll horizontally if too long
+        # scroll horizontally if too long
         max_input_w = box_w - 6
         scroll = max(0, cursor - max_input_w + 1)
         visible = display[scroll: scroll + max_input_w]
         addstr_safe(win, input_y, 4, visible, curses.color_pair(C_DEFAULT))
-        # Hints
+        # hints
         hint_parts = ["Enter: save", "Esc: cancel"]
         if masked:
             hint_parts.append("Ctrl-T: toggle visibility")
@@ -274,7 +274,7 @@ def text_input(stdscr, prompt: str, initial: str = "", masked: bool = False, all
             hint_parts.append("Ctrl-G: generate")
         hint = "  ".join(hint_parts)
         addstr_safe(win, box_h - 2, 2, hint, curses.color_pair(C_DIM))
-        # Place cursor
+        # place cursor
         try:
             win.move(input_y, 4 + (cursor - scroll))
         except curses.error:
@@ -284,13 +284,13 @@ def text_input(stdscr, prompt: str, initial: str = "", masked: bool = False, all
         ch = win.getch()
         if ch in (10, 13, curses.KEY_ENTER):
             return "".join(buf)
-        elif ch == 27:  # Esc
+        elif ch == 27:  # esc
             return None
         elif ch in (curses.KEY_BACKSPACE, 127, 8):
             if cursor > 0:
                 del buf[cursor - 1]
                 cursor -= 1
-        elif ch == curses.KEY_DC:  # Delete
+        elif ch == curses.KEY_DC:  # delete
             if cursor < len(buf):
                 del buf[cursor]
         elif ch == curses.KEY_LEFT:
@@ -301,12 +301,12 @@ def text_input(stdscr, prompt: str, initial: str = "", masked: bool = False, all
             cursor = 0
         elif ch == curses.KEY_END:
             cursor = len(buf)
-        elif ch == 21:  # Ctrl-U: clear
+        elif ch == 21:  # ctrl-U: clear
             buf = []
             cursor = 0
-        elif ch == 20 and masked:  # Ctrl-T: toggle
+        elif ch == 20 and masked:  # ctrl-T: toggle
             show = not show
-        elif ch == 7 and allow_generate and generator is not None:  # Ctrl-G
+        elif ch == 7 and allow_generate and generator is not None:  # ctrl-G
             buf = list(generator())
             cursor = len(buf)
             show = True  # reveal newly generated value so user sees what they got
@@ -317,7 +317,7 @@ def text_input(stdscr, prompt: str, initial: str = "", masked: bool = False, all
 
 
 # ============================================================================
-# Screens
+# screens
 # ============================================================================
 
 def screen_too_small(stdscr) -> None:
@@ -643,7 +643,7 @@ def screen_main_menu(stdscr, state: dict) -> str:
     values: dict[str, str] = state["values"]
     profiles: set[str] = state["profiles"]
 
-    # Build list of visible sections + actions
+    # build list of visible sections + actions
     visible = [s for s in sections if s.profiles & profiles]
     cursor = 0
 
@@ -663,7 +663,7 @@ def screen_main_menu(stdscr, state: dict) -> str:
         addstr_safe(stdscr, y, 6, "Sections", curses.color_pair(C_HELP) | curses.A_BOLD)
         y += 2
 
-        # Status legend at bottom of left pane
+        # status legend at bottom of left pane
         for idx, section in enumerate(visible):
             status = section_status(section, values, profiles)
             if status == "ok":
@@ -678,7 +678,7 @@ def screen_main_menu(stdscr, state: dict) -> str:
             addstr_safe(stdscr, y, 10, section.title, row_attr | curses.A_BOLD)
             y += 1
 
-        # Action rows
+        # action rows
         y += 1
         action_index = len(visible)
         action_attr = curses.color_pair(C_SELECTED) if cursor == action_index else curses.color_pair(C_DEFAULT)
@@ -690,7 +690,7 @@ def screen_main_menu(stdscr, state: dict) -> str:
         addstr_safe(stdscr, y, 6, " " * (left_w - 8), quit_attr)
         addstr_safe(stdscr, y, 6, " Q   Quit without saving", quit_attr | curses.A_BOLD)
 
-        # Right pane: section description for whichever item is highlighted
+        # right pane: section description for whichever item is highlighted
         draw_box(stdscr, 2, left_w + 4, h - 4, right_w, "About this section")
         if cursor < len(visible):
             section = visible[cursor]
@@ -712,7 +712,7 @@ def screen_main_menu(stdscr, state: dict) -> str:
             else:
                 addstr_safe(stdscr, ry, left_w + 6, "Status: skipped", curses.color_pair(C_DIM))
 
-        # Bottom legend
+        # bottom legend
         legend_y = h - 5
         addstr_safe(stdscr, legend_y, left_w + 6, "Legend:", curses.color_pair(C_DIM))
         addstr_safe(stdscr, legend_y + 1, left_w + 6, " *  ready", curses.color_pair(C_OK))
@@ -753,8 +753,8 @@ def try_save(stdscr, state: dict) -> bool:
 
     bad = collect_validation_errors(sections, values, profiles)
 
-    # In easy mode the SSH key path is informational — updates will pull from
-    # a public git remote — so suppress that one specific warning.
+    # in easy mode the SSH key path is informational — updates pull from a
+    # public git remote — so suppress that one specific warning
     skip_path_keys = {"SC_SSH_KEY_PATH"} if state.get("mode") == "easy" else set()
     path_warnings = collect_path_warnings(sections, values, profiles, skip_keys=skip_path_keys)
 
@@ -814,13 +814,13 @@ def screen_section_form(stdscr, state: dict, section: Section) -> None:
         draw_titlebar(stdscr, f" HyperCore Manager — {section.title}  ")
         h, w = stdscr.getmaxyx()
 
-        # Layout: top half = fields, bottom half = description of focused field
+        # layout: top half = fields, bottom half = description of focused field
         top_h = max(8, h // 2)
         bot_h = h - top_h - 2  # minus title + status bars
 
         draw_box(stdscr, 1, 2, top_h, w - 4, section.title)
 
-        # Show enabled-state notice if relevant
+        # show enabled-state notice if relevant
         info_line: Optional[str] = None
         if section.enable_field:
             ev = values.get(section.enable_field, "")
@@ -836,7 +836,7 @@ def screen_section_form(stdscr, state: dict, section: Section) -> None:
             addstr_safe(stdscr, y, 4, info_line, curses.color_pair(C_DIM) | curses.A_ITALIC if hasattr(curses, "A_ITALIC") else curses.color_pair(C_DIM))
             y += 2
 
-        # Compute label column width
+        # compute label column width
         label_w = max((len(f.label) for f in fields), default=10)
         label_w = min(label_w, 28)
 
@@ -870,7 +870,7 @@ def screen_section_form(stdscr, state: dict, section: Section) -> None:
             if y >= 1 + top_h - 1:
                 break
 
-        # Bottom: description of focused field
+        # bottom: description of focused field
         bot_y = top_h + 2
         cur_field = fields[cursor] if fields else None
         if cur_field:
@@ -893,7 +893,7 @@ def screen_section_form(stdscr, state: dict, section: Section) -> None:
             for line in wrap_text(cur_field.when_change, content_w - 4):
                 addstr_safe(stdscr, ly, 8, line, curses.color_pair(C_DEFAULT))
                 ly += 1
-            # Show autofill notice if relevant
+            # show autofill notice if relevant
             if cur_field.autofill:
                 detected = cur_field.autofill()
                 ly += 1
@@ -1027,7 +1027,7 @@ def pick_choice(stdscr, f: Field, current: str) -> Optional[str]:
 
 
 # ============================================================================
-# Entry point
+# entry point
 # ============================================================================
 
 def run(stdscr) -> None:
@@ -1045,7 +1045,7 @@ def run(stdscr) -> None:
     sections = build_schema()
     existing = parse_env(ENV_PATH)
 
-    # Seed values: start from defaults, then overlay any existing .env values
+    # seed values: start from defaults, then overlay any existing .env values
     values = seed_default_values(sections)
     values.update(existing)
 
@@ -1077,8 +1077,8 @@ def run(stdscr) -> None:
     state["mode"] = mode
 
     if mode == "easy":
-        # Easy mode runs core + sentinel (the recommended baseline) and skips
-        # the per-section configuration screen entirely.
+        # easy mode runs core + sentinel (the recommended baseline) and skips
+        # the per-section configuration screen entirely
         state["profiles"] = set(EASY_PROFILES)
         screen_easy(stdscr, state)
         return
