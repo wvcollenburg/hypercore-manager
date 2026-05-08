@@ -353,7 +353,7 @@ from(bucket: "{self._cfg.influx_bucket}")
         rows = self._query(flux)
         return {r['vm_uuid']: int(r['value'] or 0) for r in rows if r.get('vm_uuid')}
 
-    def query_running_vms(self) -> set[str]:
+    def query_running_vms(self, window_minutes: int = 30) -> set[str]:
         """
         Return the set of vm_uuids whose latest vm_inventory record reports
         vm_state == "RUNNING".  Used by the analysis layer to skip
@@ -362,14 +362,21 @@ from(bucket: "{self._cfg.influx_bucket}")
         See `query_vm_mem_assigned` for the explanation of the grouping
         pattern — same situation: regroup to `vm_uuid` only before `last()`
         so that filtering on `vm_state == "RUNNING"` after the fact reflects
-        each VM's *current* state, not "was running at any point in 24h".
+        each VM's *current* state, not "was running at any point in the window".
+
+        The window must be short enough that a deleted VM (collector stops
+        writing inventory records) falls out quickly — otherwise the analysis
+        loop keeps re-introducing it into right_sizing / resize_recommendations
+        for up to the window length, racing against the 15-min prune loop.
+        Default 30 min comfortably covers slow-poll cycles (default 5 min)
+        plus a few missed polls for safety.
 
         Returns an empty set on InfluxDB error so callers can fall back to no
         filtering rather than purging everything.
         """
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
-  |> range(start: -24h)
+  |> range(start: -{window_minutes}m)
   |> filter(fn: (r) => r._measurement == "vm_inventory" and r._field == "mem_bytes")
   |> group(columns: ["vm_uuid"])
   |> last()
