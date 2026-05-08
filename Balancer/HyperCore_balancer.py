@@ -17,13 +17,12 @@ from dotenv import load_dotenv
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 
-# Load environment variables
 load_dotenv()
 
 import config_db
 
 # =============================================================================
-# Configuration & Defaults
+# configuration & defaults
 # =============================================================================
 
 def get_config(key: str, default: Any, cast_type: type = str) -> Any:
@@ -40,22 +39,22 @@ def get_config(key: str, default: Any, cast_type: type = str) -> Any:
     except (ValueError, TypeError):
         return default
 
-# Cluster Credentials & Endpoint (configurables — stay in .env)
+# cluster credentials & endpoint — configurables, stay in .env
 SC_HOST = get_config('SC_HOST', "https://cluster-ip/rest/v1")
 SC_USERNAME = get_config('SC_USERNAME', "admin")
 SC_PASSWORD = get_config('SC_PASSWORD', "password")
 SC_VERIFY_SSL = get_config('SC_VERIFY_SSL', False, bool)
 
-# InfluxDB (for writing migration events — configurables)
+# influxdb target for migration events — configurables
 INFLUX_URL = get_config('INFLUX_URL', "http://influxdb:8086")
 INFLUX_TOKEN = get_config('INFLUX_TOKEN', "super-secret-auth-token")
 INFLUX_ORG = get_config('INFLUX_ORG', "hypercore")
 INFLUX_BUCKET = get_config('INFLUX_BUCKET', "metrics")
 
-# Tunables are loaded from config_db at startup (seeded from env vars on first run)
+# tunables are loaded from config_db at startup, seeded from env vars on first run
 
 # =============================================================================
-# API Client (with automatic re-authentication on 401)
+# API client with automatic re-authentication on 401
 # =============================================================================
 
 class HyperCoreApiClient:
@@ -130,7 +129,7 @@ class HyperCoreApiClient:
         return resp.json()
 
 # =============================================================================
-# Migration Event Logger (writes structured events to InfluxDB)
+# migration event logger — writes structured events to InfluxDB
 # =============================================================================
 
 class MigrationLogger:
@@ -177,7 +176,7 @@ class MigrationLogger:
                 pass
 
 # =============================================================================
-# Balancer Engine
+# balancer engine
 # =============================================================================
 
 class LoadBalancer:
@@ -212,7 +211,7 @@ class LoadBalancer:
             if key in new and new[key] != self.config[key]:
                 self.log(1, f"[CONFIG] {key}: {self.config[key]} → {new[key]}")
                 self.config[key] = new[key]
-        # Recalculate derived window size; clear histories if it changed
+        # recalculate derived window size; clear histories if it changed
         new_max = int((self.config['AVG_WINDOW_MINUTES'] * 60) / self.config['SAMPLE_INTERVAL_SECONDS'])
         if new_max != self.max_history:
             self.max_history = new_max
@@ -291,8 +290,8 @@ class LoadBalancer:
         cpu_threshold = self.config['CPU_UPPER_THRESHOLD_PERCENT']
         
         primary = "CPU_FOCUS" if peak_cpu_node['avg_cpu'] >= cpu_threshold else "RAM_FOCUS"
-        # Never fall through to RAM_FOCUS during a CPU crisis — consuming the cluster
-        # cooldown on a RAM move would defer the CPU fix by a full cooldown window.
+        # never fall through to RAM_FOCUS during a CPU crisis — consuming the cluster
+        # cooldown on a RAM move would defer the CPU fix by a full cooldown window
         modes = [primary]
 
         for mode in modes:
@@ -313,7 +312,7 @@ class LoadBalancer:
                         self.log(3, f"  - Skipping {vm['name']} (cooldown active)")
                         continue
 
-                    # Anti-affinity sets for the candidate VM
+                    # anti-affinity sets for the candidate VM
                     vm_anti = {t.strip()[5:] for t in vm['tags'].split(',') if t.strip().startswith('anti_')}
 
                     tol = self.config.get('CPU_TARGET_TOLERANCE_PERCENT', 5.0)
@@ -328,7 +327,7 @@ class LoadBalancer:
                             else:
                                 del self.reserved_nodes[tgt['uuid']]
 
-                        # Anti-affinity: skip if candidate's anti_X tag matches a VM name on target,
+                        # anti-affinity: skip if candidate's anti_X tag matches a VM name on target,
                         # or if any VM on target has anti_<candidate> pointing back at us
                         tgt_names = {v['name'] for v in tgt['vms']}
                         tgt_anti  = {t.strip()[5:] for v in tgt['vms'] for t in v['tags'].split(',') if t.strip().startswith('anti_')}
@@ -344,8 +343,8 @@ class LoadBalancer:
 
                         if p_ram > self.config['RAM_LIMIT_PERCENT'] or p_ratio > self.config['MAX_VCPU_RATIO']:
                             continue
-                        # Reject targets whose post-move RAM would exceed the upper threshold —
-                        # landing there makes them a RAM_FOCUS source candidate next cycle.
+                        # reject targets whose post-move RAM would exceed the upper threshold —
+                        # landing there makes them a RAM_FOCUS source candidate next cycle
                         if mode == "RAM_FOCUS" and p_ram > self.config['RAM_UPPER_THRESHOLD_PERCENT']:
                             continue
 
@@ -395,7 +394,7 @@ class LoadBalancer:
             """Evict the lightest non-pinned VM from target_node to any valid destination."""
             for blocker in sorted(target_node['vms'], key=lambda v: v['mem']):
                 if _pinned_suffix(blocker) == target_node['name'].split('.')[-1]:
-                    continue  # Cannot evict a VM pinned to this node
+                    continue  # cannot evict a VM pinned to this node
                 blocker_anti = {t.strip()[5:] for t in blocker['tags'].split(',')
                                 if t.strip().startswith('anti_')}
                 for dest in sorted(usable, key=lambda n: n['avg_cpu']):
@@ -408,7 +407,7 @@ class LoadBalancer:
                     return blocker, dest
             return None, None
 
-        # ── 1. Anti-affinity violations ─────────────────────────────────────
+        # ── 1. anti-affinity violations ─────────────────────────────────────
         for src in usable:
             names_here = {v['name'] for v in src['vms']}
             for vm in src['vms']:
@@ -440,13 +439,13 @@ class LoadBalancer:
                 self.log(1, f"[AFFINITY] Cannot fix anti-affinity for {vm['name']} — "
                             f"no valid target available. Cluster may be physically full.")
 
-        # ── 2. Node-pin violations ───────────────────────────────────────────
+        # ── 2. node-pin violations ──────────────────────────────────────────
         for src in usable:
             src_suffix = src['name'].split('.')[-1]
             for vm in src['vms']:
                 pin = _pinned_suffix(vm)
                 if not pin or pin == src_suffix:
-                    continue  # Not pinned, or already on correct node
+                    continue  # not pinned, or already on correct node
 
                 tgt = next((n for n in usable if n['name'].split('.')[-1] == pin), None)
                 if not tgt:
@@ -499,7 +498,7 @@ class LoadBalancer:
             
         try:
             while True:
-                # Hot-reload tunables every 60 seconds
+                # hot-reload tunables every 60 seconds
                 now_ts = time.time()
                 if now_ts - self._last_config_check > 60:
                     self.reload_config()
@@ -519,12 +518,12 @@ class LoadBalancer:
                 except Exception as e:
                     self.log(0, f"API Fetch Error: {e}"); time.sleep(30); continue
 
-                # Evaluate cluster state once — shared by affinity, predictive, and reactive engines
+                # evaluate cluster state once — shared by affinity, predictive, and reactive engines
                 state  = self.evaluate_cluster(nodes, vms)
                 usable = [n for n in state.values() if n['is_usable']]
 
                 # =================================================================
-                # AFFINITY ENFORCEMENT — highest priority, bypasses all cooldowns
+                # affinity enforcement — highest priority, bypasses all cooldowns
                 # =================================================================
                 aff_vm, aff_src, aff_tgt, aff_reason = self.find_affinity_violation(usable)
                 if aff_vm:
@@ -553,21 +552,21 @@ class LoadBalancer:
                     time.sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
                     continue
 
-                # Non-affinity migration cooldown
+                # non-affinity migration cooldown
                 elapsed = time.time() - self.last_migration_time
                 cluster_cd = self.config['MIGRATION_COOLDOWN_MINUTES'] * 60
                 if elapsed < cluster_cd:
                     time.sleep(self.config['SAMPLE_INTERVAL_SECONDS']); continue
 
                 # =================================================================
-                # OPTIONAL: PREDICTIVE BALANCING
+                # optional: predictive balancing
                 # =================================================================
                 if self.config['PREDICTIVE_BALANCING_ENABLED']:
                     applied_predictive = False
                     now = time.time()
                     lead_time_seconds = self.config['PREDICTIVE_LEAD_TIME_HOURS'] * 3600
 
-                    # --- Store results from a completed forecast thread ---
+                    # --- store results from a completed forecast thread ---
                     if self._predictive_thread is not None and not self._predictive_thread.is_alive():
                         recommendations = self._predictive_results or []
                         self._predictive_results = None
@@ -597,9 +596,9 @@ class LoadBalancer:
                                 earliest_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(earliest.peak_time))
                                 self.log(0, f"[PREDICTIVE] {len(valid_recs)} recommendation(s) queued. Earliest peak at {earliest_str}.")
 
-                                # Reserve all source nodes immediately — don't wait for each migration
-                                # to execute. This prevents the reactive engine from routing VMs back
-                                # onto a node the Oracle just decided is going to be overloaded.
+                                # reserve all source nodes immediately — don't wait for each migration
+                                # to execute. this prevents the reactive engine from routing VMs back
+                                # onto a node the Oracle just decided is going to be overloaded
                                 reservation_secs = self.config.get('PREDICTIVE_RESERVATION_MINUTES', 5) * 60
                                 seen_sources = set()
                                 for rec in valid_recs:
@@ -613,10 +612,10 @@ class LoadBalancer:
                                         fmt = time.strftime('%Y-%m-%d %H:%M', time.localtime(release_time))
                                         self.log(0, f"[RESERVATION] Node {rec.source_ip} locked as target until {fmt} (Oracle: predicted overload)")
 
-                    # --- Discard recommendations whose peak has already passed ---
+                    # --- discard recommendations whose peak has already passed ---
                     self._pending_predictive_recs = [r for r in self._pending_predictive_recs if r.peak_time > now]
 
-                    # --- Act on any recommendation whose peak is within the lead time window ---
+                    # --- act on any recommendation whose peak is within the lead time window ---
                     ready_recs = [r for r in self._pending_predictive_recs if r.peak_time - now <= lead_time_seconds]
                     if ready_recs:
                         rec = ready_recs[0]
@@ -656,7 +655,7 @@ class LoadBalancer:
                             self.log(0, f"[RESERVATION] Node {rec.source_ip} locked from receiving VMs until {formatted_time}")
                         applied_predictive = True
 
-                    # --- Start a new forecast thread if interval has elapsed ---
+                    # --- start a new forecast thread if interval has elapsed ---
                     jitter = random.uniform(0, self.config['PREDICTIVE_INTERVAL_SECONDS'] * 0.1)
                     if time.time() - self.last_predictive_run > (self.config['PREDICTIVE_INTERVAL_SECONDS'] + jitter):
                         if self._predictive_thread is not None and self._predictive_thread.is_alive():
@@ -681,7 +680,7 @@ class LoadBalancer:
                         continue
 
                 # =================================================================
-                # REACTIVE BALANCING
+                # reactive balancing
                 # =================================================================
                 first_uid = nodes[0]['uuid'] if nodes else None
                 if first_uid and len(self.node_cpu_history.get(first_uid, [])) < self.max_history:
@@ -709,7 +708,7 @@ class LoadBalancer:
                             time.sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
                             continue
 
-                    # Log the event to InfluxDB for the dashboard
+                    # log the event to InfluxDB for the dashboard
                     self.migration_logger.log_event(
                         vm_name=vm['name'], vm_uuid=vm['uuid'],
                         source_ip=src['name'], target_ip=tgt['name'],
