@@ -1,11 +1,13 @@
 import os
 import re
 import gc
+import time
 import warnings
 import concurrent.futures
 import pandas as pd
 from prophet import Prophet
-from influxdb_client import InfluxDBClient
+from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import SYNCHRONOUS
 import logging
 
 # Suppress Prophet's chatty terminal output
@@ -43,6 +45,56 @@ def _sanitize_uuid(value: str) -> str:
     return value
 
 
+def _write_run_summary(summary):
+    """Persist a per-run summary to InfluxDB (measurement: predictive_runs).
+    Best-effort — failures are logged but never raised, since the run already succeeded.
+    """
+    try:
+        with InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG) as client:
+            with client.write_api(write_options=SYNCHRONOUS) as writer:
+                p = Point("predictive_runs") \
+                    .tag("success", str(summary.get('success', True)).lower()) \
+                    .field("vms_total",                int(summary.get('vms_total', 0))) \
+                    .field("vms_forecast",             int(summary.get('vms_forecast', 0))) \
+                    .field("vms_skipped_short_history", int(summary.get('vms_skipped_short_history', 0))) \
+                    .field("vms_skipped_other",        int(summary.get('vms_skipped_other', 0))) \
+                    .field("nodes_flagged",            int(summary.get('nodes_flagged', 0))) \
+                    .field("recommendations",          int(summary.get('recommendations', 0))) \
+                    .field("peak_node_load_percent",   float(summary.get('peak_node_load_percent', 0.0))) \
+                    .field("threshold_used",           float(summary.get('threshold_used', 0.0))) \
+                    .field("lookback_days",            int(summary.get('lookback_days', 0))) \
+                    .field("min_history_hours",        int(summary.get('min_history_hours', 0))) \
+                    .field("duration_seconds",         float(summary.get('duration_seconds', 0.0))) \
+                    .field("peak_node_ip",             str(summary.get('peak_node_ip', ''))) \
+                    .field("error",                    str(summary.get('error', '')))
+                writer.write(bucket=INFLUX_BUCKET, record=p)
+    except Exception as e:
+        print(f"[ORACLE] Failed to write run summary: {e}")
+
+
+def _write_recommendation(rec, predicted_peak_load, vm_predicted_cpu):
+    """Persist a single recommendation to InfluxDB (measurement: predictive_recommendations).
+    Best-effort — failures are logged but never raised.
+    """
+    try:
+        with InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG) as client:
+            with client.write_api(write_options=SYNCHRONOUS) as writer:
+                lead_seconds = max(0.0, rec.peak_time - time.time())
+                p = Point("predictive_recommendations") \
+                    .tag("vm_name",   rec.vm_name) \
+                    .tag("source_ip", rec.source_ip) \
+                    .tag("target_ip", rec.target_ip) \
+                    .field("vm_uuid",              rec.vm_uuid) \
+                    .field("reason",               rec.reason) \
+                    .field("peak_time_unix",       float(rec.peak_time)) \
+                    .field("predicted_peak_load",  float(predicted_peak_load)) \
+                    .field("vm_predicted_cpu",     float(vm_predicted_cpu)) \
+                    .field("lead_seconds",         float(lead_seconds))
+                writer.write(bucket=INFLUX_BUCKET, record=p)
+    except Exception as e:
+        print(f"[ORACLE] Failed to write recommendation: {e}")
+
+
 def get_proactive_migrations(vms, nodes, forecast_hours=24):
     # Read tunables live so each Oracle run picks up any dashboard changes
     threshold       = config_db.get('PREDICTIVE_THRESHOLD')       or 80.0
@@ -51,7 +103,27 @@ def get_proactive_migrations(vms, nodes, forecast_hours=24):
     max_workers     = config_db.get('PREDICTIVE_MAX_WORKERS')      or 8
     print(f"[ORACLE] Waking up. Forecasting the next {forecast_hours} hours across {len(vms)} VMs "
           f"using up to {max_workers} workers (lookback={lookback_days}d, threshold={threshold}%)...")
-    return _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history, max_workers, threshold)
+
+    started = time.time()
+    summary = {
+        'vms_total': len(vms),
+        'threshold_used': float(threshold),
+        'lookback_days': int(lookback_days),
+        'min_history_hours': int(min_history),
+        'success': True,
+    }
+    try:
+        recs = _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history, max_workers, threshold, summary)
+    except Exception as e:
+        summary['success'] = False
+        summary['error'] = str(e)
+        summary['duration_seconds'] = time.time() - started
+        _write_run_summary(summary)
+        raise
+    summary['duration_seconds'] = time.time() - started
+    summary['recommendations'] = len(recs)
+    _write_run_summary(summary)
+    return recs
 
 
 def _forecast_single_vm(vm, forecast_hours, lookback_days, min_history_hours):
@@ -62,13 +134,13 @@ def _forecast_single_vm(vm, forecast_hours, lookback_days, min_history_hours):
     vcpus = vm.get('numVCPU', 1)
 
     if not current_node:
-        return None
+        return {'skipped': 'other', 'name': vm_name}
 
     try:
         safe_uuid = _sanitize_uuid(vm_uuid)
     except ValueError as e:
         print(f"[ORACLE] Skipping VM with bad UUID: {e}")
-        return None
+        return {'skipped': 'other', 'name': vm_name}
 
     client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
     try:
@@ -84,7 +156,7 @@ def _forecast_single_vm(vm, forecast_hours, lookback_days, min_history_hours):
         result = client.query_api().query(org=INFLUX_ORG, query=query)
     except Exception as e:
         print(f"[ORACLE] Failed to fetch data for {vm_name}: {e}")
-        return None
+        return {'skipped': 'other', 'name': vm_name}
     finally:
         client.close()
 
@@ -97,7 +169,7 @@ def _forecast_single_vm(vm, forecast_hours, lookback_days, min_history_hours):
     # min_history_hours (default 336 = 2 weeks) gives Prophet enough data for weekly patterns.
     if len(records) < min_history_hours:
         print(f"[ORACLE] Skipping {vm_name}: Not enough historical data ({len(records)} hours). Needs at least {min_history_hours}.")
-        return None
+        return {'skipped': 'short_history', 'name': vm_name}
 
     df = pd.DataFrame(records)
     del records
@@ -127,7 +199,7 @@ def _forecast_single_vm(vm, forecast_hours, lookback_days, min_history_hours):
     }
 
 
-def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, max_workers, threshold):
+def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, max_workers, threshold, summary=None):
     """Core forecasting logic using a thread pool for parallel VM forecasting."""
 
     node_threads = {n['uuid']: n.get('numThreads', 1) for n in nodes}
@@ -136,6 +208,8 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
     predicted_node_loads = {n['uuid']: 0.0 for n in nodes}
     vm_forecasts = []
     recommendations = []
+    skipped_short_history = 0
+    skipped_other = 0
 
     # Anti-affinity lookups — built from current placement, updated as moves are planned
     # vm_anti_by_name: vm_name → set of VM names it must not share a node with
@@ -162,21 +236,38 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
                 result = future.result()
             except Exception as e:
                 print(f"[ORACLE] Unexpected error forecasting {futures[future]}: {e}")
+                skipped_other += 1
                 continue
-            if result:
-                vm_forecasts.append(result)
-                current_node_threads = node_threads.get(result['current_node'], 1)
-                normalized_impact = result['raw_expected_cpu'] * (result['vcpus'] / current_node_threads)
-                if result['current_node'] in predicted_node_loads:
-                    predicted_node_loads[result['current_node']] += normalized_impact
+            if not result:
+                skipped_other += 1
+                continue
+            if result.get('skipped') == 'short_history':
+                skipped_short_history += 1
+                continue
+            if result.get('skipped'):
+                skipped_other += 1
+                continue
+            vm_forecasts.append(result)
+            current_node_threads = node_threads.get(result['current_node'], 1)
+            normalized_impact = result['raw_expected_cpu'] * (result['vcpus'] / current_node_threads)
+            if result['current_node'] in predicted_node_loads:
+                predicted_node_loads[result['current_node']] += normalized_impact
 
     # Phase 2: Analyze future node states and generate migration recommendations
     print("[ORACLE] Forecast complete. Analyzing future node capacities...")
+    nodes_flagged = 0
+    peak_node_load = 0.0
+    peak_node_ip = ''
+    if predicted_node_loads:
+        peak_uuid, peak_node_load = max(predicted_node_loads.items(), key=lambda kv: kv[1])
+        peak_node_ip = node_ips.get(peak_uuid, peak_uuid[:8])
+
     for node_uuid, future_load in predicted_node_loads.items():
         source_ip = node_ips.get(node_uuid, node_uuid[:8])
 
         if future_load <= threshold:
             continue
+        nodes_flagged += 1
 
         print(f"[ORACLE] WARNING: Node {source_ip} predicted to hit {future_load:.1f}% CPU. "
               f"Queuing as many moves as needed to bring it below {threshold}%.")
@@ -220,8 +311,9 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
                     continue
 
                 if (target_future_load + target_impact) < threshold:
+                    predicted_peak_at_source = predicted_node_loads[node_uuid]
                     reason = (f"Preventing future overload "
-                              f"({predicted_node_loads[node_uuid]:.1f}%) on source node {source_ip}.")
+                              f"({predicted_peak_at_source:.1f}%) on source node {source_ip}.")
                     rec = ProactiveMigration(
                         vm_uuid=candidate_vm['uuid'],
                         vm_name=candidate_name,
@@ -233,6 +325,7 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
                         target_ip=target_ip
                     )
                     recommendations.append(rec)
+                    _write_recommendation(rec, predicted_peak_at_source, candidate_vm['raw_expected_cpu'])
 
                     source_impact = candidate_vm['raw_expected_cpu'] * (candidate_vm['vcpus'] / node_threads.get(node_uuid, 1))
                     predicted_node_loads[node_uuid]          -= source_impact
@@ -255,6 +348,14 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
         if predicted_node_loads[node_uuid] > threshold:
             print(f"[ORACLE] Node {source_ip}: predicted load still {predicted_node_loads[node_uuid]:.1f}% "
                   f"after all possible moves.")
+
+    if summary is not None:
+        summary['vms_forecast'] = len(vm_forecasts)
+        summary['vms_skipped_short_history'] = skipped_short_history
+        summary['vms_skipped_other'] = skipped_other
+        summary['nodes_flagged'] = nodes_flagged
+        summary['peak_node_load_percent'] = float(peak_node_load)
+        summary['peak_node_ip'] = peak_node_ip
 
     del vm_forecasts
     gc.collect()
