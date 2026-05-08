@@ -16,6 +16,8 @@ Endpoints:
     GET /api/vms            - Current VM CPU metrics (last 1h)
     GET /api/vsds           - Virtual storage device I/O, grouped by VSD (last 1h)
     GET /api/migrations     - Migration event log (last 7d, configurable)
+    GET /api/predictions    - Predictive engine recommendation log (last 7d, configurable)
+    GET /api/forecast_runs  - Predictive engine per-run summary log (last 7d, configurable)
     GET /api/modules        - Auto-discovered measurement names in the bucket
     GET /api/query/<measurement> - Generic query for any measurement
     GET /                   - Serves the dashboard HTML
@@ -473,6 +475,93 @@ def get_migrations():
 
         events.sort(key=lambda e: e['time'], reverse=True)
         return jsonify(events[:50])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        client.close()
+
+
+# =============================================================================
+# API: Predictive Engine — recommendation log
+# =============================================================================
+@app.route('/api/predictions')
+@require_auth
+def get_predictions():
+    range_days = request.args.get('days', '7')
+    client = get_influx_client()
+    try:
+        query = f'''
+        from(bucket: "{INFLUX_BUCKET}")
+          |> range(start: -{range_days}d)
+          |> filter(fn: (r) => r["_measurement"] == "predictive_recommendations")
+          |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+        '''
+        result = client.query_api().query(org=INFLUX_ORG, query=query)
+
+        events = []
+        for table in result:
+            for record in table.records:
+                events.append({
+                    'time':                 record.get_time().isoformat(),
+                    'vm_name':              record.values.get('vm_name', 'Unknown'),
+                    'vm_uuid':              record.values.get('vm_uuid', ''),
+                    'source_ip':            record.values.get('source_ip', ''),
+                    'target_ip':            record.values.get('target_ip', ''),
+                    'reason':               record.values.get('reason', ''),
+                    'peak_time_unix':       record.values.get('peak_time_unix', 0.0),
+                    'predicted_peak_load':  record.values.get('predicted_peak_load', 0.0),
+                    'vm_predicted_cpu':     record.values.get('vm_predicted_cpu', 0.0),
+                    'lead_seconds':         record.values.get('lead_seconds', 0.0),
+                })
+
+        events.sort(key=lambda e: e['time'], reverse=True)
+        return jsonify(events[:200])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        client.close()
+
+
+# =============================================================================
+# API: Predictive Engine — per-run summary log
+# =============================================================================
+@app.route('/api/forecast_runs')
+@require_auth
+def get_forecast_runs():
+    range_days = request.args.get('days', '7')
+    client = get_influx_client()
+    try:
+        query = f'''
+        from(bucket: "{INFLUX_BUCKET}")
+          |> range(start: -{range_days}d)
+          |> filter(fn: (r) => r["_measurement"] == "predictive_runs")
+          |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+        '''
+        result = client.query_api().query(org=INFLUX_ORG, query=query)
+
+        runs = []
+        for table in result:
+            for record in table.records:
+                runs.append({
+                    'time':                       record.get_time().isoformat(),
+                    'success':                    record.values.get('success', 'true'),
+                    'vms_total':                  record.values.get('vms_total', 0),
+                    'vms_forecast':               record.values.get('vms_forecast', 0),
+                    'vms_skipped_short_history':  record.values.get('vms_skipped_short_history', 0),
+                    'vms_skipped_other':          record.values.get('vms_skipped_other', 0),
+                    'nodes_flagged':              record.values.get('nodes_flagged', 0),
+                    'recommendations':            record.values.get('recommendations', 0),
+                    'peak_node_load_percent':     record.values.get('peak_node_load_percent', 0.0),
+                    'peak_node_ip':               record.values.get('peak_node_ip', ''),
+                    'threshold_used':             record.values.get('threshold_used', 0.0),
+                    'lookback_days':              record.values.get('lookback_days', 0),
+                    'min_history_hours':          record.values.get('min_history_hours', 0),
+                    'duration_seconds':           record.values.get('duration_seconds', 0.0),
+                    'error':                      record.values.get('error', ''),
+                })
+
+        runs.sort(key=lambda r: r['time'], reverse=True)
+        return jsonify(runs[:200])
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
