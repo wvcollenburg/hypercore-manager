@@ -1,12 +1,12 @@
 /* HyperCore Manager — Français (French) traductions */
 window.LANG = {
-  // Header
+  // header
   'header.connecting':    'Connexion...',
   'header.connected':     'Connect\u00e9',
   'header.disconnected':  'D\u00e9connect\u00e9',
   'header.refresh':       '\u21bb Actualiser',
 
-  // Nav tabs
+  // nav tabs
   'nav.modules':          'Modules',
   'nav.settings':         '\u2699 Param\u00e8tres',
 
@@ -28,7 +28,7 @@ window.LANG = {
   'sentinel.tab.settings':    'Param\u00e8tres',
   'sentinel.tab.datasharing': 'Partage de donn\u00e9es',
 
-  // Time range / grouping controls
+  // time range / grouping controls
   'time.range':           'Plage\u00a0:',
   'vm.group_by':          'Grouper par\u00a0:',
   'vm.group_none':        'Aucun',
@@ -39,7 +39,7 @@ window.LANG = {
   'vm.group_label.peer':  'Pair',
   'vm.performance_details': 'D\u00e9tails de performance',
 
-  // Chart titles
+  // chart titles
   'chart.node_cpu':       'Utilisation CPU du n\u0153ud au fil du temps',
   'chart.cluster_iops':   'IOPS totaux du cluster au fil du temps',
   'chart.cluster_ram':    'Utilisation RAM du cluster',
@@ -49,7 +49,7 @@ window.LANG = {
   'chart.vm_net':         'Utilisation r\u00e9seau des MV \u2014 top 5 (RX + TX)',
   'chart.miglog':         "\u00c9v\u00e9nements de migration",
 
-  // Section / panel headings
+  // section / panel headings
   'section.capacity_forecasts': 'Pr\u00e9visions de capacit\u00e9',
   'section.resize_advice':      'Recommandations de redimensionnement',
   'section.exhaustion_alerts':  'Alertes d\u2019\u00e9puisement des ressources',
@@ -62,7 +62,7 @@ window.LANG = {
   'iops.iops':  'IOPS',
   'iops.insufficient': '95e percentile\u00a0: donn\u00e9es insuffisantes',
 
-  // Loading states
+  // loading states
   'loading.nodes':      'Chargement des m\u00e9triques de n\u0153uds...',
   'loading.vms':        'Chargement des m\u00e9triques de MV...',
   'loading.migrations': 'Chargement des \u00e9v\u00e9nements de migration...',
@@ -74,7 +74,7 @@ window.LANG = {
   'loading.simulation': 'Simulation en cours...',
   'loading.modules':    'D\u00e9couverte des modules...',
 
-  // Empty / error states
+  // empty / error states
   'empty.no_api':               "Impossible de se connecter \u00e0 l'API",
   'empty.no_nodes':             'Aucune donn\u00e9e de n\u0153ud. Le collecteur fonctionne-t-il\u00a0?',
   'empty.no_vms':               'Aucune donn\u00e9e de MV.',
@@ -88,7 +88,7 @@ window.LANG = {
   'empty.sentinel_settings_unavail': 'Sentinel indisponible \u2014 les param\u00e8tres ne peuvent pas \u00eatre charg\u00e9s.',
   'empty.settings_load_failed': 'Chargement des param\u00e8tres \u00e9chou\u00e9\u00a0: {msg}',
 
-  // Metric labels
+  // metric labels
   'metric.cpu_usage':   'Utilisation CPU',
   'metric.memory_used': 'M\u00e9moire utilis\u00e9e',
   'metric.vcpu_ratio':  'Ratio vCPU',
@@ -96,7 +96,7 @@ window.LANG = {
   'metric.network_rx':  'R\u00e9seau RX',
   'metric.network_tx':  'R\u00e9seau TX',
 
-  // Physical drive sub-items
+  // physical drive sub-items
   'drive.physical_drives': '\u25c9 Disques physiques',
   'drive.slot':      'Emplacement',
   'drive.healthy':   'Sain',
@@ -105,14 +105,14 @@ window.LANG = {
   'drive.temperature': 'Temp\u00e9rature',
   'drive.errors':    'Erreurs',
 
-  // Virtual storage device sub-items
+  // virtual storage device sub-items
   'vsd.devices':       '\u25c8 Dispositifs de stockage virtuels',
   'vsd.read':          'Lecture',
   'vsd.write':         '\u00c9criture',
   'vsd.read_latency':  'Latence de lecture',
   'vsd.write_latency': "Latence d'\u00e9criture",
 
-  // Migration log table
+  // migration log table
   'mig.time':      'Heure',
   'mig.vm':        'MV',
   'mig.migration': 'Migration',
@@ -126,7 +126,7 @@ window.LANG = {
   'vm.modal.disk_iops':    'IOPS disque (par VSD)',
   'vm.modal.disk_latency': 'Latence disque (par VSD)',
 
-  // Settings controls
+  // settings controls
   'settings.apply':      'Appliquer',
   'settings.unsaved':    '\u25cf non sauvegard\u00e9',
   'settings.applied_n':  '{n} modification(s) appliqu\u00e9e(s)',
@@ -134,12 +134,12 @@ window.LANG = {
   'settings.restart_required': 'Param\u00e8tres n\u00e9cessitant un red\u00e9marrage',
   'settings.restart_note': "Param\u00e8tres n\u00e9cessitant un red\u00e9marrage \u2014 intervalle de collecte, intervalle de tendance, intervalle de v\u00e9rification des r\u00e9sultats, ports, identifiants InfluxDB / PostgreSQL / HyperCore, URL webhook, secret et param\u00e8tres de livraison doivent \u00eatre d\u00e9finis via des variables d'environnement dans docker-compose et n\u00e9cessitent un red\u00e9marrage du conteneur.",
 
-  // Info popup
+  // info popup
   'info.what':     'Ce que \u00e7a fait',
   'info.benefits': 'Avantages',
   'info.careful':  'Soyez prudent',
 
-  // Settings group labels
+  // settings group labels
   'group.master':      'Contr\u00f4les principaux',
   'group.reactive':    'R\u00e9partiteur r\u00e9actif',
   'group.predictive':  "Moteur pr\u00e9dictif  \u00b7  L'Oracle",
@@ -179,7 +179,7 @@ window.LANG = {
   'sentinel.warming_first_in':  'Premi\u00e8re analyse dans',
   'sentinel.warming_started':   'D\u00e9marr\u00e9',
 
-  // Forecast table
+  // forecast table
   'forecast.dimension':    'Dimension',
   'forecast.horizon':      'Horizon',
   'forecast.node_entity':  'N\u0153ud / Entit\u00e9',
@@ -193,7 +193,7 @@ window.LANG = {
   'forecast.all_dimensions': 'Toutes les dimensions',
   'forecast.all_horizons':   'Tous les horizons',
 
-  // Right-sizing table
+  // right-sizing table
   'rs.vm_name':           'Nom MV',
   'rs.direction':         'Direction',
   'rs.current_vcpu':      'vCPU actuel',
@@ -209,7 +209,7 @@ window.LANG = {
   'rs.recommended_action':'Recommand\u00e9',
   'rs.low_priority':      'Faible priorit\u00e9',
 
-  // Exhaustion table
+  // exhaustion table
   'ex.dimension':      'Dimension',
   'ex.node':           'N\u0153ud',
   'ex.days_left':      'Jours restants',
@@ -217,14 +217,14 @@ window.LANG = {
   'ex.growth_rate':    'Taux de croissance/jour',
   'ex.severity':       'Gravit\u00e9',
 
-  // Dimension labels
+  // dimension labels
   'dim.cpu':     'CPU',
   'dim.ram':     'RAM',
   'dim.storage': 'Stockage',
   'dim.latency': 'Latence',
   'dim.network': 'R\u00e9seau',
 
-  // What-If panel
+  // what-if panel
   'whatif.scenario':         'Sc\u00e9nario',
   'whatif.add_nodes':        'Ajouter des n\u0153uds',
   'whatif.add_vms':          'Ajouter des MV',
@@ -255,7 +255,7 @@ window.LANG = {
   'whatif.bottleneck':       "Goulot d'\u00e9tranglement\u00a0:",
   'whatif.none':             'aucun',
 
-  // Reports / PDF
+  // reports / PDF
   'reports.branding_title':      'Image de marque du rapport',
   'reports.branding_desc':       'Personnalisez la page de couverture du rapport PDF. Les param\u00e8tres sont sauvegard\u00e9s par cluster et appliqu\u00e9s \u00e0 chaque rapport g\u00e9n\u00e9r\u00e9.',
   'reports.company_name':        "Nom de l'entreprise",
@@ -277,7 +277,7 @@ window.LANG = {
   'reports.contents_rightsizing':'\u25c6 Recommandations de redimensionnement des MV',
   'reports.contents_resize':     '\u25c6 Conseils concrets de redimensionnement avec classification des risques',
 
-  // Data Sharing panel
+  // data sharing panel
   'sharing.connection_title':   'Connexion',
   'sharing.connection_desc':    'Configurez le point de terminaison du visualiseur SC//Foresight-Central pour activer les envois de snapshots planifi\u00e9s.',
   'sharing.enabled':            'Partage activ\u00e9',
@@ -316,7 +316,7 @@ window.LANG = {
   'hcb.required':  'La phrase secr\u00e8te est obligatoire.',
   'hcb.mismatch':  'Les phrases secr\u00e8tes ne correspondent pas.',
 
-  // Modules tab
+  // modules tab
   'modules.tools':           'Outils',
   'modules.grafana_desc':    'Exploration de donn\u00e9es avanc\u00e9e et tableaux de bord personnalis\u00e9s',
   'modules.open_grafana':    'Ouvrir Grafana',
@@ -329,10 +329,10 @@ window.LANG = {
   'grafana.not_running':"\u25cb Pas en cours d'ex\u00e9cution",
   'grafana.checking':   'V\u00e9rification...',
 
-  // Auto-discovered module fallback desc
+  // auto-discovered module fallback desc
   'module.auto_desc': 'Source de donn\u00e9es d\u00e9couverte automatiquement',
 
-  // ─── Info popup body text (ⓘ) — TODO: translate to French ───────────────
+  // ─── info popup body text (ⓘ) ───────────────
   'info.DRY_RUN.what':      'The balancer analyses the cluster and decides which VMs to migrate, but stops short of actually executing any moves. All decision logic runs normally — you see the outcomes in the logs.',
   'info.DRY_RUN.benefits':  'Essential safety net when first deploying or after changing thresholds significantly. Lets you validate behaviour before committing to live migrations.',
   'info.DRY_RUN.careful':   'While enabled, real resource imbalances are NOT corrected. A cluster under heavy load will stay imbalanced for as long as Dry Run is on.',

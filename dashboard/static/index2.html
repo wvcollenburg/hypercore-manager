@@ -57,11 +57,11 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Antonio','Segoe UI',sans-serif;background:var(--lc-bg);color:var(--lc-text);height:100vh;overflow:hidden;letter-spacing:.04em}
 
-/* ─── FRAME ───────────────────────────────────────────────────────── */
+/* ─── frame ───────────────────────────────────────────────────────── */
 .lcars-frame{display:flex;flex-direction:row;height:100vh;overflow:hidden}
 .lcars-right-col{flex:1;display:flex;flex-direction:column;overflow:hidden}
 
-/* ─── TOP ELBOW ───────────────────────────────────────────────── */
+/* ─── top elbow ───────────────────────────────────────────────── */
 .lcars-cap-top{
   height:var(--topbar-h);background:var(--lc-orange);
   border-top-left-radius:var(--elbow-r);flex-shrink:0
@@ -107,7 +107,7 @@ body{font-family:'Antonio','Segoe UI',sans-serif;background:var(--lc-bg);color:v
 body.fetching .fetch-spinner{display:block}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* ─── BOTTOM ELBOW ─────────────────────────────────────────────── */
+/* ─── bottom elbow ─────────────────────────────────────────────── */
 .lcars-cap-bot{
   height:var(--botbar-h);background:var(--lc-orange);
   border-bottom-left-radius:var(--elbow-r);flex-shrink:0
@@ -121,7 +121,7 @@ body.fetching .fetch-spinner{display:block}
 #lcarsStardate{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:#000;letter-spacing:.05em}
 .lcars-botbar-right{margin-left:auto;font-size:11px;font-weight:700;color:rgba(0,0,0,.5);text-transform:uppercase;letter-spacing:.12em;display:flex;align-items:center;gap:6px}
 
-/* ─── SIDEBAR ───────────────────────────────────────────────────────── */
+/* ─── sidebar ───────────────────────────────────────────────────────── */
 .lcars-sidebar{width:var(--sidebar-w);flex-shrink:0;display:flex;flex-direction:column;overflow:hidden;background:var(--lc-bg)}
 .lc-bar{width:100%;flex-shrink:0;margin:3px 0}
 .lc-bar-sm{height:5px}.lc-bar-md{height:9px}.lc-bar-lg{height:18px}
@@ -151,7 +151,7 @@ body.fetching .fetch-spinner{display:block}
 .nav-tab-line1{display:block;font-size:9px;opacity:.65;letter-spacing:.1em}
 .nav-tab-line2{display:block;font-size:12px;letter-spacing:.08em}
 
-/* ─── CONTENT ──────────────────────────────────────────────────────── */
+/* ─── content ──────────────────────────────────────────────────────── */
 .lcars-content{flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative}
 .lcars-content::before{
   content:'';position:absolute;inset:0;pointer-events:none;z-index:1;
@@ -163,7 +163,7 @@ body.fetching .fetch-spinner{display:block}
 ::-webkit-scrollbar-thumb{background:var(--lc-orange-d)}
 ::-webkit-scrollbar-thumb:hover{background:var(--lc-orange)}
 
-/* ─── TABS ────────────────────────────────────────────────────────────── */
+/* ─── tabs ────────────────────────────────────────────────────────────── */
 .tab-content{display:none}
 .tab-content.active{display:block}
 .iv-sub-nav,.cb-sub-nav,.sentinel-sub-nav{
@@ -194,7 +194,7 @@ body.fetching .fetch-spinner{display:block}
 .iv-panel,.cb-panel,.sentinel-panel{display:none}
 .iv-panel.active,.cb-panel.active,.sentinel-panel.active{display:block}
 
-/* ─── CARDS ───────────────────────────────────────────────────────────── */
+/* ─── cards ───────────────────────────────────────────────────────────── */
 .cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px;margin-bottom:14px}
 .card{
   background:var(--lc-bg-card);border:1px solid var(--lc-border);
@@ -216,7 +216,7 @@ body.fetching .fetch-spinner{display:block}
 .progress-bar{width:100%;height:5px;background:#1a0800;margin-top:3px;overflow:hidden}
 .progress-fill{height:100%;transition:width .6s ease}
 
-/* ─── CHARTS ──────────────────────────────────────────────────────────── */
+/* ─── charts ──────────────────────────────────────────────────────────── */
 .chart-container{background:var(--lc-bg-card);border:1px solid var(--lc-border);border-top:3px solid var(--lc-orange-d);padding:13px;margin-bottom:13px}
 .chart-title{
   font-family:'Antonio',sans-serif;font-size:13px;font-weight:700;color:var(--lc-peach);margin-bottom:9px;
@@ -228,7 +228,7 @@ body.fetching .fetch-spinner{display:block}
 .charts-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px}
 @media(max-width:900px){.charts-row{grid-template-columns:1fr}}
 
-/* ─── TIME RANGE ───────────────────────────────────────────────────── */
+/* ─── time range ───────────────────────────────────────────────────── */
 .time-range-bar{display:flex;align-items:center;gap:5px;margin-bottom:10px;flex-wrap:wrap;padding:5px 0;border-bottom:1px solid var(--lc-border)}
 .time-range-btn{
   background:transparent;border:1px solid var(--lc-border);color:var(--lc-text-dim);
@@ -238,7 +238,7 @@ body.fetching .fetch-spinner{display:block}
 .time-range-btn:hover{border-color:var(--lc-orange);color:var(--lc-orange)}
 .time-range-btn.active{background:var(--lc-orange-d);border-color:var(--lc-orange);color:var(--lc-peach)}
 
-/* ─── GROUP CONTROLS ─────────────────────────────────────────────────── */
+/* ─── group controls ─────────────────────────────────────────────────── */
 .group-controls{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:7px 10px;background:var(--lc-bg-card);border:1px solid var(--lc-border)}
 .group-label{font-family:'Antonio',sans-serif;font-size:11px;color:var(--lc-text-dim);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap}
 .group-btn{
@@ -255,7 +255,7 @@ body.fetching .fetch-spinner{display:block}
 }
 .group-header-dot{width:6px;height:6px;border-radius:50%;background:var(--lc-cyan)}
 
-/* ─── SUB-ITEMS ─────────────────────────────────────────────────────── */
+/* ─── sub-items ─────────────────────────────────────────────────────── */
 .sub-section{margin-top:9px;padding-top:9px;border-top:1px dashed var(--lc-border)}
 .sub-section-title{font-family:'Antonio',sans-serif;font-size:10px;font-weight:700;color:var(--lc-text-mut);text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px}
 .sub-item{background:#050205;border:1px solid var(--lc-border);padding:7px 9px;margin-bottom:4px;font-size:11px}
@@ -268,7 +268,7 @@ body.fetching .fetch-spinner{display:block}
 .health-ok{background:var(--lc-green)}
 .health-bad{background:var(--lc-red)}
 
-/* ─── LOG TABLE ───────────────────────────────────────────────────────── */
+/* ─── log table ───────────────────────────────────────────────────────── */
 .log-table{width:100%;border-collapse:collapse;font-size:12px}
 .log-table th{text-align:left;padding:6px 9px;font-family:'Antonio',sans-serif;font-size:10px;font-weight:700;color:var(--lc-text-mut);text-transform:uppercase;letter-spacing:.1em;border-bottom:2px solid var(--lc-orange-d);position:sticky;top:0;background:var(--lc-bg-card)}
 .log-table td{padding:6px 9px;border-bottom:1px solid var(--lc-border);font-family:'Antonio',sans-serif;font-size:12px;color:var(--lc-text-dim)}
@@ -280,7 +280,7 @@ body.fetching .fetch-spinner{display:block}
 .arrow{color:var(--lc-cyan);margin:0 4px}
 .log-scroll{max-height:460px;overflow-y:auto}
 
-/* ─── MODULES ─────────────────────────────────────────────────────────── */
+/* ─── modules ─────────────────────────────────────────────────────────── */
 .modules-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:9px}
 .module-item{background:var(--lc-bg-card);border:1px solid var(--lc-border);padding:12px;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:10px}
 .module-item:hover{border-color:var(--lc-orange-d);background:#0d060f}
@@ -290,7 +290,7 @@ body.fetching .fetch-spinner{display:block}
 .loading,.empty-state{text-align:center;padding:46px 20px;color:var(--lc-text-dim);font-size:13px;text-transform:uppercase;letter-spacing:.12em}
 .spinner{width:28px;height:28px;border:2px solid var(--lc-border);border-top-color:var(--lc-orange);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px}
 
-/* ─── SETTINGS ───────────────────────────────────────────────────────── */
+/* ─── settings ───────────────────────────────────────────────────────── */
 .settings-group{background:var(--lc-bg-card);border:1px solid var(--lc-border);border-top:3px solid var(--lc-orange-d);padding:15px;margin-bottom:11px}
 .settings-group-header{display:flex;align-items:center;gap:8px;margin-bottom:15px;padding-bottom:9px;border-bottom:1px solid var(--lc-border)}
 .settings-group-title{font-family:'Antonio',sans-serif;font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--lc-peach);flex:1;text-transform:uppercase}
@@ -343,7 +343,7 @@ body.fetching .fetch-spinner{display:block}
 .info-section-label.careful{color:var(--lc-gold)}
 .info-section p{color:var(--lc-text);font-size:12px;line-height:1.6}
 
-/* ─── VM MODAL ───────────────────────────────────────────────────────── */
+/* ─── VM modal ───────────────────────────────────────────────────────── */
 .vm-detail-btn{background:rgba(68,136,187,.12);border:1px solid var(--lc-blue);cursor:pointer;color:var(--lc-cyan);font-family:'Antonio',sans-serif;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:3px 9px;transition:all .15s;flex-shrink:0;line-height:1.4}
 .vm-detail-btn:hover{background:rgba(68,136,187,.25)}
 .vm-modal-backdrop{display:none;position:fixed;inset:0;z-index:10100;background:rgba(0,0,0,.88);align-items:center;justify-content:center}
@@ -359,7 +359,7 @@ body.fetching .fetch-spinner{display:block}
 .vm-modal-chart-label{font-family:'Antonio',sans-serif;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--lc-text-dim);margin-bottom:7px}
 .vm-modal-chart-wrap{position:relative;height:160px}
 
-/* ─── UPDATE MODAL ───────────────────────────────────────────────────── */
+/* ─── update modal ───────────────────────────────────────────────────── */
 .update-modal-backdrop{display:none;position:fixed;inset:0;z-index:10200;background:rgba(0,0,0,.88);align-items:center;justify-content:center}
 .update-modal-backdrop.visible{display:flex}
 .update-modal{background:#0a0206;border:1px solid var(--lc-orange);border-top:3px solid var(--lc-orange);padding:18px 22px;min-width:420px;max-width:500px;width:90vw;display:flex;flex-direction:column;gap:11px;box-shadow:0 0 40px rgba(255,153,0,.2)}
@@ -391,7 +391,7 @@ body.fetching .fetch-spinner{display:block}
 .update-badge-btn.has-update{color:#000;border-color:rgba(0,0,0,.3);background:rgba(255,200,0,.4);animation:upd-pulse 2.5s ease-in-out infinite}
 @keyframes upd-pulse{0%,100%{box-shadow:0 0 0 0 rgba(0,0,0,0)}50%{box-shadow:0 0 0 3px rgba(0,0,0,.1)}}
 
-/* ─── SENTINEL ───────────────────────────────────────────────────────── */
+/* ─── Sentinel ───────────────────────────────────────────────────────── */
 .sev-emergency,.sev-critical{color:var(--lc-red)}
 .sev-warning{color:var(--lc-gold)}
 .sev-info{color:var(--lc-green)}
@@ -432,7 +432,7 @@ body.fetching .fetch-spinner{display:block}
 .settings-toast.ok{border-color:var(--lc-green);color:var(--lc-green)}
 .settings-toast.err{border-color:var(--lc-red);color:var(--lc-red)}
 
-/* ─── USER MANAGER ─────────────────────────────────────────────────── */
+/* ─── user manager ─────────────────────────────────────────────────── */
 .um-table{width:100%;border-collapse:collapse;font-size:12px}
 .um-table th{padding:6px 9px;text-align:left;font-family:'Antonio',sans-serif;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--lc-text-mut);border-bottom:2px solid var(--lc-orange-d);white-space:nowrap}
 .um-table td{padding:7px 9px;border-bottom:1px solid var(--lc-border);color:var(--lc-text-dim);vertical-align:middle}
@@ -468,7 +468,7 @@ body.fetching .fetch-spinner{display:block}
 .um-dev-notice{display:inline-block;padding:2px 9px;font-size:10px;font-family:'Antonio',sans-serif;font-weight:700;text-transform:uppercase;background:rgba(255,170,0,.1);color:var(--lc-gold);border:1px solid rgba(255,170,0,.25);margin-left:8px}
 #dataQualityBanner{display:none;position:fixed;bottom:var(--botbar-h);left:0;right:0;z-index:9999;background:#2a0500;border-top:1px solid var(--lc-red);color:#FF6644;font-size:12px;font-family:'Antonio',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;padding:5px 15px;text-align:center}
 #dataQualityBanner.visible{display:block}
-/* Form elements */
+/* form elements */
 input[type=text],input[type=password],input[type=number],select,textarea{background:var(--lc-border);border:1px solid var(--lc-orange-d);color:var(--lc-peach);font-family:'Antonio',sans-serif;padding:5px 8px;outline:none;border-radius:0}
 input[type=text]:focus,input[type=password]:focus,input[type=number]:focus,select:focus{border-color:var(--lc-orange)}
 input::placeholder{color:var(--lc-text-mut);opacity:.7}
@@ -480,7 +480,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
 <body>
 <div class="lcars-frame">
 
-  <!-- LCARS SIDEBAR (full height — cap-top + nav + cap-bot) -->
+  <!-- LCARS sidebar (full height — cap-top + nav + cap-bot) -->
   <div class="lcars-sidebar">
     <div class="lcars-cap-top"></div>
     <div class="lc-bar lc-bar-md lc-bar-orange"></div>
@@ -530,7 +530,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
     <div class="lcars-cap-bot"></div>
   </div><!-- /.lcars-sidebar -->
 
-  <!-- RIGHT COLUMN: topbar + scrollable content + botbar -->
+  <!-- right column: topbar + scrollable content + botbar -->
   <div class="lcars-right-col">
     <div class="lcars-topbar">
       <div>
@@ -560,9 +560,9 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
       </div>
     </div>
 
-    <!-- CONTENT AREA -->
+    <!-- content area -->
     <div class="lcars-content">
-      <!-- Hidden nav-tabs: JS uses .nav-tab[data-tab] to manage active state -->
+      <!-- hidden nav-tabs: JS uses .nav-tab[data-tab] to manage active state -->
       <div class="nav-tabs" style="display:none!important">
         <div class="nav-tab" data-tab="infraviewer"></div>
         <div class="nav-tab" data-tab="clusterbalancer"></div>
@@ -581,13 +581,13 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
 </div>
 
 <div class="main">
-  <!-- ─── SC//INFRAVIEWER TAB ─── -->
+  <!-- ─── SC//Infraviewer tab ─── -->
   <div class="tab-content active" id="tab-infraviewer">
     <div class="iv-sub-nav">
       <div class="iv-sub-tab active" data-ivpanel="nodes" data-i18n="iv.nodes_drives" onclick="switchIvPanel('nodes')">Nodes &amp; Drives</div>
       <div class="iv-sub-tab"        data-ivpanel="vms"   data-i18n="iv.vms_storage"  onclick="switchIvPanel('vms')">VMs &amp; Storage</div>
     </div>
-    <!-- Nodes & Drives panel -->
+    <!-- nodes & drives panel -->
     <div class="iv-panel active" id="ivpanel-nodes">
       <div class="time-range-bar">
         <span class="group-label" data-i18n="time.range">Range:</span>
@@ -623,7 +623,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
         <div class="loading"><div class="spinner"></div><span data-i18n="loading.nodes">Loading node metrics...</span></div>
       </div>
     </div>
-    <!-- VMs & Storage panel -->
+    <!-- VMs & storage panel -->
     <div class="iv-panel" id="ivpanel-vms">
       <div class="time-range-bar">
         <span class="group-label" data-i18n="time.range">Range:</span>
@@ -664,14 +664,14 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
     </div>
   </div>
 
-  <!-- ─── SC//CLUSTERBALANCER TAB ─── -->
+  <!-- ─── SC//Clusterbalancer tab ─── -->
   <div class="tab-content" id="tab-clusterbalancer">
     <div class="cb-sub-nav">
       <div class="cb-sub-tab active" data-cbpanel="miglog"           data-i18n="cb.miglog"            onclick="switchCbPanel('miglog')">Migration Log</div>
       <div class="cb-sub-tab"        data-cbpanel="forecastlog"      data-i18n="cb.forecastlog"       onclick="switchCbPanel('forecastlog')">Forecast Log</div>
       <div class="cb-sub-tab"        data-cbpanel="balancersettings" data-i18n="cb.balancer_settings" onclick="switchCbPanel('balancersettings')">Balancer Settings</div>
     </div>
-    <!-- Migration Log panel -->
+    <!-- migration log panel -->
     <div class="cb-panel active" id="cbpanel-miglog">
       <div class="chart-container">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="chart.miglog">Migration Event Log</span></div>
@@ -680,7 +680,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
         </div>
       </div>
     </div>
-    <!-- Forecast Log panel -->
+    <!-- forecast log panel -->
     <div class="cb-panel" id="cbpanel-forecastlog">
       <div class="chart-container" style="margin-bottom:16px;">
         <div class="chart-title">
@@ -707,7 +707,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
         </div>
       </div>
     </div>
-    <!-- Balancer Settings panel -->
+    <!-- balancer settings panel -->
     <div class="cb-panel" id="cbpanel-balancersettings">
       <div id="balancerSettingsContent">
         <div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div>
@@ -715,9 +715,9 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
     </div>
   </div>
 
-  <!-- ─── SC//FORESIGHT TAB ─── -->
+  <!-- ─── SC//Foresight tab ─── -->
   <div class="tab-content" id="tab-sentinel">
-    <!-- Sub-navigation -->
+    <!-- sub-navigation -->
     <div class="sentinel-sub-nav">
       <div class="sentinel-sub-tab active" data-spanel="overview"      data-i18n="sentinel.tab.overview"    onclick="switchSentinelPanel('overview')">Overview</div>
       <div class="sentinel-sub-tab"        data-spanel="forecasts"    data-i18n="sentinel.tab.forecasts"   onclick="switchSentinelPanel('forecasts')">Forecasts</div>
@@ -729,12 +729,12 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
       <div class="sentinel-sub-tab"        data-spanel="datasharing"  data-i18n="sentinel.tab.datasharing" onclick="switchSentinelPanel('datasharing')">Data Sharing</div>
     </div>
 
-    <!-- Overview panel -->
+    <!-- overview panel -->
     <div class="sentinel-panel active" id="spanel-overview">
       <div id="sentinelOverview"><div class="loading"><div class="spinner"></div><span data-i18n="loading.capacity">Loading capacity intelligence...</span></div></div>
     </div>
 
-    <!-- Forecasts panel -->
+    <!-- forecasts panel -->
     <div class="sentinel-panel" id="spanel-forecasts">
       <div class="chart-container" style="margin-bottom:16px;">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-blue)"></div>
@@ -764,7 +764,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
       </div>
     </div>
 
-    <!-- Right-Sizing panel -->
+    <!-- right-sizing panel -->
     <div class="sentinel-panel" id="spanel-rightsizing">
       <div class="chart-container">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span data-i18n="section.resize_advice">Concrete Resize Advice (C3\u2013C6)</span></div>
@@ -772,7 +772,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
       </div>
     </div>
 
-    <!-- Exhaustion panel -->
+    <!-- exhaustion panel -->
     <div class="sentinel-panel" id="spanel-exhaustion">
       <div class="chart-container">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-red)"></div><span data-i18n="section.exhaustion_alerts">Resource Exhaustion Alerts</span></div>
@@ -780,10 +780,10 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
       </div>
     </div>
 
-    <!-- Reports panel -->
+    <!-- reports panel -->
     <div class="sentinel-panel" id="spanel-reports">
 
-      <!-- E7: Branding configuration -->
+      <!-- E7: branding configuration -->
       <div class="chart-container" style="margin-bottom:16px;">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="reports.branding_title">Report Branding (E7)</span></div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="reports.branding_desc">
@@ -823,7 +823,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
         </div>
       </div>
 
-      <!-- Download section -->
+      <!-- download section -->
       <div class="chart-container">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="reports.pdf_title">SC//Foresight Reports (E5-E6)</span></div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="reports.pdf_desc">
@@ -848,7 +848,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
         </div>
       </div>
     </div>
-    <!-- What-If panel (D5) -->
+    <!-- what-if panel (D5) -->
     <div class="sentinel-panel" id="spanel-whatif">
       <div class="chart-container">
         <div class="chart-title">
@@ -860,7 +860,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
           Results are computed from the latest analysis data and do not modify any configuration.
         </p>
 
-        <!-- Scenario controls -->
+        <!-- scenario controls -->
         <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:20px;">
           <div style="display:flex;flex-direction:column;gap:6px;">
             <label for="whatifScenario" data-i18n="whatif.scenario" style="font-size:11px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;">Scenario</label>
@@ -900,7 +900,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
           </button>
         </div>
 
-        <!-- Results -->
+        <!-- results -->
         <div id="whatifResults" style="display:none;">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;" id="whatifScoreCards"></div>
           <div style="background:var(--bg-nested);border:1px solid var(--border);border-radius:8px;padding:16px;">
@@ -914,21 +914,21 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
       </div>
     </div>
 
-    <!-- Settings panel (Phase 3.5 — T4) -->
+    <!-- settings panel (Phase 3.5 — T4) -->
     <div class="sentinel-panel" id="spanel-sentsettings">
       <div id="sentSettingsContent">
         <div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div>
       </div>
-      <!-- Restart-required note -->
+      <!-- restart-required note -->
       <div style="margin-top:8px;padding:12px 16px;background:var(--bg-nested);border:1px solid var(--border);border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);line-height:1.8;">
         <span data-i18n="settings.restart_required" style="color:var(--text-secondary)">Restart-required settings</span><span data-i18n="settings.restart_note"> — collection interval, trend interval, outcome check interval, ports, InfluxDB / PostgreSQL / HyperCore credentials, webhook URL, secret and delivery parameters must be set via environment variables in docker-compose and require a container restart.</span>
       </div>
     </div>
 
-    <!-- Data Sharing panel (Phase 4 — H3/H4/H5) -->
+    <!-- data sharing panel (Phase 4 — H3/H4/H5) -->
     <div class="sentinel-panel" id="spanel-datasharing">
 
-      <!-- Section 1: Connection -->
+      <!-- section 1: connection -->
       <div class="chart-container" style="margin-bottom:16px;">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span data-i18n="sharing.connection_title">Connection</span></div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="sharing.connection_desc">
@@ -965,7 +965,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
         </div>
       </div>
 
-      <!-- Section 2: Anonymisation -->
+      <!-- section 2: anonymisation -->
       <div class="chart-container" style="margin-bottom:16px;">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="sharing.anon_title">Anonymisation</span></div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="sharing.anon_desc">
@@ -1000,7 +1000,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
         </button>
       </div>
 
-      <!-- Section 3: Manual Actions -->
+      <!-- section 3: manual actions -->
       <div class="chart-container">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-amber)"></div><span data-i18n="sharing.manual_title">Manual Actions</span></div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
@@ -1023,7 +1023,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
 
   </div>
 
-  <!-- ─── SETTINGS TAB ─── -->
+  <!-- ─── settings tab ─── -->
   <div class="tab-content" id="tab-settings">
     <div id="settingsContent">
       <div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div>
@@ -1031,7 +1031,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
   </div>
   <div class="settings-toast" id="settingsToast"></div>
 
-  <!-- ─── Info Popup ─── -->
+  <!-- ─── info popup ─── -->
   <div id="infoPopup" class="info-popup">
     <div class="info-popup-title" id="infoPopupTitle"></div>
     <div class="info-section">
@@ -1048,7 +1048,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
     </div>
   </div>
 
-  <!-- ─── VM DETAIL MODAL ─── -->
+  <!-- ─── VM detail modal ─── -->
   <div id="vmDetailBackdrop" class="vm-modal-backdrop" onclick="closeVmModal(event)">
     <div class="vm-modal" id="vmDetailModal">
       <div class="vm-modal-header">
@@ -1089,7 +1089,7 @@ code{background:var(--lc-border);padding:2px 5px;color:var(--lc-peach);font-fami
     </div>
   </div>
 
-  <!-- ─── MODULES TAB ─── -->
+  <!-- ─── modules tab ─── -->
   <div class="tab-content" id="tab-modules">
     <div class="chart-container" style="margin-bottom:16px;">
       <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-amber)"></div><span data-i18n="modules.tools">Tools</span></div>
@@ -1162,7 +1162,7 @@ function applyI18n() {
   });
 }
 
-// ─── Language picker ──────────────────────────────────────────────────────
+// ─── language picker ──────────────────────────────────────────────────────
 function _initLangPicker() {
   const active = window._hcmLang || 'en';
   document.querySelectorAll('#langDropdown .lang-opt').forEach(el => {
@@ -1222,26 +1222,26 @@ const MODAL_CHART_COLORS = [
 let nodeCpuChart = null, vmCpuChart = null, vsdLatencyChart = null, vsdIopsChart = null, vmNetChart = null;
 let clusterRamChart = null, clusterStorageChart = null;
 
-// ─── Cached data stores ───
+// ─── cached data stores ───
 let cachedDrives = [];
 let cachedVsds = [];
 
-// ─── Time range state ───
+// ─── time range state ───
 let nodeHours = 24;
 let vmHours   = 24;
 
 const TIME_RANGE_LABELS = { 1:'1h', 2:'2h', 6:'6h', 12:'12h', 24:'1d', 168:'7d', 720:'1mo', 8760:'1yr' };
 
 function buildChartData(history, field, aggWindowSeconds) {
-  // Sort by time (history may combine multiple node series after VM migrations)
+  // sort by time (history may combine multiple node series after VM migrations)
   const sorted = [...history]
     .filter(pt => pt[field] != null)
     .sort((a, b) => new Date(a.time) - new Date(b.time));
-  // Strip leading zeros (migration/startup artifact)
+  // strip leading zeros (migration/startup artifact)
   let start = 0;
   while (start < sorted.length - 1 && !(sorted[start][field] > 0)) start++;
   const trimmed = sorted.slice(start);
-  // Inject null gap markers where time gap > 3× the aggregation window
+  // inject null gap markers where time gap > 3× the aggregation window
   // so Chart.js shows a clean line break instead of a bezier curve across node transitions
   const threshold = aggWindowSeconds * 3 * 1000;
   const result = [];
@@ -1335,7 +1335,7 @@ async function apiFetch(ep) {
   finally { _fetchEnd(); }
 }
 
-// ─── Render drive sub-items for a given node ───
+// ─── render drive sub-items for a given node ───
 function renderDrivesForNode(nodeUuid) {
   const drives = cachedDrives.filter(d => d.node_uuid === nodeUuid);
   if (!drives.length) return '';
@@ -1375,7 +1375,7 @@ function renderDrivesForNode(nodeUuid) {
   `;
 }
 
-// ─── Render VSD sub-items for a given VM ───
+// ─── render VSD sub-items for a given VM ───
 function renderVsdsForVm(vmUuid) {
   const vsds = cachedVsds.filter(v => v.vm_uuid === vmUuid && v.type !== 'NVRAM' && v.type !== 'VTPM');
   if (!vsds.length) return '';
@@ -1419,7 +1419,7 @@ function renderVsdsForVm(vmUuid) {
   `;
 }
 
-// ─── Load Nodes + Drives ───
+// ─── load nodes + drives ───
 async function loadNodes() {
   const h = nodeHours;
   const [nodeData, driveData, allDriveData, vsdData, configData] = await Promise.all([
@@ -1478,7 +1478,7 @@ async function loadNodes() {
     `;
   }).join('');
 
-  // Node CPU chart
+  // node CPU chart
   const ctx = document.getElementById('nodeCpuChart').getContext('2d');
   if (nodeCpuChart) nodeCpuChart.destroy();
   const nodeTScale = chartTimeScale(h);
@@ -1517,7 +1517,7 @@ async function loadNodes() {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([t, v]) => ({ x: new Date(t), y: Math.round(v * 10) / 10 }));
 
-  // Expected point count based on the aggregation window used by the backend
+  // expected point count based on the aggregation window used by the backend
   const aggWindowHours = h <= 2 ? 1/60 : h <= 6 ? 2/60 : h <= 12 ? 5/60 : h <= 24 ? 10/60 : h <= 168 ? 1 : h <= 720 ? 4 : 24;
   const expectedPoints = h / aggWindowHours;
   const coverage = iopsPoints.length / expectedPoints;
@@ -1563,8 +1563,8 @@ async function loadNodes() {
     }
   });
 
-  // ─── Cluster RAM chart ───
-  // Aggregate used + total RAM across all nodes per timestamp
+  // ─── cluster RAM chart ───
+  // aggregate used + total RAM across all nodes per timestamp
   const ramUsedMap = new Map(), ramTotalMap = new Map(), ramCountMap = new Map();
   for (const node of nodeData) {
     for (const h2 of node.history) {
@@ -1606,9 +1606,9 @@ async function loadNodes() {
     }
   });
 
-  // ─── Cluster Storage chart ───
-  // Use allDriveData (includes stale/removed drives) so that historical capacity
-  // correctly reflects what was present at each point in time, not just today's nodes.
+  // ─── cluster storage chart ───
+  // use allDriveData (includes stale/removed drives) so that historical capacity
+  // correctly reflects what was present at each point in time, not just today's nodes
   const storUsedMap = new Map(), storCapMap = new Map();
   for (const drive of (allDriveData || [])) {
     for (const h2 of drive.history) {
@@ -1646,7 +1646,7 @@ async function loadNodes() {
   });
 }
 
-// ─── VM Grouping State ───
+// ─── VM grouping state ───
 let currentVmGroup = 'none';
 let cachedVmData = [];
 
@@ -1698,13 +1698,13 @@ function renderVmCards() {
   if (!cachedVmData.length) { container.innerHTML = `<div class="empty-state">${t('empty.no_vms')}</div>`; return; }
 
   if (currentVmGroup === 'none') {
-    // No grouping — just sort by name
+    // no grouping — just sort by name
     const sorted = [...cachedVmData].sort((a,b) => a.name.localeCompare(b.name));
     container.innerHTML = sorted.map(renderVmCard).join('');
     return;
   }
 
-  // Build groups
+  // build groups
   const groups = {};
   for (const vm of cachedVmData) {
     let key;
@@ -1719,10 +1719,10 @@ function renderVmCards() {
     groups[key].push(vm);
   }
 
-  // Sort group keys
+  // sort group keys
   let sortedKeys;
   if (currentVmGroup === 'node') {
-    // Sort by peer ID numerically, push 'unknown' to the end
+    // sort by peer ID numerically, push 'unknown' to the end
     sortedKeys = Object.keys(groups).sort((a,b) => {
       const aIsUnknown = isNaN(parseInt(a));
       const bIsUnknown = isNaN(parseInt(b));
@@ -1732,13 +1732,13 @@ function renderVmCards() {
       return parseInt(a) - parseInt(b);
     });
   } else if (currentVmGroup === 'vlan') {
-    // Sort VLAN numerically
+    // sort VLAN numerically
     sortedKeys = Object.keys(groups).sort((a,b) => {
       const na = parseInt(a) || 0, nb = parseInt(b) || 0;
       return na - nb;
     });
   } else {
-    // Sort tags alphabetically, with "no tag" last
+    // sort tags alphabetically, with "no tag" last
     sortedKeys = Object.keys(groups).sort((a,b) => {
       const noTag = t('vm.group_no_tag');
       if (a === noTag) return 1;
@@ -1747,7 +1747,7 @@ function renderVmCards() {
     });
   }
 
-  // Render with group headers
+  // render with group headers
   const groupLabels = { tag: t('vm.group_label.tag'), node: t('vm.group_label.node'), vlan: t('vm.group_label.vlan') };
   let html = '';
   for (const key of sortedKeys) {
@@ -1759,7 +1759,7 @@ function renderVmCards() {
   container.innerHTML = html;
 }
 
-// ─── Load VMs + VSDs ───
+// ─── load VMs + VSDs ───
 async function loadVMs() {
   const h = vmHours;
   const [vmData, vsdData] = await Promise.all([
@@ -1803,7 +1803,7 @@ async function loadVMs() {
     }
   });
 
-  // VSD Latency chart — top 10 by latest write latency
+  // VSD latency chart — top 10 by latest write latency
   if (cachedVsds.length) {
     const vsdSorted = [...cachedVsds]
       .filter(v => v.history.length > 0)
@@ -1835,7 +1835,7 @@ async function loadVMs() {
     });
   }
 
-  // VM Network chart — top 10 by average combined RX+TX
+  // VM network chart — top 10 by average combined RX+TX
   const netSorted = [...vmData].sort((a, b) => {
     const avg = vm => {
       const pts = vm.history.filter(p => p.rx_bit_rate != null || p.tx_bit_rate != null);
@@ -1870,7 +1870,7 @@ async function loadVMs() {
   });
 }
 
-// ─── VM Detail Modal ───
+// ─── VM detail modal ───
 let vmDetailCharts = [];
 let vmDetailHours = 24;
 let vmDetailActiveUuid = null;
@@ -1927,7 +1927,7 @@ async function renderVmDetailCharts() {
     options: { ...commonOpts, scales: { x: xAxis, y: { min: 0, ticks: { callback: v => v+'%' }, grid: { color: '#ffffff12' } } } }
   }));
 
-  // Network chart (RX + TX)
+  // network chart (RX + TX)
   vmDetailCharts.push(new Chart(document.getElementById('vmDetailNetChart'), {
     type: 'line',
     data: { datasets: [
@@ -1950,7 +1950,7 @@ async function renderVmDetailCharts() {
     options: { ...commonOpts, scales: { x: xAxis, y: { min: 0, ticks: { callback: v => v+' IOPS' }, grid: { color: '#ffffff12' } } } }
   }));
 
-  // Latency chart (per VSD)
+  // latency chart (per VSD)
   const latDatasets = vsds.map((v, i) => ({
     label: v.name,
     data: buildChartData(v.history, 'write_latency_us', aggWindowSeconds),
@@ -1970,12 +1970,12 @@ function closeVmModal(evt) {
   vmDetailActiveUuid = null;
 }
 
-// Close modal on Escape key
+// close modal on Escape key
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') document.getElementById('vmDetailBackdrop')?.classList.remove('visible');
 });
 
-// ─── Migration Log ───
+// ─── migration log ───
 async function loadMigrations() {
   const data = await apiFetch('/api/migrations?days=7');
   const container = document.getElementById('migrationLog');
@@ -1996,7 +1996,7 @@ async function loadMigrations() {
     </tbody></table>`;
 }
 
-// ─── Forecast Log: Oracle run summaries ───
+// ─── forecast log: Oracle run summaries ───
 async function loadForecastRuns() {
   const data = await apiFetch('/api/forecast_runs?days=7');
   const container = document.getElementById('forecastRunsLog');
@@ -2033,7 +2033,7 @@ async function loadForecastRuns() {
     </tbody></table>`;
 }
 
-// ─── Forecast Log: queued recommendations ───
+// ─── forecast log: queued recommendations ───
 async function loadPredictions() {
   const data = await apiFetch('/api/predictions?days=7');
   const container = document.getElementById('predictionsLog');
@@ -2061,7 +2061,7 @@ async function loadPredictions() {
     </tbody></table>`;
 }
 
-// ─── Modules Discovery ───
+// ─── modules discovery ───
 async function loadModules() {
   const data = await apiFetch('/api/modules');
   const container = document.getElementById('modulesList');
@@ -2081,7 +2081,7 @@ function setStatus(c) {
   else{d.style.background='var(--accent-red)';s.textContent=t('header.disconnected');}
 }
 
-// ─── Grafana Status Check ───
+// ─── Grafana status check ───
 async function checkGrafana() {
   const status = document.getElementById('grafanaStatus');
   const link = document.getElementById('grafanaLink');
@@ -2101,7 +2101,7 @@ async function refreshAll() {
   await Promise.all([loadNodes(), loadVMs(), loadMigrations(), loadForecastRuns(), loadPredictions(), loadModules(), checkGrafana()]);
 }
 
-// Apply translations to static HTML before the first data fetch
+// apply translations to static HTML before the first data fetch
 applyI18n();
 _initLangPicker();
 
@@ -2109,10 +2109,10 @@ refreshAll();
 setInterval(refreshAll, 30000);
 
 // ═══════════════════════════════════════════════════════════════════
-// SETTINGS TAB — live-tunable controls
+// settings tab — live-tunable controls
 // ═══════════════════════════════════════════════════════════════════
 
-// ─── Per-key info content for the ⓘ popup ───────────────────────
+// ─── per-key info content for the ⓘ popup ───────────────────────
 const CTRL_INFO = {
   DRY_RUN: {
     what: 'The balancer analyses the cluster and decides which VMs to migrate, but stops short of actually executing any moves. All decision logic runs normally — you see the outcomes in the logs.',
@@ -2294,11 +2294,11 @@ const CTRL_GROUPS = [
   },
 ];
 
-// Reverse map: key → groupId
+// reverse map: key → groupId
 const KEY_GROUP = {};
 CTRL_GROUPS.forEach(g => g.controls.forEach(c => { KEY_GROUP[c.key] = g.id; }));
 
-// Staged edits per group — not written to DB until Apply is clicked
+// staged edits per group — not written to DB until Apply is clicked
 const _staged = {};
 
 function _updateFill(slider) {
@@ -2466,7 +2466,7 @@ function _renderControl(def, value, readOnly = false) {
   return '';
 }
 
-// ─── Info popup logic ────────────────────────────────────────────
+// ─── info popup logic ────────────────────────────────────────────
 let _infoActiveKey = null;
 
 function toggleInfo(evt, key) {
@@ -2479,7 +2479,7 @@ function toggleInfo(evt, key) {
   }
   const info = CTRL_INFO[key] || SENT_INFO[key];
   if (!info) return;
-  // Find the label — check balancer groups first, then sentinel info dict
+  // find the label — check balancer groups first, then Sentinel info dict
   let label = key;
   for (const g of CTRL_GROUPS) {
     const c = g.controls.find(x => x.key === key);
@@ -2494,7 +2494,7 @@ function toggleInfo(evt, key) {
   document.getElementById('infoPopupBenefits').textContent = t(bKey) !== bKey ? t(bKey) : info.benefits;
   document.getElementById('infoPopupCareful').textContent  = t(cKey) !== cKey ? t(cKey) : info.careful;
 
-  // Position near the clicked button, keeping popup on-screen
+  // position near the clicked button, keeping popup on-screen
   const btn  = evt.currentTarget;
   const rect = btn.getBoundingClientRect();
   const pw   = 310;
@@ -2549,7 +2549,7 @@ function sevBadge(s) {
   return `<span class="sev-badge sev-${c}">${s||'INFO'}</span>`;
 }
 function rsSevBadge(s) {
-  // Maps internal severity to operator-friendly right-sizing action labels.
+  // maps internal severity to operator-friendly right-sizing action labels
   // CRITICAL/EMERGENCY → Act Now (amber — high confidence, worth doing soon)
   // WARNING            → Recommended (cyan — moderate confidence)
   // INFO               → Low Priority (muted — flagged but barely over threshold)
@@ -2584,19 +2584,19 @@ function severityColor(s) {
           INFO:'var(--accent-green)'}[s] || 'var(--accent-green)';
 }
 
-// ── Overview (E3 / health score + summary tiles) ───────────────────────────
+// ── overview (E3 / health score + summary tiles) ───────────────────────────
 
 async function loadSentinelOverview() {
   const el = document.getElementById('sentinelOverview');
 
-  // Fetch status before summary so we can show a waiting message if the
-  // analysis loop hasn't completed its first run yet.
+  // fetch status before summary so we can show a waiting message if the
+  // analysis loop hasn't completed its first run yet
   const status  = await apiFetch('/api/sentinel/status');
   const summary = await apiFetch('/api/sentinel/summary');
 
-  // No summary data AND analysis has never completed → show waiting state.
-  // status may be null (proxy error) or {status:'unavailable'} (sentinel unreachable);
-  // in both cases we still show warming-up if there is no health data yet.
+  // no summary data AND analysis has never completed → show waiting state
+  // status may be null (proxy error) or {status:'unavailable'} (Sentinel unreachable);
+  // in both cases we still show warming-up if there is no health data yet
   const hasHealthData = summary && summary.health?.score != null;
   const sentinelReachable = status && status.status !== 'unavailable';
   const hasRunBefore = sentinelReachable && status.trend_last_ok;
@@ -2628,7 +2628,7 @@ async function loadSentinelOverview() {
         ${startTime ? `<div style="font-size:11px;color:var(--text-muted)">${t('sentinel.warming_started')} ${startTime.toLocaleString('en-GB')}</div>` : ''}
       </div>`;
 
-    // Auto-refresh every 30 s while waiting.
+    // auto-refresh every 30 s while waiting
     setTimeout(() => loadSentinelOverview(), 30_000);
     return;
   }
@@ -2670,9 +2670,9 @@ async function loadSentinelOverview() {
     s >= 40   ? 'var(--accent-amber)' :
                 'var(--accent-red)';
 
-  // Annualised growth-rate formatting per dimension.  Slope is per-day in the
+  // annualised growth-rate formatting per dimension. Slope is per-day in the
   // dimension's natural units (cpu pp/day, ram bytes/day, network bps/day,
-  // latency µs/day); growth_rates already contains slope*365.
+  // latency µs/day); growth_rates already contains slope*365
   const _signed = (v, fn) => {
     if (v == null) return '—';
     return (v < 0 ? '−' : '+') + fn(Math.abs(v));
@@ -2796,7 +2796,7 @@ async function loadSentinelOverview() {
   `;
 }
 
-// ── Forecasts (E1) ────────────────────────────────────────────────────────
+// ── forecasts (E1) ────────────────────────────────────────────────────────
 
 function fmtMetricVal(val, dimension) {
   if (val == null) return '—';
@@ -2822,7 +2822,7 @@ async function loadSentinelForecasts() {
   const el   = document.getElementById('sentinelForecastTable');
   if (!data || !data.length) { el.innerHTML = `<div class="empty-state">${t('empty.no_forecasts')}</div>`; return; }
 
-  // Hide low-confidence INFO rows — they are regression noise with insufficient data
+  // hide low-confidence INFO rows — they are regression noise with insufficient data
   const visible = data.filter(f => f.severity !== 'INFO' || (f.confidence_score != null && f.confidence_score >= 0.10));
 
   if (!visible.length) {
@@ -2857,7 +2857,7 @@ async function loadSentinelForecasts() {
     </div>`;
 }
 
-// ── Right-Sizing + Resize Advice (E2) ─────────────────────────────────────
+// ── right-sizing + resize advice (E2) ─────────────────────────────────────
 
 async function loadSentinelRightsizing() {
   const rezData = await apiFetch('/api/sentinel/resize?limit=100');
@@ -2892,7 +2892,7 @@ async function loadSentinelRightsizing() {
     </tbody></table></div>`;
 }
 
-// ── Exhaustion (E4) ───────────────────────────────────────────────────────
+// ── exhaustion (E4) ───────────────────────────────────────────────────────
 
 async function loadSentinelExhaustion() {
   const data = await apiFetch('/api/sentinel/exhaustion?limit=50');
@@ -2921,7 +2921,7 @@ async function loadSentinelExhaustion() {
 // ── PDF download helper ───────────────────────────────────────────────────
 
 // =============================================================================
-// E7 — Report branding
+// E7 — report branding
 // =============================================================================
 
 let _brandingLogoB64 = '';
@@ -2999,7 +2999,7 @@ async function saveBranding() {
   }
 }
 
-// Sync colour picker ↔ hex input
+// sync colour picker ↔ hex input
 document.addEventListener('DOMContentLoaded', () => {
   const picker = document.getElementById('brandingColorPicker');
   if (picker) {
@@ -3042,10 +3042,10 @@ async function pdfBtnClick(btn) {
 }
 
 // =============================================================================
-// D5 — What-If scenario modelling
+// D5 — what-if scenario modelling
 // =============================================================================
 
-// Show/hide scenario-specific options based on selected scenario
+// show/hide scenario-specific options based on selected scenario
 let _whatifVmData = [];
 
 function _whatifUpdateOptions() {
@@ -3091,11 +3091,11 @@ document.addEventListener('DOMContentLoaded', () => {
     sourceVmIn.addEventListener('input', _whatifVmHint);
   }
 
-  // Pre-fetch current user so role checks are available before any settings tab opens
+  // pre-fetch current user so role checks are available before any settings tab opens
   apiFetch('/api/users/me').then(me => {
     _currentUser = me || null;
     if (_currentUser?.role !== 'admin') {
-      // Hide the Data Sharing tab and its panel entirely for non-admins
+      // hide the Data Sharing tab and its panel entirely for non-admins
       const sharingTab = document.querySelector('[data-spanel="datasharing"]');
       if (sharingTab) sharingTab.style.display = 'none';
       const sharingPanel = document.getElementById('spanel-datasharing');
@@ -3183,7 +3183,7 @@ function _renderWhatIfResult(d) {
       <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${sm.node_count != null ? sm.node_count+' '+t('whatif.nodes_label') : ''} ${sm.vm_count != null ? '· '+sm.vm_count+' '+t('whatif.vms_label') : ''}</div>
     </div>`;
 
-  // Exhaustion table
+  // exhaustion table
   const gained = dt.exhaustion_gained_days || {};
   const blEx   = bl.exhaustion_dates || {};
   const smEx   = sm.exhaustion_dates || {};
@@ -3226,7 +3226,7 @@ function _renderWhatIfResult(d) {
       </table>`;
   }
 
-  // Assumptions
+  // assumptions
   const assumptions = d.assumptions || {};
   const assumptionLines = Object.values(assumptions).filter(Boolean);
   document.getElementById('whatifAssumptions').innerHTML = assumptionLines.length
@@ -3278,7 +3278,7 @@ async function loadSettings() {
   document.getElementById('settingsContent').innerHTML = html;
 }
 
-// ── User manager helpers ─────────────────────────────────────────────────────
+// ── user manager helpers ─────────────────────────────────────────────────────
 
 function _renderMyAccountCard(me) {
   const devBadge = me.dev_mode ? `<span class="um-dev-notice">DEV MODE</span>` : '';
@@ -3373,7 +3373,7 @@ function _esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ── My Account actions ───────────────────────────────────────────────────────
+// ── my account actions ───────────────────────────────────────────────────────
 
 async function umChangePassword(username, isAdmin) {
   const cur  = isAdmin ? null : (document.getElementById('umCurPw')  || {}).value;
@@ -3451,7 +3451,7 @@ async function umDisableOtp() {
   }
 }
 
-// ── Admin user management actions ────────────────────────────────────────────
+// ── admin user management actions ────────────────────────────────────────────
 
 async function umCreateUser() {
   const username = (document.getElementById('umNewUsername') || {}).value || '';
@@ -3512,7 +3512,7 @@ function switchCbPanel(p) {
 }
 
 // =============================================================================
-// SC//Foresight — Sentinel Settings (Phase 3.5 T4)
+// SC//Foresight — Sentinel settings (Phase 3.5 T4)
 // =============================================================================
 
 const SENT_INFO = {
@@ -3614,7 +3614,7 @@ const SENT_INFO = {
   },
 };
 
-// Group definitions — controls which keys appear in each card and their UI type.
+// group definitions — controls which keys appear in each card and their UI type
 const SENT_GROUPS = [
   {
     id: 'rightsizing', label: 'Right-Sizing Thresholds', color: 'var(--accent-blue)',
@@ -3649,7 +3649,7 @@ const SENT_GROUPS = [
   },
 ];
 
-// Range bounds for numeric keys (min, max, step).
+// range bounds for numeric keys (min, max, step)
 const SENT_RANGES = {
   SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD:      [1,  100, 0.5],
   SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD: [50, 100, 0.5],
@@ -3661,7 +3661,7 @@ const SENT_RANGES = {
   SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION:      [0,  1,   0.05],
 };
 
-// Staged edits per group — same dirty-tracking pattern as balancer settings.
+// staged edits per group — same dirty-tracking pattern as balancer settings
 const _sStagedSent = {};
 
 function _sentMarkDirty(gid) {
@@ -3745,7 +3745,7 @@ function _renderSentControl(meta, gid, readOnly = false) {
       </div>`;
   }
 
-  // Numeric — render as range + number input
+  // numeric — render as range + number input
   const bounds = SENT_RANGES[meta.key] || [0, 9999, 1];
   const [min, max, step] = bounds;
   const val = meta.value;
@@ -3808,7 +3808,7 @@ async function loadSentinelSettings() {
     const data = await apiFetch('/api/sentinel/tunables');
     if (!data) { el.innerHTML = `<div class="empty-state">${t('empty.sentinel_settings_unavail')}</div>`; return; }
 
-    // Index by key
+    // index by key
     const byKey = {};
     data.forEach(item => { byKey[item.key] = item; });
 
@@ -3878,9 +3878,9 @@ async function loadSharingSettings() {
     document.getElementById('anonNodeUuids').checked      = !!data.anon_node_uuids;
     document.getElementById('anonClusterName').checked    = !!data.anon_cluster_name;
 
-    // Bearer token: show placeholder if a token has been saved server-side.
-    // We infer "saved" by the viewer_url being set (token would have been saved together),
-    // or if the _bearerTokenSaved flag was set during this session.
+    // bearer token: show placeholder if a token has been saved server-side
+    // we infer "saved" by the viewer_url being set (token would have been saved together),
+    // or if the _bearerTokenSaved flag was set during this session
     const tokenHint = document.getElementById('sharingTokenHint');
     if (_bearerTokenSaved || data.viewer_url) {
       document.getElementById('sharingBearerToken').placeholder = t('sharing.token_placeholder_saved');
@@ -3890,7 +3890,7 @@ async function loadSharingSettings() {
       tokenHint.textContent = '';
     }
 
-    // Sync status row
+    // sync status row
     _updateSyncStatusBadge(data);
 
     _sharingSyncDirtyFlag = false;
@@ -3997,7 +3997,7 @@ async function sharingTestPush() {
 }
 
 function sharingDownloadHcb() {
-  // Show passphrase modal — no viewer registration needed for offline export
+  // show passphrase modal — no viewer registration needed for offline export
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
   modal.innerHTML = `
@@ -4046,7 +4046,7 @@ function sharingDownloadHcb() {
     }
     err.style.display = 'none';
     document.body.removeChild(modal);
-    // Trigger download via a temporary link — passphrase sent as query param over the existing session
+    // trigger download via a temporary link — passphrase sent as query param over the existing session
     const a = document.createElement('a');
     a.href = `${API_BASE}/api/sentinel/export/hcb?passphrase=${encodeURIComponent(p1)}`;
     a.style.display = 'none';
@@ -4061,7 +4061,7 @@ function sharingPreviewSnapshot() {
 }
 
 // =============================================================================
-// Auto-update
+// auto-update
 // =============================================================================
 let _updatePollTimer = null;
 
@@ -4198,12 +4198,12 @@ function _startApplyPoll() {
   }, 2000);
 }
 
-// Refresh badge every 5 minutes while page is open; initial check after 6s
+// refresh badge every 5 minutes while page is open; initial check after 6s
 setInterval(loadUpdateStatus, 300000);
 setTimeout(loadUpdateStatus, 6000);
 
 // =============================================================================
-// Data quality banner
+// data quality banner
 // =============================================================================
 (async function checkDataQuality() {
   try {
@@ -4221,7 +4221,7 @@ setTimeout(loadUpdateStatus, 6000);
 })();
 </script>
 <script>
-// LCARS: Live stardate clock
+// LCARS: live stardate clock
 (function(){
   function sd(){
     var n=new Date(),y=n.getFullYear();
@@ -4249,7 +4249,7 @@ setTimeout(loadUpdateStatus, 6000);
 
 <div id="dataQualityBanner"></div>
 
-<!-- Update modal -->
+<!-- update modal -->
 <div class="update-modal-backdrop" id="updateModalBackdrop" onclick="closeUpdateModal(event)">
   <div class="update-modal">
     <div class="update-modal-header">

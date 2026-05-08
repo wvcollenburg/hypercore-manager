@@ -1,12 +1,12 @@
 /* HyperCore Manager — Deutsch (German) Übersetzungen */
 window.LANG = {
-  // Header
+  // header
   'header.connecting':    'Verbinden...',
   'header.connected':     'Verbunden',
   'header.disconnected':  'Nicht verbunden',
   'header.refresh':       '\u21bb Aktualisieren',
 
-  // Nav tabs
+  // nav tabs
   'nav.modules':          'Module',
   'nav.settings':         '\u2699 Einstellungen',
 
@@ -28,7 +28,7 @@ window.LANG = {
   'sentinel.tab.settings':    'Einstellungen',
   'sentinel.tab.datasharing': 'Datenweitergabe',
 
-  // Time range / grouping controls
+  // time range / grouping controls
   'time.range':           'Bereich:',
   'vm.group_by':          'Gruppieren nach:',
   'vm.group_none':        'Keine',
@@ -39,7 +39,7 @@ window.LANG = {
   'vm.group_label.peer':  'Peer',
   'vm.performance_details': 'Leistungsdetails',
 
-  // Chart titles
+  // chart titles
   'chart.node_cpu':       'Knoten-CPU-Auslastung im Zeitverlauf',
   'chart.cluster_iops':   'Gesamt-Cluster-IOPS im Zeitverlauf',
   'chart.cluster_ram':    'Cluster-RAM-Nutzung',
@@ -49,7 +49,7 @@ window.LANG = {
   'chart.vm_net':         'VM-Netzwerknutzung \u2014 Top 5 (RX + TX)',
   'chart.miglog':         'Migrations-Ereignisprotokoll',
 
-  // Section / panel headings
+  // section / panel headings
   'section.capacity_forecasts': 'Kapazit\u00e4tsprognosen',
   'section.resize_advice':      'Konkrete Gr\u00f6\u00dfe\u00e4nderungsempfehlungen',
   'section.exhaustion_alerts':  'Ressourcenerschöpfungswarnungen',
@@ -62,7 +62,7 @@ window.LANG = {
   'iops.iops':  'IOPS',
   'iops.insufficient': '95. Perzentil: unzureichende Daten',
 
-  // Loading states
+  // loading states
   'loading.nodes':      'Knotenmetriken werden geladen...',
   'loading.vms':        'VM-Metriken werden geladen...',
   'loading.migrations': 'Migrationsereignisse werden geladen...',
@@ -74,7 +74,7 @@ window.LANG = {
   'loading.simulation': 'Simulation wird ausgef\u00fchrt...',
   'loading.modules':    'Module werden erkannt...',
 
-  // Empty / error states
+  // empty / error states
   'empty.no_api':               'Verbindung zur API nicht m\u00f6glich',
   'empty.no_nodes':             'Noch keine Knotendaten. L\u00e4uft der Collector?',
   'empty.no_vms':               'Noch keine VM-Daten.',
@@ -88,7 +88,7 @@ window.LANG = {
   'empty.sentinel_settings_unavail': 'Sentinel nicht verf\u00fcgbar \u2014 Einstellungen k\u00f6nnen nicht geladen werden.',
   'empty.settings_load_failed': 'Einstellungen laden fehlgeschlagen: {msg}',
 
-  // Metric labels
+  // metric labels
   'metric.cpu_usage':   'CPU-Auslastung',
   'metric.memory_used': 'Verwendeter Speicher',
   'metric.vcpu_ratio':  'vCPU-Verh\u00e4ltnis',
@@ -96,7 +96,7 @@ window.LANG = {
   'metric.network_rx':  'Netzwerk RX',
   'metric.network_tx':  'Netzwerk TX',
 
-  // Physical drive sub-items
+  // physical drive sub-items
   'drive.physical_drives': '\u25c9 Physische Laufwerke',
   'drive.slot':      'Steckplatz',
   'drive.healthy':   'Gesund',
@@ -105,14 +105,14 @@ window.LANG = {
   'drive.temperature': 'Temperatur',
   'drive.errors':    'Fehler',
 
-  // Virtual storage device sub-items
+  // virtual storage device sub-items
   'vsd.devices':       '\u25c8 Virtuelle Speicherger\u00e4te',
   'vsd.read':          'Lesen',
   'vsd.write':         'Schreiben',
   'vsd.read_latency':  'Leselatenz',
   'vsd.write_latency': 'Schreiblatenz',
 
-  // Migration log table
+  // migration log table
   'mig.time':      'Zeit',
   'mig.vm':        'VM',
   'mig.migration': 'Migration',
@@ -126,7 +126,7 @@ window.LANG = {
   'vm.modal.disk_iops':    'Festplatten-IOPS (pro VSD)',
   'vm.modal.disk_latency': 'Festplattenlatenz (pro VSD)',
 
-  // Settings controls
+  // settings controls
   'settings.apply':      'Anwenden',
   'settings.unsaved':    '\u25cf nicht gespeichert',
   'settings.applied_n':  '{n} \u00c4nderung(en) angewendet',
@@ -134,12 +134,12 @@ window.LANG = {
   'settings.restart_required': 'Neustart erforderliche Einstellungen',
   'settings.restart_note': 'Neustart erforderliche Einstellungen \u2014 Sammelintervall, Trendintervall, Ergebnisprüfintervall, Ports, InfluxDB / PostgreSQL / HyperCore-Anmeldeinformationen, Webhook-URL, Geheimnis und Lieferparameter m\u00fcssen \u00fcber Umgebungsvariablen in docker-compose festgelegt werden und erfordern einen Container-Neustart.',
 
-  // Info popup
+  // info popup
   'info.what':     'Was es tut',
   'info.benefits': 'Vorteile',
   'info.careful':  'Seien Sie vorsichtig',
 
-  // Settings group labels
+  // settings group labels
   'group.master':      'Hauptsteuerung',
   'group.reactive':    'Reaktiver Balancer',
   'group.predictive':  'Predictive Engine  \u00b7  Das Orakel',
@@ -179,7 +179,7 @@ window.LANG = {
   'sentinel.warming_first_in':  'Erste Analyse in',
   'sentinel.warming_started':   'Gestartet',
 
-  // Forecast table
+  // forecast table
   'forecast.dimension':    'Dimension',
   'forecast.horizon':      'Horizont',
   'forecast.node_entity':  'Knoten / Entit\u00e4t',
@@ -193,7 +193,7 @@ window.LANG = {
   'forecast.all_dimensions': 'Alle Dimensionen',
   'forecast.all_horizons':   'Alle Horizonte',
 
-  // Right-sizing table
+  // right-sizing table
   'rs.vm_name':           'VM-Name',
   'rs.direction':         'Richtung',
   'rs.current_vcpu':      'Aktueller vCPU',
@@ -209,7 +209,7 @@ window.LANG = {
   'rs.recommended_action':'Empfohlen',
   'rs.low_priority':      'Niedrige Priorit\u00e4t',
 
-  // Exhaustion table
+  // exhaustion table
   'ex.dimension':      'Dimension',
   'ex.node':           'Knoten',
   'ex.days_left':      'Verbleibende Tage',
@@ -217,14 +217,14 @@ window.LANG = {
   'ex.growth_rate':    'Wachstumsrate/Tag',
   'ex.severity':       'Schweregrad',
 
-  // Dimension labels
+  // dimension labels
   'dim.cpu':     'CPU',
   'dim.ram':     'RAM',
   'dim.storage': 'Speicher',
   'dim.latency': 'Latenz',
   'dim.network': 'Netzwerk',
 
-  // What-If panel
+  // what-if panel
   'whatif.scenario':         'Szenario',
   'whatif.add_nodes':        'Knoten hinzuf\u00fcgen',
   'whatif.add_vms':          'VMs hinzuf\u00fcgen',
@@ -255,7 +255,7 @@ window.LANG = {
   'whatif.bottleneck':       'Engpass:',
   'whatif.none':             'keiner',
 
-  // Reports / PDF
+  // reports / PDF
   'reports.branding_title':      'Berichtsbranding',
   'reports.branding_desc':       'Passen Sie die PDF-Berichtsdeckseite an. Einstellungen werden pro Cluster gespeichert und auf jeden generierten Bericht angewendet.',
   'reports.company_name':        'Firmenname',
@@ -277,7 +277,7 @@ window.LANG = {
   'reports.contents_rightsizing':'\u25c6 VM-Gr\u00f6\u00dfenänderungsempfehlungen',
   'reports.contents_resize':     '\u25c6 Konkrete Gr\u00f6\u00dfenänderungshinweise mit Risikoklassifizierung',
 
-  // Data Sharing panel
+  // data sharing panel
   'sharing.connection_title':   'Verbindung',
   'sharing.connection_desc':    'Konfigurieren Sie den SC//Foresight-Central Viewer-Endpunkt, um geplante Snapshot-\u00dcbertragungen zu aktivieren.',
   'sharing.enabled':            'Freigabe aktiviert',
@@ -316,7 +316,7 @@ window.LANG = {
   'hcb.required':  'Passphrase ist erforderlich.',
   'hcb.mismatch':  'Passphrasen stimmen nicht \u00fcberein.',
 
-  // Modules tab
+  // modules tab
   'modules.tools':           'Werkzeuge',
   'modules.grafana_desc':    'Erweiterte Datenerkundung und benutzerdefinierte Dashboards',
   'modules.open_grafana':    'Grafana \u00f6ffnen',
@@ -329,10 +329,10 @@ window.LANG = {
   'grafana.not_running':'\u25cb L\u00e4uft nicht',
   'grafana.checking':   'Wird gepr\u00fcft...',
 
-  // Auto-discovered module fallback desc
+  // auto-discovered module fallback desc
   'module.auto_desc': 'Automatisch entdeckte Datenquelle',
 
-  // ─── Info popup body text (ⓘ) — TODO: translate to German ───────────────
+  // ─── info popup body text (ⓘ) ───────────────
   'info.DRY_RUN.what':      'The balancer analyses the cluster and decides which VMs to migrate, but stops short of actually executing any moves. All decision logic runs normally — you see the outcomes in the logs.',
   'info.DRY_RUN.benefits':  'Essential safety net when first deploying or after changing thresholds significantly. Lets you validate behaviour before committing to live migrations.',
   'info.DRY_RUN.careful':   'While enabled, real resource imbalances are NOT corrected. A cluster under heavy load will stay imbalanced for as long as Dry Run is on.',
