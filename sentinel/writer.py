@@ -64,7 +64,7 @@ class Writer:
         self._cfg = cfg
 
     # ------------------------------------------------------------------
-    # Cleanup
+    # cleanup
     # ------------------------------------------------------------------
 
     def prune_stale_vms(self, active_vms: dict[str, str]) -> int:
@@ -92,8 +92,8 @@ class Writer:
         try:
             with db.connect(self._cfg) as conn:
                 with conn.cursor() as cur:
-                    # Collect stale VM names from right_sizing before deleting —
-                    # used to safely target only VM-keyed rows in forecast_snapshots.
+                    # collect stale VM names from right_sizing before deleting —
+                    # used to safely target only VM-keyed rows in forecast_snapshots
                     cur.execute(
                         '''SELECT DISTINCT vm_name FROM recommendations.right_sizing
                            WHERE cluster_id = %s AND NOT (vm_uuid = ANY(%s))''',
@@ -149,7 +149,7 @@ class Writer:
             log.exception('Retention cleanup failed')
 
     # ------------------------------------------------------------------
-    # Forecasts
+    # forecasts
     # ------------------------------------------------------------------
 
     def write_forecasts(self, forecasts: list[ForecastResult]) -> None:
@@ -202,15 +202,15 @@ class Writer:
             log.exception('Failed to write forecast snapshots')
             return
 
-        # Write audit events (separate transaction — audit must not be lost
+        # write audit events (separate transaction — audit must not be lost
         # if the recommendations write somehow partially failed)
         self._emit_audit_events(inserted_ids, 'forecast_snapshot', 'recommendations.forecast_snapshots')
 
-        # Derive and write resource exhaustion records from these forecasts
+        # derive and write resource exhaustion records from these forecasts
         self._write_exhaustion(forecasts)
 
     # ------------------------------------------------------------------
-    # Right-sizing
+    # right-sizing
     # ------------------------------------------------------------------
 
     def write_rightsizing(self, results: list[RightSizingResult]) -> None:
@@ -267,7 +267,7 @@ class Writer:
         self._emit_audit_events(inserted_ids, 'right_sizing', 'recommendations.right_sizing')
 
     # ------------------------------------------------------------------
-    # Resource exhaustion (derived from forecasts)
+    # resource exhaustion (derived from forecasts)
     # ------------------------------------------------------------------
 
     def _write_exhaustion(self, forecasts: list[ForecastResult]) -> None:

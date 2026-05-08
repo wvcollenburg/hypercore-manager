@@ -42,7 +42,7 @@ from collector.nodes      import NodeTimeSeries
 
 log = logging.getLogger(__name__)
 
-# Maps severity level to a per-component health score (0–100)
+# maps severity level to a per-component health score (0–100)
 _SEVERITY_HEALTH = {
     'EMERGENCY': 0.0,
     'CRITICAL':  25.0,
@@ -51,7 +51,7 @@ _SEVERITY_HEALTH = {
     'INFO':      100.0,
 }
 
-# For severity comparison (higher = worse)
+# for severity comparison (higher = worse)
 _SEVERITY_RANK = {'EMERGENCY': 5, 'CRITICAL': 4, 'WARNING': 3, 'ATTENTION': 2, 'INFO': 1}
 
 
@@ -77,9 +77,9 @@ class ClusterHealthResult:
 
     # per-dimension structured reason for that score — used by the UI to
     # explain *why* a dimension scored what it did (HA headroom vs forecast
-    # severity vs no data).  Keyed the same as component_scores.
-    # Each value is a small dict: {"kind": "ha", "headroom_pct": float, "broken": bool}
-    # for RAM, or {"kind": "forecast", "severity": str} for the rest.
+    # severity vs no data).  keyed the same as component_scores.
+    # each value is a small dict: {"kind": "ha", "headroom_pct": float, "broken": bool}
+    # for RAM, or {"kind": "forecast", "severity": str} for the rest
     component_reasons: dict[str, dict] = field(default_factory=dict)
 
     # D4: registered cluster count (schema-level multi-cluster readiness marker)
@@ -89,7 +89,7 @@ class ClusterHealthResult:
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# internal helpers
 # ---------------------------------------------------------------------------
 
 def _worst_severity_per_dim(forecasts: list[ForecastResult]) -> dict[str, str]:
@@ -229,7 +229,7 @@ def _ram_ha_check(
     largest_node   = max(capacities)
     n1_capacity    = total_capacity - largest_node
     if n1_capacity <= 0:
-        # Single-node cluster — HA not applicable.
+        # single-node cluster — HA not applicable
         return None, 'INFO'
 
     assigned = sum(vm_mem_assigned.values())
@@ -271,7 +271,7 @@ def _overall_severity(health_score: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# public entry point
 # ---------------------------------------------------------------------------
 
 def run_cluster_health(
@@ -295,14 +295,14 @@ def run_cluster_health(
     growth_rates     = _compute_growth_rates(forecasts)
     efficiency       = _efficiency_index(rightsizing)
 
-    # Reason per dimension — defaults to "forecast severity" for everything;
-    # overridden for RAM below if the HA check ran.
+    # reason per dimension — defaults to "forecast severity" for everything;
+    # overridden for RAM below if the HA check ran
     comp_reasons: dict[str, dict] = {
         dim: {'kind': 'forecast', 'severity': sev}
         for dim, sev in severity_by_dim.items()
     }
 
-    # RAM N-1 HA check — overrides or fills in the forecast-based RAM score.
+    # RAM N-1 HA check — overrides or fills in the forecast-based RAM score
     ram_ha_sev = 'INFO'
     ram_headroom_pct: float | None = None
     if nodes is not None and vm_mem_assigned is not None:
@@ -332,7 +332,7 @@ def run_cluster_health(
         efficiency_index=efficiency,
         component_scores=comp_scores,
         component_reasons=comp_reasons,
-        cluster_count=1,   # D4: Phase 2 single-cluster; schema supports many
+        cluster_count=1,   # D4: phase 2 single-cluster; schema supports many
         severity=severity,
     )
 

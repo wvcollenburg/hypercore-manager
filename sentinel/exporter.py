@@ -30,7 +30,7 @@ _SENTINEL_VERSION = '1.4'
 
 
 # ---------------------------------------------------------------------------
-# Serialisation helpers
+# serialisation helpers
 # ---------------------------------------------------------------------------
 
 def _serialise(obj):
@@ -79,7 +79,7 @@ def _rows_to_dicts(rows, description) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Snapshot builder
+# snapshot builder
 # ---------------------------------------------------------------------------
 
 def build_snapshot(cfg: cfg_module.Config, last_sync_at: Optional[datetime] = None) -> dict:
@@ -129,7 +129,7 @@ def build_snapshot(cfg: cfg_module.Config, last_sync_at: Optional[datetime] = No
         with db.connect(cfg) as conn:
             with conn.cursor() as cur:
 
-                # ── Forecast snapshots ────────────────────────────────────
+                # ── forecast snapshots ────────────────────────────────────
                 params: list = [cluster_id]
                 delta_clause = ''
                 if is_delta:
@@ -137,7 +137,7 @@ def build_snapshot(cfg: cfg_module.Config, last_sync_at: Optional[datetime] = No
                     params.append(last_sync_at)
 
                 # forecast_snapshots uses snapshot_at (not created_at) as its
-                # insertion timestamp; we treat snapshot_at as the delta anchor.
+                # insertion timestamp; we treat snapshot_at as the delta anchor
                 fs_params: list = [cluster_id]
                 fs_delta = ''
                 if is_delta:
@@ -161,7 +161,7 @@ def build_snapshot(cfg: cfg_module.Config, last_sync_at: Optional[datetime] = No
                 )
                 forecasts = _rows_to_dicts(cur.fetchall(), cur.description)
 
-                # ── Right-sizing ──────────────────────────────────────────
+                # ── right-sizing ──────────────────────────────────────────
                 rs_params: list = [cluster_id]
                 rs_delta = ''
                 if is_delta:
@@ -185,7 +185,7 @@ def build_snapshot(cfg: cfg_module.Config, last_sync_at: Optional[datetime] = No
                 )
                 rightsizing = _rows_to_dicts(cur.fetchall(), cur.description)
 
-                # ── Resize recommendations ────────────────────────────────
+                # ── resize recommendations ────────────────────────────────
                 rr_params: list = [cluster_id]
                 rr_delta = ''
                 if is_delta:
@@ -209,7 +209,7 @@ def build_snapshot(cfg: cfg_module.Config, last_sync_at: Optional[datetime] = No
                 )
                 resize_recommendations = _rows_to_dicts(cur.fetchall(), cur.description)
 
-                # ── Cluster health scores ─────────────────────────────────
+                # ── cluster health scores ─────────────────────────────────
                 ch_params: list = [cluster_id]
                 ch_delta = ''
                 if is_delta:
@@ -233,8 +233,8 @@ def build_snapshot(cfg: cfg_module.Config, last_sync_at: Optional[datetime] = No
                 )
                 cluster_health = _rows_to_dicts(cur.fetchall(), cur.description)
 
-                # Extract per-dimension health scores and growth rates from their
-                # JSONB columns into the flat fields the viewer expects.
+                # extract per-dimension health scores and growth rates from their
+                # JSONB columns into the flat fields the viewer expects
                 # component_scores keys: cpu, ram, storage_capacity, network
                 # growth_rates keys:     cpu, ram, storage_capacity, network
                 for row in cluster_health:
@@ -248,9 +248,9 @@ def build_snapshot(cfg: cfg_module.Config, last_sync_at: Optional[datetime] = No
                     row['ram_growth_rate']      = gr.get('ram')
                     row['storage_growth_rate']  = gr.get('storage_capacity')
 
-                # ── Exhaustion (derived from forecast_snapshots) ──────────
-                # Most recent row per (resource_dimension, entity_label) where
-                # exhaustion_days (days_until_exhaustion proxy) is positive.
+                # ── exhaustion (derived from forecast_snapshots) ──────────
+                # most recent row per (resource_dimension, entity_label) where
+                # exhaustion_days (days_until_exhaustion proxy) is positive
                 ex_params: list = [cluster_id]
                 ex_delta = ''
                 if is_delta:
@@ -277,7 +277,7 @@ def build_snapshot(cfg: cfg_module.Config, last_sync_at: Optional[datetime] = No
                 )
                 exhaustion = _rows_to_dicts(cur.fetchall(), cur.description)
 
-                # ── Metadata counts ───────────────────────────────────────
+                # ── metadata counts ───────────────────────────────────────
                 cur.execute(
                     '''
                     SELECT COUNT(DISTINCT node_uuid), COUNT(DISTINCT vm_uuid)
@@ -315,7 +315,7 @@ def build_snapshot(cfg: cfg_module.Config, last_sync_at: Optional[datetime] = No
 
 
 # ---------------------------------------------------------------------------
-# Signing and verification
+# signing and verification
 # ---------------------------------------------------------------------------
 
 def sign_snapshot(snapshot: dict, bearer_token: str) -> dict:

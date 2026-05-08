@@ -20,11 +20,11 @@ from pythonjsonlogger import jsonlogger
 class _SentinelFormatter(jsonlogger.JsonFormatter):
     def add_fields(self, log_record: dict, record: logging.LogRecord, message_dict: dict) -> None:
         super().add_fields(log_record, record, message_dict)
-        # Normalise field names to a consistent schema
+        # normalise field names to a consistent schema
         log_record['timestamp'] = log_record.pop('asctime', None) or self.formatTime(record)
         log_record['level']     = record.levelname
         log_record['logger']    = record.name
-        # Remove redundant fields added by the base formatter
+        # remove redundant fields added by the base formatter
         log_record.pop('levelname', None)
         log_record.pop('name',      None)
 
@@ -45,7 +45,7 @@ def configure(level: str = 'INFO') -> None:
     root.handlers.clear()
     root.addHandler(handler)
 
-    # Quiet down noisy third-party loggers
+    # quiet down noisy third-party loggers
     logging.getLogger('urllib3').setLevel(logging.WARNING)
     logging.getLogger('influxdb_client').setLevel(logging.WARNING)
     logging.getLogger('werkzeug').setLevel(logging.WARNING)

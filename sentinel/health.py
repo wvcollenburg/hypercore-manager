@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# State written by the main loops; read by /health/detail
+# state written by the main loops; read by /health/detail
 _state: dict = {
     'collection_last_ok':    None,   # datetime | None
     'trend_last_ok':         None,   # datetime | None

@@ -30,7 +30,7 @@ class DriveTimeSeries:
     times:  list[datetime] = field(default_factory=list)
     values: list[float]    = field(default_factory=list)   # used_bytes
 
-    # Derived
+    # derived
     mean_used_bytes: float | None = None
     max_used_bytes:  float | None = None
     latest_bytes:    float | None = None   # most recent sample
@@ -50,13 +50,13 @@ class VSDTimeSeries:
     read_kbps:          list[float]    = field(default_factory=list)
     write_kbps:         list[float]    = field(default_factory=list)
 
-    # Derived latency stats
+    # derived latency stats
     read_lat_mean:  float | None = None
     read_lat_p95:   float | None = None
     write_lat_mean: float | None = None
     write_lat_p95:  float | None = None
 
-    # Derived throughput stats
+    # derived throughput stats
     read_kbps_mean:  float | None = None
     write_kbps_mean: float | None = None
 
@@ -67,11 +67,11 @@ class StorageSnapshot:
     drives: dict[str, DriveTimeSeries]   = field(default_factory=dict)  # keyed by drive_uuid
     vsds:   dict[str, VSDTimeSeries]     = field(default_factory=dict)  # keyed by vsd_uuid
 
-    # Cluster-wide capacity summary (populated by compute_cluster_totals)
+    # cluster-wide capacity summary (populated by compute_cluster_totals)
     cluster_total_used_bytes:   float | None = None
     cluster_drive_count:        int          = 0
 
-    # Per-node capacity rollup: {node_uuid: total_used_bytes}
+    # per-node capacity rollup: {node_uuid: total_used_bytes}
     node_used_bytes: dict[str, float] = field(default_factory=dict)
 
 
@@ -119,7 +119,7 @@ def collect_storage(reader: InfluxReader, cfg: cfg_module.Config) -> StorageSnap
     lookback = cfg.analysis_window_days
     snap = StorageSnapshot()
 
-    # ── Drive capacity ────────────────────────────────────────────────────────
+    # ── drive capacity ────────────────────────────────────────────────────────
     try:
         drive_rows = reader.query_drive_capacity(lookback)
         for row in drive_rows:
