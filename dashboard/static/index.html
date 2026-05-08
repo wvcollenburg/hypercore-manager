@@ -9,11 +9,11 @@
 <script>
 (function(){
   var supported = {en:'en', nl:'nl', fr:'fr', de:'de'};
-  // 1) Cookie override
+  // 1) cookie override
   var cookie = document.cookie.split(';').map(function(c){return c.trim();})
     .find(function(c){return c.startsWith('hcm_lang=');});
   var code = cookie ? cookie.split('=')[1] : null;
-  // 2) Browser language fallback
+  // 2) browser language fallback
   if (!code || !supported[code]) {
     var lang = ((navigator.language || navigator.userLanguage || 'en').toLowerCase()).substring(0,2);
     code = supported[lang] || 'en';
@@ -92,7 +92,7 @@
   }
   .refresh-btn:hover { border-color: var(--accent-blue); color: var(--accent-blue); background: var(--glow-blue); }
 
-  /* ─── Language picker ─── */
+  /* ─── language picker ─── */
   .lang-picker { position: relative; }
   .lang-btn {
     background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary);
@@ -166,7 +166,7 @@
   .progress-bar { width: 100%; height: 4px; background: var(--bg-primary); border-radius: 2px; margin-top: 4px; overflow: hidden; }
   .progress-fill { height: 100%; border-radius: 2px; transition: width 0.6s ease; }
 
-  /* ─── Nested sub-items (drives under nodes, VSDs under VMs) ─── */
+  /* ─── nested sub-items (drives under nodes, VSDs under VMs) ─── */
   .sub-section {
     margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border);
   }
@@ -191,7 +191,7 @@
   .health-ok { background: var(--accent-green); }
   .health-bad { background: var(--accent-red); }
 
-  /* ─── Chart Container ─── */
+  /* ─── chart container ─── */
   .chart-container {
     background: var(--bg-card); border: 1px solid var(--border);
     border-radius: 10px; padding: 20px; margin-bottom: 24px;
@@ -206,7 +206,7 @@
   .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
   @media (max-width: 900px) { .charts-row { grid-template-columns: 1fr; } }
 
-  /* ─── Migration Log ─── */
+  /* ─── migration log ─── */
   .log-table { width: 100%; border-collapse: collapse; font-size: 12px; }
   .log-table th {
     text-align: left; padding: 10px 12px;
@@ -226,7 +226,7 @@
   .arrow { color: var(--accent-cyan); margin: 0 4px; }
   .log-scroll { max-height: 500px; overflow-y: auto; }
 
-  /* ─── Modules Panel ─── */
+  /* ─── modules panel ─── */
   .modules-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
   .module-item {
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
@@ -242,7 +242,7 @@
 
   .loading, .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 13px; }
 
-  /* ─── Group Controls ─── */
+  /* ─── group controls ─── */
   .group-controls {
     display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
     padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
@@ -259,7 +259,7 @@
   .group-btn:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
   .group-btn.active { background: rgba(6,182,212,0.12); border-color: var(--accent-cyan); color: var(--accent-cyan); }
 
-  /* ─── Time Range Selector ─── */
+  /* ─── time range selector ─── */
   .time-range-bar {
     display: flex; align-items: center; gap: 6px; margin-bottom: 16px; flex-wrap: wrap;
     position: sticky; top: 0; z-index: 100;
@@ -300,7 +300,7 @@
     .cards-grid { grid-template-columns: 1fr; }
   }
 
-  /* ─── Settings Tab ─── */
+  /* ─── settings tab ─── */
   .settings-group {
     background: var(--bg-card); border: 1px solid var(--border);
     border-radius: 10px; padding: 20px; margin-bottom: 16px;
@@ -352,7 +352,7 @@
     color: var(--text-secondary); margin-top: -4px;
   }
 
-  /* Range slider */
+  /* range slider */
   .ctrl-range {
     -webkit-appearance: none; appearance: none;
     width: 100%; min-width: 80px; height: 4px;
@@ -372,7 +372,7 @@
     box-shadow: 0 0 6px rgba(59,130,246,0.5);
   }
 
-  /* Number input under slider */
+  /* number input under slider */
   .ctrl-value-input {
     width: 72px; text-align: center;
     background: var(--bg-card); border: 1px solid var(--border);
@@ -384,7 +384,7 @@
   .ctrl-value-input::-webkit-inner-spin-button,
   .ctrl-value-input::-webkit-outer-spin-button { opacity: 0.4; }
 
-  /* Text input (for lists) */
+  /* text input (for lists) */
   .ctrl-text-input {
     width: 100%; background: var(--bg-card); border: 1px solid var(--border);
     color: var(--text-primary); font-family: 'JetBrains Mono', monospace;
@@ -393,7 +393,7 @@
   }
   .ctrl-text-input:focus { border-color: var(--accent-blue); }
 
-  /* Toggle switch */
+  /* toggle switch */
   .toggle-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
   .toggle-switch { position: relative; width: 48px; height: 26px; cursor: pointer; }
   .toggle-switch input { opacity: 0; width: 0; height: 0; }
@@ -418,7 +418,7 @@
     font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
   }
 
-  /* Segmented control */
+  /* segmented control */
   .seg-ctrl { display: flex; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
   .seg-btn {
     flex: 1; padding: 6px 10px; background: var(--bg-card); border: none;
@@ -430,7 +430,7 @@
   .seg-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
   .seg-btn.active { background: rgba(59,130,246,0.2); color: var(--accent-blue); }
 
-  /* Info icon + popup */
+  /* info icon + popup */
   .ctrl-label-row {
     display: flex; align-items: center; gap: 5px; justify-content: center;
   }
@@ -466,7 +466,7 @@
   .info-section-label.careful  { color: var(--accent-amber); }
   .info-section p { color: var(--text-primary); font-size: 12px; line-height: 1.6; }
 
-  /* ─── VM Detail Modal ─── */
+  /* ─── VM detail modal ─── */
   .vm-detail-btn {
     background: rgba(6,182,212,0.08); border: 1px solid var(--accent-cyan);
     cursor: pointer; color: var(--accent-cyan);
@@ -518,7 +518,7 @@
   }
   .vm-modal-chart-wrap { position: relative; height: 160px; }
 
-  /* Update modal */
+  /* update modal */
   .update-modal-backdrop {
     display: none; position: fixed; inset: 0; z-index: 10200;
     background: rgba(0,0,0,0.7); backdrop-filter: blur(2px);
@@ -586,7 +586,7 @@
     letter-spacing: 0.6px; margin-bottom: 6px;
   }
   .update-changelog-entry::before { content: '·  '; color: var(--accent-cyan); }
-  /* Update badge in header */
+  /* update badge in header */
   .update-badge-btn {
     background: none; border: 1px solid transparent; border-radius: 6px;
     cursor: pointer; padding: 5px 10px; font-size: 12px;
@@ -604,7 +604,7 @@
     50%       { box-shadow: 0 0 0 4px rgba(245,158,11,0.15); }
   }
 
-  /* Toast notification */
+  /* toast notification */
   .settings-toast {
     position: fixed; bottom: 24px; right: 24px; z-index: 9999;
     background: var(--bg-card); border: 1px solid var(--border);
@@ -663,7 +663,7 @@
   .sentinel-panel { display: none; }
   .sentinel-panel.active { display: block; }
 
-  /* Health gauge */
+  /* health gauge */
   .health-gauge {
     display: flex; align-items: center; gap: 24px;
     background: var(--bg-card); border: 1px solid var(--border);
@@ -689,7 +689,7 @@
   .sentinel-tile-val { font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 700; margin-bottom: 4px; }
   .sentinel-tile-label { font-size: 11px; color: var(--text-secondary); }
 
-  /* Severity badges */
+  /* severity badges */
   .sev-emergency { color: var(--accent-red); }
   .sev-critical  { color: var(--accent-red); }
   .sev-warning   { color: var(--accent-amber); }
@@ -703,7 +703,7 @@
   .sev-badge.sev-attention { background: rgba(124,58,237,0.15); color: var(--accent-purple); }
   .sev-badge.sev-info      { background: var(--glow-green); color: var(--accent-green); }
 
-  /* Right-sizing action badges (friendlier labels than raw severity) */
+  /* right-sizing action badges (friendlier labels than raw severity) */
   .rs-badge {
     font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600;
     padding: 2px 7px; border-radius: 3px;
@@ -712,7 +712,7 @@
   .rs-badge.rs-recommended  { background: var(--glow-blue);      color: var(--accent-cyan);  }
   .rs-badge.rs-low-priority { background: rgba(61,79,99,0.25);   color: #7a93ad;             }
 
-  /* Risk badges */
+  /* risk badges */
   .risk-high   { background: var(--glow-red);             color: var(--accent-red);    font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600; padding:2px 7px; border-radius:3px; }
   .risk-medium { background: rgba(245,158,11,0.15);        color: var(--accent-amber);  font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600; padding:2px 7px; border-radius:3px; }
   .risk-low    { background: var(--glow-green);            color: var(--accent-green);  font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600; padding:2px 7px; border-radius:3px; }
@@ -745,7 +745,7 @@
   .pdf-btn:hover { border-color: var(--accent-blue); color: var(--accent-blue); background: var(--glow-blue); }
   .pdf-btn.loading { opacity: 0.5; pointer-events: none; }
 
-  /* ── Nav logout button ───────────────────────────────────────────────── */
+  /* ── nav logout button ───────────────────────────────────────────────── */
   .nav-logout {
     margin-left: auto; padding: 0 16px;
     display: flex; align-items: center;
@@ -755,7 +755,7 @@
   }
   .nav-logout:hover { color: #ef4444; }
 
-  /* ── Data quality banner ──────────────────────────────────────────────── */
+  /* ── data quality banner ──────────────────────────────────────────────── */
   #dataQualityBanner {
     display: none;
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999;
@@ -768,7 +768,7 @@
   }
   #dataQualityBanner.visible { display: block; }
 
-  /* ── User manager ─────────────────────────────────────────────────────── */
+  /* ── user manager ─────────────────────────────────────────────────────── */
   .um-table { width: 100%; border-collapse: collapse; font-size: 12px; }
   .um-table th {
     padding: 7px 12px; text-align: left; font-family: 'JetBrains Mono', monospace;
@@ -818,7 +818,7 @@
   .um-primary-btn:disabled { opacity: 0.4; pointer-events: none; }
   .um-error { color: #ef4444; font-size: 11px; margin-top: 4px; }
   .um-success { color: #22c55e; font-size: 11px; margin-top: 4px; }
-  /* My Account card */
+  /* my account card */
   .um-section { margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
   .um-section:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
   .um-section-title {
@@ -880,13 +880,13 @@
 </div>
 
 <div class="main">
-  <!-- ─── SC//INFRAVIEWER TAB ─── -->
+  <!-- ─── SC//Infraviewer tab ─── -->
   <div class="tab-content active" id="tab-infraviewer">
     <div class="iv-sub-nav">
       <div class="iv-sub-tab active" data-ivpanel="nodes" data-i18n="iv.nodes_drives" onclick="switchIvPanel('nodes')">Nodes &amp; Drives</div>
       <div class="iv-sub-tab"        data-ivpanel="vms"   data-i18n="iv.vms_storage"  onclick="switchIvPanel('vms')">VMs &amp; Storage</div>
     </div>
-    <!-- Nodes & Drives panel -->
+    <!-- nodes & drives panel -->
     <div class="iv-panel active" id="ivpanel-nodes">
       <div class="time-range-bar">
         <span class="group-label" data-i18n="time.range">Range:</span>
@@ -922,7 +922,7 @@
         <div class="loading"><div class="spinner"></div><span data-i18n="loading.nodes">Loading node metrics...</span></div>
       </div>
     </div>
-    <!-- VMs & Storage panel -->
+    <!-- VMs & storage panel -->
     <div class="iv-panel" id="ivpanel-vms">
       <div class="time-range-bar">
         <span class="group-label" data-i18n="time.range">Range:</span>
@@ -963,14 +963,14 @@
     </div>
   </div>
 
-  <!-- ─── SC//CLUSTERBALANCER TAB ─── -->
+  <!-- ─── SC//Clusterbalancer tab ─── -->
   <div class="tab-content" id="tab-clusterbalancer">
     <div class="cb-sub-nav">
       <div class="cb-sub-tab active" data-cbpanel="miglog"           data-i18n="cb.miglog"            onclick="switchCbPanel('miglog')">Migration Log</div>
       <div class="cb-sub-tab"        data-cbpanel="forecastlog"      data-i18n="cb.forecastlog"       onclick="switchCbPanel('forecastlog')">Forecast Log</div>
       <div class="cb-sub-tab"        data-cbpanel="balancersettings" data-i18n="cb.balancer_settings" onclick="switchCbPanel('balancersettings')">Balancer Settings</div>
     </div>
-    <!-- Migration Log panel -->
+    <!-- migration log panel -->
     <div class="cb-panel active" id="cbpanel-miglog">
       <div class="chart-container">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="chart.miglog">Migration Event Log</span></div>
@@ -979,7 +979,7 @@
         </div>
       </div>
     </div>
-    <!-- Forecast Log panel -->
+    <!-- forecast log panel -->
     <div class="cb-panel" id="cbpanel-forecastlog">
       <div class="chart-container" style="margin-bottom:16px;">
         <div class="chart-title">
@@ -1006,7 +1006,7 @@
         </div>
       </div>
     </div>
-    <!-- Balancer Settings panel -->
+    <!-- balancer settings panel -->
     <div class="cb-panel" id="cbpanel-balancersettings">
       <div id="balancerSettingsContent">
         <div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div>
@@ -1014,9 +1014,9 @@
     </div>
   </div>
 
-  <!-- ─── SC//FORESIGHT TAB ─── -->
+  <!-- ─── SC//Foresight tab ─── -->
   <div class="tab-content" id="tab-sentinel">
-    <!-- Sub-navigation -->
+    <!-- sub-navigation -->
     <div class="sentinel-sub-nav">
       <div class="sentinel-sub-tab active" data-spanel="overview"      data-i18n="sentinel.tab.overview"    onclick="switchSentinelPanel('overview')">Overview</div>
       <div class="sentinel-sub-tab"        data-spanel="forecasts"    data-i18n="sentinel.tab.forecasts"   onclick="switchSentinelPanel('forecasts')">Forecasts</div>
@@ -1028,12 +1028,12 @@
       <div class="sentinel-sub-tab"        data-spanel="datasharing"  data-i18n="sentinel.tab.datasharing" onclick="switchSentinelPanel('datasharing')">Data Sharing</div>
     </div>
 
-    <!-- Overview panel -->
+    <!-- overview panel -->
     <div class="sentinel-panel active" id="spanel-overview">
       <div id="sentinelOverview"><div class="loading"><div class="spinner"></div><span data-i18n="loading.capacity">Loading capacity intelligence...</span></div></div>
     </div>
 
-    <!-- Forecasts panel -->
+    <!-- forecasts panel -->
     <div class="sentinel-panel" id="spanel-forecasts">
       <div class="chart-container" style="margin-bottom:16px;">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-blue)"></div>
@@ -1063,7 +1063,7 @@
       </div>
     </div>
 
-    <!-- Right-Sizing panel -->
+    <!-- right-sizing panel -->
     <div class="sentinel-panel" id="spanel-rightsizing">
       <div class="chart-container">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span data-i18n="section.resize_advice">Concrete Resize Advice</span></div>
@@ -1071,7 +1071,7 @@
       </div>
     </div>
 
-    <!-- Exhaustion panel -->
+    <!-- exhaustion panel -->
     <div class="sentinel-panel" id="spanel-exhaustion">
       <div class="chart-container">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-red)"></div><span data-i18n="section.exhaustion_alerts">Resource Exhaustion Alerts</span></div>
@@ -1079,10 +1079,10 @@
       </div>
     </div>
 
-    <!-- Reports panel -->
+    <!-- reports panel -->
     <div class="sentinel-panel" id="spanel-reports">
 
-      <!-- Report branding configuration -->
+      <!-- report branding configuration -->
       <div class="chart-container" style="margin-bottom:16px;">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="reports.branding_title">Report Branding</span></div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="reports.branding_desc">
@@ -1122,7 +1122,7 @@
         </div>
       </div>
 
-      <!-- Download section -->
+      <!-- download section -->
       <div class="chart-container">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="reports.pdf_title">SC//Foresight Reports</span></div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="reports.pdf_desc">
@@ -1147,7 +1147,7 @@
         </div>
       </div>
     </div>
-    <!-- What-If analysis panel -->
+    <!-- what-if analysis panel -->
     <div class="sentinel-panel" id="spanel-whatif">
       <div class="chart-container">
         <div class="chart-title">
@@ -1159,7 +1159,7 @@
           Results are computed from the latest analysis data and do not modify any configuration.
         </p>
 
-        <!-- Scenario controls -->
+        <!-- scenario controls -->
         <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:20px;">
           <div style="display:flex;flex-direction:column;gap:6px;">
             <label for="whatifScenario" data-i18n="whatif.scenario" style="font-size:11px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;">Scenario</label>
@@ -1199,7 +1199,7 @@
           </button>
         </div>
 
-        <!-- Results -->
+        <!-- results -->
         <div id="whatifResults" style="display:none;">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;" id="whatifScoreCards"></div>
           <div style="background:var(--bg-nested);border:1px solid var(--border);border-radius:8px;padding:16px;">
@@ -1218,16 +1218,16 @@
       <div id="sentSettingsContent">
         <div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div>
       </div>
-      <!-- Restart-required note -->
+      <!-- restart-required note -->
       <div style="margin-top:8px;padding:12px 16px;background:var(--bg-nested);border:1px solid var(--border);border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);line-height:1.8;">
         <span data-i18n="settings.restart_required" style="color:var(--text-secondary)">Restart-required settings</span><span data-i18n="settings.restart_note"> — collection interval, trend interval, outcome check interval, ports, InfluxDB / PostgreSQL / HyperCore credentials, webhook URL, secret and delivery parameters must be set via environment variables in docker-compose and require a container restart.</span>
       </div>
     </div>
 
-    <!-- Data sharing and external export panel -->
+    <!-- data sharing and external export panel -->
     <div class="sentinel-panel" id="spanel-datasharing">
 
-      <!-- Section 1: Connection -->
+      <!-- section 1: connection -->
       <div class="chart-container" style="margin-bottom:16px;">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span data-i18n="sharing.connection_title">Connection</span></div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="sharing.connection_desc">
@@ -1264,7 +1264,7 @@
         </div>
       </div>
 
-      <!-- Section 2: Anonymisation -->
+      <!-- section 2: anonymisation -->
       <div class="chart-container" style="margin-bottom:16px;">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="sharing.anon_title">Anonymisation</span></div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="sharing.anon_desc">
@@ -1299,7 +1299,7 @@
         </button>
       </div>
 
-      <!-- Section 3: Manual Actions -->
+      <!-- section 3: manual actions -->
       <div class="chart-container">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-amber)"></div><span data-i18n="sharing.manual_title">Manual Actions</span></div>
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
@@ -1322,7 +1322,7 @@
 
   </div>
 
-  <!-- ─── SETTINGS TAB ─── -->
+  <!-- ─── settings tab ─── -->
   <div class="tab-content" id="tab-settings">
     <div id="settingsContent">
       <div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div>
@@ -1330,7 +1330,7 @@
   </div>
   <div class="settings-toast" id="settingsToast"></div>
 
-  <!-- ─── Info Popup ─── -->
+  <!-- ─── info popup ─── -->
   <div id="infoPopup" class="info-popup">
     <div class="info-popup-title" id="infoPopupTitle"></div>
     <div class="info-section">
@@ -1347,7 +1347,7 @@
     </div>
   </div>
 
-  <!-- ─── VM DETAIL MODAL ─── -->
+  <!-- ─── VM detail modal ─── -->
   <div id="vmDetailBackdrop" class="vm-modal-backdrop" onclick="closeVmModal(event)">
     <div class="vm-modal" id="vmDetailModal">
       <div class="vm-modal-header">
@@ -1388,7 +1388,7 @@
     </div>
   </div>
 
-  <!-- ─── MODULES TAB ─── -->
+  <!-- ─── modules tab ─── -->
   <div class="tab-content" id="tab-modules">
     <div class="chart-container" style="margin-bottom:16px;">
       <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-amber)"></div><span data-i18n="modules.tools">Tools</span></div>
@@ -1449,7 +1449,7 @@ function applyI18n() {
   });
 }
 
-// ─── Language picker ──────────────────────────────────────────────────────
+// ─── language picker ──────────────────────────────────────────────────────
 function _initLangPicker() {
   const active = window._hcmLang || 'en';
   document.querySelectorAll('#langDropdown .lang-opt').forEach(el => {
@@ -1509,26 +1509,26 @@ const MODAL_CHART_COLORS = [
 let nodeCpuChart = null, vmCpuChart = null, vsdLatencyChart = null, vsdIopsChart = null, vmNetChart = null;
 let clusterRamChart = null, clusterStorageChart = null;
 
-// ─── Cached data stores ───
+// ─── cached data stores ───
 let cachedDrives = [];
 let cachedVsds = [];
 
-// ─── Time range state ───
+// ─── time range state ───
 let nodeHours = 24;
 let vmHours   = 24;
 
 const TIME_RANGE_LABELS = { 1:'1h', 2:'2h', 6:'6h', 12:'12h', 24:'1d', 168:'7d', 720:'1mo', 8760:'1yr' };
 
 function buildChartData(history, field, aggWindowSeconds) {
-  // Sort by time (history may combine multiple node series after VM migrations)
+  // sort by time (history may combine multiple node series after VM migrations)
   const sorted = [...history]
     .filter(pt => pt[field] != null)
     .sort((a, b) => new Date(a.time) - new Date(b.time));
-  // Strip leading zeros (migration/startup artifact)
+  // strip leading zeros (migration/startup artifact)
   let start = 0;
   while (start < sorted.length - 1 && !(sorted[start][field] > 0)) start++;
   const trimmed = sorted.slice(start);
-  // Inject null gap markers where time gap > 3× the aggregation window
+  // inject null gap markers where time gap > 3× the aggregation window
   // so Chart.js shows a clean line break instead of a bezier curve across node transitions
   const threshold = aggWindowSeconds * 3 * 1000;
   const result = [];
@@ -1622,7 +1622,7 @@ async function apiFetch(ep) {
   finally { _fetchEnd(); }
 }
 
-// ─── Render drive sub-items for a given node ───
+// ─── render drive sub-items for a given node ───
 function renderDrivesForNode(nodeUuid) {
   const drives = cachedDrives.filter(d => d.node_uuid === nodeUuid);
   if (!drives.length) return '';
@@ -1662,7 +1662,7 @@ function renderDrivesForNode(nodeUuid) {
   `;
 }
 
-// ─── Render VSD sub-items for a given VM ───
+// ─── render VSD sub-items for a given VM ───
 function renderVsdsForVm(vmUuid) {
   const vsds = cachedVsds.filter(v => v.vm_uuid === vmUuid && v.type !== 'NVRAM' && v.type !== 'VTPM');
   if (!vsds.length) return '';
@@ -1706,7 +1706,7 @@ function renderVsdsForVm(vmUuid) {
   `;
 }
 
-// ─── Load Nodes + Drives ───
+// ─── load nodes + drives ───
 async function loadNodes() {
   const h = nodeHours;
   const [nodeData, driveData, allDriveData, vsdData, configData] = await Promise.all([
@@ -1765,7 +1765,7 @@ async function loadNodes() {
     `;
   }).join('');
 
-  // Node CPU chart
+  // node CPU chart
   const ctx = document.getElementById('nodeCpuChart').getContext('2d');
   if (nodeCpuChart) nodeCpuChart.destroy();
   const nodeTScale = chartTimeScale(h);
@@ -1804,7 +1804,7 @@ async function loadNodes() {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([t, v]) => ({ x: new Date(t), y: Math.round(v * 10) / 10 }));
 
-  // Expected point count based on the aggregation window used by the backend
+  // expected point count based on the aggregation window used by the backend
   const aggWindowHours = h <= 2 ? 1/60 : h <= 6 ? 2/60 : h <= 12 ? 5/60 : h <= 24 ? 10/60 : h <= 168 ? 1 : h <= 720 ? 4 : 24;
   const expectedPoints = h / aggWindowHours;
   const coverage = iopsPoints.length / expectedPoints;
@@ -1850,8 +1850,8 @@ async function loadNodes() {
     }
   });
 
-  // ─── Cluster RAM chart ───
-  // Aggregate used + total RAM across all nodes per timestamp
+  // ─── cluster RAM chart ───
+  // aggregate used + total RAM across all nodes per timestamp
   const ramUsedMap = new Map(), ramTotalMap = new Map(), ramCountMap = new Map();
   for (const node of nodeData) {
     for (const h2 of node.history) {
@@ -1893,9 +1893,9 @@ async function loadNodes() {
     }
   });
 
-  // ─── Cluster Storage chart ───
-  // Use allDriveData (includes stale/removed drives) so that historical capacity
-  // correctly reflects what was present at each point in time, not just today's nodes.
+  // ─── cluster storage chart ───
+  // use allDriveData (includes stale/removed drives) so that historical capacity
+  // correctly reflects what was present at each point in time, not just today's nodes
   const storUsedMap = new Map(), storCapMap = new Map();
   for (const drive of (allDriveData || [])) {
     for (const h2 of drive.history) {
@@ -1933,7 +1933,7 @@ async function loadNodes() {
   });
 }
 
-// ─── VM Grouping State ───
+// ─── VM grouping state ───
 let currentVmGroup = 'none';
 let cachedVmData = [];
 
@@ -1985,13 +1985,13 @@ function renderVmCards() {
   if (!cachedVmData.length) { container.innerHTML = `<div class="empty-state">${t('empty.no_vms')}</div>`; return; }
 
   if (currentVmGroup === 'none') {
-    // No grouping — just sort by name
+    // no grouping — just sort by name
     const sorted = [...cachedVmData].sort((a,b) => a.name.localeCompare(b.name));
     container.innerHTML = sorted.map(renderVmCard).join('');
     return;
   }
 
-  // Build groups
+  // build groups
   const groups = {};
   for (const vm of cachedVmData) {
     let key;
@@ -2006,10 +2006,10 @@ function renderVmCards() {
     groups[key].push(vm);
   }
 
-  // Sort group keys
+  // sort group keys
   let sortedKeys;
   if (currentVmGroup === 'node') {
-    // Sort by peer ID numerically, push 'unknown' to the end
+    // sort by peer ID numerically, push 'unknown' to the end
     sortedKeys = Object.keys(groups).sort((a,b) => {
       const aIsUnknown = isNaN(parseInt(a));
       const bIsUnknown = isNaN(parseInt(b));
@@ -2019,13 +2019,13 @@ function renderVmCards() {
       return parseInt(a) - parseInt(b);
     });
   } else if (currentVmGroup === 'vlan') {
-    // Sort VLAN numerically
+    // sort VLAN numerically
     sortedKeys = Object.keys(groups).sort((a,b) => {
       const na = parseInt(a) || 0, nb = parseInt(b) || 0;
       return na - nb;
     });
   } else {
-    // Sort tags alphabetically, with "no tag" last
+    // sort tags alphabetically, with "no tag" last
     sortedKeys = Object.keys(groups).sort((a,b) => {
       const noTag = t('vm.group_no_tag');
       if (a === noTag) return 1;
@@ -2034,7 +2034,7 @@ function renderVmCards() {
     });
   }
 
-  // Render with group headers
+  // render with group headers
   const groupLabels = { tag: t('vm.group_label.tag'), node: t('vm.group_label.node'), vlan: t('vm.group_label.vlan') };
   let html = '';
   for (const key of sortedKeys) {
@@ -2046,7 +2046,7 @@ function renderVmCards() {
   container.innerHTML = html;
 }
 
-// ─── Load VMs + VSDs ───
+// ─── load VMs + VSDs ───
 async function loadVMs() {
   const h = vmHours;
   const [vmData, vsdData] = await Promise.all([
@@ -2090,7 +2090,7 @@ async function loadVMs() {
     }
   });
 
-  // VSD Latency chart — top 10 by latest write latency
+  // VSD latency chart — top 10 by latest write latency
   if (cachedVsds.length) {
     const vsdSorted = [...cachedVsds]
       .filter(v => v.history.length > 0)
@@ -2122,7 +2122,7 @@ async function loadVMs() {
     });
   }
 
-  // VM Network chart — top 10 by average combined RX+TX
+  // VM network chart — top 10 by average combined RX+TX
   const netSorted = [...vmData].sort((a, b) => {
     const avg = vm => {
       const pts = vm.history.filter(p => p.rx_bit_rate != null || p.tx_bit_rate != null);
@@ -2157,7 +2157,7 @@ async function loadVMs() {
   });
 }
 
-// ─── VM Detail Modal ───
+// ─── VM detail modal ───
 let vmDetailCharts = [];
 let vmDetailHours = 24;
 let vmDetailActiveUuid = null;
@@ -2214,7 +2214,7 @@ async function renderVmDetailCharts() {
     options: { ...commonOpts, scales: { x: xAxis, y: { min: 0, ticks: { callback: v => v+'%' }, grid: { color: '#ffffff12' } } } }
   }));
 
-  // Network chart (RX + TX)
+  // network chart (RX + TX)
   vmDetailCharts.push(new Chart(document.getElementById('vmDetailNetChart'), {
     type: 'line',
     data: { datasets: [
@@ -2237,7 +2237,7 @@ async function renderVmDetailCharts() {
     options: { ...commonOpts, scales: { x: xAxis, y: { min: 0, ticks: { callback: v => v+' IOPS' }, grid: { color: '#ffffff12' } } } }
   }));
 
-  // Latency chart (per VSD)
+  // latency chart (per VSD)
   const latDatasets = vsds.map((v, i) => ({
     label: v.name,
     data: buildChartData(v.history, 'write_latency_us', aggWindowSeconds),
@@ -2257,12 +2257,12 @@ function closeVmModal(evt) {
   vmDetailActiveUuid = null;
 }
 
-// Close modal on Escape key
+// close modal on Escape key
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') document.getElementById('vmDetailBackdrop')?.classList.remove('visible');
 });
 
-// ─── Migration Log ───
+// ─── migration log ───
 async function loadMigrations() {
   const data = await apiFetch('/api/migrations?days=7');
   const container = document.getElementById('migrationLog');
@@ -2283,7 +2283,7 @@ async function loadMigrations() {
     </tbody></table>`;
 }
 
-// ─── Forecast Log: Oracle run summaries ───
+// ─── forecast log: Oracle run summaries ───
 async function loadForecastRuns() {
   const data = await apiFetch('/api/forecast_runs?days=7');
   const container = document.getElementById('forecastRunsLog');
@@ -2320,7 +2320,7 @@ async function loadForecastRuns() {
     </tbody></table>`;
 }
 
-// ─── Forecast Log: queued recommendations ───
+// ─── forecast log: queued recommendations ───
 async function loadPredictions() {
   const data = await apiFetch('/api/predictions?days=7');
   const container = document.getElementById('predictionsLog');
@@ -2348,7 +2348,7 @@ async function loadPredictions() {
     </tbody></table>`;
 }
 
-// ─── Modules Discovery ───
+// ─── modules discovery ───
 async function loadModules() {
   const data = await apiFetch('/api/modules');
   const container = document.getElementById('modulesList');
@@ -2368,7 +2368,7 @@ function setStatus(c) {
   else{d.style.background='var(--accent-red)';s.textContent=t('header.disconnected');}
 }
 
-// ─── Grafana Status Check ───
+// ─── Grafana status check ───
 async function checkGrafana() {
   const status = document.getElementById('grafanaStatus');
   const link = document.getElementById('grafanaLink');
@@ -2388,7 +2388,7 @@ async function refreshAll() {
   await Promise.all([loadNodes(), loadVMs(), loadMigrations(), loadForecastRuns(), loadPredictions(), loadModules(), checkGrafana()]);
 }
 
-// Apply translations to static HTML before the first data fetch
+// apply translations to static HTML before the first data fetch
 applyI18n();
 _initLangPicker();
 
@@ -2396,10 +2396,10 @@ refreshAll();
 setInterval(refreshAll, 30000);
 
 // ═══════════════════════════════════════════════════════════════════
-// SETTINGS TAB — live-tunable controls
+// settings tab — live-tunable controls
 // ═══════════════════════════════════════════════════════════════════
 
-// ─── Per-key info content for the ⓘ popup ───────────────────────
+// ─── per-key info content for the ⓘ popup ───────────────────────
 const CTRL_INFO = {
   DRY_RUN: {
     what: 'The balancer analyses the cluster and decides which VMs to migrate, but stops short of actually executing any moves. All decision logic runs normally — you see the outcomes in the logs.',
@@ -2581,11 +2581,11 @@ const CTRL_GROUPS = [
   },
 ];
 
-// Reverse map: key → groupId
+// reverse map: key → groupId
 const KEY_GROUP = {};
 CTRL_GROUPS.forEach(g => g.controls.forEach(c => { KEY_GROUP[c.key] = g.id; }));
 
-// Staged edits per group — not written to DB until Apply is clicked
+// staged edits per group — not written to DB until Apply is clicked
 const _staged = {};
 
 function _updateFill(slider) {
@@ -2753,7 +2753,7 @@ function _renderControl(def, value, readOnly = false) {
   return '';
 }
 
-// ─── Info popup logic ────────────────────────────────────────────
+// ─── info popup logic ────────────────────────────────────────────
 let _infoActiveKey = null;
 
 function toggleInfo(evt, key) {
@@ -2766,7 +2766,7 @@ function toggleInfo(evt, key) {
   }
   const info = CTRL_INFO[key] || SENT_INFO[key];
   if (!info) return;
-  // Find the label — check balancer groups first, then sentinel info dict
+  // find the label — check balancer groups first, then Sentinel info dict
   let label = key;
   for (const g of CTRL_GROUPS) {
     const c = g.controls.find(x => x.key === key);
@@ -2781,7 +2781,7 @@ function toggleInfo(evt, key) {
   document.getElementById('infoPopupBenefits').textContent = t(bKey) !== bKey ? t(bKey) : info.benefits;
   document.getElementById('infoPopupCareful').textContent  = t(cKey) !== cKey ? t(cKey) : info.careful;
 
-  // Position near the clicked button, keeping popup on-screen
+  // position near the clicked button, keeping popup on-screen
   const btn  = evt.currentTarget;
   const rect = btn.getBoundingClientRect();
   const pw   = 310;
@@ -2836,7 +2836,7 @@ function sevBadge(s) {
   return `<span class="sev-badge sev-${c}">${s||'INFO'}</span>`;
 }
 function rsSevBadge(s) {
-  // Maps internal severity to operator-friendly right-sizing action labels.
+  // maps internal severity to operator-friendly right-sizing action labels
   // CRITICAL/EMERGENCY → Act Now (amber — high confidence, worth doing soon)
   // WARNING            → Recommended (cyan — moderate confidence)
   // INFO               → Low Priority (muted — flagged but barely over threshold)
@@ -2871,19 +2871,19 @@ function severityColor(s) {
           INFO:'var(--accent-green)'}[s] || 'var(--accent-green)';
 }
 
-// ── Overview: health score and summary tiles ───────────────────────────
+// ── overview: health score and summary tiles ───────────────────────────
 
 async function loadSentinelOverview() {
   const el = document.getElementById('sentinelOverview');
 
-  // Fetch status before summary so we can show a waiting message if the
-  // analysis loop hasn't completed its first run yet.
+  // fetch status before summary so we can show a waiting message if the
+  // analysis loop hasn't completed its first run yet
   const status  = await apiFetch('/api/sentinel/status');
   const summary = await apiFetch('/api/sentinel/summary');
 
-  // No summary data AND analysis has never completed → show waiting state.
-  // status may be null (proxy error) or {status:'unavailable'} (sentinel unreachable);
-  // in both cases we still show warming-up if there is no health data yet.
+  // no summary data AND analysis has never completed → show waiting state
+  // status may be null (proxy error) or {status:'unavailable'} (Sentinel unreachable);
+  // in both cases we still show warming-up if there is no health data yet
   const hasHealthData = summary && summary.health?.score != null;
   const sentinelReachable = status && status.status !== 'unavailable';
   const hasRunBefore = sentinelReachable && status.trend_last_ok;
@@ -2915,7 +2915,7 @@ async function loadSentinelOverview() {
         ${startTime ? `<div style="font-size:11px;color:var(--text-muted)">${t('sentinel.warming_started')} ${startTime.toLocaleString('en-GB')}</div>` : ''}
       </div>`;
 
-    // Auto-refresh every 30 s while waiting.
+    // auto-refresh every 30 s while waiting
     setTimeout(() => loadSentinelOverview(), 30_000);
     return;
   }
@@ -2957,9 +2957,9 @@ async function loadSentinelOverview() {
     s >= 40   ? 'var(--accent-amber)' :
                 'var(--accent-red)';
 
-  // Annualised growth-rate formatting per dimension.  Slope is per-day in the
+  // annualised growth-rate formatting per dimension. Slope is per-day in the
   // dimension's natural units (cpu pp/day, ram bytes/day, network bps/day,
-  // latency µs/day); growth_rates already contains slope*365.
+  // latency µs/day); growth_rates already contains slope*365
   const _signed = (v, fn) => {
     if (v == null) return '—';
     return (v < 0 ? '−' : '+') + fn(Math.abs(v));
@@ -2988,8 +2988,8 @@ async function loadSentinelOverview() {
     }
     abs += '/yr';
     // RAM capacity is in the same bytes unit as growth, so % of N+1 capacity
-    // is meaningful.  For other dimensions the units don't compose cleanly
-    // (cpu pp ÷ cpu pp would just compound) — show absolute only.
+    // is meaningful. For other dimensions the units don't compose cleanly
+    // (cpu pp ÷ cpu pp would just compound) — show absolute only
     if (dim === 'ram' && capacity) {
       const pct = (growth / capacity) * 100;
       return abs + ' · ' + _signed(pct, v => v.toFixed(2) + '%') + '/yr';
@@ -3086,7 +3086,7 @@ async function loadSentinelOverview() {
   `;
 }
 
-// ── Forecasts ────────────────────────────────────────────────────────
+// ── forecasts ────────────────────────────────────────────────────────
 
 function fmtMetricVal(val, dimension) {
   if (val == null) return '—';
@@ -3112,7 +3112,7 @@ async function loadSentinelForecasts() {
   const el   = document.getElementById('sentinelForecastTable');
   if (!data || !data.length) { el.innerHTML = `<div class="empty-state">${t('empty.no_forecasts')}</div>`; return; }
 
-  // Hide low-confidence INFO rows — they are regression noise with insufficient data
+  // hide low-confidence INFO rows — they are regression noise with insufficient data
   const visible = data.filter(f => f.severity !== 'INFO' || (f.confidence_score != null && f.confidence_score >= 0.10));
 
   if (!visible.length) {
@@ -3147,7 +3147,7 @@ async function loadSentinelForecasts() {
     </div>`;
 }
 
-// ── Right-Sizing and Resize Advice ─────────────────────────────────────
+// ── right-sizing and resize advice ─────────────────────────────────────
 
 async function loadSentinelRightsizing() {
   const rezData = await apiFetch('/api/sentinel/resize?limit=100');
@@ -3182,7 +3182,7 @@ async function loadSentinelRightsizing() {
     </tbody></table></div>`;
 }
 
-// ── Exhaustion ───────────────────────────────────────────────────────
+// ── exhaustion ───────────────────────────────────────────────────────
 
 async function loadSentinelExhaustion() {
   const data = await apiFetch('/api/sentinel/exhaustion?limit=50');
@@ -3211,7 +3211,7 @@ async function loadSentinelExhaustion() {
 // ── PDF download helper ───────────────────────────────────────────────────
 
 // =============================================================================
-// E7 — Report branding
+// E7 — report branding
 // =============================================================================
 
 let _brandingLogoB64 = '';
@@ -3289,7 +3289,7 @@ async function saveBranding() {
   }
 }
 
-// Sync colour picker ↔ hex input
+// sync colour picker ↔ hex input
 document.addEventListener('DOMContentLoaded', () => {
   const picker = document.getElementById('brandingColorPicker');
   if (picker) {
@@ -3332,10 +3332,10 @@ async function pdfBtnClick(btn) {
 }
 
 // =============================================================================
-// D5 — What-If scenario modelling
+// D5 — what-if scenario modelling
 // =============================================================================
 
-// Show/hide scenario-specific options based on selected scenario
+// show/hide scenario-specific options based on selected scenario
 let _whatifVmData = [];
 
 function _whatifUpdateOptions() {
@@ -3381,11 +3381,11 @@ document.addEventListener('DOMContentLoaded', () => {
     sourceVmIn.addEventListener('input', _whatifVmHint);
   }
 
-  // Pre-fetch current user so role checks are available before any settings tab opens
+  // pre-fetch current user so role checks are available before any settings tab opens
   apiFetch('/api/users/me').then(me => {
     _currentUser = me || null;
     if (_currentUser?.role !== 'admin') {
-      // Hide the Data Sharing tab and its panel entirely for non-admins
+      // hide the Data Sharing tab and its panel entirely for non-admins
       const sharingTab = document.querySelector('[data-spanel="datasharing"]');
       if (sharingTab) sharingTab.style.display = 'none';
       const sharingPanel = document.getElementById('spanel-datasharing');
@@ -3473,7 +3473,7 @@ function _renderWhatIfResult(d) {
       <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${sm.node_count != null ? sm.node_count+' '+t('whatif.nodes_label') : ''} ${sm.vm_count != null ? '· '+sm.vm_count+' '+t('whatif.vms_label') : ''}</div>
     </div>`;
 
-  // Exhaustion table
+  // exhaustion table
   const gained = dt.exhaustion_gained_days || {};
   const blEx   = bl.exhaustion_dates || {};
   const smEx   = sm.exhaustion_dates || {};
@@ -3516,7 +3516,7 @@ function _renderWhatIfResult(d) {
       </table>`;
   }
 
-  // Assumptions
+  // assumptions
   const assumptions = d.assumptions || {};
   const assumptionLines = Object.values(assumptions).filter(Boolean);
   document.getElementById('whatifAssumptions').innerHTML = assumptionLines.length
@@ -3568,7 +3568,7 @@ async function loadSettings() {
   document.getElementById('settingsContent').innerHTML = html;
 }
 
-// ── User manager helpers ─────────────────────────────────────────────────────
+// ── user manager helpers ─────────────────────────────────────────────────────
 
 function _renderMyAccountCard(me) {
   const devBadge = me.dev_mode ? `<span class="um-dev-notice">DEV MODE</span>` : '';
@@ -3663,7 +3663,7 @@ function _esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ── My Account actions ───────────────────────────────────────────────────────
+// ── my account actions ───────────────────────────────────────────────────────
 
 async function umChangePassword(username, isAdmin) {
   const cur  = isAdmin ? null : (document.getElementById('umCurPw')  || {}).value;
@@ -3741,7 +3741,7 @@ async function umDisableOtp() {
   }
 }
 
-// ── Admin user management actions ────────────────────────────────────────────
+// ── admin user management actions ────────────────────────────────────────────
 
 async function umCreateUser() {
   const username = (document.getElementById('umNewUsername') || {}).value || '';
@@ -3802,7 +3802,7 @@ function switchCbPanel(p) {
 }
 
 // =============================================================================
-// SC//Foresight — Sentinel Settings
+// SC//Foresight — Sentinel settings
 // =============================================================================
 
 const SENT_INFO = {
@@ -3904,7 +3904,7 @@ const SENT_INFO = {
   },
 };
 
-// Group definitions — controls which keys appear in each card and their UI type.
+// group definitions — controls which keys appear in each card and their UI type
 const SENT_GROUPS = [
   {
     id: 'rightsizing', label: 'Right-Sizing Thresholds', color: 'var(--accent-blue)',
@@ -3939,7 +3939,7 @@ const SENT_GROUPS = [
   },
 ];
 
-// Range bounds for numeric keys (min, max, step).
+// range bounds for numeric keys (min, max, step)
 const SENT_RANGES = {
   SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD:      [1,  100, 0.5],
   SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD: [50, 100, 0.5],
@@ -3951,7 +3951,7 @@ const SENT_RANGES = {
   SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION:      [0,  1,   0.05],
 };
 
-// Staged edits per group — same dirty-tracking pattern as balancer settings.
+// staged edits per group — same dirty-tracking pattern as balancer settings
 const _sStagedSent = {};
 
 function _sentMarkDirty(gid) {
@@ -4035,7 +4035,7 @@ function _renderSentControl(meta, gid, readOnly = false) {
       </div>`;
   }
 
-  // Numeric — render as range + number input
+  // numeric — render as range + number input
   const bounds = SENT_RANGES[meta.key] || [0, 9999, 1];
   const [min, max, step] = bounds;
   const val = meta.value;
@@ -4098,7 +4098,7 @@ async function loadSentinelSettings() {
     const data = await apiFetch('/api/sentinel/tunables');
     if (!data) { el.innerHTML = `<div class="empty-state">${t('empty.sentinel_settings_unavail')}</div>`; return; }
 
-    // Index by key
+    // index by key
     const byKey = {};
     data.forEach(item => { byKey[item.key] = item; });
 
@@ -4168,9 +4168,9 @@ async function loadSharingSettings() {
     document.getElementById('anonNodeUuids').checked      = !!data.anon_node_uuids;
     document.getElementById('anonClusterName').checked    = !!data.anon_cluster_name;
 
-    // Bearer token: show placeholder if a token has been saved server-side.
-    // We infer "saved" by the viewer_url being set (token would have been saved together),
-    // or if the _bearerTokenSaved flag was set during this session.
+    // bearer token: show placeholder if a token has been saved server-side
+    // we infer "saved" by the viewer_url being set (token would have been saved together),
+    // or if the _bearerTokenSaved flag was set during this session
     const tokenHint = document.getElementById('sharingTokenHint');
     if (_bearerTokenSaved || data.viewer_url) {
       document.getElementById('sharingBearerToken').placeholder = t('sharing.token_placeholder_saved');
@@ -4180,7 +4180,7 @@ async function loadSharingSettings() {
       tokenHint.textContent = '';
     }
 
-    // Sync status row
+    // sync status row
     _updateSyncStatusBadge(data);
 
     _sharingSyncDirtyFlag = false;
@@ -4287,7 +4287,7 @@ async function sharingTestPush() {
 }
 
 function sharingDownloadHcb() {
-  // Show passphrase modal — no viewer registration needed for offline export
+  // show passphrase modal — no viewer registration needed for offline export
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
   modal.innerHTML = `
@@ -4336,7 +4336,7 @@ function sharingDownloadHcb() {
     }
     err.style.display = 'none';
     document.body.removeChild(modal);
-    // Trigger download via a temporary link — passphrase sent as query param over the existing session
+    // trigger download via a temporary link — passphrase sent as query param over the existing session
     const a = document.createElement('a');
     a.href = `${API_BASE}/api/sentinel/export/hcb?passphrase=${encodeURIComponent(p1)}`;
     a.style.display = 'none';
@@ -4351,7 +4351,7 @@ function sharingPreviewSnapshot() {
 }
 
 // =============================================================================
-// Auto-update
+// auto-update
 // =============================================================================
 let _updatePollTimer = null;
 
@@ -4488,12 +4488,12 @@ function _startApplyPoll() {
   }, 2000);
 }
 
-// Refresh badge every 5 minutes while page is open; initial check after 6s
+// refresh badge every 5 minutes while page is open; initial check after 6s
 setInterval(loadUpdateStatus, 300000);
 setTimeout(loadUpdateStatus, 6000);
 
 // =============================================================================
-// Data quality banner
+// data quality banner
 // =============================================================================
 (async function checkDataQuality() {
   try {
@@ -4513,7 +4513,7 @@ setTimeout(loadUpdateStatus, 6000);
 
 <div id="dataQualityBanner"></div>
 
-<!-- Update modal -->
+<!-- update modal -->
 <div class="update-modal-backdrop" id="updateModalBackdrop" onclick="closeUpdateModal(event)">
   <div class="update-modal">
     <div class="update-modal-header">
