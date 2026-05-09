@@ -32,6 +32,7 @@ SC//Foresight (Sentinel) endpoints — E1-E7:
     GET /api/sentinel/report.pdf     - Download PDF capacity report (E5)
     GET /api/sentinel/branding       - Fetch report branding config (E7)
     PUT /api/sentinel/branding       - Save report branding config (E7)
+    updater test
 """
 
 import hmac
