@@ -840,6 +840,12 @@
     background: rgba(245,158,11,0.1); color: var(--accent-amber);
     border: 1px solid rgba(245,158,11,0.25); margin-left: 8px;
   }
+  .app-footer {
+    position: fixed; bottom: 6px; right: 12px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    color: var(--text-muted); opacity: 0.55; pointer-events: none;
+    letter-spacing: 0.5px; z-index: 50;
+  }
 </style>
 </head>
 <body>
@@ -4376,6 +4382,11 @@ function _applyUpdateState(d) {
   if (d.remote_label  || d.remote_sha)  remoteSha.textContent  = d.remote_label  || d.remote_sha;
   if (d.last_checked) lastChecked.textContent = 'checked ' + _timeAgo(new Date(d.last_checked));
 
+  const appVersionEl = document.getElementById('appVersion');
+  if (appVersionEl && d.current_version) {
+    appVersionEl.textContent = 'v' + d.current_version;
+  }
+
   if (d.update_available && d.changelog && d.changelog.length) {
     changelogEl.innerHTML =
       '<div class="update-changelog-title">What\'s in this update</div>' +
@@ -4536,6 +4547,8 @@ setTimeout(loadUpdateStatus, 6000);
     <div class="update-log" id="updateLog"></div>
   </div>
 </div>
+
+<div class="app-footer"><span id="appVersion">—</span></div>
 
 </body>
 </html>
