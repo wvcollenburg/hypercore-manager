@@ -14,6 +14,7 @@ Linux/macOS only — uses the curses module from the Python stdlib.
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 from typing import Callable, Optional
@@ -74,6 +75,44 @@ C_WARN = 6
 C_ERR = 7
 C_DIM = 8
 C_BORDER = 9
+
+# ============================================================================
+# environment probes
+# ============================================================================
+
+def detect_compose() -> tuple[str, str]:
+    """Detect docker compose CLI on PATH.
+
+    Returns (status, version_str) where status is one of:
+      - 'v2'      : `docker compose` plugin is available (preferred)
+      - 'v1_only' : only the legacy python `docker-compose` (1.x) was found
+      - 'none'    : neither was found
+
+    Both probes are version queries that don't contact the docker daemon, so
+    the result is independent of whether dockerd is running.
+    """
+    try:
+        r = subprocess.run(
+            ['docker', 'compose', 'version', '--short'],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return ('v2', r.stdout.strip())
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+
+    try:
+        r = subprocess.run(
+            ['docker-compose', '--version'],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            return ('v1_only', r.stdout.strip())
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+
+    return ('none', '')
+
 
 # ============================================================================
 # curses helpers
@@ -797,7 +836,34 @@ def try_save(stdscr, state: dict) -> bool:
         msg.append("  docker compose --profile tools up -d")
     msg.extend(["", "After first start, set SC_DRY_RUN=false in .env once you've verified",
                 "the Balancer's proposed migrations look sensible."])
-    message_box(stdscr, "Saved", msg, color_pair=C_OK)
+
+    status, version = detect_compose()
+    if status == 'v2':
+        msg.extend(["", f"Detected: Compose v{version}."])
+        color = C_OK
+    elif status == 'v1_only':
+        msg = [
+            "WARNING: Detected docker-compose v1 (python).",
+            f"  Found: {version}",
+            "  This version has a known recreate bug",
+            "  (KeyError: 'ContainerConfig') and is unsupported.",
+            "  Upgrade before running the next steps:",
+            "    sudo apt remove docker-compose",
+            "    sudo apt install docker-compose-v2",
+            "",
+        ] + msg
+        color = C_WARN
+    else:
+        msg = [
+            "ERROR: Neither 'docker compose' nor 'docker-compose'",
+            "       was found on PATH.",
+            "  Install Compose v2 before running the next steps:",
+            "    sudo apt install docker-compose-v2",
+            "",
+        ] + msg
+        color = C_ERR
+
+    message_box(stdscr, "Saved", msg, color_pair=color)
     return True
 
 
