@@ -1700,10 +1700,60 @@ def _git(*args, timeout=10):
     return r.stdout.strip() if r.returncode == 0 else ''
 
 
+_SEMVER_RE = re.compile(r'^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$')
+
+
+def _read_version_file() -> str:
+    """Return the project version from <repo>/VERSION, or '' if unreadable."""
+    try:
+        with open(os.path.join(_REPO_PATH, 'VERSION')) as f:
+            return f.read().strip()
+    except (FileNotFoundError, OSError):
+        return ''
+
+
+def _semver_key(v: str):
+    """Sort key for semver-like version strings.
+
+    Pre-release suffixes sort *below* the matching release per the SemVer
+    spec, so v0.9.0-rc.1 < v0.9.0. Returns None for unparseable input.
+    """
+    m = _SEMVER_RE.match(v.strip())
+    if not m:
+        return None
+    major, minor, patch, pre = m.groups()
+    pre_key = (0, pre) if pre else (1, '')
+    return (int(major), int(minor), int(patch), pre_key)
+
+
+def _latest_remote_tag() -> str:
+    """Return the highest semver-like tag known to git, or '' if none.
+
+    Assumes `git fetch --tags` has run, so local tags mirror origin.
+    """
+    raw = _git('tag', '-l')
+    if not raw:
+        return ''
+    candidates = [(t, _semver_key(t)) for t in raw.splitlines() if t.strip()]
+    valid = [(t, k) for t, k in candidates if k is not None]
+    if not valid:
+        return ''
+    valid.sort(key=lambda x: x[1])
+    return valid[-1][0]
+
+
+def _changelog_between(local_tag: str, remote_tag: str) -> list[str]:
+    if not (local_tag and remote_tag):
+        return []
+    raw = _git('log', f'{local_tag}..{remote_tag}',
+               '--pretty=format:%s', '--no-merges')
+    return [l for l in raw.splitlines() if l.strip()] if raw else []
+
+
 def _check_for_update():
     try:
         r = subprocess.run(
-            ['git', '-C', _REPO_PATH, 'fetch', '--quiet'],
+            ['git', '-C', _REPO_PATH, 'fetch', '--tags', '--quiet'],
             capture_output=True, text=True, timeout=30,
         )
         if r.returncode != 0:
@@ -1713,28 +1763,28 @@ def _check_for_update():
             })
             return
 
-        local  = _git('rev-parse', 'HEAD')
-        remote = _git('rev-parse', '@{u}')
+        current_version = _read_version_file()
+        remote_tag      = _latest_remote_tag()
+        # tag conventionally has a leading 'v'; the version string itself does not
+        remote_version  = remote_tag.lstrip('v') if remote_tag else ''
+        local_tag       = f'v{current_version}' if current_version else ''
 
-        # human-readable labels: "2026-04-22 · abc1234"
-        current_label = _git('log', '-1', '--pretty=format:%cd · %h',
-                             '--date=format:%Y-%m-%d', 'HEAD')
-        remote_label  = _git('log', '-1', '--pretty=format:%cd · %h',
-                             '--date=format:%Y-%m-%d', '@{u}')
+        cur_key = _semver_key(current_version) if current_version else None
+        rem_key = _semver_key(remote_version)  if remote_version  else None
+        update_available = bool(cur_key and rem_key and rem_key > cur_key)
 
-        # commit subjects in remote not yet in local
-        changelog_raw = _git('log', 'HEAD..@{u}', '--pretty=format:%s', '--no-merges')
-        changelog = [l for l in changelog_raw.splitlines() if l.strip()] if changelog_raw else []
+        changelog = _changelog_between(local_tag, remote_tag) if update_available else []
 
         _write_update_patch({
-            'update_available': bool(local and remote and local != remote),
-            'current_sha':   local[:7]  if local  else None,
-            'remote_sha':    remote[:7] if remote else None,
-            'current_label': current_label or (local[:7] if local else None),
-            'remote_label':  remote_label  or (remote[:7] if remote else None),
-            'changelog':     changelog,
-            'last_checked':  datetime.now(timezone.utc).isoformat(),
-            'error':         None,
+            'update_available': update_available,
+            'current_version':  current_version or None,
+            'remote_version':   remote_version  or None,
+            # rendered by the existing frontend; keep populated for back-compat
+            'current_label':    f'v{current_version}' if current_version else None,
+            'remote_label':     f'v{remote_version}'  if remote_version  else None,
+            'changelog':        changelog,
+            'last_checked':     datetime.now(timezone.utc).isoformat(),
+            'error':            None,
         })
     except Exception as exc:
         _write_update_patch({
@@ -1906,8 +1956,8 @@ def api_update_status():
     state = _read_update_file()
     return jsonify({
         'update_available':  state.get('update_available', False),
-        'current_sha':       state.get('current_sha'),
-        'remote_sha':        state.get('remote_sha'),
+        'current_version':   state.get('current_version'),
+        'remote_version':    state.get('remote_version'),
         'current_label':     state.get('current_label'),
         'remote_label':      state.get('remote_label'),
         'changelog':         state.get('changelog', []),
