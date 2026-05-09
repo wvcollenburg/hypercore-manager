@@ -61,7 +61,7 @@ def apply_pending(conn, init_dir: str) -> list[str]:
     conn.commit()
 
     cur.execute('SELECT filename FROM public.schema_migrations')
-    applied: set[str] = {row[0] for row in cur.fetchall()}
+    applied: set[str] = {row['filename'] for row in cur.fetchall()}
 
     files: Iterable[str] = sorted(
         f for f in os.listdir(init_dir)
