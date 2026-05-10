@@ -48,8 +48,7 @@ Thumbs.db
 *.tar.gz
 
 # ── Release artefacts (publish via GitHub Releases, not git) ─────────────────
-dist/HyperCoreDeploy*.zip
-dist/HyperCoreDeploy*.exe
+dist/
 
 # ── Logs & temporary files ───────────────────────────────────────────────────
 *.log
