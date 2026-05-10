@@ -1,12 +1,16 @@
-# HyperCore Cluster Balancer
+# HyperCore Manager
 
-**Reactive, Predictive & Affinity-Based Load Balancing for Scale Computing HyperCore**
+**Cluster Balancing, Capacity Intelligence & Self-Updating Stack for Scale Computing HyperCore**
 
-The HyperCore Cluster Balancer is a containerized solution that automatically distributes virtual machine workloads across Scale Computing HyperCore cluster nodes. It monitors resource usage in real time, enforces VM placement rules, and — optionally — uses machine learning to predict and prevent future overloads before they happen.
+> **🟡 Beta — v0.9.x · Source-available, all rights reserved**
+>
+> This software is in active beta with a limited set of customers. The source is published for transparency, evaluation, and beta feedback only. No license is granted for production use, redistribution, or derivative works without prior written authorization — see [LICENSE](LICENSE). To inquire about a license, contact wvancollenburg@scalecomputing.com.
+
+HyperCore Manager is a containerized stack that automatically distributes virtual machine workloads across Scale Computing HyperCore cluster nodes. It monitors resource usage in real time, enforces VM placement rules, and — optionally — uses machine learning to predict and prevent future overloads before they happen.
 
 The optional **SC//Foresight** module extends the platform with long-range capacity intelligence: multi-horizon forecasting, VM right-sizing recommendations, cluster health scoring, scenario modelling, and data sharing with a central capacity viewer.
 
-[Now with easy windows installer (unsigned for now :-) ):](https://github.com/wvcollenburg/hypercore-manager/blob/master/dist/HyperCoreDeploy.exe)
+**[⬇ Download the Windows installer from the latest release](https://github.com/wvcollenburg/hypercore-manager/releases)**
 
 ---
 
@@ -21,6 +25,9 @@ The optional **SC//Foresight** module extends the platform with long-range capac
   - `anti_<vm_name>` — Prevent two VMs from sharing the same node (e.g. `anti_dc02` on `dc01`)
 - **Live Configuration** — All tunable settings are stored in a shared PostgreSQL database. Change any parameter through the dashboard UI at runtime — no container restarts required.
 - **Built-in Dashboard** — Web-based UI (port 5000) showing node/VM performance, drive health, VSD I/O, migration event log, balancer settings, and the full SC//Foresight interface. Fully offline-capable for dark-site deployments.
+- **Multi-language UI** — English, Dutch, French, and German, selectable from the dashboard header.
+- **User Authentication** — Username/password login with optional per-user TOTP (one-time password) two-factor. Auth can be disabled for local/dev use by leaving the dashboard credentials blank.
+- **In-app Updater** — Detects new tagged releases on origin and applies them in place with one click; database migrations ship and apply automatically with the release that needs them.
 - **Metrics Collection** — Comprehensive HyperCore telemetry (node performance, VM stats, drive health, VSD I/O, replication, cluster conditions) stored in InfluxDB with automatic downsampling.
 
 ### SC//Foresight (Optional — `sentinel` profile)
@@ -75,7 +82,32 @@ The optional **SC//Foresight** module extends the platform with long-range capac
 
 ---
 
-## Quick Start
+## Installation
+
+### Prerequisites
+
+- A Linux host or VM (Ubuntu 22.04+ tested) with **Docker Engine 24+** and **Docker Compose v2**.
+  - Compose v2 is the `docker compose` (no hyphen) command. The legacy python `docker-compose` 1.29.x is **not supported** — it has known recreate bugs that break the in-app updater. On Debian/Ubuntu, install via `sudo apt install docker-compose-v2`.
+- HyperCore cluster management IP and a service account with read + migration permissions.
+- Outbound HTTPS access to the HyperCore REST API (or fully offline — see [Dark-Site Deployment](#dark-site--air-gapped-deployment)).
+- ~2 vCPU / 4 GB RAM minimum for the core stack; more for SC//Foresight (see [Resource Requirements](#resource-requirements)).
+
+There are four supported installation paths, in rough order of operator effort.
+
+### Method 1 — Windows Deploy Wizard
+
+A standalone Windows executable that provisions a fresh HyperCore VM with the entire stack ready to run. Easiest path for typical operators.
+
+1. Download `HyperCoreDeploy.exe` from [GitHub Releases](https://github.com/wvcollenburg/hypercore-manager/releases) (currently unsigned during beta — Windows SmartScreen will warn).
+2. Run it. Enter the HyperCore management IP, cluster credentials, target VM name, and the Linux user/password for the new VM.
+3. Click Deploy. The wizard provisions an Ubuntu VM via cloud-init, deploys the repo, and brings up the full stack. Bootstrap takes 3–6 minutes.
+4. Advanced mode lets you tune VM resources (vCPU, RAM, disk, VLAN tag) and edit the full `.env` before deploy.
+
+The dashboard admin password is shown on the review page — copy it before clicking Deploy. See [installer/windows/README.md](installer/windows/README.md) for the full wizard guide and recovery options.
+
+### Method 2 — Manual Docker Compose
+
+For power users running the stack on existing infrastructure they already manage.
 
 ```bash
 git clone https://github.com/wvcollenburg/hypercore-manager.git
@@ -90,6 +122,26 @@ docker compose up --build -d
 The dashboard is available at **http://localhost:5000**.
 
 > **Note:** On first startup, the balancer needs ~2.5 minutes to fill its averaging buffers before it begins evaluating the cluster. The dashboard will show data after the first collector cycle (~30 seconds).
+
+### Method 3 — Interactive Curses Installer (Linux/macOS)
+
+`install.py` walks every `.env` setting interactively, explaining each one and generating strong secrets on demand. Pre-fills any existing `.env`. Helpful when you want guided configuration without committing to the full Windows wizard.
+
+```bash
+git clone https://github.com/wvcollenburg/hypercore-manager.git
+cd hypercore-manager
+
+python3 install.py
+# Then run the docker compose commands shown on the final screen.
+```
+
+The installer also detects whether Compose v2 is present on the host and warns if the legacy v1 is in the way. Windows users can run this via WSL, or `pip install windows-curses` first.
+
+### Method 4 — Cloud-init Provisioning
+
+For automation pipelines that already drive VM creation. The Windows wizard uses cloud-init under the hood; the same template generator (`installer/windows/cloudinit.py`) can be invoked from any system that can attach userData to a Scale Computing VM. The generated cloud-init payload includes the repo tarball and a first-boot bootstrap script that brings the stack up unattended.
+
+This path is most useful for MSPs deploying many clusters on a schedule or as part of an existing provisioning pipeline.
 
 ### Starting with SC//Foresight
 
@@ -167,7 +219,9 @@ Affinity rules take priority over all other engines. A VM with a `node_` tag wil
 
 ## Dashboard
 
-The dashboard is a single-page application served on port 5000. It is divided into four main areas:
+The dashboard is a single-page application served on port 5000. The UI is available in **English, Dutch, French, and German** — pick from the language selector in the header. The currently running version is shown in a small footer at the bottom-right of every page.
+
+It is divided into four main areas:
 
 | Tab | Contents |
 |-----|----------|
@@ -175,6 +229,8 @@ The dashboard is a single-page application served on port 5000. It is divided in
 | **SC//Clusterbalancer** | Migration event log (last 7 days), reactive and predictive engine settings |
 | **SC//Foresight** | Capacity forecasts, right-sizing recommendations, cluster health, reports, what-if modelling, live Sentinel tunables, data sharing — requires `sentinel` or `full` profile |
 | **Modules** | Auto-discovered InfluxDB measurements for ad-hoc data exploration |
+
+Authentication is handled per-user from the Settings → Users panel, including optional per-user TOTP two-factor. To run without auth (local/dev), leave `SC_DASHBOARD_USER` blank in `.env`.
 
 ---
 
@@ -214,6 +270,17 @@ See [docs/phase4-data-sharing.md](docs/phase4-data-sharing.md) for the setup gui
 
 The central viewer that receives these snapshots is a separate deployment:
 **[SC//Foresight-Central](https://github.com/wvcollenburg/sc-foresight-central)** — multi-tenant MSP capacity viewer.
+
+---
+
+## Updates
+
+The dashboard includes an in-app updater that detects new releases and applies them in place. It compares the running version (read from the `VERSION` file at the repo root) against the latest semver-style git tag on `origin`, and surfaces an "Update available" badge in the header when a newer release exists.
+
+- Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). During the pre-1.0 phase, MINOR bumps may include breaking changes; PATCH bumps are bug-fix and documentation only.
+- Releases are tagged in git as `vMAJOR.MINOR.PATCH` and announced on [GitHub Releases](https://github.com/wvcollenburg/hypercore-manager/releases). Untagged commits don't trigger update prompts — only deliberate releases do, so customers are never bombarded with "update available" for in-flight development.
+- Database migrations under `postgres/init/` are applied automatically on dashboard startup; every script is idempotent (`CREATE TABLE IF NOT EXISTS` and similar guards) so existing installs never lose data when a new migration ships.
+- Manual update path (equivalent to clicking Apply Update in the dashboard): `git pull && docker compose --profile <profile> up --build -d`.
 
 ---
 
@@ -281,7 +348,18 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 ```
 ├── docker-compose.yaml
 ├── .env.template
+├── VERSION                          # Single line: current version (e.g. 0.9.1)
+├── LICENSE                          # Source-available, all rights reserved
+├── README.md
 ├── DEPLOY.md                        # Full operational guide
+├── install.py                       # Interactive curses installer (Linux/macOS)
+├── installer/
+│   ├── core.py                      # .env schema, validation, autogen helpers
+│   └── windows/
+│       ├── wizard.py                # Windows GUI deploy wizard
+│       ├── cloudinit.py             # Cloud-init userData template generator
+│       ├── hypercore.py             # Scale Computing REST client
+│       └── README.md                # Wizard guide and recovery notes
 ├── docs/
 │   └── phase4-data-sharing.md       # Data sharing setup guide
 ├── influxdb/
@@ -289,7 +367,7 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 │   └── init.sh                      # Creates long-term bucket and downsampling tasks
 ├── postgres/
 │   ├── Dockerfile
-│   └── init/                        # 16 SQL migration scripts (run in order on fresh volume)
+│   └── init/                        # SQL migration scripts (idempotent, auto-applied)
 ├── Collector/
 │   ├── Dockerfile
 │   ├── requirements.txt
@@ -305,52 +383,19 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── config_db.py
-│   ├── app.py                       # Flask API and Sentinel proxy routes
+│   ├── migrations.py                # DB migration runner (idempotent)
+│   ├── app.py                       # Flask API, Sentinel proxy, in-app updater
 │   └── static/
-│       └── index.html               # Single-page dashboard
-├── sentinel/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── sentinel.py                  # Entry point — four background loops
-│   ├── api.py                       # REST API (port 8081)
-│   ├── config.py                    # Environment variable config with defaults
-│   ├── tunables.py                  # Live-editable analysis settings (Phase 3.5)
-│   ├── influx_client.py             # Read-only streaming InfluxDB consumer
-│   ├── writer.py                    # PostgreSQL conclusions writer
-│   ├── exporter.py                  # Signed snapshot export (Phase 4)
-│   ├── anonymiser.py                # Field-level anonymisation (Phase 4)
-│   ├── hcb.py                       # AES-256-GCM .hcb file format (Phase 4)
-│   ├── sync_push.py                 # 4-hour auto-push to central viewer (Phase 4)
-│   ├── webhook.py                   # HMAC-signed alert delivery (Phase 3)
-│   ├── outcome_tracker.py           # Right-sizing outcome polling (Phase 3)
-│   ├── health.py                    # Liveness probe (/health)
-│   ├── log.py                       # Structured JSON logging
-│   ├── collector/
-│   │   ├── nodes.py                 # Node CPU/RAM/network data collection
-│   │   ├── vms.py                   # Per-VM CPU and network profiling
-│   │   └── storage.py               # Storage capacity, VSD latency, drive health
-│   ├── analysis/
-│   │   ├── forecaster.py            # Multi-horizon regression forecasting
-│   │   ├── rightsizing.py           # Over/under-provisioning detection
-│   │   ├── resize_advisor.py        # Concrete vCPU recommendations
-│   │   ├── cluster_health.py        # Aggregate health scoring
-│   │   ├── whatif.py                # Scenario modelling (Phase 3)
-│   │   ├── anomaly_filter.py        # Seasonality-aware outlier removal
-│   │   └── seasonality.py           # Daily/weekly/monthly pattern recognition
-│   └── reports/
-│       └── pdf_report.py            # PDF report generation with branding
-└── tests/
-    ├── test_01_infra.py              # Health endpoint and API reachability
-    ├── test_02_db_schema.py          # PostgreSQL schema validation
-    ├── test_03_auth.py               # Bearer token authentication
-    ├── test_04_api.py                # REST endpoint contracts
-    ├── test_05_data.py               # Data collection and analysis pipeline
-    ├── test_06_tunables.py           # Live config GET/PUT
-    ├── test_07_whatif.py             # Scenario modelling
-    ├── test_08_export.py             # Snapshot export and anonymisation
-    ├── test_09_webhooks.py           # Webhook dispatch and HMAC signing
-    ├── conftest.py
-    └── pytest.ini
+│       ├── index.html               # Single-page dashboard
+│       └── lang/                    # English, Dutch, French, German translations
+└── sentinel/
+    ├── Dockerfile
+    ├── requirements.txt
+    ├── sentinel.py                  # Entry point — four background loops
+    ├── api.py                       # REST API (port 8081)
+    ├── analysis/                    # Forecasting, right-sizing, cluster health, what-if
+    ├── collector/                   # Per-component data collection (nodes/VMs/storage)
+    └── reports/                     # PDF report generation with branding
 ```
 
 ---
@@ -361,6 +406,8 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 |----------|----------|
 | [DEPLOY.md](DEPLOY.md) | Prerequisites, environment variables, security hardening, backup/restore, upgrade procedure, health checks, troubleshooting |
 | [docs/phase4-data-sharing.md](docs/phase4-data-sharing.md) | Data sharing setup: enrollment, anonymisation, `.hcb` file format, troubleshooting |
+| [installer/windows/README.md](installer/windows/README.md) | Windows Deploy Wizard guide: easy mode, advanced mode, deployment flow, recovery |
+| [LICENSE](LICENSE) | Source-available license, all rights reserved |
 
 ---
 
@@ -374,10 +421,16 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 
 ## Disclaimer
 
-**USE AT YOUR OWN RISK.** While the HyperCore Cluster Balancer has been carefully developed and tested, it is provided "as is" without warranty of any kind, express or implied. Scale Computing accepts no responsibility or liability for any damage, data loss, downtime, or other consequences resulting from the use of this software. Always run in dry-run mode (`SC_DRY_RUN=true`) for an extended observation period before enabling live migrations.
+**USE AT YOUR OWN RISK.** While HyperCore Manager has been carefully developed and tested, it is provided "as is" without warranty of any kind, express or implied. Scale Computing accepts no responsibility or liability for any damage, data loss, downtime, or other consequences resulting from the use of this software. Always run in dry-run mode (`SC_DRY_RUN=true`) for an extended observation period before enabling live migrations.
 
 ## License
 
-To be determined. Do not distribute without prior consent.
+**Source-available. All rights reserved.**
+
+Copyright (c) 2026 William David van Collenburg and Scale Computing.
+
+This source code is published for transparency, evaluation, and beta feedback purposes only. Reading the source and submitting issues or pull requests is welcome. No license is granted to use, copy, modify, redistribute, or create derivative works of this software, in source or binary form, for any purpose. All such rights are reserved by the copyright holders.
+
+See [LICENSE](LICENSE) for the full text. To inquire about a license for use beyond the above, contact wvancollenburg@scalecomputing.com.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
