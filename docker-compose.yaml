@@ -20,6 +20,8 @@
 #
 #   profile-conditional (sentinel / full):
 #     sentinel:  0.50 CPU   512MB
+#   profile-conditional (exports / full):
+#     exports:   0.25 CPU   256MB  <- VM export/import scheduler
 #
 #   optional (tools profile):
 #     grafana:   0.25 CPU   128MB
@@ -200,6 +202,9 @@ services:
       # Sentinel REST API — D5 what-if proxy
       - SENTINEL_API_URL=http://sentinel:8081
       - SENTINEL_API_TOKEN=${SENTINEL_API_TOKEN:-}
+      # Exports REST API (optional `exports` profile)
+      - EXPORTS_API_URL=http://exports:8082
+      - EXPORTS_API_TOKEN=${EXPORTS_API_TOKEN:-}
       # auto-update: repo is always at /repo inside the container via volume mount;
       # SC_HOST_REPO_PATH carries the real host-side path so docker run can mount
       # it correctly when spawning the updater container
@@ -321,6 +326,46 @@ services:
         limits:
           cpus: "0.50"
           memory: 512M
+    restart: unless-stopped
+
+  exports:
+    build: ./exports
+    container_name: sc_exports
+    profiles:
+      - exports
+      - full
+    ports:
+      - "8082:8082"    # Exports REST API (proxied by the dashboard)
+    environment:
+      - HCM_SECRET_KEY=${HCM_SECRET_KEY}
+      - TZ=${TZ:-UTC}
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DB=hypercore_balancer
+      - PG_USER=sentinel
+      - PG_PASSWORD=${SENTINEL_PG_PASSWORD}
+      - EXPORTS_API_PORT=8082
+      - EXPORTS_API_TOKEN=${EXPORTS_API_TOKEN:-}
+      - EXPORTS_TASK_TIMEOUT_HOURS=${EXPORTS_TASK_TIMEOUT_HOURS:-8}
+      - EXPORTS_POLL_INTERVAL_SECONDS=${EXPORTS_POLL_INTERVAL_SECONDS:-15}
+      - EXPORTS_DEFAULT_RETENTION=${EXPORTS_DEFAULT_RETENTION:-7}
+      - EXPORTS_DEFAULT_RUN_TIME=${EXPORTS_DEFAULT_RUN_TIME:-03:00}
+    # NFS pruning needs the share mounted here; SMB pruning works without a mount.
+    # Add in docker-compose.override.yml:  volumes: ["/mnt/nas/hypercore:/mnt/nas/hypercore"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
     restart: unless-stopped
 
 volumes:

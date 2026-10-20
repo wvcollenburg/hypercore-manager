@@ -1133,6 +1133,61 @@ def api_folders_members(folder_id):
 
 
 # =============================================================================
+# Exports module proxy — the `exports` container owns schedules, runs and imports
+# =============================================================================
+
+_EXPORTS_MUTATING = {'POST', 'PUT', 'DELETE'}
+
+
+@app.route('/api/exports/status')
+@require_auth
+def exports_status():
+    """Reachability of the optional exports container; the tab hides when it is off."""
+    url = os.getenv('EXPORTS_API_URL', 'http://exports:8082')
+    token = os.getenv('EXPORTS_API_TOKEN', '')
+    try:
+        rq = urllib.request.Request(f'{url}/api/v1/status?cluster={_cluster_id()}',
+                                    headers={'Authorization': f'Bearer {token}'} if token else {})
+        with urllib.request.urlopen(rq, timeout=3) as resp:
+            data = json.loads(resp.read().decode())
+        data['available'] = True
+        return jsonify(data)
+    except Exception:
+        return jsonify({'available': False})
+
+
+@app.route('/api/exports/<path:sub>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+@require_auth
+def exports_proxy(sub):
+    """Forward to the exports API with the selected cluster and the bearer token.
+    Reads are open to every user who can see the cluster; changes need admin."""
+    if request.method in _EXPORTS_MUTATING and not _is_admin_request():
+        return jsonify({'error': 'Admin access required'}), 403
+    url = os.getenv('EXPORTS_API_URL', 'http://exports:8082')
+    token = os.getenv('EXPORTS_API_TOKEN', '')
+    cid = _cluster_id()
+    qs = request.query_string.decode()
+    qs = (qs + '&' if qs else '') + f'cluster={cid}'
+    body = None
+    headers = {'Authorization': f'Bearer {token}'} if token else {}
+    if request.method in ('POST', 'PUT'):
+        payload = request.get_json(silent=True) or {}
+        # the body's cluster is always the one the user has selected and may see
+        if 'cluster_id' in payload or sub.endswith(('schedules', 'import/start')):
+            payload['cluster_id'] = cid
+        body = json.dumps(payload).encode()
+        headers['Content-Type'] = 'application/json'
+    try:
+        rq = urllib.request.Request(f'{url}/api/v1/{sub}?{qs}', data=body, headers=headers, method=request.method)
+        with urllib.request.urlopen(rq, timeout=60) as resp:
+            return Response(resp.read(), status=resp.status, mimetype='application/json')
+    except urllib.error.HTTPError as e:
+        return Response(e.read(), status=e.code, mimetype='application/json')
+    except Exception as e:
+        return jsonify({'error': f'Exports service unreachable: {e}'}), 503
+
+
+# =============================================================================
 # Foresight (sentinel) API — E1-E6
 # all routes query the recommendations schema in PostgreSQL directly
 # =============================================================================

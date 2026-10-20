@@ -40,6 +40,7 @@ PLACEHOLDERS = {"CHANGE_ME", "https://nodeip/rest/v1", "password", ""}
 PROFILE_CORE = "core"
 PROFILE_SENTINEL = "sentinel"
 PROFILE_TOOLS = "tools"
+PROFILE_EXPORTS = "exports"
 
 # easy-mode required keys — filled by the operator, never autogen'd
 EASY_REQUIRED_KEYS = {"SC_DASHBOARD_PASSWORD"}
@@ -241,6 +242,66 @@ def build_schema() -> list[Section]:
                     description="IANA timezone used for scheduled jobs and log timestamps (e.g. Europe/Amsterdam).",
                     why_default="UTC is unambiguous for logs shared across sites.",
                     when_change="Set your local zone if you want 'daily at 03:00' to mean local time.",
+                ),
+            ],
+        ),
+
+        # -------- Exports --------
+        Section(
+            key="exports",
+            title="Exports (VM export/import)",
+            blurb="Scheduled VM exports to SMB/NFS with retention, and VM imports",
+            profiles={PROFILE_EXPORTS},
+            fields=[
+                Field(
+                    key="EXPORTS_API_TOKEN",
+                    label="Exports API token",
+                    type="token",
+                    default="CHANGE_ME",
+                    must_change=True,
+                    profiles={PROFILE_EXPORTS},
+                    description="Bearer token the dashboard presents to the Exports REST API on the internal network.",
+                    why_default="No safe default for a token; press G to generate one.",
+                    when_change="Rotate it if it leaks; both the exports and dashboard containers read it from .env.",
+                ),
+                Field(
+                    key="EXPORTS_TASK_TIMEOUT_HOURS",
+                    label="Task timeout (hours)",
+                    type="int",
+                    default="8",
+                    profiles={PROFILE_EXPORTS},
+                    description="A HyperCore export or import task that runs longer than this is marked failed.",
+                    why_default="Eight hours covers multi-terabyte VMs on gigabit links.",
+                    when_change="Raise it for very large VMs on slow links.",
+                ),
+                Field(
+                    key="EXPORTS_POLL_INTERVAL_SECONDS",
+                    label="Task poll interval (seconds)",
+                    type="int",
+                    default="15",
+                    profiles={PROFILE_EXPORTS},
+                    description="How often a running task's progress is read from the cluster.",
+                    why_default="Progress changes slowly; 15 s keeps the API quiet.",
+                    when_change="Rarely.",
+                ),
+                Field(
+                    key="EXPORTS_DEFAULT_RETENTION",
+                    label="Default copies to keep",
+                    type="int",
+                    default="7",
+                    profiles={PROFILE_EXPORTS},
+                    description="Pre-filled retention for new export schedules (each schedule can override).",
+                    why_default="A week of daily copies.",
+                    when_change="Match your backup policy.",
+                ),
+                Field(
+                    key="EXPORTS_DEFAULT_RUN_TIME",
+                    label="Default run time (HH:MM)",
+                    default="03:00",
+                    profiles={PROFILE_EXPORTS},
+                    description="Pre-filled daily run time for new export schedules, in the TZ configured above.",
+                    why_default="Night-time, outside most maintenance windows.",
+                    when_change="Stagger schedules across clusters to spread NAS load.",
                 ),
             ],
         ),
