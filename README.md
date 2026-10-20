@@ -460,6 +460,8 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 |----------|----------|
 | [DEPLOY.md](DEPLOY.md) | Prerequisites, environment variables, security hardening, backup/restore, upgrade procedure, health checks, troubleshooting |
 | [docs/phase4-data-sharing.md](docs/phase4-data-sharing.md) | Data sharing setup: enrollment, anonymisation, `.hcb` file format, troubleshooting |
+| [docs/hypercore-openapi-v1.json](docs/hypercore-openapi-v1.json) | Scale Computing HyperCore REST API v1 OpenAPI spec (the API every service uses); `tests/test_hypercore_spec_contract.py` checks our calls against it |
+| [docs/hypercore-openapi-v2.json](docs/hypercore-openapi-v2.json) | HyperCore REST API v2 (experimental) spec; adds task listing used for the planned activity feed |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Filing good issues, running the stack locally, how code contributions are handled |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
