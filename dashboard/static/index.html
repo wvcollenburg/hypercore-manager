@@ -2953,9 +2953,9 @@ async function loadSentinelOverview() {
   // status may be null (proxy error) or {status:'unavailable'} (Sentinel unreachable);
   // in both cases we still show warming-up if there is no health data yet
   const hasHealthData = summary && summary.health?.score != null;
-  const sentinelReachable = status && status.status !== 'unavailable';
-  const hasRunBefore = sentinelReachable && status.trend_last_ok;
-  if (!hasHealthData && !hasRunBefore) {
+  // the status endpoint is per Sentinel container, not per cluster: a cluster registered after
+  // another one has run still has no conclusions of its own, so judge by the summary alone
+  if (!hasHealthData) {
     const startTime      = status?.start_time ? new Date(status.start_time) : null;
     const intervalSecs   = status?.trend_interval_seconds || 3600;
     const firstRunAt     = startTime ? new Date(startTime.getTime() + intervalSecs * 1000) : null;
@@ -2983,8 +2983,9 @@ async function loadSentinelOverview() {
         ${startTime ? `<div style="font-size:11px;color:var(--text-muted)">${t('sentinel.warming_started')} ${startTime.toLocaleString('en-GB')}</div>` : ''}
       </div>`;
 
-    // auto-refresh every 30 s while waiting
-    setTimeout(() => loadSentinelOverview(), 30_000);
+    // auto-refresh every 30 s while waiting (only while this cluster is still selected)
+    const waitingFor = currentCluster;
+    setTimeout(() => { if (currentCluster === waitingFor && document.getElementById('tab-sentinel')?.classList.contains('active')) loadSentinelOverview(); }, 30_000);
     return;
   }
 
@@ -4497,8 +4498,22 @@ function selectCluster(id) {
   _renderClusterRail(CLUSTERS.filter(c => c.enabled));
   if (typeof refreshAll === 'function') refreshAll();
   if (typeof checkDataQuality === 'function') checkDataQuality();
+  _reloadClusterScopedViews();
   const settingsTab = document.getElementById('tab-settings');
   if (settingsTab && settingsTab.classList.contains('active') && typeof loadSettings === 'function') loadSettings();
+}
+
+function _reloadClusterScopedViews() {
+  // views that load once behind a flag must forget the previous cluster; the ones currently
+  // on screen reload right away, the others on their next visit
+  if (typeof _sentinelLoaded !== 'undefined') _sentinelLoaded = false;
+  if (typeof _balancerSettingsLoaded !== 'undefined') _balancerSettingsLoaded = false;
+  if (document.getElementById('tab-sentinel')?.classList.contains('active')) {
+    if (typeof loadSentinel === 'function') loadSentinel();
+    const p = document.querySelector('.sentinel-sub-tab.active')?.dataset.spanel;
+    if (p && p !== 'overview' && typeof switchSentinelPanel === 'function') switchSentinelPanel(p);
+  }
+  if (document.getElementById('tab-clusterbalancer')?.classList.contains('active') && typeof loadBalancerSettings === 'function') loadBalancerSettings();
 }
 
 function _clusterFormHtml(prefix, c) {
