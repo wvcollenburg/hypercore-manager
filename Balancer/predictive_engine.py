@@ -15,6 +15,7 @@ warnings.filterwarnings("ignore")
 logging.getLogger('cmdstanpy').setLevel(logging.WARNING)
 
 import config_db
+from config_db import TEMPLATE_CLUSTER_ID
 
 # InfluxDB configuration — configurables, stay in .env
 INFLUX_URL = os.getenv('INFLUX_URL', "http://localhost:8086")
@@ -45,7 +46,7 @@ def _sanitize_uuid(value: str) -> str:
     return value
 
 
-def _write_run_summary(summary):
+def _write_run_summary(summary, cluster_id=TEMPLATE_CLUSTER_ID):
     """Persist a per-run summary to InfluxDB (measurement: predictive_runs).
     Best-effort — failures are logged but never raised, since the run already succeeded.
     """
@@ -53,6 +54,7 @@ def _write_run_summary(summary):
         with InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG) as client:
             with client.write_api(write_options=SYNCHRONOUS) as writer:
                 p = Point("predictive_runs") \
+                    .tag("cluster_id", cluster_id) \
                     .tag("success", str(summary.get('success', True)).lower()) \
                     .field("vms_total",                int(summary.get('vms_total', 0))) \
                     .field("vms_forecast",             int(summary.get('vms_forecast', 0))) \
@@ -72,7 +74,7 @@ def _write_run_summary(summary):
         print(f"[ORACLE] Failed to write run summary: {e}")
 
 
-def _write_recommendation(rec, predicted_peak_load, vm_predicted_cpu):
+def _write_recommendation(rec, predicted_peak_load, vm_predicted_cpu, cluster_id=TEMPLATE_CLUSTER_ID):
     """Persist a single recommendation to InfluxDB (measurement: predictive_recommendations).
     Best-effort — failures are logged but never raised.
     """
@@ -81,6 +83,7 @@ def _write_recommendation(rec, predicted_peak_load, vm_predicted_cpu):
             with client.write_api(write_options=SYNCHRONOUS) as writer:
                 lead_seconds = max(0.0, rec.peak_time - time.time())
                 p = Point("predictive_recommendations") \
+                    .tag("cluster_id", cluster_id) \
                     .tag("vm_name",   rec.vm_name) \
                     .tag("source_ip", rec.source_ip) \
                     .tag("target_ip", rec.target_ip) \
@@ -95,12 +98,12 @@ def _write_recommendation(rec, predicted_peak_load, vm_predicted_cpu):
         print(f"[ORACLE] Failed to write recommendation: {e}")
 
 
-def get_proactive_migrations(vms, nodes, forecast_hours=24):
+def get_proactive_migrations(vms, nodes, forecast_hours=24, cluster_id=TEMPLATE_CLUSTER_ID):
     # read tunables live so each Oracle run picks up any dashboard changes
-    threshold       = config_db.get('PREDICTIVE_THRESHOLD')       or 80.0
-    min_history     = config_db.get('PREDICTIVE_MIN_HISTORY_HOURS') or 336
-    lookback_days   = config_db.get('PREDICTIVE_LOOKBACK_DAYS')    or 90
-    max_workers     = config_db.get('PREDICTIVE_MAX_WORKERS')      or 8
+    threshold       = config_db.get('PREDICTIVE_THRESHOLD', cluster_id)         or 80.0
+    min_history     = config_db.get('PREDICTIVE_MIN_HISTORY_HOURS', cluster_id) or 336
+    lookback_days   = config_db.get('PREDICTIVE_LOOKBACK_DAYS', cluster_id)     or 90
+    max_workers     = config_db.get('PREDICTIVE_MAX_WORKERS', cluster_id)       or 8
     print(f"[ORACLE] Waking up. Forecasting the next {forecast_hours} hours across {len(vms)} VMs "
           f"using up to {max_workers} workers (lookback={lookback_days}d, threshold={threshold}%)...")
 
@@ -113,20 +116,20 @@ def get_proactive_migrations(vms, nodes, forecast_hours=24):
         'success': True,
     }
     try:
-        recs = _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history, max_workers, threshold, summary)
+        recs = _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history, max_workers, threshold, summary, cluster_id)
     except Exception as e:
         summary['success'] = False
         summary['error'] = str(e)
         summary['duration_seconds'] = time.time() - started
-        _write_run_summary(summary)
+        _write_run_summary(summary, cluster_id)
         raise
     summary['duration_seconds'] = time.time() - started
     summary['recommendations'] = len(recs)
-    _write_run_summary(summary)
+    _write_run_summary(summary, cluster_id)
     return recs
 
 
-def _forecast_single_vm(vm, forecast_hours, lookback_days, min_history_hours):
+def _forecast_single_vm(vm, forecast_hours, lookback_days, min_history_hours, cluster_id=TEMPLATE_CLUSTER_ID):
     """Forecast CPU load for a single VM. Creates its own DB connection."""
     vm_uuid = vm.get('uuid')
     vm_name = vm.get('name', 'Unknown')
@@ -148,6 +151,7 @@ def _forecast_single_vm(vm, forecast_hours, lookback_days, min_history_hours):
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{lookback_days}d)
           |> filter(fn: (r) => r["_measurement"] == "vm_metrics")
+          |> filter(fn: (r) => r["cluster_id"] == "{_sanitize_uuid(cluster_id)}")
           |> filter(fn: (r) => r["vm_uuid"] == "{safe_uuid}")
           |> filter(fn: (r) => r["_field"] == "cpu_usage")
           |> aggregateWindow(every: 1h, fn: mean, createEmpty: false)
@@ -199,7 +203,7 @@ def _forecast_single_vm(vm, forecast_hours, lookback_days, min_history_hours):
     }
 
 
-def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, max_workers, threshold, summary=None):
+def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, max_workers, threshold, summary=None, cluster_id=TEMPLATE_CLUSTER_ID):
     """Core forecasting logic using a thread pool for parallel VM forecasting."""
 
     node_threads = {n['uuid']: n.get('numThreads', 1) for n in nodes}
@@ -228,7 +232,7 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
     # phase 1: parallel VM forecasting
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_forecast_single_vm, vm, forecast_hours, lookback_days, min_history_hours): vm.get('name', 'Unknown')
+            executor.submit(_forecast_single_vm, vm, forecast_hours, lookback_days, min_history_hours, cluster_id): vm.get('name', 'Unknown')
             for vm in vms
         }
         for future in concurrent.futures.as_completed(futures):
@@ -325,7 +329,7 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
                         target_ip=target_ip
                     )
                     recommendations.append(rec)
-                    _write_recommendation(rec, predicted_peak_at_source, candidate_vm['raw_expected_cpu'])
+                    _write_recommendation(rec, predicted_peak_at_source, candidate_vm['raw_expected_cpu'], cluster_id)
 
                     source_impact = candidate_vm['raw_expected_cpu'] * (candidate_vm['vcpus'] / node_threads.get(node_uuid, 1))
                     predicted_node_loads[node_uuid]          -= source_impact

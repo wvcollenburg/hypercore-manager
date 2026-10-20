@@ -1,55 +1,60 @@
 import os
 import time
+import threading
 import requests
 import warnings
 from urllib3.exceptions import InsecureRequestWarning
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 import config_db
+import cluster_registry
+import hcm_crypto
 
-# configurables — stay in .env, require restart to change
-SC_HOST = os.getenv('SC_HOST')
-SC_USER = os.getenv('SC_USERNAME')
-SC_PASS = os.getenv('SC_PASSWORD')
-SC_VERIFY_SSL = os.getenv('SC_VERIFY_SSL', 'false').lower() in ('true', '1', 'yes', 'y')
-if not SC_VERIFY_SSL:
-    warnings.simplefilter('ignore', InsecureRequestWarning)
+# clusters are registered in the dashboard (config.clusters); nothing cluster-specific
+# comes from the environment any more. self-signed certificates are the norm on
+# HyperCore, so the warning is silenced once for the process
+warnings.simplefilter('ignore', InsecureRequestWarning)
 INFLUX_URL = os.getenv('INFLUX_URL')
 INFLUX_TOKEN = os.getenv('INFLUX_TOKEN')
 INFLUX_ORG = os.getenv('INFLUX_ORG')
 INFLUX_BUCKET = os.getenv('INFLUX_BUCKET')
 
+# how often the supervisor reconciles its workers with the cluster registry
+REGISTRY_POLL_SECONDS = 60
+
 # tunables are seeded on startup and re-read from config_db each loop iteration
 
 
-def fetch_data(session, endpoint):
-    res = session.get(f"{SC_HOST}{endpoint}", timeout=15)
+def _ts():
+    return time.strftime('%H:%M:%S')
+
+
+def fetch_data(session, base_url, endpoint):
+    res = session.get(f"{base_url}{endpoint}", timeout=15)
     res.raise_for_status()
     return res.json()
 
 
-def fetch_safe(session, endpoint, default=None):
+def fetch_safe(session, base_url, endpoint, default=None):
     """Fetch with graceful fallback — returns default on failure instead of crashing."""
     try:
-        return fetch_data(session, endpoint)
+        return fetch_data(session, base_url, endpoint)
     except Exception as e:
-        print(f"[{time.strftime('%H:%M:%S')}] Warning: Failed to fetch {endpoint}: {e}")
+        print(f"[{_ts()}] Warning: Failed to fetch {endpoint}: {e}")
         return default if default is not None else []
 
 
-def do_login(session):
-    print(f"[{time.strftime('%H:%M:%S')}] Authenticating with HyperCore API...")
+def do_login(session, base_url, username, password):
     session.cookies.clear()
-    res = session.post(f"{SC_HOST}/login", json={"username": SC_USER, "password": SC_PASS}, timeout=10)
+    res = session.post(f"{base_url}/login", json={"username": username, "password": password}, timeout=10)
     res.raise_for_status()
 
 
-def do_logout(session):
-    print(f"[{time.strftime('%H:%M:%S')}] Logging out from HyperCore API...")
+def do_logout(session, base_url):
     try:
-        session.post(f"{SC_HOST}/logout", timeout=5)
-    except Exception as e:
-        print(f"Logout failed or already disconnected: {e}")
+        session.post(f"{base_url}/logout", timeout=5)
+    except Exception:
+        pass
 
 
 def write_with_retry(write_api, bucket, points, max_retries=3, retry_delay=5):
@@ -67,7 +72,7 @@ def write_with_retry(write_api, bucket, points, max_retries=3, retry_delay=5):
                 return False
 
 
-def collect_fast(session, nodes, vms, vm_stats, node_info_map):
+def collect_fast(cid, nodes, vms, vm_stats, node_info_map):
     """Collects high-frequency metrics: node performance, VM performance, drive health, VSD I/O."""
     points = []
 
@@ -80,7 +85,7 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
         lan_ip = node.get('lanIP', 'unknown')
         node_info_map[node_uuid] = {'peer_id': peer_id, 'lan_ip': lan_ip}
 
-        p = Point("node_metrics") \
+        p = Point("node_metrics").tag("cluster_id", cid) \
             .tag("node_uuid", node_uuid) \
             .tag("node_peer_id", peer_id) \
             .tag("node_lan_ip", lan_ip) \
@@ -100,7 +105,7 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
 
         # --- physical drives ---
         for drive in node.get('drives', []):
-            p_drive = Point("drive_metrics") \
+            p_drive = Point("drive_metrics").tag("cluster_id", cid) \
                 .tag("node_uuid", node_uuid) \
                 .tag("node_peer_id", peer_id) \
                 .tag("drive_uuid", drive.get('uuid', 'unknown')) \
@@ -177,7 +182,7 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
             "first_tag": "", "primary_vlan": "0"
         })
 
-        p_vm = Point("vm_metrics") \
+        p_vm = Point("vm_metrics").tag("cluster_id", cid) \
             .tag("vm_uuid", vm_uuid) \
             .tag("vm_name", vm_info['name']) \
             .tag("node_uuid", vm_info['node_uuid']) \
@@ -197,7 +202,7 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
 
             if rates:
                 r = rates[0]
-                p_vsd = Point("vsd_metrics") \
+                p_vsd = Point("vsd_metrics").tag("cluster_id", cid) \
                     .tag("vm_uuid", vm_uuid) \
                     .tag("vm_name", vm_info['name']) \
                     .tag("node_uuid", vm_info['node_uuid']) \
@@ -220,7 +225,7 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
     # =========================================================================
     for vm_uuid, info in vm_info_map.items():
         vsd_info = vsd_info_map  # for block device capacity lookup
-        p_inv = Point("vm_inventory") \
+        p_inv = Point("vm_inventory").tag("cluster_id", cid) \
             .tag("vm_uuid", vm_uuid) \
             .tag("vm_name", info['name']) \
             .tag("node_uuid", info['node_uuid']) \
@@ -238,7 +243,7 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
     # block device inventory — capacity and allocation tracking
     # =========================================================================
     for bd_uuid, bd_info in vsd_info_map.items():
-        p_bd = Point("block_device_metrics") \
+        p_bd = Point("block_device_metrics").tag("cluster_id", cid) \
             .tag("vsd_uuid", bd_uuid) \
             .tag("vsd_name", bd_info['name']) \
             .tag("vsd_type", bd_info['type']) \
@@ -252,16 +257,18 @@ def collect_fast(session, nodes, vms, vm_stats, node_info_map):
     return points, vm_info_map
 
 
-def collect_slow(session, node_info_map):
+def collect_slow(cid, session, base_url, node_info_map):
     """Collects low-frequency data: snapshots, replication, cluster info, conditions."""
     points = []
 
     # =========================================================================
     # cluster info — version tracking, name
     # =========================================================================
-    cluster = fetch_safe(session, "/Cluster")
+    cluster = fetch_safe(session, base_url, "/Cluster")
     for c in cluster:
-        p = Point("cluster_metrics") \
+        if isinstance(c, dict) and c.get('uuid'):
+            node_info_map['__hc_cluster_uuid__'] = c['uuid']
+        p = Point("cluster_metrics").tag("cluster_id", cid) \
             .tag("cluster_uuid", c.get('uuid', 'unknown')) \
             .tag("cluster_name", c.get('clusterName', 'unknown')) \
             .field("icos_version", c.get('icosVersion', 'unknown'))
@@ -270,7 +277,7 @@ def collect_slow(session, node_info_map):
     # =========================================================================
     # snapshots — per-VM snapshot tracking
     # =========================================================================
-    snapshots = fetch_safe(session, "/VirDomainSnapshot")
+    snapshots = fetch_safe(session, base_url, "/VirDomainSnapshot")
     snap_by_vm = {}
     for snap in snapshots:
         dom_uuid = snap.get('domainUUID', 'unknown')
@@ -283,7 +290,7 @@ def collect_slow(session, node_info_map):
             snap_by_vm[dom_uuid]['latest_timestamp'] = ts
 
     for vm_uuid, snap_info in snap_by_vm.items():
-        p = Point("snapshot_metrics") \
+        p = Point("snapshot_metrics").tag("cluster_id", cid) \
             .tag("vm_uuid", vm_uuid) \
             .field("snapshot_count", snap_info['count']) \
             .field("total_block_diff", snap_info['total_block_diff']) \
@@ -293,10 +300,10 @@ def collect_slow(session, node_info_map):
     # =========================================================================
     # replication — progress tracking
     # =========================================================================
-    replications = fetch_safe(session, "/VirDomainReplication")
+    replications = fetch_safe(session, base_url, "/VirDomainReplication")
     for rep in replications:
         progress = rep.get('progress', {})
-        p = Point("replication_metrics") \
+        p = Point("replication_metrics").tag("cluster_id", cid) \
             .tag("replication_uuid", rep.get('uuid', 'unknown')) \
             .tag("source_vm_uuid", rep.get('sourceDomainUUID', 'unknown')) \
             .tag("enabled", str(rep.get('enable', False)).lower()) \
@@ -309,12 +316,12 @@ def collect_slow(session, node_info_map):
     # =========================================================================
     # conditions — cluster health alerts
     # =========================================================================
-    conditions = fetch_safe(session, "/Condition")
+    conditions = fetch_safe(session, base_url, "/Condition")
     for cond in conditions:
         # only collect user-visible, active conditions to avoid noise
         if not cond.get('userVisible', False):
             continue
-        p = Point("condition_metrics") \
+        p = Point("condition_metrics").tag("cluster_id", cid) \
             .tag("condition_name", cond.get('name', 'unknown')) \
             .tag("node_uuid", cond.get('nodeUUID', '')) \
             .tag("node_lan_ip", cond.get('nodeLANIP', '')) \
@@ -362,8 +369,85 @@ def set_bucket_retention(influx_client):
         print(f"[{time.strftime('%H:%M:%S')}] WARNING: Could not set bucket retention: {e}")
 
 
+class ClusterWorker(threading.Thread):
+    """One polling loop per registered cluster. Stops when its event is set."""
+
+    def __init__(self, cluster, write_api, stop_event):
+        super().__init__(name=f"collector-{cluster.name}", daemon=True)
+        self.cluster = cluster
+        self.cid = cluster.cluster_id
+        self.base_url = cluster.base_url
+        self.write_api = write_api
+        self.stop = stop_event
+        self.session = requests.Session()
+        self.session.verify = bool(cluster.verify_tls)
+
+    def log(self, msg):
+        print(f"[{_ts()}] [{self.cluster.name}] {msg}")
+
+    def _login(self):
+        username, password = cluster_registry.credentials(self.cid)
+        do_login(self.session, self.base_url, username, password)
+
+    def run(self):
+        self.log(f"Worker started for {self.base_url}")
+        try:
+            self._login()
+        except Exception as e:
+            self.log(f"Initial login failed: {e}")
+            cluster_registry.mark_error(self.cid, f"login failed: {e}")
+
+        last_slow_poll = 0
+        node_info_map = {}
+
+        while not self.stop.is_set():
+            # re-read tunables each iteration — picks up live dashboard changes
+            poll_interval      = config_db.get('POLL_INTERVAL', self.cid)        or 30
+            slow_poll_interval = config_db.get('SLOW_POLL_INTERVAL', self.cid)   or 300
+            write_retries      = config_db.get('INFLUX_WRITE_RETRIES', self.cid) or 3
+            retry_delay        = config_db.get('INFLUX_RETRY_DELAY', self.cid)   or 5
+
+            try:
+                nodes = fetch_data(self.session, self.base_url, "/Node")
+                vms = fetch_data(self.session, self.base_url, "/VirDomain")
+                vm_stats = fetch_data(self.session, self.base_url, "/VirDomainStats")
+
+                fast_points, vm_info_map = collect_fast(self.cid, nodes, vms, vm_stats, node_info_map)
+
+                slow_points = []
+                if time.time() - last_slow_poll >= slow_poll_interval:
+                    slow_points = collect_slow(self.cid, self.session, self.base_url, node_info_map)
+                    last_slow_poll = time.time()
+                    cluster_registry.mark_seen(self.cid, node_info_map.get('__hc_cluster_uuid__'))
+
+                all_points = fast_points + slow_points
+                if write_with_retry(self.write_api, INFLUX_BUCKET, all_points, write_retries, retry_delay):
+                    slow_note = f" + {len(slow_points)} slow" if slow_points else ""
+                    self.log(f"Wrote {len(all_points)} datapoints ({len(fast_points)} fast{slow_note}).")
+
+            except requests.exceptions.HTTPError as e:
+                if e.response is not None and e.response.status_code == 401:
+                    self.log("Session expired (401). Re-authenticating...")
+                    try:
+                        self._login()
+                    except Exception as login_err:
+                        self.log(f"Re-authentication failed: {login_err}")
+                        cluster_registry.mark_error(self.cid, f"login failed: {login_err}")
+                else:
+                    self.log(f"HTTP Error: {e}")
+                    cluster_registry.mark_error(self.cid, f"HTTP error: {e}")
+            except Exception as e:
+                self.log(f"Unexpected Error: {e}")
+                cluster_registry.mark_error(self.cid, str(e))
+
+            self.stop.wait(poll_interval)
+
+        do_logout(self.session, self.base_url)
+        self.log("Worker stopped")
+
+
 def main():
-    print("Start HyperCore Collector (Extended)...")
+    print("Start HyperCore Collector (multi-cluster)...")
 
     config_db.seed_from_env()
 
@@ -372,60 +456,47 @@ def main():
 
     set_bucket_retention(influx_client)
 
-    session = requests.Session()
-    session.verify = SC_VERIFY_SSL
+    if not hcm_crypto.key_configured():
+        print(f"[{_ts()}] ERROR: {hcm_crypto.ENV_VAR} is not set — stored cluster credentials cannot be "
+              f"decrypted. Set it in .env (install.py generates one) and restart.")
 
-    try:
-        do_login(session)
-    except Exception as e:
-        print(f"Initial login failed: {e}")
-
-    last_slow_poll = 0
-    node_info_map = {}
+    workers = {}
+    last_idle_notice = 0
 
     try:
         while True:
-            # re-read tunables each iteration — picks up live dashboard changes
-            poll_interval      = config_db.get('POLL_INTERVAL')       or 30
-            slow_poll_interval = config_db.get('SLOW_POLL_INTERVAL')  or 300
-            write_retries      = config_db.get('INFLUX_WRITE_RETRIES') or 3
-            retry_delay        = config_db.get('INFLUX_RETRY_DELAY')   or 5
-
             try:
-                # --- fast poll: performance metrics ---
-                nodes = fetch_data(session, "/Node")
-                vms = fetch_data(session, "/VirDomain")
-                vm_stats = fetch_data(session, "/VirDomainStats")
-
-                fast_points, vm_info_map = collect_fast(session, nodes, vms, vm_stats, node_info_map)
-
-                # --- slow poll: inventory & health ---
-                slow_points = []
-                if time.time() - last_slow_poll >= slow_poll_interval:
-                    slow_points = collect_slow(session, node_info_map)
-                    last_slow_poll = time.time()
-
-                all_points = fast_points + slow_points
-                if write_with_retry(write_api, INFLUX_BUCKET, all_points, write_retries, retry_delay):
-                    slow_note = f" + {len(slow_points)} slow" if slow_points else ""
-                    print(f"[{time.strftime('%H:%M:%S')}] Wrote {len(all_points)} datapoints ({len(fast_points)} fast{slow_note}).")
-
-            except requests.exceptions.HTTPError as e:
-                if e.response is not None and e.response.status_code == 401:
-                    print(f"[{time.strftime('%H:%M:%S')}] Session expired (401). Re-authenticating...")
-                    try:
-                        do_login(session)
-                    except Exception as login_err:
-                        print(f"Re-authentication failed: {login_err}")
-                else:
-                    print(f"[{time.strftime('%H:%M:%S')}] HTTP Error: {e}")
+                clusters = {c.cluster_id: c for c in cluster_registry.list_enabled()}
             except Exception as e:
-                print(f"[{time.strftime('%H:%M:%S')}] Unexpected Error: {e}")
+                print(f"[{_ts()}] Registry unavailable: {e}")
+                clusters = None
 
-            time.sleep(poll_interval)
+            if clusters is not None:
+                # stop workers for clusters that were disabled, removed or re-credentialed
+                for cid, (worker, ev) in list(workers.items()):
+                    c = clusters.get(cid)
+                    if c is None or c.updated_at != worker.cluster.updated_at:
+                        ev.set()
+                        del workers[cid]
+                for cid, c in clusters.items():
+                    if cid not in workers:
+                        ev = threading.Event()
+                        w = ClusterWorker(c, write_api, ev)
+                        w.start()
+                        workers[cid] = (w, ev)
+                if not clusters and time.time() - last_idle_notice > 300:
+                    print(f"[{_ts()}] No clusters registered yet — add one in the dashboard (Settings → Clusters).")
+                    last_idle_notice = time.time()
 
+            time.sleep(REGISTRY_POLL_SECONDS)
+
+    except KeyboardInterrupt:
+        pass
     finally:
-        do_logout(session)
+        for _, ev in workers.values():
+            ev.set()
+        for w, _ in workers.values():
+            w.join(timeout=5)
 
 
 if __name__ == "__main__":
