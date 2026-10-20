@@ -2434,12 +2434,16 @@ function setStatus(c) {
 async function checkGrafana() {
   const status = document.getElementById('grafanaStatus');
   const link = document.getElementById('grafanaLink');
-  try {
-    const resp = await fetch('http://localhost:3000/api/health', { mode: 'no-cors', signal: AbortSignal.timeout(2000) });
+  // probed by the dashboard over the internal network: no browser request to a port that may
+  // not be open, and the link follows the host the dashboard is being browsed from
+  const d = await apiFetch('/api/grafana/status');
+  const port = (d && d.port) || 3000;
+  if (link) link.href = `${window.location.protocol}//${window.location.hostname}:${port}`;
+  if (d && d.available) {
     status.innerHTML = `<span style="color:var(--accent-green);">${t('grafana.running')}</span>`;
     link.style.borderColor = 'var(--accent-green)';
     link.style.color = 'var(--accent-green)';
-  } catch {
+  } else {
     status.innerHTML = `<span style="color:var(--text-muted);">${t('grafana.not_running')}</span>`;
     link.style.borderColor = 'var(--border)';
     link.style.color = 'var(--text-muted)';
@@ -4433,7 +4437,7 @@ function _withCluster(ep) {
   if (ep.startsWith('/api/config') && _settingsTarget === 'defaults')
     return url + (ep.includes('?') ? '&' : '?') + 'cluster=defaults';
   if (!currentCluster || !ep.startsWith('/api/') || ep.startsWith('/api/clusters') || ep.startsWith('/api/users')
-      || ep.startsWith('/api/update') || /[?&]cluster=/.test(ep)) return url;
+      || ep.startsWith('/api/update') || ep.startsWith('/api/grafana') || /[?&]cluster=/.test(ep)) return url;
   return url + (ep.includes('?') ? '&' : '?') + 'cluster=' + encodeURIComponent(currentCluster);
 }
 

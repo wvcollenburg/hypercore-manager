@@ -2195,6 +2195,20 @@ def _do_apply_update():
         _write_update_patch({'apply_in_progress': False})
 
 
+@app.route('/api/grafana/status')
+@require_auth
+def api_grafana_status():
+    """Probe Grafana over the internal network so the browser never has to; the optional
+    `tools` profile may simply not be running. Returns the URL the browser should open."""
+    url = os.getenv('GRAFANA_URL', 'http://grafana:3000')
+    try:
+        with urllib.request.urlopen(f'{url}/api/health', timeout=2) as resp:
+            ok = resp.status == 200
+    except Exception:
+        ok = False
+    return jsonify({'available': ok, 'port': int(os.getenv('GRAFANA_PUBLIC_PORT', '3000'))})
+
+
 @app.route('/api/update/status')
 @require_auth
 def api_update_status():
