@@ -557,6 +557,12 @@
   .popmenu-item.danger:hover { color: var(--accent-red); }
   .popmenu-title { padding: 4px 10px 6px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); }
   .popmenu-sep { height: 1px; background: var(--border); margin: 5px 0; }
+  .fm-list { display: flex; flex-direction: column; gap: 1px; max-height: 50vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px; }
+  .fm-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+  .fm-row:hover { background: var(--bg-card); }
+  .fm-row.member { color: var(--text-primary); }
+  .fm-row.member .fm-name { font-weight: 500; }
+  .fm-tag { margin-left: auto; font-size: 10px; opacity: 0.7; }
   .rail-add { margin-top: auto; padding-top: 10px; }
   .rail-add button { width: 100%; }
   .cl-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -4617,28 +4623,70 @@ async function deleteFolder(folderId) {
   if (await _folderCall('DELETE', `/api/folders/${folderId}`)) await loadClusters();
 }
 
+// members dialog state: the folder, all non-admin users, current membership, search text
+let _fm = null;
+
 async function openFolderMembers(folderId) {
   _closeMenus();
   const f = FOLDERS.find(x => x.folder_id === folderId);
-  const users = (await apiFetch('/api/users')) || [];
-  const memberIds = new Set((f && f.members || []).map(m => m.user_id));
-  const rows = users.filter(u => u.role !== 'admin').map(u => `
-    <label class="popmenu-item" style="cursor:pointer;">
-      <input type="checkbox" ${memberIds.has(u.user_id) ? 'checked' : ''} onchange="toggleFolderMember('${folderId}', '${u.user_id}', this.checked)">
-      ${_clEsc(u.username)}
-    </label>`).join('');
-  const bd = document.getElementById('folderMembersBackdrop');
+  const users = ((await apiFetch('/api/users')) || []).filter(u => u.role !== 'admin');
+  _fm = { folderId, users, memberIds: new Set((f && f.members || []).map(m => m.user_id)), query: '' };
   document.getElementById('folderMembersTitle').textContent = `${t('folders.members')} · ${f ? f.name : ''}`;
-  document.getElementById('folderMembersBody').innerHTML = rows || `<div style="color:var(--text-muted);font-size:12px;">${t('folders.no_users')}</div>`;
-  bd.classList.add('visible');
+  const q = document.getElementById('folderMembersSearch');
+  q.value = '';
+  q.placeholder = t('folders.search_placeholder');
+  _renderMembersList();
+  document.getElementById('folderMembersBackdrop').classList.add('visible');
+  setTimeout(() => q.focus(), 50);
 }
-async function toggleFolderMember(folderId, userId, member) {
-  await _folderCall('PUT', `/api/folders/${folderId}/members`, {user_id: userId, member});
-  await loadClusters();
+
+function _fmFiltered() {
+  const q = _fm.query.trim().toLowerCase();
+  const list = q ? _fm.users.filter(u => u.username.toLowerCase().includes(q)) : _fm.users.slice();
+  // members first, then alphabetical: what you have is visible before what you could add
+  return list.sort((a, b) => (_fm.memberIds.has(b.user_id) - _fm.memberIds.has(a.user_id)) || a.username.localeCompare(b.username));
 }
+
+function _renderMembersList() {
+  if (!_fm) return;
+  const shown = _fmFiltered();
+  document.getElementById('folderMembersCount').textContent =
+    t('folders.member_count', {n: _fm.memberIds.size, total: _fm.users.length}) + (_fm.query ? ` · ${t('folders.shown', {n: shown.length})}` : '');
+  const body = document.getElementById('folderMembersBody');
+  if (!_fm.users.length) { body.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:8px;">${t('folders.no_users')}</div>`; return; }
+  if (!shown.length)     { body.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:8px;">${t('folders.no_match')}</div>`; return; }
+  body.innerHTML = shown.map(u => `
+    <label class="fm-row ${_fm.memberIds.has(u.user_id) ? 'member' : ''}">
+      <input type="checkbox" ${_fm.memberIds.has(u.user_id) ? 'checked' : ''} onchange="toggleFolderMember('${u.user_id}', this.checked)">
+      <span class="fm-name">${_clEsc(u.username)}</span>
+      ${u.otp_enabled ? '<span class="fm-tag" title="OTP">🔒</span>' : ''}
+    </label>`).join('');
+}
+
+function fmSearch(value) { if (_fm) { _fm.query = value; _renderMembersList(); } }
+
+async function toggleFolderMember(userId, member) {
+  if (!_fm) return;
+  if (member) _fm.memberIds.add(userId); else _fm.memberIds.delete(userId);
+  _renderMembersList();
+  await _folderCall('PUT', `/api/folders/${_fm.folderId}/members`, {user_id: userId, member});
+}
+
+async function fmBulk(member) {
+  if (!_fm) return;
+  const shown = _fmFiltered().filter(u => _fm.memberIds.has(u.user_id) !== member);
+  if (!shown.length) return;
+  if (shown.length > 10 && !confirm(t(member ? 'folders.confirm_add_shown' : 'folders.confirm_remove_shown', {n: shown.length}))) return;
+  for (const u of shown) { if (member) _fm.memberIds.add(u.user_id); else _fm.memberIds.delete(u.user_id); }
+  _renderMembersList();
+  await Promise.all(shown.map(u => _folderCall('PUT', `/api/folders/${_fm.folderId}/members`, {user_id: u.user_id, member})));
+}
+
 function closeFolderMembers(ev) {
   if (ev && ev.target !== document.getElementById('folderMembersBackdrop')) return;
   document.getElementById('folderMembersBackdrop').classList.remove('visible');
+  _fm = null;
+  loadClusters();   // refresh member counts once, not on every click
 }
 
 function selectCluster(id) {
@@ -5082,7 +5130,15 @@ document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality,
       <button class="update-modal-close" onclick="closeFolderMembers()">✕</button>
     </div>
     <div class="community-notice-body" style="font-size:12px;color:var(--text-muted);" data-i18n="folders.members_hint">Members see every cluster in this folder. Admins always see everything.</div>
-    <div id="folderMembersBody" style="display:flex;flex-direction:column;gap:2px;"></div>
+    <input type="text" id="folderMembersSearch" class="um-input" style="width:100%;box-sizing:border-box;" oninput="fmSearch(this.value)" autocomplete="off">
+    <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-muted);">
+      <span id="folderMembersCount"></span>
+      <span style="margin-left:auto;display:flex;gap:6px;">
+        <button class="um-action-btn" onclick="fmBulk(true)" data-i18n="folders.add_shown">Add shown</button>
+        <button class="um-action-btn" onclick="fmBulk(false)" data-i18n="folders.remove_shown">Remove shown</button>
+      </span>
+    </div>
+    <div id="folderMembersBody" class="fm-list"></div>
   </div>
 </div>
 

@@ -579,6 +579,15 @@ window.LANG = {
   'folders.none_yet': "No folders yet",
   'folders.no_access': "No clusters have been shared with you yet. Ask an administrator to add you to a folder.",
 
+  'folders.search_placeholder': "Search users…",
+  'folders.member_count': "{n} of {total} users are members",
+  'folders.shown': "{n} shown",
+  'folders.no_match': "No user matches the search.",
+  'folders.add_shown': "Add shown",
+  'folders.remove_shown': "Remove shown",
+  'folders.confirm_add_shown': "Add {n} users to this folder?",
+  'folders.confirm_remove_shown': "Remove {n} users from this folder?",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-supported software',
   'community.body':         "HyperCore Manager is open-source software maintained on a community-supported basis. It is not an official Scale Computing product and comes without official support or SLA. Use it at your own risk.",

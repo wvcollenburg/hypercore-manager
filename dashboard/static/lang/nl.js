@@ -578,6 +578,15 @@ window.LANG = {
   'folders.none_yet': "Nog geen mappen",
   'folders.no_access': "Er zijn nog geen clusters met u gedeeld. Vraag een beheerder u aan een map toe te voegen.",
 
+  'folders.search_placeholder': "Gebruikers zoeken…",
+  'folders.member_count': "{n} van {total} gebruikers zijn lid",
+  'folders.shown': "{n} getoond",
+  'folders.no_match': "Geen gebruiker komt overeen met de zoekopdracht.",
+  'folders.add_shown': "Getoonde toevoegen",
+  'folders.remove_shown': "Getoonde verwijderen",
+  'folders.confirm_add_shown': "{n} gebruikers aan deze map toevoegen?",
+  'folders.confirm_remove_shown': "{n} gebruikers uit deze map verwijderen?",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",

@@ -578,6 +578,15 @@ window.LANG = {
   'folders.none_yet': "Noch keine Ordner",
   'folders.no_access': "Mit Ihnen wurden noch keine Cluster geteilt. Bitten Sie einen Administrator, Sie zu einem Ordner hinzuzufügen.",
 
+  'folders.search_placeholder': "Benutzer suchen…",
+  'folders.member_count': "{n} von {total} Benutzern sind Mitglied",
+  'folders.shown': "{n} angezeigt",
+  'folders.no_match': "Kein Benutzer passt zur Suche.",
+  'folders.add_shown': "Angezeigte hinzufügen",
+  'folders.remove_shown': "Angezeigte entfernen",
+  'folders.confirm_add_shown': "{n} Benutzer zu diesem Ordner hinzufügen?",
+  'folders.confirm_remove_shown': "{n} Benutzer aus diesem Ordner entfernen?",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-unterst\u00fctzte Software',
   'community.body':         "HyperCore Manager ist Open-Source-Software, die auf Community-Basis gepflegt wird. Es ist kein offizielles Produkt von Scale Computing und wird ohne offiziellen Support oder SLA bereitgestellt. Die Nutzung erfolgt auf eigene Gefahr.",
