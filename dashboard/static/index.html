@@ -808,6 +808,7 @@
     text-align: center;
   }
   #dataQualityBanner.visible { display: block; }
+  body.has-rail #dataQualityBanner { left: 210px; }
 
   /* ── user manager ─────────────────────────────────────────────────────── */
   .um-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -4487,6 +4488,7 @@ function selectCluster(id) {
   try { localStorage.setItem(CLUSTER_LS_KEY, id); } catch (_) {}
   _renderClusterRail(CLUSTERS.filter(c => c.enabled));
   if (typeof refreshAll === 'function') refreshAll();
+  if (typeof checkDataQuality === 'function') checkDataQuality();
   const settingsTab = document.getElementById('tab-settings');
   if (settingsTab && settingsTab.classList.contains('active') && typeof loadSettings === 'function') loadSettings();
 }
@@ -4813,20 +4815,25 @@ setTimeout(loadUpdateStatus, 6000);
 // =============================================================================
 // data quality banner
 // =============================================================================
-(async function checkDataQuality() {
+// per cluster: re-checked whenever the selected cluster changes, and hidden again when the
+// selected cluster has no gaps (or is too young to judge)
+async function checkDataQuality() {
+  const banner = document.getElementById('dataQualityBanner');
+  if (!banner) return;
   try {
     const q = await apiFetch('/api/data-quality');
-    if (!q || q.reliable !== false) return;
-    const pct  = q.checked_hours > 0 ? Math.round(q.gap_count / q.checked_hours * 100) : 0;
-    const banner = document.getElementById('dataQualityBanner');
-    if (banner) {
-      banner.textContent =
-        `⚠  Forecast reliability warning — ${q.gap_count} of ${q.checked_hours} collection windows (${pct}%) had no data in the last 14 days. `
-        + `Capacity forecasts and exhaustion estimates may be inaccurate.`;
-      banner.classList.add('visible');
+    if (!q || q.reliable !== false || (currentCluster && q.cluster_id && q.cluster_id !== currentCluster)) {
+      banner.classList.remove('visible');
+      return;
     }
+    const pct  = q.checked_hours > 0 ? Math.round(q.gap_count / q.checked_hours * 100) : 0;
+    const cl   = CLUSTERS.find(c => c.cluster_id === q.cluster_id);
+    const days = Math.max(1, Math.round((q.window_hours || 336) / 24));
+    banner.textContent = t('quality.warning', {cluster: cl ? cl.name : '', gaps: q.gap_count, hours: q.checked_hours, pct, days});
+    banner.classList.add('visible');
   } catch (_) {}
-})();
+}
+document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality, 1500));
 </script>
 
 <div id="dataQualityBanner"></div>

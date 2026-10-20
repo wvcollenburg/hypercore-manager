@@ -717,6 +717,23 @@ def get_data_quality():
     """
     WINDOW_DAYS   = 14
     GAP_THRESHOLD = 0.08   # flag if >8 % of 1-hour windows are empty
+    MIN_HOURS     = 24     # younger clusters have too little history to judge
+
+    # the window never reaches back before the cluster was registered: a cluster added an
+    # hour ago is not "missing" the previous 13 days
+    cid = _cluster_id()
+    since = datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)
+    try:
+        c = cluster_registry.get(cid)
+        if c and c.registered_at and c.registered_at > since:
+            since = c.registered_at
+    except Exception:
+        pass
+    window_hours = (datetime.now(timezone.utc) - since).total_seconds() / 3600
+    if window_hours < MIN_HOURS:
+        return jsonify({'reliable': True, 'gap_count': 0, 'total_gap_hours': 0, 'checked_hours': 0,
+                        'insufficient_history': True, 'window_hours': round(window_hours, 1), 'cluster_id': cid})
+    range_start = since.strftime('%Y-%m-%dT%H:%M:%SZ')
 
     client = get_influx_client()
     try:
@@ -746,7 +763,7 @@ from(bucket: "{INFLUX_BUCKET}")
         node_filter = ' or '.join(f'r.node_uuid == "{uid}"' for uid in active_uuids)
         query = f'''
 from(bucket: "{INFLUX_BUCKET}")
-  |> range(start: -{WINDOW_DAYS}d)
+  |> range(start: {range_start})
   {_flux_cluster()}
   |> filter(fn: (r) => r._measurement == "node_metrics")
   |> filter(fn: (r) => r._field == "cpu_usage")
@@ -769,6 +786,8 @@ from(bucket: "{INFLUX_BUCKET}")
             'gap_count':       gap_count,
             'total_gap_hours': gap_count,
             'checked_hours':   checked_hours,
+            'window_hours':    round(window_hours, 1),
+            'cluster_id':      cid,
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

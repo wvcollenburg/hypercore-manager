@@ -554,6 +554,9 @@ window.LANG = {
   'clusters.apply_all': "Toepassen op alle clusters",
   'clusters.defaults_hint': "Wijzigingen hier gelden voor clusters die vanaf nu worden geregistreerd.",
 
+  // data-quality banner (per cluster)
+  'quality.warning': "\u26a0 Waarschuwing betrouwbaarheid voorspellingen voor {cluster}: {gaps} van {hours} verzamelvensters ({pct}%) bevatten geen data in de afgelopen {days} dagen. Capaciteitsvoorspellingen en uitputtingsschattingen kunnen onnauwkeurig zijn.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",
