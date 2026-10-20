@@ -560,6 +560,24 @@ window.LANG = {
   'quality.collecting': "\u23f3 Foresight collecte encore l'historique de {cluster}\u00a0: {have} sur 14 jours ({pct}\u00a0%), encore {left} avant que les pr\u00e9visions et le dimensionnement soient fiables.",
   'quality.gaps': "{gaps} des {hours} fen\u00eatres de collecte ({pct}\u00a0%) ne contenaient aucune donn\u00e9e jusqu'ici.",
 
+  // folders (grouping + access rights)
+  'folders.menu': "Plus",
+  'folders.move_to': "Déplacer vers le dossier",
+  'folders.unfiled': "Sans dossier",
+  'folders.new': "Nouveau dossier",
+  'folders.new_prompt': "Nom du nouveau dossier :",
+  'folders.rename': "Renommer",
+  'folders.rename_prompt': "Nouveau nom du dossier :",
+  'folders.delete': "Supprimer le dossier",
+  'folders.confirm_delete': "Supprimer le dossier '{name}' ? Ses clusters restent enregistrés mais ne sont plus visibles que par les administrateurs.",
+  'folders.members': "Membres",
+  'folders.members_hint': "Les membres voient tous les clusters de ce dossier. Les administrateurs voient toujours tout.",
+  'folders.no_users': "Aucun utilisateur non administrateur pour le moment. Créez-les dans Paramètres → Utilisateurs.",
+  'folders.empty': "vide",
+  'folders.folder': "Dossier",
+  'folders.none_yet': "Aucun dossier pour le moment",
+  'folders.no_access': "Aucun cluster ne vous a encore été partagé. Demandez à un administrateur de vous ajouter à un dossier.",
+
   // community-support notice (shown once per user)
   'community.title':        'Logiciel soutenu par la communaut\u00e9',
   'community.body':         "HyperCore Manager est un logiciel open source maintenu sur une base communautaire. Il ne s'agit pas d'un produit officiel de Scale Computing et il est fourni sans support officiel ni SLA. Utilisez-le \u00e0 vos propres risques.",

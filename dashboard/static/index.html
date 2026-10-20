@@ -541,6 +541,24 @@
   .cluster-item-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cluster-item-sub { font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
   .cluster-item-sub.err { color: var(--accent-red); }
+  .cluster-folder { display: flex; align-items: center; gap: 8px; padding: 10px 6px 4px; color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; }
+  .cluster-folder .cluster-dot { width: 8px; height: 8px; }
+  .cluster-folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cluster-item { position: relative; }
+  .kebab { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; line-height: 1;
+    padding: 2px 4px; border-radius: 4px; visibility: hidden; }
+  .cluster-item:hover .kebab, .cluster-folder:hover .kebab, .kebab.open { visibility: visible; }
+  .kebab:hover { color: var(--text-primary); background: var(--bg-primary); }
+  .popmenu { position: fixed; z-index: 10300; min-width: 200px; background: var(--bg-secondary); border: 1px solid var(--border-active, var(--border));
+    border-radius: 8px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); font-size: 12px; }
+  .popmenu-item { padding: 7px 10px; border-radius: 5px; cursor: pointer; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
+  .popmenu-item:hover { background: var(--bg-card); color: var(--text-primary); }
+  .popmenu-item.danger:hover { color: var(--accent-red); }
+  .popmenu-title { padding: 4px 10px 6px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); }
+  .popmenu-sep { height: 1px; background: var(--border); margin: 5px 0; }
+  .rail-add { margin-top: auto; padding-top: 10px; }
+  .rail-add button { width: 100%; }
   .cl-table { width: 100%; border-collapse: collapse; font-size: 12px; }
   .cl-table th { text-align: left; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
   .cl-table td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
@@ -1541,6 +1559,8 @@ let CLUSTERS = [];           // all registered clusters (enabled or not)
 let currentCluster = null;   // cluster_id the data views are about
 let _isAdminCached = false;
 let _clusterDupGroups = [];      // groups of enabled clusters sharing one HyperCore uuid
+let FOLDERS = [];                // folders (with members for admins)
+let _isAdminView = false;        // from /api/clusters: whether this user sees everything
 let _settingsTarget = 'cluster'; // 'cluster' = selected cluster, 'defaults' = the Defaults template
 try { currentCluster = localStorage.getItem(CLUSTER_LS_KEY) || null; } catch (_) {}
 
@@ -4461,6 +4481,8 @@ async function loadClusters() {
   const d = await apiFetch('/api/clusters');
   if (!d) return;
   CLUSTERS = d.clusters || [];
+  FOLDERS = d.folders || [];
+  _isAdminView = !!d.is_admin;
   _clusterDupGroups = d.duplicate_groups || [];
   const enabled = CLUSTERS.filter(c => c.enabled);
   if (!currentCluster || !enabled.some(c => c.cluster_id === currentCluster)) {
@@ -4475,9 +4497,11 @@ async function loadClusters() {
 function _renderClusterRail(enabled) {
   const rail = document.getElementById('clusterRail');
   const list = document.getElementById('clusterRailList');
-  if (enabled.length < 2) { rail.hidden = true; document.body.classList.remove('has-rail'); return; }
+  const showRail = enabled.length >= 2 || (_isAdminView && FOLDERS.length > 0);
+  if (!showRail) { rail.hidden = true; document.body.classList.remove('has-rail'); return; }
   const dupIds = new Set((_clusterDupGroups || []).flatMap(g => g.slice(1)));
-  list.innerHTML = enabled.map((c, i) => `
+
+  const item = (c, i) => `
     <div class="cluster-item ${c.cluster_id === currentCluster ? 'active' : ''}" onclick="selectCluster('${c.cluster_id}')" title="${_clEsc(c.host)}">
       <span class="cluster-dot" style="background:${_clColour(c, i)}"></span>
       <div style="min-width:0;flex:1;">
@@ -4488,9 +4512,133 @@ function _renderClusterRail(enabled) {
           ${c.health_score === null || c.health_score === undefined ? '' : `<span title="${_clEsc(t('clusters.health'))}">♥ ${Math.round(c.health_score)}</span>`}
         </div>
       </div>
-    </div>`).join('');
+      ${_isAdminView ? `<button class="kebab" title="${_clEsc(t('folders.menu'))}" onclick="event.stopPropagation(); openClusterMenu(event, '${c.cluster_id}')">⋯</button>` : ''}
+    </div>`;
+
+  const folderHeader = f => `
+    <div class="cluster-folder">
+      <span class="cluster-dot" style="background:${_clEsc(f.colour || 'var(--text-muted)')}"></span>
+      <span class="cluster-folder-name" title="${_clEsc(f.name)}">${_clEsc(f.name)}</span>
+      ${_isAdminView ? `<button class="kebab" title="${_clEsc(t('folders.menu'))}" onclick="event.stopPropagation(); openFolderMenu(event, '${f.folder_id}')">⋯</button>` : ''}
+    </div>`;
+
+  let html = '';
+  let idx = 0;
+  for (const f of FOLDERS) {
+    const members = enabled.filter(c => c.folder_id === f.folder_id);
+    if (!members.length && !_isAdminView) continue;
+    html += folderHeader(f);
+    html += members.length ? members.map(c => item(c, idx++)).join('')
+                           : `<div class="cluster-item-sub" style="padding:2px 12px 6px;">${t('folders.empty')}</div>`;
+  }
+  const unfiled = enabled.filter(c => !c.folder_id || !FOLDERS.some(f => f.folder_id === c.folder_id));
+  if (unfiled.length) {
+    if (FOLDERS.length) html += `<div class="cluster-folder"><span class="cluster-folder-name">${t('folders.unfiled')}</span></div>`;
+    html += unfiled.map(c => item(c, idx++)).join('');
+  }
+  if (_isAdminView) html += `<div class="rail-add"><button class="refresh-btn" onclick="newFolderPrompt()">+ ${t('folders.new')}</button></div>`;
+  list.innerHTML = html;
   rail.hidden = false;
   document.body.classList.add('has-rail');
+}
+
+// ── popover menus ───────────────────────────────────────────────────────────
+function _closeMenus() { document.querySelectorAll('.popmenu').forEach(m => m.remove()); document.querySelectorAll('.kebab.open').forEach(k => k.classList.remove('open')); }
+document.addEventListener('click', e => { if (!e.target.closest('.popmenu')) _closeMenus(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') _closeMenus(); });
+
+function _openMenu(ev, html) {
+  _closeMenus();
+  const btn = ev.currentTarget || ev.target;
+  btn.classList.add('open');
+  const m = document.createElement('div');
+  m.className = 'popmenu';
+  m.innerHTML = html;
+  document.body.appendChild(m);
+  const r = btn.getBoundingClientRect();
+  const top = Math.min(r.bottom + 4, window.innerHeight - m.offsetHeight - 8);
+  m.style.top = `${Math.max(8, top)}px`;
+  m.style.left = `${Math.min(r.left, window.innerWidth - m.offsetWidth - 8)}px`;
+}
+
+function openClusterMenu(ev, clusterId) {
+  const c = CLUSTERS.find(x => x.cluster_id === clusterId);
+  const rows = FOLDERS.map(f => `
+    <div class="popmenu-item" onclick="moveClusterToFolder('${clusterId}', '${f.folder_id}')">
+      <span class="cluster-dot" style="background:${_clEsc(f.colour || 'var(--text-muted)')}"></span>${_clEsc(f.name)}${c && c.folder_id === f.folder_id ? ' ✓' : ''}
+    </div>`).join('');
+  _openMenu(ev, `
+    <div class="popmenu-title">${t('folders.move_to')}</div>
+    ${rows || `<div class="popmenu-item" style="color:var(--text-muted);cursor:default;">${t('folders.none_yet')}</div>`}
+    <div class="popmenu-sep"></div>
+    <div class="popmenu-item" onclick="moveClusterToFolder('${clusterId}', null)">${t('folders.unfiled')}${c && !c.folder_id ? ' ✓' : ''}</div>
+    <div class="popmenu-item" onclick="newFolderPrompt('${clusterId}')">+ ${t('folders.new')}</div>`);
+}
+
+function openFolderMenu(ev, folderId) {
+  _openMenu(ev, `
+    <div class="popmenu-item" onclick="openFolderMembers('${folderId}')">👥 ${t('folders.members')}</div>
+    <div class="popmenu-item" onclick="renameFolderPrompt('${folderId}')">✎ ${t('folders.rename')}</div>
+    <div class="popmenu-sep"></div>
+    <div class="popmenu-item danger" onclick="deleteFolder('${folderId}')">🗑 ${t('folders.delete')}</div>`);
+}
+
+async function _folderCall(method, path, body) {
+  const r = await fetch(`${API_BASE}${path}`, { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(d.error || `HTTP ${r.status}`); return null; }
+  return d;
+}
+
+async function moveClusterToFolder(clusterId, folderId) {
+  _closeMenus();
+  if (await _folderCall('PUT', `/api/clusters/${clusterId}`, {folder_id: folderId})) await loadClusters();
+}
+async function newFolderPrompt(clusterId) {
+  _closeMenus();
+  const name = prompt(t('folders.new_prompt'));
+  if (!name) return;
+  const d = await _folderCall('POST', '/api/folders', {name});
+  if (!d) return;
+  if (clusterId) await _folderCall('PUT', `/api/clusters/${clusterId}`, {folder_id: d.folder_id});
+  await loadClusters();
+}
+async function renameFolderPrompt(folderId) {
+  _closeMenus();
+  const f = FOLDERS.find(x => x.folder_id === folderId);
+  const name = prompt(t('folders.rename_prompt'), f ? f.name : '');
+  if (!name || (f && name === f.name)) return;
+  if (await _folderCall('PUT', `/api/folders/${folderId}`, {name})) await loadClusters();
+}
+async function deleteFolder(folderId) {
+  _closeMenus();
+  const f = FOLDERS.find(x => x.folder_id === folderId);
+  if (!confirm(t('folders.confirm_delete', {name: f ? f.name : ''}))) return;
+  if (await _folderCall('DELETE', `/api/folders/${folderId}`)) await loadClusters();
+}
+
+async function openFolderMembers(folderId) {
+  _closeMenus();
+  const f = FOLDERS.find(x => x.folder_id === folderId);
+  const users = (await apiFetch('/api/users')) || [];
+  const memberIds = new Set((f && f.members || []).map(m => m.user_id));
+  const rows = users.filter(u => u.role !== 'admin').map(u => `
+    <label class="popmenu-item" style="cursor:pointer;">
+      <input type="checkbox" ${memberIds.has(u.user_id) ? 'checked' : ''} onchange="toggleFolderMember('${folderId}', '${u.user_id}', this.checked)">
+      ${_clEsc(u.username)}
+    </label>`).join('');
+  const bd = document.getElementById('folderMembersBackdrop');
+  document.getElementById('folderMembersTitle').textContent = `${t('folders.members')} · ${f ? f.name : ''}`;
+  document.getElementById('folderMembersBody').innerHTML = rows || `<div style="color:var(--text-muted);font-size:12px;">${t('folders.no_users')}</div>`;
+  bd.classList.add('visible');
+}
+async function toggleFolderMember(folderId, userId, member) {
+  await _folderCall('PUT', `/api/folders/${folderId}/members`, {user_id: userId, member});
+  await loadClusters();
+}
+function closeFolderMembers(ev) {
+  if (ev && ev.target !== document.getElementById('folderMembersBackdrop')) return;
+  document.getElementById('folderMembersBackdrop').classList.remove('visible');
 }
 
 function selectCluster(id) {
@@ -4529,6 +4677,10 @@ function _clusterFormHtml(prefix, c) {
       <div><label>${t('clusters.password')}</label><input type="password" id="${prefix}-password" autocomplete="new-password" placeholder="${c.cluster_id ? _clEsc(t('clusters.password_keep')) : ''}"></div>
       <div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="${prefix}-verify" ${c.verify_tls ? 'checked' : ''}><label for="${prefix}-verify" style="margin:0;">${t('clusters.verify_tls')}</label></div>
       <div><label>${t('clusters.colour')}</label><input type="color" id="${prefix}-colour" value="${_clEsc(c.colour || '#3b82f6')}" style="width:48px;height:30px;border:none;background:none;"></div>
+      <div><label>${t('folders.folder')}</label><select id="${prefix}-folder" style="width:100%;padding:7px 9px;border-radius:6px;font-size:12px;background:var(--bg-input, var(--bg-primary));border:1px solid var(--border);color:var(--text-primary);">
+        <option value="">${t('folders.unfiled')}</option>
+        ${FOLDERS.map(f => `<option value="${f.folder_id}" ${c.folder_id === f.folder_id ? 'selected' : ''}>${_clEsc(f.name)}</option>`).join('')}
+      </select></div>
     </div>
     <div class="cl-actions">
       <button class="refresh-btn" onclick="clTest('${prefix}')">${t('clusters.test')}</button>
@@ -4541,7 +4693,8 @@ function _clusterFormHtml(prefix, c) {
 function _clRead(prefix) {
   const g = id => document.getElementById(`${prefix}-${id}`);
   return { name: g('name').value, host: g('host').value, username: g('username').value,
-           password: g('password').value, verify_tls: g('verify').checked, colour: g('colour').value };
+           password: g('password').value, verify_tls: g('verify').checked, colour: g('colour').value,
+           folder_id: g('folder') ? (g('folder').value || null) : undefined };
 }
 function _clMsg(prefix, text, cls) { const el = document.getElementById(`${prefix}-msg`); if (el) { el.textContent = text; el.className = 'cl-msg ' + (cls || ''); } }
 
@@ -4556,12 +4709,17 @@ async function clTest(prefix) {
 async function clSave(prefix, clusterId) {
   const body = _clRead(prefix);
   if (!body.password) delete body.password;
+  if (body.folder_id === undefined) delete body.folder_id;
+  const newFolder = !clusterId ? body.folder_id : null;   // create() has no folder arg; set it after
   const url = clusterId ? `${API_BASE}/api/clusters/${clusterId}` : `${API_BASE}/api/clusters`;
   _clMsg(prefix, t('clusters.testing'), '');
   const r = await fetch(url, { method: clusterId ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { _clMsg(prefix, d.error || `HTTP ${r.status}`, 'err'); return; }
-  if (!clusterId && d.cluster) { currentCluster = d.cluster.cluster_id; try { localStorage.setItem(CLUSTER_LS_KEY, currentCluster); } catch (_) {} }
+  if (!clusterId && d.cluster) {
+    currentCluster = d.cluster.cluster_id; try { localStorage.setItem(CLUSTER_LS_KEY, currentCluster); } catch (_) {}
+    if (newFolder) await _folderCall('PUT', `/api/clusters/${d.cluster.cluster_id}`, {folder_id: newFolder});
+  }
   await loadClusters();
   if (typeof loadSettings === 'function' && document.getElementById('settingsContent')) loadSettings();
   if (typeof refreshAll === 'function') refreshAll();
@@ -4596,7 +4754,7 @@ function _renderClustersCard(clusters, me) {
     <tr>
       <td><span class="cl-status-dot" style="background:${c.last_error ? 'var(--accent-red)' : (c.enabled ? _clColour(c, i) : 'var(--text-muted)')}"></span><strong>${_clEsc(c.name)}</strong>
           <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(c.host)}${c.hc_cluster_uuid ? ' · ' + _clEsc(c.hc_cluster_uuid.slice(0, 8)) : ''}</div></td>
-      <td>${_clEsc(c.username)}</td>
+      <td>${_clEsc(c.username)}<div style="font-size:10px;color:var(--text-muted);">${_clEsc((FOLDERS.find(f => f.folder_id === c.folder_id) || {}).name || t('folders.unfiled'))}</div></td>
       <td><span class="um-badge ${c.enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${c.enabled ? t('clusters.enabled') : t('clusters.disabled')}</span></td>
       <td style="font-size:11px;color:${c.last_error ? 'var(--accent-red)' : 'var(--text-muted)'};">${c.last_error ? _clEsc(c.last_error) : _clAgo(c.last_seen_at)}</td>
       <td style="white-space:nowrap;">${isAdmin ? `
@@ -4648,7 +4806,7 @@ function _renderOnboarding(show, secretOk) {
   const bd = document.getElementById('onboardingBackdrop');
   if (!show) { bd.classList.remove('visible'); return; }
   const form = document.getElementById('onboardingForm');
-  if (!_isAdminCached) form.innerHTML = `<p style="margin-top:12px;color:var(--accent-amber);">${t('clusters.onboarding_admin_only')}</p>`;
+  if (!_isAdminCached) form.innerHTML = `<p style="margin-top:12px;color:var(--accent-amber);">${CLUSTERS.length || FOLDERS.length ? t('folders.no_access') : t('clusters.onboarding_admin_only')}</p>`;
   else if (!secretOk) form.innerHTML = `<p style="margin-top:12px;color:var(--accent-red);">${t('clusters.no_secret_key')}</p>`;
   else form.innerHTML = _clusterFormHtml('onb', null);
   bd.classList.add('visible');
@@ -4913,6 +5071,18 @@ document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality,
     <div class="community-notice-actions">
       <button class="update-apply-btn" id="communityAckBtn" onclick="acknowledgeCommunityNotice()" data-i18n="community.ack">I understand</button>
     </div>
+  </div>
+</div>
+
+<!-- folder members (admin) -->
+<div class="update-modal-backdrop" id="folderMembersBackdrop" onclick="closeFolderMembers(event)">
+  <div class="update-modal" role="dialog" aria-modal="true" style="min-width:360px;max-width:420px;">
+    <div class="update-modal-header">
+      <span class="update-modal-title" id="folderMembersTitle"></span>
+      <button class="update-modal-close" onclick="closeFolderMembers()">✕</button>
+    </div>
+    <div class="community-notice-body" style="font-size:12px;color:var(--text-muted);" data-i18n="folders.members_hint">Members see every cluster in this folder. Admins always see everything.</div>
+    <div id="folderMembersBody" style="display:flex;flex-direction:column;gap:2px;"></div>
   </div>
 </div>
 

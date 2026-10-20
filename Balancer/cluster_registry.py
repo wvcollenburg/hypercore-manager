@@ -49,6 +49,7 @@ class Cluster:
     last_error: Optional[str]
     registered_at: Optional[datetime]
     updated_at: Optional[datetime]
+    folder_id: Optional[str] = None
 
     @property
     def base_url(self) -> str:
@@ -107,7 +108,7 @@ def _connect():
 
 _COLUMNS = '''cluster_id::text AS cluster_id, cluster_name, hc_host, hc_username, verify_tls,
               enabled, is_template, hc_cluster_uuid, colour, last_seen_at, last_error,
-              registered_at, updated_at'''
+              registered_at, updated_at, folder_id::text AS folder_id'''
 
 
 def _row_to_cluster(r: dict) -> Cluster:
@@ -118,6 +119,7 @@ def _row_to_cluster(r: dict) -> Cluster:
         hc_cluster_uuid=r['hc_cluster_uuid'], colour=r['colour'],
         last_seen_at=r['last_seen_at'], last_error=r['last_error'],
         registered_at=r['registered_at'], updated_at=r['updated_at'],
+        folder_id=r.get('folder_id'),
     )
 
 
@@ -217,9 +219,12 @@ def create(name: str, host: str, username: str, password: str,
 def update(cluster_id: str, *, name: Optional[str] = None, host: Optional[str] = None,
            username: Optional[str] = None, password: Optional[str] = None,
            verify_tls: Optional[bool] = None, colour: Optional[str] = None,
-           enabled: Optional[bool] = None) -> None:
-    """Update the given fields; password is re-encrypted only when provided (non-empty)."""
+           enabled: Optional[bool] = None, folder_id: Optional[str] = ...) -> None:
+    """Update the given fields; password is re-encrypted only when provided (non-empty).
+    folder_id: a folder uuid to move the cluster, None to unfile it, omitted to leave it."""
     sets, params = [], []
+    if folder_id is not ...:
+        sets.append('folder_id = %s'); params.append(folder_id if folder_id and is_uuid(folder_id) else None)
     if name is not None:
         sets.append('cluster_name = %s'); params.append(name.strip())
     if host is not None:
@@ -395,3 +400,102 @@ def test_connection(host: str, username: str, password: str, verify_tls: bool = 
         except Exception:
             pass
         s.close()
+
+
+# ---------------------------------------------------------------------------
+# folders — grouping in the rail and access rights for non-admin users
+# ---------------------------------------------------------------------------
+
+def list_folders() -> list[dict[str, Any]]:
+    """All folders with their member user ids and usernames."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT f.folder_id::text AS folder_id, f.name, f.colour, f.created_at,
+                                  COALESCE(json_agg(json_build_object('user_id', u.user_id::text, 'username', u.username)
+                                           ORDER BY u.username) FILTER (WHERE u.user_id IS NOT NULL), '[]') AS members
+                             FROM config.folders f
+                             LEFT JOIN config.folder_members m ON m.folder_id = f.folder_id
+                             LEFT JOIN config.users u ON u.user_id = m.user_id
+                            GROUP BY f.folder_id ORDER BY lower(f.name)''')
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d['created_at'] = d['created_at'].isoformat() if d['created_at'] else None
+        out.append(d)
+    return out
+
+
+def create_folder(name: str, colour: Optional[str] = None) -> str:
+    name = (name or '').strip()
+    if not name:
+        raise ValueError('folder name is required')
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('INSERT INTO config.folders (name, colour) VALUES (%s, %s) RETURNING folder_id::text AS folder_id',
+                        (name, colour or None))
+            fid = cur.fetchone()['folder_id']
+        conn.commit()
+        return fid
+    finally:
+        conn.close()
+
+
+def update_folder(folder_id: str, name: Optional[str] = None, colour: Optional[str] = None) -> None:
+    sets, params = [], []
+    if name is not None:
+        sets.append('name = %s'); params.append(name.strip())
+    if colour is not None:
+        sets.append('colour = %s'); params.append(colour or None)
+    if not sets:
+        return
+    sets.append('updated_at = NOW()'); params.append(folder_id)
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f'UPDATE config.folders SET {", ".join(sets)} WHERE folder_id = %s', params)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_folder(folder_id: str) -> None:
+    """Remove a folder; its clusters become unfiled (admin-only visibility), memberships go."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM config.folders WHERE folder_id = %s', (folder_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_folder_member(folder_id: str, user_id: str, member: bool) -> None:
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            if member:
+                cur.execute('INSERT INTO config.folder_members (folder_id, user_id) VALUES (%s, %s) ON CONFLICT DO NOTHING',
+                            (folder_id, user_id))
+            else:
+                cur.execute('DELETE FROM config.folder_members WHERE folder_id = %s AND user_id = %s', (folder_id, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def folder_ids_for_user(user_id: str) -> set[str]:
+    """Folders a (non-admin) user may see."""
+    if not is_uuid(user_id):
+        return set()
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT folder_id::text AS folder_id FROM config.folder_members WHERE user_id = %s', (user_id,))
+            return {r['folder_id'] for r in cur.fetchall()}
+    finally:
+        conn.close()

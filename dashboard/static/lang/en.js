@@ -561,6 +561,24 @@ window.LANG = {
   'quality.collecting': "\u23f3 Foresight is still collecting history for {cluster}: {have} of 14 days ({pct}%), {left} to go before forecasts and right-sizing become reliable.",
   'quality.gaps': "{gaps} of {hours} collection windows ({pct}%) had no data so far.",
 
+  // folders (grouping + access rights)
+  'folders.menu': "More",
+  'folders.move_to': "Move to folder",
+  'folders.unfiled': "No folder",
+  'folders.new': "New folder",
+  'folders.new_prompt': "Name of the new folder:",
+  'folders.rename': "Rename",
+  'folders.rename_prompt': "New folder name:",
+  'folders.delete': "Delete folder",
+  'folders.confirm_delete': "Delete folder '{name}'? Its clusters stay registered but become visible to admins only.",
+  'folders.members': "Members",
+  'folders.members_hint': "Members see every cluster in this folder. Admins always see everything.",
+  'folders.no_users': "No non-admin users yet. Create users under Settings → Users.",
+  'folders.empty': "empty",
+  'folders.folder': "Folder",
+  'folders.none_yet': "No folders yet",
+  'folders.no_access': "No clusters have been shared with you yet. Ask an administrator to add you to a folder.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-supported software',
   'community.body':         "HyperCore Manager is open-source software maintained on a community-supported basis. It is not an official Scale Computing product and comes without official support or SLA. Use it at your own risk.",

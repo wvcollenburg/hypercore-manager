@@ -168,17 +168,51 @@ def _enabled_clusters():
 
 def _invalidate_registry_cache():
     _registry_cache['at'] = 0.0
+    _membership_cache.clear()
+
+
+# folder memberships per user, cached briefly like the registry
+_membership_cache: dict = {}
+
+
+def _is_admin_request() -> bool:
+    return (not _AUTH_ENABLED) or session.get('role') == 'admin'
+
+
+def _visible_folder_ids() -> set:
+    uid = session.get('user_id') or ''
+    now = time.time()
+    hit = _membership_cache.get(uid)
+    if hit and now - hit[0] < _REGISTRY_TTL:
+        return hit[1]
+    try:
+        ids = cluster_registry.folder_ids_for_user(uid)
+    except Exception as exc:
+        app.logger.warning('folder memberships unavailable: %s', exc)
+        ids = set()
+    _membership_cache[uid] = (now, ids)
+    return ids
+
+
+def _visible_clusters():
+    """Enabled clusters the current user may see: everything for admins, otherwise the
+    clusters in folders the user is a member of. Unfiled clusters are admin-only."""
+    enabled = _enabled_clusters()
+    if _is_admin_request():
+        return enabled
+    folders = _visible_folder_ids()
+    return [c for c in enabled if c.folder_id and c.folder_id in folders]
 
 
 def _cluster_id() -> str:
-    """Cluster the current request is about: ?cluster=<uuid> when it names an enabled
-    cluster, else the first enabled cluster, else the defaults template (no data)."""
-    enabled = _enabled_clusters()
+    """Cluster the current request is about: ?cluster=<uuid> when it names a cluster the
+    user may see, else the first visible cluster, else the defaults template (no data)."""
+    visible = _visible_clusters()
     wanted = (request.args.get('cluster') or '').strip() if request else ''
     if wanted and cluster_registry.is_uuid(wanted):
-        if any(c.cluster_id == wanted for c in enabled):
+        if any(c.cluster_id == wanted for c in visible):
             return wanted
-    return enabled[0].cluster_id if enabled else cluster_registry.TEMPLATE_CLUSTER_ID
+    return visible[0].cluster_id if visible else cluster_registry.TEMPLATE_CLUSTER_ID
 
 
 def _flux_cluster() -> str:
@@ -882,13 +916,21 @@ def api_clusters_list():
     server would make for this request, so the UI can initialise its picker."""
     try:
         clusters = cluster_registry.list_all()
+        folders = cluster_registry.list_folders()
     except Exception as e:
-        return jsonify({'error': str(e), 'clusters': [], 'selected': None}), 200
+        return jsonify({'error': str(e), 'clusters': [], 'folders': [], 'selected': None}), 200
+    admin = _is_admin_request()
+    if not admin:
+        allowed = _visible_folder_ids()
+        clusters = [c for c in clusters if c.folder_id and c.folder_id in allowed]
+        folders = [{k: v for k, v in f.items() if k != 'members'} for f in folders if f['folder_id'] in allowed]
     enabled = [c for c in clusters if c.enabled]
     extras = _cluster_extras(clusters)
     groups = cluster_registry.duplicate_groups(enabled)
     return jsonify({
         'clusters': [_cluster_payload(c, extras) for c in clusters],
+        'folders': folders,
+        'is_admin': admin,
         'enabled_count': len(enabled),
         'selected': _cluster_id() if enabled else None,
         'secret_key_configured': hcm_crypto.key_configured(),
@@ -953,6 +995,8 @@ def api_clusters_update(cluster_id):
     for k in ('verify_tls', 'enabled'):
         if k in body:
             fields[k] = bool(body[k])
+    if 'folder_id' in body:
+        fields['folder_id'] = body['folder_id'] or None   # null unfiles the cluster
     try:
         cluster_registry.update(cluster_id, **fields)
     except Exception as e:
@@ -1009,6 +1053,81 @@ def api_clusters_test_existing(cluster_id):
         cluster_registry.mark_error(cluster_id, result.get('error', 'connection test failed'))
     _invalidate_registry_cache()
     return jsonify(result)
+
+
+# folders: grouping in the rail plus access rights for non-admin users
+@app.route('/api/folders', methods=['GET'])
+@require_auth
+def api_folders_list():
+    try:
+        folders = cluster_registry.list_folders()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    if not _is_admin_request():
+        allowed = _visible_folder_ids()
+        folders = [{k: v for k, v in f.items() if k != 'members'} for f in folders if f['folder_id'] in allowed]
+    return jsonify(folders)
+
+
+@app.route('/api/folders', methods=['POST'])
+@require_auth
+@require_admin
+def api_folders_create():
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        fid = cluster_registry.create_folder(body.get('name', ''), body.get('colour'))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        if 'ux_folders_name' in str(e) or 'duplicate key' in str(e):
+            return jsonify({'error': 'a folder with that name already exists'}), 409
+        return jsonify({'error': str(e)}), 500
+    _invalidate_registry_cache()
+    return jsonify({'ok': True, 'folder_id': fid}), 201
+
+
+@app.route('/api/folders/<folder_id>', methods=['PUT'])
+@require_auth
+@require_admin
+def api_folders_update(folder_id):
+    if not cluster_registry.is_uuid(folder_id):
+        return jsonify({'error': 'invalid folder id'}), 400
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        cluster_registry.update_folder(folder_id, name=body.get('name'), colour=body.get('colour'))
+    except Exception as e:
+        if 'ux_folders_name' in str(e) or 'duplicate key' in str(e):
+            return jsonify({'error': 'a folder with that name already exists'}), 409
+        return jsonify({'error': str(e)}), 500
+    _invalidate_registry_cache()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/folders/<folder_id>', methods=['DELETE'])
+@require_auth
+@require_admin
+def api_folders_delete(folder_id):
+    if not cluster_registry.is_uuid(folder_id):
+        return jsonify({'error': 'invalid folder id'}), 400
+    cluster_registry.delete_folder(folder_id)
+    _invalidate_registry_cache()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/folders/<folder_id>/members', methods=['PUT'])
+@require_auth
+@require_admin
+def api_folders_members(folder_id):
+    """Body: {"user_id": "...", "member": true|false}."""
+    if not cluster_registry.is_uuid(folder_id):
+        return jsonify({'error': 'invalid folder id'}), 400
+    body = request.get_json(force=True, silent=True) or {}
+    uid = (body.get('user_id') or '').strip()
+    if not cluster_registry.is_uuid(uid):
+        return jsonify({'error': 'invalid user id'}), 400
+    cluster_registry.set_folder_member(folder_id, uid, bool(body.get('member', True)))
+    _invalidate_registry_cache()
+    return jsonify({'ok': True})
 
 
 # =============================================================================

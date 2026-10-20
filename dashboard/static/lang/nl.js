@@ -560,6 +560,24 @@ window.LANG = {
   'quality.collecting': "\u23f3 Foresight verzamelt nog geschiedenis voor {cluster}: {have} van 14 dagen ({pct}%), nog {left} voordat voorspellingen en right-sizing betrouwbaar zijn.",
   'quality.gaps': "{gaps} van {hours} verzamelvensters ({pct}%) bevatten tot nu toe geen data.",
 
+  // folders (grouping + access rights)
+  'folders.menu': "Meer",
+  'folders.move_to': "Verplaats naar map",
+  'folders.unfiled': "Geen map",
+  'folders.new': "Nieuwe map",
+  'folders.new_prompt': "Naam van de nieuwe map:",
+  'folders.rename': "Hernoemen",
+  'folders.rename_prompt': "Nieuwe mapnaam:",
+  'folders.delete': "Map verwijderen",
+  'folders.confirm_delete': "Map '{name}' verwijderen? De clusters blijven geregistreerd maar zijn dan alleen voor beheerders zichtbaar.",
+  'folders.members': "Leden",
+  'folders.members_hint': "Leden zien alle clusters in deze map. Beheerders zien altijd alles.",
+  'folders.no_users': "Nog geen gebruikers zonder beheerdersrol. Maak ze aan onder Instellingen → Gebruikers.",
+  'folders.empty': "leeg",
+  'folders.folder': "Map",
+  'folders.none_yet': "Nog geen mappen",
+  'folders.no_access': "Er zijn nog geen clusters met u gedeeld. Vraag een beheerder u aan een map toe te voegen.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",

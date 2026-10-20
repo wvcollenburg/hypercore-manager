@@ -97,3 +97,17 @@ def test_sentinel_runs_one_engine_per_cluster(repo):
     src = (repo / 'sentinel' / 'sentinel.py').read_text()
     assert 'class ClusterEngine' in src and 'def _reconcile_engines' in src
     assert '_trigger_event' not in src, 'global trigger replaced by per-engine events'
+
+
+def test_folder_rbac_wiring(repo):
+    sql = (repo / 'postgres' / 'init' / '021_folders_rbac.sql').read_text()
+    assert 'config.folders' in sql and 'config.folder_members' in sql and 'folder_id' in sql
+    app = (repo / 'dashboard' / 'app.py').read_text()
+    for route in ("'/api/folders', methods=['GET']", "'/api/folders', methods=['POST']",
+                  "'/api/folders/<folder_id>', methods=['DELETE']", "'/api/folders/<folder_id>/members', methods=['PUT']"):
+        assert route in app, route
+    # every data call resolves the cluster through the visibility filter
+    assert 'def _visible_clusters' in app and 'visible = _visible_clusters()' in app
+    reg = (repo / 'shared' / 'cluster_registry.py').read_text()
+    for fn in ('def list_folders', 'def create_folder', 'def delete_folder', 'def set_folder_member', 'def folder_ids_for_user'):
+        assert fn in reg, fn

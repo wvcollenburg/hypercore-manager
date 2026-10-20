@@ -560,6 +560,24 @@ window.LANG = {
   'quality.collecting': "\u23f3 Foresight sammelt noch Historie f\u00fcr {cluster}: {have} von 14 Tagen ({pct}%), noch {left}, bis Prognosen und Right-Sizing verl\u00e4sslich sind.",
   'quality.gaps': "{gaps} von {hours} Erfassungsfenstern ({pct}%) enthielten bisher keine Daten.",
 
+  // folders (grouping + access rights)
+  'folders.menu': "Mehr",
+  'folders.move_to': "In Ordner verschieben",
+  'folders.unfiled': "Kein Ordner",
+  'folders.new': "Neuer Ordner",
+  'folders.new_prompt': "Name des neuen Ordners:",
+  'folders.rename': "Umbenennen",
+  'folders.rename_prompt': "Neuer Ordnername:",
+  'folders.delete': "Ordner löschen",
+  'folders.confirm_delete': "Ordner '{name}' löschen? Seine Cluster bleiben registriert, sind dann aber nur für Administratoren sichtbar.",
+  'folders.members': "Mitglieder",
+  'folders.members_hint': "Mitglieder sehen alle Cluster in diesem Ordner. Administratoren sehen immer alles.",
+  'folders.no_users': "Noch keine Benutzer ohne Administratorrolle. Legen Sie sie unter Einstellungen → Benutzer an.",
+  'folders.empty': "leer",
+  'folders.folder': "Ordner",
+  'folders.none_yet': "Noch keine Ordner",
+  'folders.no_access': "Mit Ihnen wurden noch keine Cluster geteilt. Bitten Sie einen Administrator, Sie zu einem Ordner hinzuzufügen.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-unterst\u00fctzte Software',
   'community.body':         "HyperCore Manager ist Open-Source-Software, die auf Community-Basis gepflegt wird. Es ist kein offizielles Produkt von Scale Computing und wird ohne offiziellen Support oder SLA bereitgestellt. Die Nutzung erfolgt auf eigene Gefahr.",
