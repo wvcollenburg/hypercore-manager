@@ -715,9 +715,10 @@ def get_data_quality():
     they went silent.
     Returns {reliable, gap_count, total_gap_hours, checked_hours}.
     """
-    WINDOW_DAYS   = 14
+    WINDOW_DAYS   = 14     # history Foresight needs before forecasts are meaningful
     GAP_THRESHOLD = 0.08   # flag if >8 % of 1-hour windows are empty
-    MIN_HOURS     = 24     # younger clusters have too little history to judge
+    MIN_HOURS     = 24     # younger clusters have too little history to judge gaps
+    REQUIRED_HOURS = WINDOW_DAYS * 24
 
     # the window never reaches back before the cluster was registered: a cluster added an
     # hour ago is not "missing" the previous 13 days
@@ -730,9 +731,17 @@ def get_data_quality():
     except Exception:
         pass
     window_hours = (datetime.now(timezone.utc) - since).total_seconds() / 3600
+    progress = {
+        'cluster_id':      cid,
+        'window_hours':    round(window_hours, 1),
+        'required_hours':  REQUIRED_HOURS,
+        'history_pct':     round(min(100.0, window_hours / REQUIRED_HOURS * 100), 1),
+        'enough_history':  window_hours >= REQUIRED_HOURS,
+        'min_judge_hours': MIN_HOURS,
+    }
     if window_hours < MIN_HOURS:
         return jsonify({'reliable': True, 'gap_count': 0, 'total_gap_hours': 0, 'checked_hours': 0,
-                        'insufficient_history': True, 'window_hours': round(window_hours, 1), 'cluster_id': cid})
+                        'insufficient_history': True, **progress})
     range_start = since.strftime('%Y-%m-%dT%H:%M:%SZ')
 
     client = get_influx_client()
@@ -757,7 +766,7 @@ from(bucket: "{INFLUX_BUCKET}")
         if not active_uuids:
             # no active nodes — nothing meaningful to check
             return jsonify({'reliable': True, 'gap_count': 0,
-                            'total_gap_hours': 0, 'checked_hours': 0})
+                            'total_gap_hours': 0, 'checked_hours': 0, **progress})
 
         # step 2: check for gaps only within those active nodes
         node_filter = ' or '.join(f'r.node_uuid == "{uid}"' for uid in active_uuids)
@@ -778,7 +787,7 @@ from(bucket: "{INFLUX_BUCKET}")
 
         if checked_hours == 0:
             return jsonify({'reliable': False, 'gap_count': 0,
-                            'total_gap_hours': 0, 'checked_hours': 0})
+                            'total_gap_hours': 0, 'checked_hours': 0, **progress})
 
         reliable = (gap_count / checked_hours) <= GAP_THRESHOLD
         return jsonify({
@@ -786,8 +795,7 @@ from(bucket: "{INFLUX_BUCKET}")
             'gap_count':       gap_count,
             'total_gap_hours': gap_count,
             'checked_hours':   checked_hours,
-            'window_hours':    round(window_hours, 1),
-            'cluster_id':      cid,
+            **progress,
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

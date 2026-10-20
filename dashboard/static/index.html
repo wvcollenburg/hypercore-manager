@@ -808,6 +808,8 @@
     text-align: center;
   }
   #dataQualityBanner.visible { display: block; }
+  #dataQualityBanner.info { background: #0f2238; border-top-color: #38bdf8; color: #9fd3f0; }
+  #dataQualityBanner.warn { background: #3b2a08; border-top-color: #f59e0b; color: #fcd34d; }
   body.has-rail #dataQualityBanner { left: 210px; }
 
   /* ── user manager ─────────────────────────────────────────────────────── */
@@ -4845,15 +4847,27 @@ async function checkDataQuality() {
   if (!banner) return;
   try {
     const q = await apiFetch('/api/data-quality');
-    if (!q || q.reliable !== false || (currentCluster && q.cluster_id && q.cluster_id !== currentCluster)) {
-      banner.classList.remove('visible');
+    banner.classList.remove('visible', 'info', 'warn');
+    if (!q || (currentCluster && q.cluster_id && q.cluster_id !== currentCluster)) return;
+    const cl      = CLUSTERS.find(c => c.cluster_id === q.cluster_id);
+    const name    = cl ? cl.name : '';
+    const have    = q.window_hours || 0;
+    const need    = q.required_hours || 336;
+    const haveStr = have < 48 ? `${Math.round(have)} h` : `${(have / 24).toFixed(1)} d`;
+    const leftStr = (need - have) < 48 ? `${Math.max(0, Math.round(need - have))} h` : `${((need - have) / 24).toFixed(1)} d`;
+    const gapPct  = q.checked_hours > 0 ? Math.round(q.gap_count / q.checked_hours * 100) : 0;
+    const gapStr  = q.reliable === false ? ' ' + t('quality.gaps', {gaps: q.gap_count, hours: q.checked_hours, pct: gapPct}) : '';
+
+    if (!q.enough_history) {
+      // still building the 14 days Foresight needs: informational, amber when gaps already show
+      banner.textContent = t('quality.collecting', {cluster: name, have: haveStr, left: leftStr, pct: Math.round(q.history_pct || 0)}) + gapStr;
+      banner.classList.add('visible', q.reliable === false ? 'warn' : 'info');
       return;
     }
-    const pct  = q.checked_hours > 0 ? Math.round(q.gap_count / q.checked_hours * 100) : 0;
-    const cl   = CLUSTERS.find(c => c.cluster_id === q.cluster_id);
-    const days = Math.max(1, Math.round((q.window_hours || 336) / 24));
-    banner.textContent = t('quality.warning', {cluster: cl ? cl.name : '', gaps: q.gap_count, hours: q.checked_hours, pct, days});
-    banner.classList.add('visible');
+    if (q.reliable === false) {
+      banner.textContent = t('quality.warning', {cluster: name, gaps: q.gap_count, hours: q.checked_hours, pct: gapPct, days: Math.round(need / 24)});
+      banner.classList.add('visible');
+    }
   } catch (_) {}
 }
 document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality, 1500));
