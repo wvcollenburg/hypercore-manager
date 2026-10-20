@@ -100,6 +100,7 @@ def schedules():
     rows = []
     for s in db.get_schedules(_cluster_arg()):
         d = _ser(s)
+        d['effective_base'] = jobs.effective_base(s)
         d['last_run'] = _ser(db.last_run_for(s['id']))
         nxt = scheduler.next_run_time(s['id'])
         d['next_run'] = nxt.isoformat() if nxt else None
@@ -226,9 +227,11 @@ def runs_status():
 
 
 # ------------------------------------------------------------------ imports
-def _resolve_source(b: dict):
-    """(base_uri, user, password): a saved location (known_id -> schedule) keeps credentials
-    server-side; otherwise the manually entered fields."""
+def _resolve_source(b: dict, target_cluster):
+    """(base_uri, user, password). A saved location (known_id -> schedule) keeps its credentials
+    server-side and is scoped to the target cluster's tenant folder, so an import can only pick
+    up exports that belong to the same HyperCore Manager folder. A manually typed source is used
+    as typed (admin-only route)."""
     known_id = b.get('known_id')
     if known_id:
         try:
@@ -237,20 +240,31 @@ def _resolve_source(b: dict):
             sched = None
         if sched and (sched['path_uri_base'] or '').lower().startswith('smb://'):
             password = db.decrypt_password(sched['smb_pass_enc']) if sched['smb_pass_enc'] else ''
-            return sched['path_uri_base'], sched['smb_user'] or '', password
+            base = f"{sched['path_uri_base'].rstrip('/')}/{jobs.tenant_slug(target_cluster)}"
+            return base, sched['smb_user'] or '', password
     return (b.get('source_uri') or '').strip(), (b.get('smb_user') or '').strip(), b.get('smb_password') or ''
 
 
 @app.get('/api/v1/import/known')
 @_require_token
 def import_known():
-    return jsonify([_ser(r) for r in db.get_known_smb_locations()])
+    cid = _cluster_arg()
+    cluster = cluster_registry.get(cid) if cid else None
+    tenant = jobs.tenant_slug(cluster)
+    rows = []
+    for r in db.get_known_smb_locations():
+        d = _ser(r)
+        d['tenant'] = tenant
+        d['effective_base'] = f"{r['path_uri_base'].rstrip('/')}/{tenant}"
+        rows.append(d)
+    return jsonify(rows)
 
 
 @app.post('/api/v1/import/browse')
 @_require_token
 def import_browse():
-    base, user, password = _resolve_source(request.get_json(silent=True) or {})
+    cid = _cluster_arg()
+    base, user, password = _resolve_source(request.get_json(silent=True) or {}, cluster_registry.get(cid) if cid else None)
     if not base.lower().startswith('smb://'):
         return _err('Browsing is only available for smb:// shares; for NFS type the full source path.')
     try:
@@ -267,7 +281,7 @@ def import_start():
     cluster = cluster_registry.get(cid) if cluster_registry.is_uuid(cid) else None
     if not cluster:
         return _err('unknown target cluster')
-    base, smb_user, smb_password = _resolve_source(b)
+    base, smb_user, smb_password = _resolve_source(b, cluster)
     base = base.rstrip('/')
     folder = (b.get('source_folder') or '').strip().strip('/')
     if not base:

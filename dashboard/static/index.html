@@ -5252,7 +5252,7 @@ async function exLoadSchedules() {
     </tr></thead><tbody>${rows.map(s => `
       <tr>
         <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="qcow2 compression">zip</span>` : ''}</td>
-        <td style="font-family:'JetBrains Mono',monospace;font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_exEsc(s.path_uri_base)}">${_exEsc(s.path_uri_base)}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_exEsc(s.effective_base || s.path_uri_base)}">${_exEsc(s.effective_base || s.path_uri_base)}/</td>
         <td><span class="ex-slots">${'<i></i>'.repeat(Math.min(s.retention, 14))}</span><span style="font-size:11px;color:var(--text-muted)">×${s.retention}</span></td>
         <td style="font-family:'JetBrains Mono',monospace;">${_exEsc(s.run_time)}</td>
         <td>${s.last_run ? `${_exStatusBadge(s.last_run.status, s.last_run.message)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(s.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
@@ -5341,8 +5341,8 @@ async function exLoadImport() {
         <div><label>${t('ex.i_known')}</label>
           <select id="exi-known" onchange="exKnownChanged()">
             <option value="">${t('ex.i_manual')}</option>
-            ${_exImport.known.map(k => `<option value="${k.ref_id}">${_exEsc(k.path_uri_base)} · ${_exEsc(k.smb_user)}</option>`).join('')}
-          </select><div class="ex-hint">${t('ex.i_known_hint')}</div></div>
+            ${_exImport.known.map(k => `<option value="${k.ref_id}">${_exEsc(k.effective_base || k.path_uri_base)} · ${_exEsc(k.smb_user)}</option>`).join('')}
+          </select><div class="ex-hint">${t('ex.i_known_hint')} ${t('ex.i_tenant_hint', {tenant: _exEsc((_exImport.known[0] || {}).tenant || (cur && cur.folder_id ? (FOLDERS.find(f => f.folder_id === cur.folder_id) || {}).name : '_unfiled') || '')})}</div></div>
         <div><label>${t('ex.i_source')}</label><input type="text" id="exi-source" placeholder="smb://nas.local/backups/hypercore"></div>
         <div><label>${t('ex.f_smb_user')}</label><input type="text" id="exi-user" autocomplete="off"></div>
         <div><label>${t('ex.f_smb_password')}</label><input type="password" id="exi-pass" autocomplete="new-password"></div>

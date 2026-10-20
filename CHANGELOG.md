@@ -31,6 +31,8 @@ All notable changes to this project are documented here. The format follows
   folders with retention pruning (SMB over the protocol, NFS via a mount), VM import into any
   registered cluster with duplicate-name guard, live task progress, and re-attachment of runs
   interrupted by a restart. Dashboard tab with Schedules, VMs, Import and Runs per cluster.
+  Exports are written under `<destination>/<HyperCore Manager folder>/` and imports are scoped
+  to the cluster's folder, so the share layout mirrors tenancy.
 - Folders in the cluster rail with per-user access (migration 021), searchable members and
   per-user folder dialogs, a users panel with search and by-folder grouping, breadcrumbs, rail
   search, per-cluster data-quality banner, Account page.

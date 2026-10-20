@@ -53,6 +53,29 @@ def build_path_uri(base: str, user: str | None, password: str | None) -> str:
     return urlunsplit(parts._replace(netloc=netloc))
 
 
+def tenant_slug(cluster) -> str:
+    """Share subfolder for a cluster: its HyperCore Manager folder name, filesystem-safe.
+    Clusters without a folder share one `_unfiled` subfolder (admin-only in the dashboard)."""
+    name = getattr(cluster, 'folder_name', None) if cluster is not None else None
+    return safe_name(name) if name else '_unfiled'
+
+
+def effective_base(sched) -> str:
+    """Where this schedule's exports live: <destination>/<tenant>. Resolved at run time, so a
+    cluster moved to another folder writes to (and prunes in) its new folder from then on."""
+    cluster = cluster_registry.get(sched['cluster_id'])
+    return f"{sched['path_uri_base'].rstrip('/')}/{tenant_slug(cluster)}"
+
+
+def ensure_smb_dir(base_uri: str, user: str | None, password: str | None) -> None:
+    """Create the tenant folder on an SMB share if it does not exist; HyperCore only creates
+    the final (VM) folder of the pathURI, not its parents."""
+    import smbclient
+    unc, port = _smb_unc(base_uri)
+    conn = {'username': smb_username(user), 'password': password, 'port': port}
+    smbclient.makedirs(unc, exist_ok=True, **conn)
+
+
 def client_for(cluster_id: str) -> HyperCoreClient:
     c = cluster_registry.get(cluster_id)
     if c is None:
@@ -109,11 +132,17 @@ def run_export(schedule_id: int) -> None:
     run_id = db.start_run(schedule_id)
     folder = f"{safe_name(sched['vm_name'])}_{datetime.now().strftime(TIMESTAMP_FMT)}"
     smb_pass = db.decrypt_password(sched['smb_pass_enc']) if sched['smb_pass_enc'] else None
-    path_uri = build_path_uri(f"{sched['path_uri_base']}/{folder}", sched['smb_user'], smb_pass)
-    db.update_run(run_id, export_path=folder)
-    log.info('[run %s] Exporting %s to %s', run_id, sched['vm_name'], folder)
+    base = effective_base(sched)
+    tenant = base.rsplit('/', 1)[-1]
+    path_uri = build_path_uri(f"{base}/{folder}", sched['smb_user'], smb_pass)
+    db.update_run(run_id, export_path=f'{tenant}/{folder}')
+    log.info('[run %s] Exporting %s to %s/%s', run_id, sched['vm_name'], tenant, folder)
 
     try:
+        if base.lower().startswith('smb://') and sched['smb_user']:
+            ensure_smb_dir(base, sched['smb_user'], smb_pass)
+        elif sched.get('prune_path'):
+            Path(sched['prune_path'], tenant).mkdir(parents=True, exist_ok=True)
         hc = client_for(sched['cluster_id'])
         task_tag = hc.export_vm(sched['vm_uuid'], path_uri, compress=bool(sched['compress']))
         db.update_run(run_id, task_tag=task_tag)
@@ -224,7 +253,7 @@ def prune_old_exports(sched) -> str:
     through a local bind mount."""
     if sched.get('prune_path'):
         return _prune_via_mount(sched)
-    scheme = urlsplit(sched['path_uri_base']).scheme.lower()
+    scheme = urlsplit(effective_base(sched)).scheme.lower()
     if scheme == 'smb':
         if not sched.get('smb_user'):
             return 'Pruning skipped: SMB share has no stored username; add one or set a mount path.'
@@ -233,7 +262,7 @@ def prune_old_exports(sched) -> str:
 
 
 def _prune_via_mount(sched) -> str:
-    base = Path(sched['prune_path'])
+    base = Path(sched['prune_path'], effective_base(sched).rsplit('/', 1)[-1])
     if not base.is_dir():
         return f'Pruning skipped: {base} is not accessible from this container.'
     names = [d.name for d in base.iterdir() if d.is_dir()]
@@ -251,7 +280,7 @@ def _prune_via_smb(sched) -> str:
     import smbclient
     from smbclient import shutil as smb_shutil
     try:
-        unc_base, port = _smb_unc(sched['path_uri_base'])
+        unc_base, port = _smb_unc(effective_base(sched))
     except HyperCoreError as e:
         return f'Pruning skipped: {e}'
     password = db.decrypt_password(sched['smb_pass_enc']) if sched.get('smb_pass_enc') else None

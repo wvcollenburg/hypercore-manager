@@ -658,7 +658,7 @@ window.LANG = {
   'ex.daily_at': "chaque jour à {time}",
   'ex.schedule_export': "Planifier un export",
   'ex.f_destination': "Destination de l'export (URI du partage)",
-  'ex.f_destination_hint': "URI SMB ou NFS sans identifiant ni mot de passe. Chaque exécution y crée {folder}.",
+  'ex.f_destination_hint': "URI SMB ou NFS sans identifiant ni mot de passe. Les exports sont plac\u00e9s dans <nom du dossier>/{folder}, le partage refl\u00e8te ainsi vos dossiers HyperCore Manager.",
   'ex.f_prune_path': "Chemin de purge (NFS, optionnel)",
   'ex.f_prune_hint': "Les partages SMB sont purgés automatiquement avec les identifiants ci-dessous ; laissez vide. Pour NFS : un montage du même dossier dans le conteneur exports.",
   'ex.f_smb_user': "Utilisateur du partage (SMB)",
@@ -701,6 +701,8 @@ window.LANG = {
   'ex.status_ok': "ok",
   'ex.status_failed': "échec",
   'ex.status_running': "en cours",
+
+  'ex.i_tenant_hint': "Les emplacements enregistr\u00e9s sont limit\u00e9s au dossier de ce cluster ({tenant}) ; les exports d'autres dossiers ne sont pas propos\u00e9s.",
 
   // community-support notice (shown once per user)
   'community.title':        'Logiciel soutenu par la communaut\u00e9',

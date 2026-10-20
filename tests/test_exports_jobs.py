@@ -103,3 +103,23 @@ def test_smb_unc_parsing():
     assert jobs._smb_unc('smb://nas.local:4450/share') == ('\\\\nas.local\\share', 4450)
     with pytest.raises(Exception):
         jobs._smb_unc('smb://nas.local/')
+
+
+# --- tenant scoping: the share mirrors HyperCore Manager folders -------------------------
+
+class _C:
+    def __init__(self, folder_name): self.folder_name = folder_name
+
+
+def test_tenant_slug_from_folder_name():
+    assert jobs.tenant_slug(_C('Amsterdam')) == 'Amsterdam'
+    assert jobs.tenant_slug(_C('MSP customers / West')) == 'MSP_customers_West'
+    assert jobs.tenant_slug(_C(None)) == '_unfiled'
+    assert jobs.tenant_slug(None) == '_unfiled'
+
+
+def test_effective_base_appends_tenant(monkeypatch):
+    monkeypatch.setattr(jobs.cluster_registry, 'get', lambda cid: _C('Amsterdam'))
+    assert jobs.effective_base({'cluster_id': 'x', 'path_uri_base': 'smb://nas/share/'}) == 'smb://nas/share/Amsterdam'
+    monkeypatch.setattr(jobs.cluster_registry, 'get', lambda cid: None)
+    assert jobs.effective_base({'cluster_id': 'x', 'path_uri_base': 'nfs://nas/export'}) == 'nfs://nas/export/_unfiled'

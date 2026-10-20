@@ -659,7 +659,7 @@ window.LANG = {
   'ex.daily_at': "daily at {time}",
   'ex.schedule_export': "Schedule export",
   'ex.f_destination': "Export destination (share URI)",
-  'ex.f_destination_hint': "SMB or NFS URI without username or password. Each run creates {folder} inside it.",
+  'ex.f_destination_hint': "SMB or NFS URI without username or password. Exports land in <folder name>/{folder} inside it, so the share mirrors your HyperCore Manager folders.",
   'ex.f_prune_path': "Retention prune path (NFS, optional)",
   'ex.f_prune_hint': "SMB shares prune automatically with the credentials below; leave blank. For NFS: a bind mount of the same folder inside the exports container.",
   'ex.f_smb_user': "Share username (SMB)",
@@ -702,6 +702,8 @@ window.LANG = {
   'ex.status_ok': "ok",
   'ex.status_failed': "failed",
   'ex.status_running': "running",
+
+  'ex.i_tenant_hint': "Saved locations are scoped to this cluster's folder ({tenant}); exports of other folders are not offered.",
 
   // community-support notice (shown once per user)
   'community.title':        'Community-supported software',

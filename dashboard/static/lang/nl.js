@@ -658,7 +658,7 @@ window.LANG = {
   'ex.daily_at': "dagelijks om {time}",
   'ex.schedule_export': "Export inplannen",
   'ex.f_destination': "Exportbestemming (share-URI)",
-  'ex.f_destination_hint': "SMB- of NFS-URI zonder gebruikersnaam of wachtwoord. Elke uitvoering maakt {folder} erin aan.",
+  'ex.f_destination_hint': "SMB- of NFS-URI zonder gebruikersnaam of wachtwoord. Exports komen terecht in <mapnaam>/{folder} daarbinnen, zodat de share uw HyperCore Manager-mappen weerspiegelt.",
   'ex.f_prune_path': "Opschoonpad (NFS, optioneel)",
   'ex.f_prune_hint': "SMB-shares worden automatisch opgeschoond met onderstaande inloggegevens; leeg laten. Voor NFS: een bind-mount van dezelfde map in de exports-container.",
   'ex.f_smb_user': "Share-gebruikersnaam (SMB)",
@@ -701,6 +701,8 @@ window.LANG = {
   'ex.status_ok': "ok",
   'ex.status_failed': "mislukt",
   'ex.status_running': "bezig",
+
+  'ex.i_tenant_hint': "Opgeslagen locaties zijn beperkt tot de map van dit cluster ({tenant}); exports van andere mappen worden niet aangeboden.",
 
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',

@@ -50,6 +50,7 @@ class Cluster:
     registered_at: Optional[datetime]
     updated_at: Optional[datetime]
     folder_id: Optional[str] = None
+    folder_name: Optional[str] = None
 
     @property
     def base_url(self) -> str:
@@ -106,9 +107,10 @@ def _connect():
     )
 
 
-_COLUMNS = '''cluster_id::text AS cluster_id, cluster_name, hc_host, hc_username, verify_tls,
-              enabled, is_template, hc_cluster_uuid, colour, last_seen_at, last_error,
-              registered_at, updated_at, folder_id::text AS folder_id'''
+_COLUMNS = '''c.cluster_id::text AS cluster_id, c.cluster_name, c.hc_host, c.hc_username, c.verify_tls,
+              c.enabled, c.is_template, c.hc_cluster_uuid, c.colour, c.last_seen_at, c.last_error,
+              c.registered_at, c.updated_at, c.folder_id::text AS folder_id, f.name AS folder_name'''
+_FROM = 'FROM config.clusters c LEFT JOIN config.folders f ON f.folder_id = c.folder_id'
 
 
 def _row_to_cluster(r: dict) -> Cluster:
@@ -119,7 +121,7 @@ def _row_to_cluster(r: dict) -> Cluster:
         hc_cluster_uuid=r['hc_cluster_uuid'], colour=r['colour'],
         last_seen_at=r['last_seen_at'], last_error=r['last_error'],
         registered_at=r['registered_at'], updated_at=r['updated_at'],
-        folder_id=r.get('folder_id'),
+        folder_id=r.get('folder_id'), folder_name=r.get('folder_name'),
     )
 
 
@@ -128,10 +130,10 @@ def _row_to_cluster(r: dict) -> Cluster:
 # ---------------------------------------------------------------------------
 
 def list_all(include_template: bool = False) -> list[Cluster]:
-    sql = f'SELECT {_COLUMNS} FROM config.clusters'
+    sql = f'SELECT {_COLUMNS} {_FROM}'
     if not include_template:
-        sql += ' WHERE is_template = FALSE'
-    sql += ' ORDER BY is_template DESC, lower(cluster_name)'
+        sql += ' WHERE c.is_template = FALSE'
+    sql += ' ORDER BY c.is_template DESC, lower(c.cluster_name)'
     conn = _connect()
     try:
         with conn.cursor() as cur:
@@ -151,7 +153,7 @@ def get(cluster_id: str) -> Optional[Cluster]:
     conn = _connect()
     try:
         with conn.cursor() as cur:
-            cur.execute(f'SELECT {_COLUMNS} FROM config.clusters WHERE cluster_id = %s', (cluster_id,))
+            cur.execute(f'SELECT {_COLUMNS} {_FROM} WHERE c.cluster_id = %s', (cluster_id,))
             r = cur.fetchone()
             return _row_to_cluster(r) if r else None
     finally:

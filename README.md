@@ -295,15 +295,18 @@ The optional `exports` container schedules VM exports and runs imports, driven f
 - **Schedules.** Per VM: a share URI (`smb://nas.local/share/path` or `nfs://nas.local/export/path`,
   without credentials), share username and password for SMB (stored encrypted), copies to keep,
   daily run time (in `TZ`), optional qcow2 compression. Every run exports to
-  `<destination>/<vm-name>_YYYYMMDD-HHMMSS/`; HyperCore creates that folder itself, so the
-  destination path must already exist on the share.
+  `<destination>/<folder name>/<vm-name>_YYYYMMDD-HHMMSS/`: the share mirrors your HyperCore
+  Manager folders, so an MSP can set per-tenant permissions on the share and an import can only
+  pick up exports from the cluster's own folder. The tenant folder is created over SMB when
+  missing; HyperCore creates the VM folder itself. Clusters without a folder use `_unfiled`.
 - **Retention.** After a successful export, older copies of that VM beyond the retention count
   are deleted, oldest first. SMB shares are pruned over the protocol with the stored credentials;
   for NFS, bind-mount the share into the `exports` container and set the prune path on the
   schedule. Other VMs' folders are never touched.
-- **Imports.** Pick a saved export location (credentials reused server-side) or type one, browse
-  the share for export folders, optionally rename, and import into the selected cluster. A name
-  that already exists on the target is refused.
+- **Imports.** Pick a saved export location (credentials reused server-side, scoped to the
+  selected cluster's folder on the share) or type one, browse for export folders, optionally
+  rename, and import into the selected cluster. A name that already exists on the target is
+  refused.
 - **Runs.** Export and import history with live progress from HyperCore's task API. A run
   interrupted by a container restart is re-attached by its task tag.
 - **Rights.** The cluster account registered in Settings → Clusters needs HyperCore permission to

@@ -658,7 +658,7 @@ window.LANG = {
   'ex.daily_at': "täglich um {time}",
   'ex.schedule_export': "Export planen",
   'ex.f_destination': "Exportziel (Freigabe-URI)",
-  'ex.f_destination_hint': "SMB- oder NFS-URI ohne Benutzername oder Passwort. Jeder Lauf legt darin {folder} an.",
+  'ex.f_destination_hint': "SMB- oder NFS-URI ohne Benutzername oder Passwort. Exporte landen darin unter <Ordnername>/{folder}, die Freigabe spiegelt so Ihre HyperCore-Manager-Ordner.",
   'ex.f_prune_path': "Bereinigungspfad (NFS, optional)",
   'ex.f_prune_hint': "SMB-Freigaben werden mit den Zugangsdaten unten automatisch bereinigt; leer lassen. Für NFS: ein Bind-Mount desselben Ordners im exports-Container.",
   'ex.f_smb_user': "Freigabe-Benutzer (SMB)",
@@ -701,6 +701,8 @@ window.LANG = {
   'ex.status_ok': "ok",
   'ex.status_failed': "fehlgeschlagen",
   'ex.status_running': "läuft",
+
+  'ex.i_tenant_hint': "Gespeicherte Orte sind auf den Ordner dieses Clusters ({tenant}) beschr\u00e4nkt; Exporte anderer Ordner werden nicht angeboten.",
 
   // community-support notice (shown once per user)
   'community.title':        'Community-unterst\u00fctzte Software',
