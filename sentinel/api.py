@@ -900,9 +900,10 @@ def get_sharing():
                            last_sync_at, last_sync_status, last_sync_error,
                            anon_vm_names, anon_node_uuids, anon_cluster_name
                     FROM config.sharing_prefs
-                    WHERE cluster_id = 'default'
+                    WHERE cluster_id = %s
                     LIMIT 1
                     ''',
+                    [cfg.cluster_id],
                 )
                 row = cur.fetchone()
     except Exception as e:
@@ -974,7 +975,7 @@ def put_sharing():
         set_parts.append(f'{k} = %s')
         params.append(v)
     set_parts.append('updated_at = NOW()')
-    params.append('default')  # WHERE cluster_id = 'default'
+    params.append(cfg.cluster_id)
 
     try:
         with db.connect(cfg) as conn:
@@ -997,9 +998,10 @@ def put_sharing():
                            last_sync_at, last_sync_status, last_sync_error,
                            anon_vm_names, anon_node_uuids, anon_cluster_name
                     FROM config.sharing_prefs
-                    WHERE cluster_id = 'default'
+                    WHERE cluster_id = %s
                     LIMIT 1
                     ''',
+                    [cfg.cluster_id],
                 )
                 row = cur.fetchone()
     except Exception as e:
@@ -1110,9 +1112,10 @@ def post_export_test_push():
                     '''
                     SELECT sharing_enabled, viewer_url, bearer_token
                     FROM config.sharing_prefs
-                    WHERE cluster_id = 'default'
+                    WHERE cluster_id = %s
                     LIMIT 1
                     ''',
+                    [cfg.cluster_id],
                 )
                 row = cur.fetchone()
     except Exception as e:

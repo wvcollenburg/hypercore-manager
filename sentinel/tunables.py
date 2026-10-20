@@ -24,7 +24,34 @@ logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 
-DEFAULT_CLUSTER_ID = os.getenv('SC_CLUSTER_ID', '00000000-0000-0000-0000-000000000001')
+TEMPLATE_CLUSTER_ID = '00000000-0000-0000-0000-000000000001'
+# the cluster whose tunables this process reads and writes; sentinel.py sets it once the
+# registry has yielded a cluster. Until then the Defaults template is used.
+DEFAULT_CLUSTER_ID = TEMPLATE_CLUSTER_ID
+
+
+def set_cluster_id(cluster_id: str) -> None:
+    """Switch live tunables to *cluster_id* and make sure it has every key the template has
+    (keys added in a newer release are copied over from the Defaults template)."""
+    global DEFAULT_CLUSTER_ID
+    DEFAULT_CLUSTER_ID = cluster_id
+    if cluster_id == TEMPLATE_CLUSTER_ID:
+        return
+    try:
+        conn = _connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''INSERT INTO config.tunables (cluster_id, key, value, type)
+                       SELECT %s, key, value, type FROM config.tunables WHERE cluster_id = %s
+                       ON CONFLICT (cluster_id, key) DO NOTHING''',
+                    (cluster_id, TEMPLATE_CLUSTER_ID),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning('tunables: could not copy template tunables to %s: %s', cluster_id, exc)
 
 TunableDef = namedtuple('TunableDef', [
     'env_var', 'default', 'type_hint', 'live_reload',
@@ -223,7 +250,7 @@ def seed_from_env() -> None:
                         raw_env = os.getenv(defn.env_var) or None
                         cur.execute(
                             'SELECT value FROM config.tunables WHERE cluster_id = %s AND key = %s',
-                            (DEFAULT_CLUSTER_ID, key),
+                            (TEMPLATE_CLUSTER_ID, key),
                         )
                         row = cur.fetchone()
                         if row is None:
@@ -231,7 +258,7 @@ def seed_from_env() -> None:
                             cur.execute(
                                 '''INSERT INTO config.tunables (cluster_id, key, value, type)
                                    VALUES (%s, %s, %s, %s)''',
-                                (DEFAULT_CLUSTER_ID, key,
+                                (TEMPLATE_CLUSTER_ID, key,
                                  _serialize(value, defn.type_hint), defn.type_hint),
                             )
                         elif raw_env is not None and row[0] == _serialize(defn.default, defn.type_hint):
@@ -241,7 +268,7 @@ def seed_from_env() -> None:
                                       SET value = %s, updated_at = NOW()
                                     WHERE cluster_id = %s AND key = %s''',
                                 (_serialize(_cast(raw_env, defn.type_hint), defn.type_hint),
-                                 DEFAULT_CLUSTER_ID, key),
+                                 TEMPLATE_CLUSTER_ID, key),
                             )
                 conn.commit()
             finally:

@@ -85,7 +85,8 @@ class SyncPushLoop:
                         "SELECT sharing_enabled, viewer_url, bearer_token, "
                         "       last_sync_at, anon_vm_names, anon_node_uuids, "
                         "       anon_cluster_name, anon_hmac_key "
-                        "FROM config.sharing_prefs WHERE cluster_id='default'"
+                        "FROM config.sharing_prefs WHERE cluster_id=%s",
+                        (cfg.cluster_id,)
                     )
                     row = cur.fetchone()
         except Exception as exc:
@@ -164,16 +165,16 @@ class SyncPushLoop:
                             "UPDATE config.sharing_prefs "
                             "SET last_sync_at=%s, last_sync_status='ok', "
                             "    last_sync_error=NULL, updated_at=NOW() "
-                            "WHERE cluster_id='default'",
-                            (sync_at,)
+                            "WHERE cluster_id=%s",
+                            (sync_at, cfg.cluster_id)
                         )
                     else:
                         cur.execute(
                             "UPDATE config.sharing_prefs "
                             "SET last_sync_status='error', last_sync_error=%s, "
                             "    updated_at=NOW() "
-                            "WHERE cluster_id='default'",
-                            (error,)
+                            "WHERE cluster_id=%s",
+                            (error, cfg.cluster_id)
                         )
                 conn.commit()
         except Exception as exc:

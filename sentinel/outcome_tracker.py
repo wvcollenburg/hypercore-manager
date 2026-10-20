@@ -152,7 +152,7 @@ def run_once(cfg: cfg_module.Config) -> None:
       - Compare with InfluxDB "before" data and write outcomes.
     """
     if not cfg.hc_host:
-        log.debug('Outcome tracker skipped — SC_HOST not configured')
+        log.debug('Outcome tracker skipped — no cluster registered yet')
         return
 
     # ── 1. load pending events ──────────────────────────────────────────────

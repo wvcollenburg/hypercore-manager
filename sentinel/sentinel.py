@@ -44,6 +44,7 @@ import logging
 import os
 import signal
 import threading
+import time
 
 import api
 import config
@@ -282,13 +283,34 @@ def webhook_loop(cfg: config.Config, stop: threading.Event) -> None:
         stop.wait(cfg.webhook_dispatch_interval_seconds)
 
 
-def main() -> None:
-    cfg = config.load()
+def _wait_for_cluster() -> None:
+    """Block until at least one cluster is registered and enabled in the dashboard."""
+    import cluster_registry
+    notified = False
+    while True:
+        try:
+            if cluster_registry.list_enabled():
+                return
+        except Exception as exc:
+            logger.warning('Cluster registry unavailable', extra={'error': str(exc)})
+        if not notified:
+            logger.info('No cluster registered yet — waiting (add one in the dashboard, Settings → Clusters)')
+            notified = True
+        time.sleep(30)
 
+
+def main() -> None:
     log.configure(level=os.getenv('SENTINEL_LOG_LEVEL', 'INFO'))
 
     # T1: seed live tunables from env vars on first start (no-op if already seeded)
     tunables.seed_from_env()
+
+    # clusters live in the registry; analysis is per cluster, so there is nothing to
+    # do until the first one exists
+    _wait_for_cluster()
+    cfg = config.load()
+    tunables.set_cluster_id(cfg.cluster_id)
+    logger.info('Analysing cluster', extra={'cluster_id': cfg.cluster_id, 'cluster_name': cfg.cluster_name})
 
     logger.info(
         'Sentinel starting',
@@ -305,8 +327,8 @@ def main() -> None:
 
     if not cfg.hc_verify_ssl:
         logger.warning(
-            'SC_VERIFY_SSL is false \u2014 TLS certificate validation disabled for HyperCore API. '
-            'Set SC_VERIFY_SSL=true in production.'
+            'TLS certificate validation is disabled for this cluster (self-signed certificate). '
+            'Enable "Verify TLS" on the cluster in Settings → Clusters once it has a trusted certificate.'
         )
     if not cfg.api_token:
         logger.warning(

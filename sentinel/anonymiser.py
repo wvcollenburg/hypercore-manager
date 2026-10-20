@@ -60,9 +60,10 @@ def load_anon_config(cfg: cfg_module.Config) -> AnonConfig:
                     SELECT sharing_enabled, anon_vm_names, anon_node_uuids,
                            anon_cluster_name, anon_hmac_key
                     FROM config.sharing_prefs
-                    WHERE cluster_id = 'default'
+                    WHERE cluster_id = %s
                     LIMIT 1
                     ''',
+                    [cfg.cluster_id],
                 )
                 row = cur.fetchone()
 
@@ -82,9 +83,9 @@ def load_anon_config(cfg: cfg_module.Config) -> AnonConfig:
                             '''
                             UPDATE config.sharing_prefs
                                SET anon_hmac_key = %s, updated_at = NOW()
-                             WHERE cluster_id = 'default'
+                             WHERE cluster_id = %s
                             ''',
-                            [hmac_key],
+                            [hmac_key, cfg.cluster_id],
                         )
             except Exception:
                 log.exception('anonymiser: failed to persist generated HMAC key')
