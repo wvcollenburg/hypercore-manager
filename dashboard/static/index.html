@@ -948,10 +948,7 @@
     <button class="rail-tool" onclick="setAllFolders(false)" title="Expand all" data-i18n-title="folders.expand_all">⊞</button>
   </div>
   <div id="clusterRailList" class="cluster-rail-list"></div>
-  <nav class="rail-footer">
-    <div class="rail-nav" data-tab="modules" onclick="switchTab('modules')"><span class="rail-nav-icon">▦</span><span data-i18n="nav.modules">Modules</span></div>
-    <div class="rail-nav" data-tab="settings" onclick="switchTab('settings')"><span class="rail-nav-icon">⚙</span><span data-i18n="nav.settings_short">Settings</span></div>
-  </nav>
+  <nav class="rail-footer" id="railFooter"></nav>
 </aside>
 
 <div class="header">
@@ -3686,6 +3683,11 @@ async function loadSettings() {
   const groups = CTRL_GROUPS.filter(g => g.tab === 'general');
   const isAdmin = me?.role === 'admin';
 
+  if (me && !isAdmin && !me.dev_mode) {
+    // plain users: only their own account; tunables, clusters and users are admin matters
+    document.getElementById('settingsContent').innerHTML = _renderMyAccountCard(me);
+    return;
+  }
   let html = '';
   if (me) {
     const cl = await apiFetch('/api/clusters');
@@ -4922,10 +4924,22 @@ function _renderOnboarding(show, secretOk) {
   bd.classList.add('visible');
 }
 
+function _renderRailFooter(isAdmin) {
+  const el = document.getElementById('railFooter');
+  if (!el) return;
+  // admins navigate to Modules and the full Settings; everyone else only reaches their own account
+  el.innerHTML = isAdmin ? `
+    <div class="rail-nav" data-tab="modules" onclick="switchTab('modules')"><span class="rail-nav-icon">▦</span><span>${t('nav.modules')}</span></div>
+    <div class="rail-nav" data-tab="settings" onclick="switchTab('settings')"><span class="rail-nav-icon">⚙</span><span>${t('nav.settings_short')}</span></div>` : `
+    <div class="rail-nav" data-tab="settings" onclick="switchTab('settings')"><span class="rail-nav-icon">👤</span><span>${t('nav.account')}</span></div>`;
+  const active = document.querySelector('.tab-content.active')?.id?.replace('tab-', '');
+  if (active) el.querySelectorAll(`[data-tab="${active}"]`).forEach(e => e.classList.add('active'));
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const rail = document.getElementById('clusterRail');
   if (rail) { rail.hidden = false; document.body.classList.add('has-rail'); }
-  apiFetch('/api/users/me').then(me => { _isAdminCached = !!me && (me.role === 'admin' || me.dev_mode); return loadClusters(); }).catch(() => {});
+  apiFetch('/api/users/me').then(me => { _isAdminCached = !!me && (me.role === 'admin' || me.dev_mode); _renderRailFooter(_isAdminCached); return loadClusters(); }).catch(() => {});
   // keep the rail's "last seen" fresh
   setInterval(() => { if (document.body.classList.contains('has-rail')) loadClusters(); }, 60000);
 });

@@ -663,6 +663,7 @@ def get_forecast_runs():
 # =============================================================================
 @app.route('/api/modules')
 @require_auth
+@require_admin
 def get_modules():
     client = get_influx_client()
     try:
@@ -696,6 +697,7 @@ def get_modules():
 # =============================================================================
 @app.route('/api/query/<measurement>')
 @require_auth
+@require_admin
 def query_measurement(measurement):
     try:
         range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
