@@ -72,7 +72,15 @@ def _require_token(f):
 # ---------------------------------------------------------------------------
 
 def _cfg() -> cfg_module.Config:
-    return _api_app.config['SENTINEL_CFG']
+    """Config of the cluster this request is about: ?cluster=<uuid> when it names a running
+    engine, otherwise the first engine. The dict is owned and updated by sentinel.py."""
+    cfgs: dict = _api_app.config.get('SENTINEL_CFGS') or {}
+    wanted = (request.args.get('cluster') or '').strip()
+    if wanted and wanted in cfgs:
+        return cfgs[wanted]
+    if cfgs:
+        return next(iter(cfgs.values()))
+    return _api_app.config['SENTINEL_CFG']   # no cluster registered yet: base config, no data
 
 
 def _pagination() -> tuple[int, int]:
@@ -825,7 +833,7 @@ def post_whatif():
 def get_tunables():
     """Return all Sentinel live-tunable settings with metadata."""
     import tunables as _tunables
-    return jsonify(_tunables.get_with_meta())
+    return jsonify(_tunables.get_with_meta(_cfg().cluster_id))
 
 
 @_api_app.route('/api/v1/tunables', methods=['PUT'])
@@ -873,8 +881,9 @@ def put_tunables():
     if errors:
         return jsonify({'error': 'Validation failed', 'details': errors}), 400
 
-    _tunables.save_many(validated)
-    return jsonify(_tunables.get_with_meta())
+    cid = _cfg().cluster_id
+    _tunables.save_many(validated, cid)
+    return jsonify(_tunables.get_with_meta(cid))
 
 
 # ---------------------------------------------------------------------------
@@ -1077,7 +1086,7 @@ def post_trend_run():
             'error':   'Trigger not configured — analysis loop is not running.',
         }), 503
     try:
-        trigger()
+        trigger(_cfg().cluster_id)
     except Exception as e:
         log.exception('POST /api/v1/trend/run: trigger failed')
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1255,15 +1264,17 @@ def get_export_hcb():
 # startup
 # ---------------------------------------------------------------------------
 
-def start(cfg: cfg_module.Config, trigger_analysis_fn=None) -> None:
+def start(cfg: cfg_module.Config, trigger_analysis_fn=None, cfgs: dict = None) -> None:
     """
     Start the REST API server in a daemon thread.
 
-    trigger_analysis_fn is an optional callable that, when invoked, signals the
-    analysis loop to run on its next iteration.  Wired up by sentinel.py so the
-    POST /api/v1/trend/run endpoint can request an immediate forecast cycle.
+    cfg is the base (environment) config: port and token. cfgs is the live
+    {cluster_id: Config} dict maintained by sentinel.py's supervisor; requests pick
+    their cluster with ?cluster=<uuid>. trigger_analysis_fn(cluster_id) signals that
+    cluster's analysis loop to run on its next iteration (POST /api/v1/trend/run).
     """
     _api_app.config['SENTINEL_CFG']     = cfg
+    _api_app.config['SENTINEL_CFGS']    = cfgs if cfgs is not None else {}
     _api_app.config['API_TOKEN']        = cfg.api_token
     _api_app.config['TRIGGER_ANALYSIS'] = trigger_analysis_fn
 
