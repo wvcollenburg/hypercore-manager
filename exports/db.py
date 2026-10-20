@@ -291,11 +291,24 @@ def delete_share(share_id: int) -> None:
     _exec('DELETE FROM exports.shares WHERE id = %s', (share_id,))
 
 
+def set_default_share(share_id: Optional[int]) -> None:
+    """Make *share_id* the share for clusters without a folder (None clears it)."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute('UPDATE exports.shares SET default_for_unfiled = FALSE WHERE default_for_unfiled')
+            if share_id:
+                cur.execute('UPDATE exports.shares SET default_for_unfiled = TRUE, updated_at = NOW() WHERE id = %s', (share_id,))
+
+
 def share_for_cluster(cluster_id: str) -> Optional[dict]:
-    """The share assigned to the cluster's folder (with decrypted password), or None."""
+    """The share for a cluster (with decrypted password): the one assigned to its folder, or
+    for a cluster without a folder the share flagged default_for_unfiled. None otherwise."""
     r = _one('''SELECT s.* FROM config.clusters c
-                  JOIN config.folders f ON f.folder_id = c.folder_id
-                  JOIN exports.shares s ON s.id = f.share_id
+                  LEFT JOIN config.folders f ON f.folder_id = c.folder_id
+                  JOIN exports.shares s
+                    ON s.id = CASE WHEN c.folder_id IS NULL
+                                   THEN (SELECT id FROM exports.shares WHERE default_for_unfiled LIMIT 1)
+                                   ELSE f.share_id END
                  WHERE c.cluster_id = %s''', (cluster_id,))
     if r is None:
         return None

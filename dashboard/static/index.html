@@ -3782,7 +3782,7 @@ async function _loadSharesPanel() {
   SHARES = (await apiFetch('/api/exports/shares')) || [];
   const rows = SHARES.map(sh => `
     <tr>
-      <td class="um-username">${_clEsc(sh.name)}<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(sh.uri_base)}</div></td>
+      <td class="um-username">${_clEsc(sh.name)}${sh.default_for_unfiled ? ` <span class="um-badge um-badge-user" title="${_clEsc(t('shares.assign_unfiled_title'))}">no_folder</span>` : ''}<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(sh.uri_base)}</div></td>
       <td>${_clEsc(sh.username || '—')}</td>
       <td>${_clEsc(sh.prune_path || '—')}</td>
       <td>${sh.folder_count}</td>
@@ -4817,7 +4817,7 @@ function _renderClusterRail(enabled) {
   const unfiled = enabled.filter(c => (!c.folder_id || !FOLDERS.some(f => f.folder_id === c.folder_id)) && matchC(c));
   if (unfiled.length) {
     hits += unfiled.length;
-    html += FOLDERS.length ? group('__unfiled__', t('folders.unfiled'), null, unfiled, false)
+    html += FOLDERS.length ? group('__unfiled__', t('folders.unfiled'), null, unfiled, _isAdminView && _exAvailable)
                            : unfiled.map(c => item(c, idx++)).join('');
   }
   if (q && !hits) html = `<div class="folder-empty" style="padding-top:12px;">${t('clusters.rail_no_match')}</div>`;
@@ -4945,7 +4945,24 @@ async function assignFolderShare(folderId, shareId) {
   if (await _folderCall('PUT', `/api/folders/${folderId}`, {share_id: shareId})) await loadClusters();
 }
 
+async function openUnfiledShareMenu(ev) {
+  const shares = (await apiFetch('/api/exports/shares')) || [];
+  const rows = shares.map(sh => `<div class="popmenu-item" onclick="setUnfiledShare(${sh.id}, true)">${_clEsc(sh.name)}${sh.default_for_unfiled ? ' ✓' : ''}</div>`).join('');
+  const cur = shares.find(sh => sh.default_for_unfiled);
+  _openMenu(ev, `
+    <div class="popmenu-title">${t('shares.assign_unfiled_title')}</div>
+    ${rows || `<div class="popmenu-item" style="color:var(--text-muted);cursor:default;">${t('shares.none_short')}</div>`}
+    <div class="popmenu-sep"></div>
+    <div class="popmenu-item" onclick="setUnfiledShare(${cur ? cur.id : 0}, false)">${t('shares.unassign')}${cur ? '' : ' ✓'}</div>`);
+}
+async function setUnfiledShare(shareId, on) {
+  _closeMenus();
+  if (!shareId) return;
+  try { await _exCall('PUT', `/api/exports/shares/${shareId}`, {default_for_unfiled: on}); await loadClusters(); await _exProbe(); } catch (e) { alert(e.message); }
+}
+
 function openFolderMenu(ev, folderId) {
+  if (folderId === '__unfiled__') return openUnfiledShareMenu(ev);
   const f = FOLDERS.find(x => x.folder_id === folderId);
   _openMenu(ev, `
     <div class="popmenu-item" onclick="openFolderMembers('${folderId}')">👥 ${t('folders.members')}</div>

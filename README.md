@@ -301,7 +301,9 @@ The optional `exports` container schedules VM exports and runs imports, driven f
   `<destination>/<folder name>/<vm-name>_YYYYMMDD-HHMMSS/`: the share mirrors your HyperCore
   Manager folders, so an MSP can set per-tenant permissions on the share and an import can only
   pick up exports from the cluster's own folder. The tenant folder is created over SMB when
-  missing; HyperCore creates the VM folder itself. Clusters without a folder use `_unfiled`.
+  missing; HyperCore creates the VM folder itself. Spaces in folder names become underscores on
+  the share. Clusters without a folder use `no_folder` and the share flagged as default for them
+  (the "No folder" group in the rail has the same Export share menu).
 - **Retention.** After a successful export, older copies of that VM beyond the retention count
   are deleted, oldest first. SMB shares are pruned over the protocol with the stored credentials;
   for NFS, bind-mount the share into the `exports` container and set the prune path on the

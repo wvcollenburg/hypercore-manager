@@ -728,6 +728,8 @@ window.LANG = {
   'ex.location_line': "Exports go to {path}",
   'ex.i_from': "Importing from {path}",
 
+  'shares.assign_unfiled_title': "Export share for clusters without a folder (no_folder/)",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-supported software',
   'community.body':         "HyperCore Manager is open-source software maintained on a community-supported basis. It is not an official Scale Computing product and comes without official support or SLA. Use it at your own risk.",

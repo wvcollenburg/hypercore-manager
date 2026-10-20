@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Exports: clusters without a folder can be given an export share too (admin menu on the "No folder" group); their exports land in `<share>/no_folder/`. Folder names with spaces map to underscores on the share.
 - **Multi-cluster.** HyperCore clusters are registered in the dashboard (Settings → Clusters)
   instead of `.env`; credentials are stored Fernet-encrypted in PostgreSQL under the new
   `HCM_SECRET_KEY`. The collector and balancer run one worker per enabled cluster, every

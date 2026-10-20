@@ -56,10 +56,11 @@ def build_path_uri(base: str, user: str | None, password: str | None) -> str:
 
 
 def tenant_slug(cluster) -> str:
-    """Share subfolder for a cluster: its HyperCore Manager folder name, filesystem-safe.
-    Clusters without a folder share one `_unfiled` subfolder (admin-only in the dashboard)."""
+    """Share subfolder for a cluster: its HyperCore Manager folder name made filesystem-safe
+    (spaces and other awkward characters become underscores). Clusters without a folder share
+    one `no_folder` subfolder."""
     name = getattr(cluster, 'folder_name', None) if cluster is not None else None
-    return safe_name(name) if name else '_unfiled'
+    return safe_name(name) if name else 'no_folder'
 
 
 def location_for_cluster(cluster_id: str) -> dict | None:

@@ -357,6 +357,8 @@ def shares_update(sid):
     if 'uri_base' in fields and not str(fields['uri_base']).strip().lower().startswith(('smb://', 'nfs://')):
         return _err('uri_base must start with smb:// or nfs://')
     try:
+        if 'default_for_unfiled' in b:
+            db.set_default_share(sid if b['default_for_unfiled'] else None)
         db.update_share(sid, **fields)
     except Exception as e:
         if 'duplicate key' in str(e):

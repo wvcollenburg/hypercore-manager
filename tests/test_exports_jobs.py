@@ -119,8 +119,9 @@ class _C:
 def test_tenant_slug_from_folder_name():
     assert jobs.tenant_slug(_C('Amsterdam')) == 'Amsterdam'
     assert jobs.tenant_slug(_C('MSP customers / West')) == 'MSP_customers_West'
-    assert jobs.tenant_slug(_C(None)) == '_unfiled'
-    assert jobs.tenant_slug(None) == '_unfiled'
+    assert jobs.tenant_slug(_C(None)) == 'no_folder'
+    assert jobs.tenant_slug(None) == 'no_folder'
+    assert jobs.tenant_slug(_C('MSP customers')) == 'MSP_customers', 'spaces become underscores on the share'
 
 
 def test_effective_base_appends_tenant(monkeypatch):
@@ -128,7 +129,7 @@ def test_effective_base_appends_tenant(monkeypatch):
     monkeypatch.setattr(jobs.cluster_registry, 'get', lambda cid: _C('Amsterdam'))
     assert jobs.effective_base({'cluster_id': 'x', 'path_uri_base': 'smb://nas/share/'}) == 'smb://nas/share/Amsterdam'
     monkeypatch.setattr(jobs.cluster_registry, 'get', lambda cid: None)
-    assert jobs.effective_base({'cluster_id': 'x', 'path_uri_base': 'nfs://nas/export'}) == 'nfs://nas/export/_unfiled'
+    assert jobs.effective_base({'cluster_id': 'x', 'path_uri_base': 'nfs://nas/export'}) == 'nfs://nas/export/no_folder'
 
 
 # --- location resolution: the folder's share wins, legacy schedule fields are a fallback ------
@@ -153,7 +154,7 @@ def test_location_legacy_schedule_without_folder_share(monkeypatch):
     monkeypatch.setattr(jobs.db, 'decrypt_password', lambda tok: 'secret')
     monkeypatch.setattr(jobs.cluster_registry, 'get', lambda cid: _C(None))
     loc = jobs.location_for_schedule({'cluster_id': 'x', 'path_uri_base': 'smb://nas/share/', 'smb_user': 'u', 'smb_pass_enc': 'tok', 'prune_path': None})
-    assert loc['base'] == 'smb://nas/share/_unfiled' and loc['password'] == 'secret' and loc['share_name'] is None
+    assert loc['base'] == 'smb://nas/share/no_folder' and loc['password'] == 'secret' and loc['share_name'] is None
 
 
 def test_location_missing_everywhere_is_a_clear_error(monkeypatch):
