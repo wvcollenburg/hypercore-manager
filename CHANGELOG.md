@@ -26,6 +26,15 @@ All notable changes to this project are documented here. The format follows
   in the dashboard and the balancer suspends itself for it so only one balancer acts per
   physical cluster.
 
+- **Exports module** (`exports` profile, migration 022): the former hypercore-export-manager,
+  rebuilt on the cluster registry and PostgreSQL. Daily VM exports to SMB/NFS in timestamped
+  folders with retention pruning (SMB over the protocol, NFS via a mount), VM import into any
+  registered cluster with duplicate-name guard, live task progress, and re-attachment of runs
+  interrupted by a restart. Dashboard tab with Schedules, VMs, Import and Runs per cluster.
+- Folders in the cluster rail with per-user access (migration 021), searchable members and
+  per-user folder dialogs, a users panel with search and by-folder grouping, breadcrumbs, rail
+  search, per-cluster data-quality banner, Account page.
+
 ### Changed
 - Released as community-supported open-source software under the Apache License 2.0.
   Copyright Scale Computing. The source-available "all rights reserved" terms are withdrawn.

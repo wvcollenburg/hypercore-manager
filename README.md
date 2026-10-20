@@ -27,6 +27,7 @@ The optional **Foresight** module extends the platform with long-range capacity 
 - **Multi-language UI** — English, Dutch, French, and German, selectable from the dashboard header.
 - **User Authentication** — Username/password login with optional per-user TOTP (one-time password) two-factor. Auth can be disabled for local/dev use by leaving the dashboard credentials blank.
 - **In-app Updater** — Detects new tagged releases on origin and applies them in place with one click; database migrations ship and apply automatically with the release that needs them.
+- **Exports (optional `exports` profile)** — Daily VM exports to an SMB or NFS share in timestamped folders with retention pruning, plus VM import back into any registered cluster. Scheduled per VM from the dashboard; progress tracked from HyperCore's task API; interrupted runs re-attach after a restart.
 - **Metrics Collection** — Comprehensive HyperCore telemetry (node performance, VM stats, drive health, VSD I/O, replication, cluster conditions) stored in InfluxDB with automatic downsampling.
 
 ### Foresight (Optional — `sentinel` profile)
@@ -77,6 +78,7 @@ The optional **Foresight** module extends the platform with long-range capacity 
 | **PostgreSQL** | Config store and Foresight conclusions database                      |
 | **Dashboard**  | Web UI for monitoring, live configuration, and Foresight             |
 | **Sentinel**   | *(optional)* Foresight capacity analysis, forecasting, and REST API  |
+| **Exports**    | *(optional)* Scheduled VM exports to SMB/NFS, retention pruning, VM imports |
 | **Grafana**    | *(optional)* Advanced metrics exploration                                |
 
 ---
@@ -134,8 +136,11 @@ The installer also detects whether Compose v2 is present on the host and warns i
 # Core stack + Sentinel capacity analysis
 docker compose --profile sentinel up --build -d
 
-# Core stack + Sentinel + Grafana (the `full` profile covers Sentinel; Grafana is the `tools` profile)
+# Core stack + Sentinel + Exports (the `full` profile covers both; Grafana is the `tools` profile)
 docker compose --profile full --profile tools up --build -d
+
+# Core stack + Exports only
+docker compose --profile exports up --build -d
 
 # Grafana only (without Sentinel)
 docker compose --profile tools up --build -d
@@ -277,6 +282,30 @@ The central viewer that receives these snapshots is a separate deployment:
 
 ---
 
+## Exports
+
+The optional `exports` container schedules VM exports and runs imports, driven from the
+**Exports** tab (shown only when the container is running).
+
+- **Schedules.** Per VM: a share URI (`smb://nas.local/share/path` or `nfs://nas.local/export/path`,
+  without credentials), share username and password for SMB (stored encrypted), copies to keep,
+  daily run time (in `TZ`), optional qcow2 compression. Every run exports to
+  `<destination>/<vm-name>_YYYYMMDD-HHMMSS/`; HyperCore creates that folder itself, so the
+  destination path must already exist on the share.
+- **Retention.** After a successful export, older copies of that VM beyond the retention count
+  are deleted, oldest first. SMB shares are pruned over the protocol with the stored credentials;
+  for NFS, bind-mount the share into the `exports` container and set the prune path on the
+  schedule. Other VMs' folders are never touched.
+- **Imports.** Pick a saved export location (credentials reused server-side) or type one, browse
+  the share for export folders, optionally rename, and import into the selected cluster. A name
+  that already exists on the target is refused.
+- **Runs.** Export and import history with live progress from HyperCore's task API. A run
+  interrupted by a container restart is re-attached by its task tag.
+- **Rights.** The cluster account registered in Settings → Clusters needs HyperCore permission to
+  export and import VMs; a read-only account gives a clear 403 on the first run. Share usernames
+  may be `user`, `DOMAIN\user` or `user@domain`.
+- **Share access from a laptop stack** works over SMB without any mount (userland client).
+
 ## Updates
 
 The dashboard includes an in-app updater that detects new releases and applies them in place. It compares the running version (read from the `VERSION` file at the repo root) against the latest semver-style git tag on `origin`, and surfaces an "Update available" badge in the header when a newer release exists.
@@ -401,6 +430,13 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 │   └── static/
 │       ├── index.html               # Single-page dashboard
 │       └── lang/                    # English, Dutch, French, German translations
+├── exports/
+│   ├── Dockerfile
+│   ├── exports.py                   # Entry point — scheduler + REST API (port 8082)
+│   ├── jobs.py                      # Export/import jobs, SMB pruning, restart recovery
+│   ├── scheduler.py                 # APScheduler wiring (daily cron per schedule)
+│   ├── api.py                       # REST API proxied by the dashboard
+│   └── db.py                        # PostgreSQL schema `exports`
 └── sentinel/
     ├── Dockerfile
     ├── requirements.txt

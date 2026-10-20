@@ -111,3 +111,17 @@ def test_folder_rbac_wiring(repo):
     reg = (repo / 'shared' / 'cluster_registry.py').read_text()
     for fn in ('def list_folders', 'def create_folder', 'def delete_folder', 'def set_folder_member', 'def folder_ids_for_user'):
         assert fn in reg, fn
+
+
+def test_exports_module_wiring(repo):
+    assert (repo / 'postgres' / 'init' / '022_exports_schema.sql').exists()
+    for f in ('Dockerfile', 'requirements.txt', 'exports.py', 'api.py', 'jobs.py', 'scheduler.py', 'db.py', 'hypercore.py',
+              'cluster_registry.py', 'hcm_crypto.py'):
+        assert (repo / 'exports' / f).exists(), f
+    compose = (repo / 'docker-compose.yaml').read_text()
+    assert '\n  exports:\n' in compose and 'EXPORTS_API_URL=http://exports:8082' in compose
+    app = (repo / 'dashboard' / 'app.py').read_text()
+    assert "@app.route('/api/exports/<path:sub>'" in app and "'/api/exports/status'" in app
+    for line in (repo / 'exports' / 'requirements.txt').read_text().splitlines():
+        if line.strip() and not line.startswith('#'):
+            assert '==' in line, f'exports/requirements.txt: {line!r} is not pinned'

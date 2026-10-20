@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-for sub in ('dashboard', 'Balancer', 'sentinel', '.'):
+for sub in ('dashboard', 'Balancer', 'sentinel', '.'):   # exports/ is loaded in isolation by its own test module
     p = str(REPO / sub)
     if p not in sys.path:
         sys.path.insert(0, p)

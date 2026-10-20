@@ -16,6 +16,7 @@ with outbound network access to the HyperCore REST API.
 | `balancer` | always-on | — | Reactive + predictive VM migration engine |
 | `dashboard` | always-on | 5000 | Web UI |
 | `sentinel` | `sentinel` / `full` | 8081 (internal) | Foresight capacity analysis + REST API |
+| `exports` | `exports` / `full` | 8082 (internal) | VM export/import scheduler + REST API |
 | `grafana` | `tools` | 3000 | Optional metrics explorer |
 
 ---
@@ -167,6 +168,19 @@ Settings → Clusters after the stack is up (address, account, TLS verification 
 | `SC_PREDICTIVE_INTERVAL_SECONDS` | How often The Oracle runs (default: 43200 / 12h) |
 | `SC_EXCLUDE_NODE_IPS` | Comma-separated node IPs to never migrate to/from |
 
+### Exports
+
+| Variable | Description |
+|---|---|
+| `EXPORTS_API_TOKEN` | Bearer token between dashboard and exports container. **Empty = auth disabled.** |
+| `EXPORTS_TASK_TIMEOUT_HOURS` | Give up on a HyperCore export/import task after this long (default 8) |
+| `EXPORTS_POLL_INTERVAL_SECONDS` | Task progress polling interval (default 15) |
+| `EXPORTS_DEFAULT_RETENTION` | Pre-filled copies-to-keep for new schedules (default 7) |
+| `EXPORTS_DEFAULT_RUN_TIME` | Pre-filled daily run time for new schedules (default 03:00, in `TZ`) |
+
+NFS pruning needs the share mounted into the container; add a `docker-compose.override.yml`
+with `services: exports: volumes: ["/mnt/nas/hypercore:/mnt/nas/hypercore"]`. SMB needs no mount.
+
 ### Dashboard
 
 | Variable | Description |
@@ -203,6 +217,7 @@ Before exposing the stack to any network beyond localhost, complete every item:
 - [ ] Dashboard (port 5000) not directly internet-facing — place behind a reverse proxy with TLS
 - [ ] InfluxDB (port 8086) not exposed beyond the host — internal Docker network only in production
 - [ ] Sentinel API (port 8081) not exposed beyond the host — accessed via dashboard proxy only
+- [ ] Exports API (port 8082) not exposed beyond the host; `EXPORTS_API_TOKEN` set
 - [ ] `.env` file is not committed to version control (`.gitignore` covers this)
 - [ ] PostgreSQL has no host port binding (removed from `docker-compose.yaml`)
 
