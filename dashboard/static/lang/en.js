@@ -725,8 +725,8 @@ window.LANG = {
   'shares.unassign': "No share",
   'shares.none_assigned': "none",
   'ex.no_share': "No export share is assigned to this cluster's folder. An administrator adds one under Settings → Shares and assigns it from the folder's menu in the rail.",
-  'ex.location_line': "Exports go to share {share}: {path}",
-  'ex.i_from': "Importing from share {share}: {path}",
+  'ex.location_line': "Exports go to {path}",
+  'ex.i_from': "Importing from {path}",
 
   // community-support notice (shown once per user)
   'community.title':        'Community-supported software',

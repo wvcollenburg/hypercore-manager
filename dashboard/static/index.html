@@ -5349,7 +5349,7 @@ async function exLoadSchedules() {
     </tr></thead><tbody>${rows.map(s => `
       <tr>
         <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="qcow2 compression">zip</span>` : ''}</td>
-        <td style="font-family:'JetBrains Mono',monospace;font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_exEsc(s.effective_base || s.path_uri_base)}">${_exEsc(s.effective_base || s.path_uri_base)}/</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_exLocation ? `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/` : _exEsc(s.effective_base || s.path_uri_base || '—')}</td>
         <td><span class="ex-slots">${'<i></i>'.repeat(Math.min(s.retention, 14))}</span><span style="font-size:11px;color:var(--text-muted)">×${s.retention}</span></td>
         <td style="font-family:'JetBrains Mono',monospace;">${_exEsc(s.run_time)}</td>
         <td>${s.last_run ? `${_exStatusBadge(s.last_run.status, s.last_run.message)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(s.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
@@ -5399,7 +5399,8 @@ async function exLoadVms() {
 function exToggleForm(i) { const r = document.getElementById(`exform-${i}`); if (r) { r.hidden = !r.hidden; if (!r.hidden) r.querySelector('input')?.focus(); } }
 function _exLocationLine(vm) {
   if (!_exLocation) return `<div class="ex-hint" style="color:var(--accent-amber);margin-bottom:8px;">${t('ex.no_share')}</div>`;
-  return `<div class="ex-hint" style="margin-bottom:8px;">${t('ex.location_line', {share: _exEsc(_exLocation.share_name), path: _exEsc(_exLocation.base) + '/' + (vm ? _exEsc(vm.safe_name) + '_YYYYMMDD-HHMMSS/' : '')})}</div>`;
+  const path = `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/${vm ? _exEsc(vm.safe_name) + '_YYYYMMDD-HHMMSS' : ''}`;
+  return `<div class="ex-hint" style="margin-bottom:8px;">${t('ex.location_line', {path})}</div>`;
 }
 function _exScheduleForm(i, vm) {
   return `
@@ -5432,7 +5433,7 @@ async function exLoadImport() {
       <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div>
         <span class="settings-group-title">${t('ex.import_title')}</span>
         <span style="font-size:12px;color:var(--text-muted);">${t('ex.import_target', {cluster: _exEsc(cur ? cur.name : '')})}</span></div>
-      <div class="ex-hint" style="margin-bottom:10px;">${t('ex.i_from', {share: _exEsc(_exLocation.share_name), path: _exEsc(_exLocation.base)})}</div>
+      <div class="ex-hint" style="margin-bottom:10px;">${t('ex.i_from', {path: `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}`})}</div>
       <div class="ex-form">
         <div><label>${t('ex.i_folder')}</label><input type="text" id="exi-folder" placeholder="DC02_20260101-030000"><div class="ex-hint">${t('ex.i_folder_hint')}</div></div>
         <div><label>${t('ex.i_target_name')}</label><input type="text" id="exi-name" placeholder="${_exEsc(t('ex.i_target_name_ph'))}"><div class="ex-hint">${t('ex.i_target_name_hint')}</div></div>

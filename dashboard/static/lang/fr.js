@@ -724,8 +724,8 @@ window.LANG = {
   'shares.unassign': "Aucun partage",
   'shares.none_assigned': "aucun",
   'ex.no_share': "Aucun partage d'export n'est attribué au dossier de ce cluster. Un administrateur en ajoute un dans Paramètres → Partages et l'attribue depuis le menu du dossier.",
-  'ex.location_line': "Les exports vont sur le partage {share} : {path}",
-  'ex.i_from': "Import depuis le partage {share} : {path}",
+  'ex.location_line': "Les exports vont dans {path}",
+  'ex.i_from': "Import depuis {path}",
 
   // community-support notice (shown once per user)
   'community.title':        'Logiciel soutenu par la communaut\u00e9',

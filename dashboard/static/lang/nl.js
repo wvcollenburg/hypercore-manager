@@ -724,8 +724,8 @@ window.LANG = {
   'shares.unassign': "Geen share",
   'shares.none_assigned': "geen",
   'ex.no_share': "Aan de map van dit cluster is geen export-share toegewezen. Een beheerder voegt er een toe onder Instellingen → Shares en wijst die toe via het mapmenu in de zijbalk.",
-  'ex.location_line': "Exports gaan naar share {share}: {path}",
-  'ex.i_from': "Importeren vanaf share {share}: {path}",
+  'ex.location_line': "Exports gaan naar {path}",
+  'ex.i_from': "Importeren vanaf {path}",
 
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',

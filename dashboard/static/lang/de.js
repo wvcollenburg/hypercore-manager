@@ -724,8 +724,8 @@ window.LANG = {
   'shares.unassign': "Keine Freigabe",
   'shares.none_assigned': "keine",
   'ex.no_share': "Dem Ordner dieses Clusters ist keine Export-Freigabe zugewiesen. Ein Administrator legt sie unter Einstellungen → Freigaben an und weist sie über das Ordnermenü zu.",
-  'ex.location_line': "Exporte gehen auf Freigabe {share}: {path}",
-  'ex.i_from': "Import von Freigabe {share}: {path}",
+  'ex.location_line': "Exporte gehen nach {path}",
+  'ex.i_from': "Import von {path}",
 
   // community-support notice (shown once per user)
   'community.title':        'Community-unterst\u00fctzte Software',
