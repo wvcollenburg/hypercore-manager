@@ -580,6 +580,15 @@
   .popmenu-item.danger:hover { color: var(--accent-red); }
   .popmenu-title { padding: 4px 10px 6px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); }
   .popmenu-sep { height: 1px; background: var(--border); margin: 5px 0; }
+  .um-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .um-toolbar .um-input { width: 220px; }
+  .um-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .um-seg button { background: none; border: none; color: var(--text-secondary); padding: 6px 10px; font-size: 11px; cursor: pointer; }
+  .um-seg button.active { background: var(--bg-card); color: var(--accent-blue); }
+  .um-group { margin-bottom: 6px; }
+  .um-group .cluster-folder { margin: 8px 0 0; }
+  .um-group .folder-children { margin-left: 0; padding-left: 0; border-left: none; }
+  .um-chip { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 10px; margin: 1px 3px 1px 0; border: 1px solid var(--border); color: var(--text-secondary); }
   .fm-list { display: flex; flex-direction: column; gap: 1px; max-height: 50vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px; }
   .fm-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; color: var(--text-secondary); }
   .fm-row:hover { background: var(--bg-card); }
@@ -737,19 +746,19 @@
   .cb-panel.active { display: block; }
 
   /* ─── Foresight tab ─── */
-  .sentinel-sub-nav {
+  .sentinel-sub-nav, .settings-sub-nav {
     display: flex; gap: 0; border-bottom: 1px solid var(--border);
     margin-bottom: 20px; background: var(--bg-secondary);
     margin-left: -32px; margin-right: -32px; padding: 0 32px;
   }
-  .sentinel-sub-tab {
+  .sentinel-sub-tab, .settings-sub-tab {
     padding: 10px 20px; font-size: 12px; font-weight: 500; color: var(--text-secondary);
     cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; user-select: none;
   }
-  .sentinel-sub-tab:hover { color: var(--text-primary); }
-  .sentinel-sub-tab.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
-  .sentinel-panel { display: none; }
-  .sentinel-panel.active { display: block; }
+  .sentinel-sub-tab:hover, .settings-sub-tab:hover { color: var(--text-primary); }
+  .sentinel-sub-tab.active, .settings-sub-tab.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
+  .sentinel-panel, .settings-panel { display: none; }
+  .sentinel-panel.active, .settings-panel.active { display: block; }
 
   /* health gauge */
   .health-gauge {
@@ -1431,8 +1440,15 @@
     <div id="accountContent"></div>
   </div>
   <div class="tab-content" id="tab-settings">
+    <div class="settings-sub-nav">
+      <div class="settings-sub-tab active" data-setpanel="clusters" data-i18n="settings.tab.clusters" onclick="switchSettingsPanel('clusters')">Clusters</div>
+      <div class="settings-sub-tab"        data-setpanel="tunables" data-i18n="settings.tab.tunables" onclick="switchSettingsPanel('tunables')">Tunables</div>
+      <div class="settings-sub-tab"        data-setpanel="users"    data-i18n="settings.tab.users"    onclick="switchSettingsPanel('users')">Users</div>
+    </div>
     <div id="settingsContent">
-      <div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div>
+      <div class="settings-panel active" id="setpanel-clusters"><div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div></div>
+      <div class="settings-panel" id="setpanel-tunables"></div>
+      <div class="settings-panel" id="setpanel-users"></div>
     </div>
   </div>
   <div class="settings-toast" id="settingsToast"></div>
@@ -3692,20 +3708,128 @@ async function loadSettings() {
     document.getElementById('settingsContent').innerHTML = `<div class="empty-state">${t('settings.admin_only')}</div>`;
     return;
   }
-  let html = '';
-  if (me) {
-    const cl = await apiFetch('/api/clusters');
-    html += _renderClustersCard((cl && cl.clusters) || [], me);
-  }
-  html += _settingsTargetBar(isAdmin);
-  html += _renderGroups(groups, vals, isAdmin);
+  const cl = me ? await apiFetch('/api/clusters') : null;
+  document.getElementById('setpanel-clusters').innerHTML = _renderClustersCard((cl && cl.clusters) || [], me || {});
+  document.getElementById('setpanel-tunables').innerHTML = _settingsTargetBar(isAdmin) + _renderGroups(groups, vals, isAdmin);
+  if (me && (me.role === 'admin' || me.dev_mode)) await _loadUsersPanel(me);
+  else document.getElementById('setpanel-users').innerHTML = '';
+}
 
-  if (me && me.role === 'admin') {
-    const users = await apiFetch('/api/users');
-    html += _renderUsersCard(users || [], me);
+function switchSettingsPanel(p) {
+  document.querySelectorAll('.settings-sub-tab').forEach(e => e.classList.remove('active'));
+  document.querySelectorAll('.settings-panel').forEach(e => e.classList.remove('active'));
+  document.querySelector(`[data-setpanel="${p}"]`)?.classList.add('active');
+  document.getElementById(`setpanel-${p}`)?.classList.add('active');
+  try { localStorage.setItem('hcm.settings.panel', p); } catch (_) {}
+}
+document.addEventListener('DOMContentLoaded', () => { try { const p = localStorage.getItem('hcm.settings.panel'); if (p) switchSettingsPanel(p); } catch (_) {} });
+
+// ── users panel: search, A–Z or by-folder, collapsible folder groups ─────────
+let _um = { users: [], folders: [], me: null, query: '', sort: 'alpha', collapsed: new Set() };
+try { _um.sort = localStorage.getItem('hcm.users.sort') || 'alpha'; _um.collapsed = new Set(JSON.parse(localStorage.getItem('hcm.users.collapsed') || '[]')); } catch (_) {}
+
+async function _loadUsersPanel(me) {
+  const [users, folders] = await Promise.all([apiFetch('/api/users'), apiFetch('/api/folders')]);
+  _um.users = users || []; _um.folders = folders || []; _um.me = me;
+  _renderUsersPanel();
+}
+function umSearch(v) { _um.query = v; _renderUsersPanel(); }
+function umSort(mode) { _um.sort = mode; try { localStorage.setItem('hcm.users.sort', mode); } catch (_) {} _renderUsersPanel(); }
+function umToggleGroup(key) { if (_um.collapsed.has(key)) _um.collapsed.delete(key); else _um.collapsed.add(key); _umSaveCollapsed(); _renderUsersPanel(); }
+function umSetAllGroups(collapsed) { _um.collapsed = collapsed ? new Set(['__admins__', '__none__', ..._um.folders.map(f => f.folder_id)]) : new Set(); _umSaveCollapsed(); _renderUsersPanel(); }
+function _umSaveCollapsed() { try { localStorage.setItem('hcm.users.collapsed', JSON.stringify([..._um.collapsed])); } catch (_) {} }
+
+function _umFoldersOf(userId) { return _um.folders.filter(f => (f.members || []).some(m => m.user_id === userId)); }
+
+function _umRow(u, showFolders) {
+  const me = _um.me || {};
+  const folders = showFolders ? _umFoldersOf(u.user_id) : [];
+  return `
+    <tr>
+      <td class="um-username">${_esc(u.username)}${u.username === me.username ? ` <span style="font-size:10px;color:var(--text-muted)">(${t('users.you')})</span>` : ''}</td>
+      <td><span class="um-badge ${u.role === 'admin' ? 'um-badge-admin' : 'um-badge-user'}">${u.role}</span></td>
+      <td><span class="um-badge ${u.otp_enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${u.otp_enabled ? 'on' : 'off'}</span></td>
+      ${showFolders ? `<td>${u.role === 'admin' ? `<span style="font-size:10px;color:var(--text-muted)">${t('users.all_clusters')}</span>` : (folders.length ? folders.map(f => `<span class="um-chip" style="border-color:${_clEsc(f.colour || 'var(--border)')}">${_esc(f.name)}</span>`).join('') : `<span style="font-size:10px;color:var(--text-muted)">${t('users.no_folder')}</span>`)}</td>` : ''}
+      <td style="color:var(--text-muted);font-size:11px;white-space:nowrap;">${u.created_at ? new Date(u.created_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—'}</td>
+      <td style="white-space:nowrap;">
+        <button class="um-action-btn" onclick="umAdminResetPw('${_esc(u.username)}')">${t('users.reset_pw')}</button>
+        ${u.username !== me.username ? `<button class="um-action-btn danger" onclick="umDeleteUser('${_esc(u.username)}')">${t('users.delete')}</button>` : ''}
+      </td>
+    </tr>`;
+}
+function _umTable(rows, showFolders) {
+  return `<table class="um-table"><thead><tr>
+      <th>${t('users.col_username')}</th><th>${t('users.col_role')}</th><th>OTP</th>${showFolders ? `<th>${t('users.col_folders')}</th>` : ''}<th>${t('users.col_created')}</th><th></th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function _renderUsersPanel() {
+  const el = document.getElementById('setpanel-users');
+  if (!el) return;
+  const q = _um.query.trim().toLowerCase();
+  const byName = (a, b) => a.username.localeCompare(b.username);
+  const users = _um.users.filter(u => !q || u.username.toLowerCase().includes(q)).sort(byName);
+  const byFolder = _um.sort === 'folder';
+
+  let body;
+  if (!users.length) {
+    body = `<div style="color:var(--text-muted);font-size:12px;padding:10px 0;">${_um.users.length ? t('users.no_match') : t('users.none')}</div>`;
+  } else if (!byFolder) {
+    body = _umTable(users.map(u => _umRow(u, true)).join(''), true);
+  } else {
+    const group = (key, name, colour, members) => {
+      const collapsed = _um.collapsed.has(key);
+      const vars = colour ? `--fc:${_clEsc(colour)};--fc-tint:${_tint(colour, 0.16)}` : '';
+      return `<div class="um-group">
+        <div class="cluster-folder ${collapsed ? 'collapsed' : ''}" style="${vars}" onclick="umToggleGroup('${key}')">
+          <span class="folder-chevron">▾</span><span class="folder-glyph"></span>
+          <span class="cluster-folder-name">${_esc(name)}</span><span class="folder-count">${members.length}</span>
+        </div>
+        <div class="folder-children ${collapsed ? 'collapsed' : ''}">${members.length ? _umTable(members.map(u => _umRow(u, false)).join(''), false) : `<div class="folder-empty">${t('folders.empty')}</div>`}</div>
+      </div>`;
+    };
+    const admins = users.filter(u => u.role === 'admin');
+    const plain  = users.filter(u => u.role !== 'admin');
+    body = group('__admins__', t('users.administrators'), '#3b82f6', admins);
+    for (const f of _um.folders) {
+      const ids = new Set((f.members || []).map(m => m.user_id));
+      const members = plain.filter(u => ids.has(u.user_id));
+      if (q && !members.length) continue;   // while searching, hide folders without a hit
+      body += group(f.folder_id, f.name, f.colour, members);
+    }
+    const none = plain.filter(u => !_umFoldersOf(u.user_id).length);
+    if (none.length || !q) body += group('__none__', t('users.no_folder'), null, none);
   }
 
-  document.getElementById('settingsContent').innerHTML = html;
+  el.innerHTML = `
+    <div class="settings-group">
+      <div class="settings-group-header">
+        <div class="chart-title-dot" style="background:var(--accent-purple)"></div>
+        <span class="settings-group-title">${t('users.title')}</span>
+        <span style="font-size:11px;color:var(--text-muted);flex:1">${t('users.count', {n: _um.users.length})}${q ? ` · ${t('folders.shown', {n: users.length})}` : ''}</span>
+      </div>
+      <div class="um-toolbar">
+        <input class="um-input" id="umSearch" placeholder="${_esc(t('users.search_placeholder'))}" value="${_esc(_um.query)}" oninput="umSearch(this.value)" autocomplete="off">
+        <span class="um-seg">
+          <button class="${!byFolder ? 'active' : ''}" onclick="umSort('alpha')">${t('users.sort_alpha')}</button>
+          <button class="${byFolder ? 'active' : ''}" onclick="umSort('folder')">${t('users.sort_folder')}</button>
+        </span>
+        ${byFolder ? `<button class="rail-tool" onclick="umSetAllGroups(true)" title="${_esc(t('folders.collapse_all'))}">⊟</button><button class="rail-tool" onclick="umSetAllGroups(false)" title="${_esc(t('folders.expand_all'))}">⊞</button>` : ''}
+      </div>
+      ${body}
+      <div class="um-add-row" id="umAddRow">
+        <input  class="um-input"   id="umNewUsername" placeholder="${_esc(t('users.col_username'))}" style="width:130px;">
+        <input  class="um-input"   type="password" id="umNewPassword" placeholder="${_esc(t('users.password'))}" style="width:130px;">
+        <select class="um-select"  id="umNewRole">
+          <option value="user">user</option>
+          <option value="admin">admin</option>
+        </select>
+        <button class="um-primary-btn" onclick="umCreateUser()">${t('users.add')}</button>
+        <div id="umAddMsg" style="width:100%;"></div>
+      </div>
+    </div>`;
+  const inp = document.getElementById('umSearch');
+  if (inp && q) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
 }
 
 async function loadAccount() {
@@ -3761,47 +3885,6 @@ function _renderMyAccountCard(me) {
            onmouseover="this.style.color='var(--accent-blue)'" onmouseout="this.style.color='var(--text-muted)'">Sign out</a>
       </div>
       ${pwSection}${otpSection}
-    </div>`;
-}
-
-function _renderUsersCard(users, me) {
-  const rows = users.map(u => `
-    <tr>
-      <td class="um-username">${_esc(u.username)}${u.username === me.username ? ' <span style="font-size:10px;color:var(--text-muted)">(you)</span>' : ''}</td>
-      <td><span class="um-badge ${u.role === 'admin' ? 'um-badge-admin' : 'um-badge-user'}">${u.role}</span></td>
-      <td><span class="um-badge ${u.otp_enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${u.otp_enabled ? 'on' : 'off'}</span></td>
-      <td style="color:var(--text-muted);font-size:11px;">${u.created_at ? new Date(u.created_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—'}</td>
-      <td style="display:flex;gap:6px;flex-wrap:wrap;">
-        <button class="um-action-btn" onclick="umAdminResetPw('${_esc(u.username)}')">Reset pw</button>
-        ${u.username !== me.username
-          ? `<button class="um-action-btn danger" onclick="umDeleteUser('${_esc(u.username)}')">Delete</button>`
-          : ''}
-      </td>
-    </tr>`).join('');
-
-  return `
-    <div class="settings-group" id="umUsersCard">
-      <div class="settings-group-header">
-        <div class="chart-title-dot" style="background:var(--accent-purple)"></div>
-        <span class="settings-group-title">USERS</span>
-        <span style="font-size:11px;color:var(--text-muted);flex:1">${users.length} account${users.length !== 1 ? 's' : ''}</span>
-      </div>
-      <table class="um-table">
-        <thead><tr>
-          <th>Username</th><th>Role</th><th>OTP</th><th>Created</th><th></th>
-        </tr></thead>
-        <tbody id="umUsersTbody">${rows}</tbody>
-      </table>
-      <div class="um-add-row" id="umAddRow">
-        <input  class="um-input"   id="umNewUsername" placeholder="Username" style="width:130px;">
-        <input  class="um-input"   type="password" id="umNewPassword" placeholder="Password" style="width:130px;">
-        <select class="um-select"  id="umNewRole">
-          <option value="user">user</option>
-          <option value="admin">admin</option>
-        </select>
-        <button class="um-primary-btn" onclick="umCreateUser()">Add user</button>
-        <div id="umAddMsg" style="width:100%;"></div>
-      </div>
     </div>`;
 }
 

@@ -597,6 +597,30 @@ window.LANG = {
 
   'settings.admin_only': "Settings are available to administrators only.",
 
+  // settings sub-tabs and the users panel
+  'settings.tab.clusters': "Clusters",
+  'settings.tab.tunables': "Tunables",
+  'settings.tab.users': "Users",
+  'users.title': "USERS",
+  'users.count': "{n} accounts",
+  'users.search_placeholder': "Search users…",
+  'users.sort_alpha': "A–Z",
+  'users.sort_folder': "By folder",
+  'users.administrators': "Administrators (all clusters)",
+  'users.all_clusters': "all clusters",
+  'users.no_folder': "No folder",
+  'users.no_match': "No user matches the search.",
+  'users.none': "No users yet.",
+  'users.col_username': "Username",
+  'users.col_role': "Role",
+  'users.col_folders': "Folders",
+  'users.col_created': "Created",
+  'users.reset_pw': "Reset pw",
+  'users.delete': "Delete",
+  'users.add': "Add user",
+  'users.password': "Password",
+  'users.you': "you",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-supported software',
   'community.body':         "HyperCore Manager is open-source software maintained on a community-supported basis. It is not an official Scale Computing product and comes without official support or SLA. Use it at your own risk.",

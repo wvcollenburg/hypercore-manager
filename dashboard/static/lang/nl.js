@@ -596,6 +596,30 @@ window.LANG = {
 
   'settings.admin_only': "Instellingen zijn alleen beschikbaar voor beheerders.",
 
+  // settings sub-tabs and the users panel
+  'settings.tab.clusters': "Clusters",
+  'settings.tab.tunables': "Instellingen",
+  'settings.tab.users': "Gebruikers",
+  'users.title': "GEBRUIKERS",
+  'users.count': "{n} accounts",
+  'users.search_placeholder': "Gebruikers zoeken…",
+  'users.sort_alpha': "A–Z",
+  'users.sort_folder': "Per map",
+  'users.administrators': "Beheerders (alle clusters)",
+  'users.all_clusters': "alle clusters",
+  'users.no_folder': "Geen map",
+  'users.no_match': "Geen gebruiker komt overeen met de zoekopdracht.",
+  'users.none': "Nog geen gebruikers.",
+  'users.col_username': "Gebruikersnaam",
+  'users.col_role': "Rol",
+  'users.col_folders': "Mappen",
+  'users.col_created': "Aangemaakt",
+  'users.reset_pw': "Wachtwoord resetten",
+  'users.delete': "Verwijderen",
+  'users.add': "Gebruiker toevoegen",
+  'users.password': "Wachtwoord",
+  'users.you': "u",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",
