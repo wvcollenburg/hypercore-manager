@@ -20,8 +20,8 @@ SHARED = ROOT / 'shared'
 
 # module name -> service directories that embed it
 TARGETS = {
-    'hcm_crypto.py':       ['Collector', 'Balancer', 'dashboard', 'sentinel'],
-    'cluster_registry.py': ['Collector', 'Balancer', 'dashboard', 'sentinel'],
+    'hcm_crypto.py':       ['Collector', 'Balancer', 'dashboard', 'sentinel', 'exports'],
+    'cluster_registry.py': ['Collector', 'Balancer', 'dashboard', 'sentinel', 'exports'],
     'config_db.py':        ['Collector', 'Balancer', 'dashboard'],
 }
 
