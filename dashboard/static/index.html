@@ -75,6 +75,17 @@
     letter-spacing: 0.02em; color: var(--text-primary);
   }
   .header h1 span { color: var(--text-secondary); font-weight: 400; }
+  /* breadcrumbs: where you are, in the wordmark's own type size */
+  .crumbs { display: flex; align-items: center; gap: 10px; font-family: 'JetBrains Mono', monospace; font-size: 17px;
+    letter-spacing: 0.02em; color: var(--text-secondary); min-width: 0; overflow: hidden; white-space: nowrap; }
+  .crumbs .crumb-sep { color: var(--text-muted); font-weight: 300; }
+  .crumbs .crumb { display: inline-flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; }
+  .crumbs .crumb.cluster { color: var(--text-primary); font-weight: 600; }
+  .crumbs .crumb.folder { color: var(--text-muted); }
+  .crumbs .crumb.link { cursor: pointer; }
+  .crumbs .crumb.link:hover { color: var(--text-primary); }
+  .crumbs .crumb-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  @media (max-width: 1100px) { .crumbs .crumb.folder, .crumbs .crumb.folder + .crumb-sep { display: none; } }
   .header-right { display: flex; align-items: center; gap: 16px; }
   .status-dot {
     width: 8px; height: 8px; border-radius: 50%; background: var(--accent-green);
@@ -965,6 +976,7 @@
 <div class="header">
   <div class="header-left">
     <h1>HyperCore <span>Manager</span></h1>
+    <nav class="crumbs" id="crumbs" aria-label="breadcrumbs"></nav>
   </div>
   <div class="header-right">
     <div style="display:flex;align-items:center;gap:8px;">
@@ -4625,6 +4637,7 @@ async function loadClusters() {
   }
   _renderClusterRail(enabled);
   _renderOnboarding(enabled.length === 0, d.secret_key_configured !== false);
+  _updateBreadcrumbs();
   return d;
 }
 
@@ -4683,7 +4696,38 @@ function _renderClusterRail(enabled) {
   document.body.classList.add('has-rail');
 }
 
-// ── folder collapse state (remembered per browser) ──────────────────────────
+// ── breadcrumbs: folder › cluster › tab › sub-panel, next to the wordmark ─────
+function _updateBreadcrumbs() {
+  const el = document.getElementById('crumbs');
+  if (!el) return;
+  const parts = [];
+  const enabled = CLUSTERS.filter(c => c.enabled);
+  const cur = enabled.find(c => c.cluster_id === currentCluster);
+  const activeTab = document.querySelector('.tab-content.active')?.id?.replace('tab-', '');
+  const clusterScoped = !['settings', 'modules', 'account'].includes(activeTab);
+  if (cur && clusterScoped) {
+    const f = FOLDERS.find(x => x.folder_id === cur.folder_id);
+    if (f) parts.push(`<span class="crumb folder"><span class="crumb-dot" style="background:${_clEsc(f.colour || 'var(--text-muted)')}"></span>${_clEsc(f.name)}</span>`);
+    parts.push(`<span class="crumb cluster"><span class="crumb-dot" style="background:${_clColour(cur, enabled.indexOf(cur))}"></span>${_clEsc(cur.name)}</span>`);
+  }
+  const tabEl = document.querySelector(`.nav-tab[data-tab="${activeTab}"], .rail-nav[data-tab="${activeTab}"]`);
+  if (tabEl) parts.push(`<span class="crumb link" onclick="switchTab('${activeTab}')">${_clEsc(tabEl.textContent.trim())}</span>`);
+  const sub = document.querySelector(`#tab-${activeTab} .iv-sub-tab.active, #tab-${activeTab} .cb-sub-tab.active, #tab-${activeTab} .sentinel-sub-tab.active, #tab-${activeTab} .settings-sub-tab.active`);
+  if (sub) parts.push(`<span class="crumb">${_clEsc(sub.textContent.trim())}</span>`);
+  if (activeTab === 'settings' && document.getElementById('setpanel-tunables')?.classList.contains('active')) {
+    parts.push(`<span class="crumb cluster">${_clEsc(_settingsTarget === 'defaults' ? t('clusters.defaults') : (cur ? cur.name : ''))}</span>`);
+  }
+  el.innerHTML = parts.length ? `<span class="crumb-sep">›</span>` + parts.join(`<span class="crumb-sep">›</span>`) : '';
+}
+// keep the crumbs in step with every navigation without touching each function body
+document.addEventListener('DOMContentLoaded', () => {
+  for (const name of ['switchTab', 'switchIvPanel', 'switchCbPanel', 'switchSentinelPanel', 'switchSettingsPanel', 'setSettingsTarget']) {
+    const orig = window[name];
+    if (typeof orig !== 'function') continue;
+    window[name] = function (...args) { const r = orig.apply(this, args); _updateBreadcrumbs(); return r; };
+  }
+  _updateBreadcrumbs();
+});
 const FOLDERS_COLLAPSED_KEY = 'hcm.folders.collapsed';
 let _collapsedFolders = new Set();
 try { _collapsedFolders = new Set(JSON.parse(localStorage.getItem(FOLDERS_COLLAPSED_KEY) || '[]')); } catch (_) {}
@@ -4896,6 +4940,7 @@ function selectCluster(id) {
   currentCluster = id;
   try { localStorage.setItem(CLUSTER_LS_KEY, id); } catch (_) {}
   _renderClusterRail(CLUSTERS.filter(c => c.enabled));
+  _updateBreadcrumbs();
   if (typeof refreshAll === 'function') refreshAll();
   if (typeof checkDataQuality === 'function') checkDataQuality();
   _reloadClusterScopedViews();
