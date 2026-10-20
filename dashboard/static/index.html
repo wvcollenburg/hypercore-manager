@@ -596,6 +596,22 @@
   .popmenu-sep { height: 1px; background: var(--border); margin: 5px 0; }
   .popmenu-search { width: 100%; box-sizing: border-box; margin: 2px 0 6px; font-size: 12px; }
   .popmenu-scroll { max-height: 40vh; overflow-y: auto; }
+  .ex-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 10px 0; }
+  .ex-form label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+  .ex-form input[type=text], .ex-form input[type=password], .ex-form input[type=number], .ex-form input[type=time], .ex-form select {
+    width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 6px; font-size: 12px;
+    background: var(--bg-input, var(--bg-primary)); border: 1px solid var(--border); color: var(--text-primary); }
+  .ex-hint { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
+  .ex-slots { display: inline-flex; gap: 2px; vertical-align: middle; margin-right: 6px; }
+  .ex-slots i { width: 6px; height: 14px; border-radius: 2px; background: var(--accent-cyan); display: block; opacity: 0.85; }
+  .ex-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-family: 'JetBrains Mono', monospace; }
+  .ex-badge.ok { background: rgba(16,185,129,0.15); color: var(--accent-green); }
+  .ex-badge.err { background: rgba(239,68,68,0.15); color: var(--accent-red); }
+  .ex-badge.run { background: rgba(6,182,212,0.15); color: var(--accent-cyan); }
+  .ex-badge.off { background: rgba(148,163,184,0.15); color: var(--text-muted); }
+  .ex-folder-list { max-height: 36vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px; margin-top: 8px; }
+  .ex-folder-list label { display: flex; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+  .ex-folder-list label:hover { background: var(--bg-card); }
   .um-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
   .um-toolbar .um-input { width: 220px; }
   .um-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
@@ -762,19 +778,19 @@
   .cb-panel.active { display: block; }
 
   /* ─── Foresight tab ─── */
-  .sentinel-sub-nav, .settings-sub-nav {
+  .sentinel-sub-nav, .settings-sub-nav, .exports-sub-nav {
     display: flex; gap: 0; border-bottom: 1px solid var(--border);
     margin-bottom: 20px; background: var(--bg-secondary);
     margin-left: -32px; margin-right: -32px; padding: 0 32px;
   }
-  .sentinel-sub-tab, .settings-sub-tab {
+  .sentinel-sub-tab, .settings-sub-tab, .exports-sub-tab {
     padding: 10px 20px; font-size: 12px; font-weight: 500; color: var(--text-secondary);
     cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; user-select: none;
   }
-  .sentinel-sub-tab:hover, .settings-sub-tab:hover { color: var(--text-primary); }
-  .sentinel-sub-tab.active, .settings-sub-tab.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
-  .sentinel-panel, .settings-panel { display: none; }
-  .sentinel-panel.active, .settings-panel.active { display: block; }
+  .sentinel-sub-tab:hover, .settings-sub-tab:hover, .exports-sub-tab:hover { color: var(--text-primary); }
+  .sentinel-sub-tab.active, .settings-sub-tab.active, .exports-sub-tab.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
+  .sentinel-panel, .settings-panel, .exports-panel { display: none; }
+  .sentinel-panel.active, .settings-panel.active, .exports-panel.active { display: block; }
 
   /* health gauge */
   .health-gauge {
@@ -1008,6 +1024,7 @@
   <div class="nav-tab active" data-tab="infraviewer" onclick="switchTab('infraviewer')">Infraviewer</div>
   <div class="nav-tab" data-tab="clusterbalancer" onclick="switchTab('clusterbalancer')">Clusterbalancer</div>
   <div class="nav-tab" data-tab="sentinel" onclick="switchTab('sentinel')">Foresight</div>
+  <div class="nav-tab" data-tab="exports" data-i18n="nav.exports" onclick="switchTab('exports')" id="navTabExports" hidden>Exports</div>
   <a href="/logout" class="nav-logout" title="Sign out">⏻</a>
 </div>
 
@@ -1455,6 +1472,20 @@
   </div>
 
   <!-- ─── settings tab ─── -->
+  <!-- ─── Exports tab (optional `exports` profile) ─── -->
+  <div class="tab-content" id="tab-exports">
+    <div class="exports-sub-nav">
+      <div class="exports-sub-tab active" data-expanel="schedules" data-i18n="ex.tab.schedules" onclick="switchExportsPanel('schedules')">Schedules</div>
+      <div class="exports-sub-tab"        data-expanel="vms"       data-i18n="ex.tab.vms"       onclick="switchExportsPanel('vms')">VMs</div>
+      <div class="exports-sub-tab"        data-expanel="import"    data-i18n="ex.tab.import"    onclick="switchExportsPanel('import')">Import</div>
+      <div class="exports-sub-tab"        data-expanel="runs"      data-i18n="ex.tab.runs"      onclick="switchExportsPanel('runs')">Runs</div>
+    </div>
+    <div class="exports-panel active" id="expanel-schedules"></div>
+    <div class="exports-panel" id="expanel-vms"></div>
+    <div class="exports-panel" id="expanel-import"></div>
+    <div class="exports-panel" id="expanel-runs"></div>
+  </div>
+
   <div class="tab-content" id="tab-account">
     <div id="accountContent"></div>
   </div>
@@ -1746,6 +1777,7 @@ function switchTab(t) {
   document.getElementById(`tab-${t}`).classList.add('active');
   if (t === 'settings')        loadSettings();
   if (t === 'account')         loadAccount();
+  if (t === 'exports')         loadExports();
   if (t === 'sentinel')        loadSentinel();
   if (t === 'clusterbalancer') switchCbPanel('miglog');
   if (t === 'infraviewer')     switchIvPanel('nodes');
@@ -4732,7 +4764,7 @@ function _updateBreadcrumbs() {
   }
   const tabEl = document.querySelector(`.nav-tab[data-tab="${activeTab}"], .rail-nav[data-tab="${activeTab}"]`);
   if (tabEl) parts.push(`<span class="crumb link" onclick="switchTab('${activeTab}')">${_clEsc(tabEl.textContent.trim())}</span>`);
-  const sub = document.querySelector(`#tab-${activeTab} .iv-sub-tab.active, #tab-${activeTab} .cb-sub-tab.active, #tab-${activeTab} .sentinel-sub-tab.active, #tab-${activeTab} .settings-sub-tab.active`);
+  const sub = document.querySelector(`#tab-${activeTab} .iv-sub-tab.active, #tab-${activeTab} .cb-sub-tab.active, #tab-${activeTab} .sentinel-sub-tab.active, #tab-${activeTab} .settings-sub-tab.active, #tab-${activeTab} .exports-sub-tab.active`);
   if (sub) parts.push(`<span class="crumb">${_clEsc(sub.textContent.trim())}</span>`);
   if (activeTab === 'settings' && document.getElementById('setpanel-tunables')?.classList.contains('active')) {
     parts.push(`<span class="crumb cluster">${_clEsc(_settingsTarget === 'defaults' ? t('clusters.defaults') : (cur ? cur.name : ''))}</span>`);
@@ -4741,7 +4773,7 @@ function _updateBreadcrumbs() {
 }
 // keep the crumbs in step with every navigation without touching each function body
 document.addEventListener('DOMContentLoaded', () => {
-  for (const name of ['switchTab', 'switchIvPanel', 'switchCbPanel', 'switchSentinelPanel', 'switchSettingsPanel', 'setSettingsTarget']) {
+  for (const name of ['switchTab', 'switchIvPanel', 'switchCbPanel', 'switchSentinelPanel', 'switchSettingsPanel', 'setSettingsTarget', 'switchExportsPanel']) {
     const orig = window[name];
     if (typeof orig !== 'function') continue;
     window[name] = function (...args) { const r = orig.apply(this, args); _updateBreadcrumbs(); return r; };
@@ -4983,6 +5015,7 @@ function _reloadClusterScopedViews() {
     if (p && p !== 'overview' && typeof switchSentinelPanel === 'function') switchSentinelPanel(p);
   }
   if (document.getElementById('tab-clusterbalancer')?.classList.contains('active') && typeof loadBalancerSettings === 'function') loadBalancerSettings();
+  if (document.getElementById('tab-exports')?.classList.contains('active') && typeof loadExports === 'function') loadExports();
 }
 
 function _clusterFormHtml(prefix, c) {
@@ -5150,6 +5183,238 @@ document.addEventListener('DOMContentLoaded', () => {
   // keep the rail's "last seen" fresh
   setInterval(() => { if (document.body.classList.contains('has-rail')) loadClusters(); }, 60000);
 });
+
+// =============================================================================
+// Exports — scheduled VM exports to SMB/NFS and VM imports (optional container)
+// =============================================================================
+let _exAvailable = false;
+let _exDefaults = { default_retention: 7, default_run_time: '03:00' };
+let _exPollTimer = null;
+let _exImport = { known: [], folders: [], chosen: '' };
+
+async function _exProbe() {
+  const d = await apiFetch('/api/exports/status');
+  _exAvailable = !!(d && d.available);
+  if (d && d.available) _exDefaults = d;
+  const tab = document.getElementById('navTabExports');
+  if (tab) tab.hidden = !_exAvailable;
+  return _exAvailable;
+}
+document.addEventListener('DOMContentLoaded', () => { setTimeout(_exProbe, 800); setInterval(_exProbe, 120000); });
+
+async function _exCall(method, path, body) {
+  const r = await fetch(_withCluster(path), { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  return d;
+}
+const _exEsc = v => _clEsc(v);
+const _exIsAdmin = () => _currentUser?.role === 'admin' || !!_currentUser?.dev_mode;
+const _exFmt = iso => iso ? new Date(iso).toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '—';
+function _exStatusBadge(status, message) {
+  if (status === 'COMPLETE') return `<span class="ex-badge ok">${t('ex.status_ok')}</span>`;
+  if (status === 'ERROR')    return `<span class="ex-badge err">${t('ex.status_failed')}</span>`;
+  return `<span class="ex-badge run">${_exEsc(message || t('ex.status_running'))}</span>`;
+}
+
+function switchExportsPanel(p) {
+  document.querySelectorAll('.exports-sub-tab').forEach(e => e.classList.remove('active'));
+  document.querySelectorAll('.exports-panel').forEach(e => e.classList.remove('active'));
+  document.querySelector(`[data-expanel="${p}"]`)?.classList.add('active');
+  document.getElementById(`expanel-${p}`)?.classList.add('active');
+  if (p === 'schedules') exLoadSchedules();
+  if (p === 'vms')       exLoadVms();
+  if (p === 'import')    exLoadImport();
+  if (p === 'runs')      exLoadRuns();
+}
+
+async function loadExports() {
+  if (!(await _exProbe())) {
+    document.getElementById('expanel-schedules').innerHTML = `<div class="empty-state">${t('ex.unavailable')}</div>`;
+    return;
+  }
+  const p = document.querySelector('.exports-sub-tab.active')?.dataset.expanel || 'schedules';
+  switchExportsPanel(p);
+}
+
+// ── schedules ───────────────────────────────────────────────────────────────
+async function exLoadSchedules() {
+  const el = document.getElementById('expanel-schedules');
+  let rows;
+  try { rows = await _exCall('GET', '/api/exports/schedules'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  const admin = _exIsAdmin();
+  if (!rows.length) {
+    el.innerHTML = `<div class="empty-state">${t('ex.no_schedules')}<br><span style="font-size:11px;color:var(--text-muted)">${t('ex.no_schedules_hint')}</span></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="settings-group"><table class="um-table"><thead><tr>
+      <th>${t('ex.col_vm')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_retention')}</th><th>${t('ex.col_daily_at')}</th><th>${t('ex.col_last_run')}</th><th>${t('ex.col_next_run')}</th><th></th>
+    </tr></thead><tbody>${rows.map(s => `
+      <tr>
+        <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="qcow2 compression">zip</span>` : ''}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_exEsc(s.path_uri_base)}">${_exEsc(s.path_uri_base)}</td>
+        <td><span class="ex-slots">${'<i></i>'.repeat(Math.min(s.retention, 14))}</span><span style="font-size:11px;color:var(--text-muted)">×${s.retention}</span></td>
+        <td style="font-family:'JetBrains Mono',monospace;">${_exEsc(s.run_time)}</td>
+        <td>${s.last_run ? `${_exStatusBadge(s.last_run.status, s.last_run.message)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(s.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted)">${_exFmt(s.next_run)}</td>
+        <td style="white-space:nowrap;">${admin ? `
+          <button class="um-action-btn" onclick="exRunNow(${s.id})" ${s.enabled ? '' : 'disabled'}>${t('ex.run_now')}</button>
+          <button class="um-action-btn" onclick="exToggle(${s.id})">${s.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
+          <button class="um-action-btn" onclick="exHistory(${s.id})">${t('ex.history')}</button>
+          ${admin ? `<button class="um-action-btn danger" onclick="exRemove(${s.id}, '${_exEsc(s.vm_name)}')">${t('ex.remove')}</button>` : ''}
+        </td>
+      </tr>`).join('')}</tbody></table></div>`;
+}
+async function exRunNow(id)  { try { await _exCall('POST', `/api/exports/schedules/${id}/run`); showToast(t('ex.started'), 'ok'); switchExportsPanel('runs'); } catch (e) { showToast(e.message, 'err'); } }
+async function exToggle(id)  { try { await _exCall('POST', `/api/exports/schedules/${id}/toggle`); exLoadSchedules(); } catch (e) { showToast(e.message, 'err'); } }
+async function exRemove(id, name) {
+  if (!confirm(t('ex.confirm_remove', {name}))) return;
+  try { await _exCall('DELETE', `/api/exports/schedules/${id}`); exLoadSchedules(); } catch (e) { showToast(e.message, 'err'); }
+}
+function exHistory(id) { _exRunsFilter = id; switchExportsPanel('runs'); }
+
+// ── VMs ─────────────────────────────────────────────────────────────────────
+async function exLoadVms() {
+  const el = document.getElementById('expanel-vms');
+  el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+  let vms;
+  try { vms = await _exCall('GET', '/api/exports/vms'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  const admin = _exIsAdmin();
+  if (!vms.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_vms')}</div>`; return; }
+  el.innerHTML = `<div class="settings-group"><table class="um-table"><thead><tr>
+      <th>${t('ex.col_vm')}</th><th>${t('ex.col_state')}</th><th>vCPU</th><th>${t('ex.col_memory')}</th><th>${t('ex.col_export')}</th>
+    </tr></thead><tbody>${vms.map((vm, i) => {
+      const tags = (vm.tags || '').split(',').map(x => x.trim()).filter(Boolean);
+      return `
+      <tr>
+        <td class="um-username">${_exEsc(vm.name)}${tags.length ? `<div>${tags.map(x => `<span class="um-chip">${_exEsc(x)}</span>`).join('')}</div>` : ''}
+            ${vm.description ? `<div style="font-size:10px;color:var(--text-muted)">${_exEsc(vm.description)}</div>` : ''}</td>
+        <td><span class="ex-badge ${vm.state === 'RUNNING' ? 'ok' : 'off'}">${_exEsc((vm.state || '').toLowerCase())}</span></td>
+        <td>${vm.numVCPU}</td>
+        <td>${(vm.mem / 1024 ** 3).toFixed(0)} GiB</td>
+        <td style="white-space:nowrap;">${vm.schedule
+          ? `<span class="ex-badge run">${t('ex.daily_at', {time: vm.schedule.run_time})}</span>`
+          : (admin ? `<button class="um-action-btn" onclick="exToggleForm(${i})">${t('ex.schedule_export')}</button>` : `<span style="color:var(--text-muted);font-size:11px;">—</span>`)}</td>
+      </tr>
+      ${admin && !vm.schedule ? `<tr id="exform-${i}" hidden><td colspan="5" style="background:var(--bg-card);">${_exScheduleForm(i, vm)}</td></tr>` : ''}`;
+    }).join('')}</tbody></table></div>`;
+}
+function exToggleForm(i) { const r = document.getElementById(`exform-${i}`); if (r) { r.hidden = !r.hidden; if (!r.hidden) r.querySelector('input')?.focus(); } }
+function _exScheduleForm(i, vm) {
+  return `
+    <input type="hidden" id="exf-${i}-vm_uuid" value="${_exEsc(vm.uuid)}"><input type="hidden" id="exf-${i}-vm_name" value="${_exEsc(vm.name)}">
+    <div class="ex-form">
+      <div><label>${t('ex.f_destination')}</label><input type="text" id="exf-${i}-path" placeholder="smb://nas.local/backups/hypercore">
+        <div class="ex-hint">${t('ex.f_destination_hint', {folder: _exEsc(vm.safe_name) + '_YYYYMMDD-HHMMSS/'})}</div></div>
+      <div><label>${t('ex.f_prune_path')}</label><input type="text" id="exf-${i}-prune" placeholder="/mnt/nas/hypercore"><div class="ex-hint">${t('ex.f_prune_hint')}</div></div>
+      <div><label>${t('ex.f_smb_user')}</label><input type="text" id="exf-${i}-user" autocomplete="off" placeholder="backup-user"><div class="ex-hint">${t('ex.f_smb_user_hint')}</div></div>
+      <div><label>${t('ex.f_smb_password')}</label><input type="password" id="exf-${i}-pass" autocomplete="new-password"><div class="ex-hint">${t('ex.f_smb_password_hint')}</div></div>
+      <div><label>${t('ex.f_retention')}</label><input type="number" id="exf-${i}-retention" min="1" max="60" value="${_exDefaults.default_retention || 7}"></div>
+      <div><label>${t('ex.f_run_time')}</label><input type="time" id="exf-${i}-time" value="${_exEsc(_exDefaults.default_run_time || '03:00')}"></div>
+      <div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="exf-${i}-compress"><label for="exf-${i}-compress" style="margin:0;">${t('ex.f_compress')}</label></div>
+    </div>
+    <div class="cl-actions"><button class="update-apply-btn" onclick="exCreateSchedule(${i})">${t('ex.create_schedule')}</button><span class="cl-msg" id="exf-${i}-msg"></span></div>`;
+}
+async function exCreateSchedule(i) {
+  const g = id => document.getElementById(`exf-${i}-${id}`);
+  const body = { vm_uuid: g('vm_uuid').value, vm_name: g('vm_name').value, path_uri_base: g('path').value.trim(), prune_path: g('prune').value.trim(),
+                 smb_user: g('user').value.trim(), smb_password: g('pass').value, retention: parseInt(g('retention').value || '7', 10),
+                 run_time: g('time').value || '03:00', compress: g('compress').checked };
+  const msg = g('msg');
+  if (!body.path_uri_base) { msg.textContent = t('ex.f_destination_required'); msg.className = 'cl-msg err'; return; }
+  try { await _exCall('POST', '/api/exports/schedules', body); showToast(t('ex.schedule_created', {name: body.vm_name}), 'ok'); exLoadVms(); }
+  catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
+}
+
+// ── import ──────────────────────────────────────────────────────────────────
+async function exLoadImport() {
+  const el = document.getElementById('expanel-import');
+  if (!_exIsAdmin()) { el.innerHTML = `<div class="empty-state">${t('ex.admin_only')}</div>`; return; }
+  try { _exImport.known = await _exCall('GET', '/api/exports/import/known'); } catch (_) { _exImport.known = []; }
+  const cur = CLUSTERS.find(c => c.cluster_id === currentCluster);
+  el.innerHTML = `
+    <div class="settings-group">
+      <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div>
+        <span class="settings-group-title">${t('ex.import_title')}</span>
+        <span style="font-size:12px;color:var(--text-muted);">${t('ex.import_target', {cluster: _exEsc(cur ? cur.name : '')})}</span></div>
+      <div class="ex-form">
+        <div><label>${t('ex.i_known')}</label>
+          <select id="exi-known" onchange="exKnownChanged()">
+            <option value="">${t('ex.i_manual')}</option>
+            ${_exImport.known.map(k => `<option value="${k.ref_id}">${_exEsc(k.path_uri_base)} · ${_exEsc(k.smb_user)}</option>`).join('')}
+          </select><div class="ex-hint">${t('ex.i_known_hint')}</div></div>
+        <div><label>${t('ex.i_source')}</label><input type="text" id="exi-source" placeholder="smb://nas.local/backups/hypercore"></div>
+        <div><label>${t('ex.f_smb_user')}</label><input type="text" id="exi-user" autocomplete="off"></div>
+        <div><label>${t('ex.f_smb_password')}</label><input type="password" id="exi-pass" autocomplete="new-password"></div>
+        <div><label>${t('ex.i_target_name')}</label><input type="text" id="exi-name" placeholder="${_exEsc(t('ex.i_target_name_ph'))}"><div class="ex-hint">${t('ex.i_target_name_hint')}</div></div>
+        <div><label>${t('ex.i_folder')}</label><input type="text" id="exi-folder" placeholder="DC02_20260101-030000"><div class="ex-hint">${t('ex.i_folder_hint')}</div></div>
+      </div>
+      <div class="cl-actions">
+        <button class="refresh-btn" onclick="exBrowse()">${t('ex.i_browse')}</button>
+        <button class="update-apply-btn" onclick="exStartImport()">${t('ex.i_start')}</button>
+        <span class="cl-msg" id="exi-msg"></span>
+      </div>
+      <div id="exi-folders"></div>
+    </div>`;
+}
+function exKnownChanged() {
+  const v = document.getElementById('exi-known').value;
+  const k = _exImport.known.find(x => String(x.ref_id) === v);
+  ['exi-source', 'exi-user', 'exi-pass'].forEach(id => { const e = document.getElementById(id); e.disabled = !!k; if (k) e.value = ''; });
+  if (k) document.getElementById('exi-source').value = k.path_uri_base;
+}
+function _exImportSource() {
+  const known = document.getElementById('exi-known').value;
+  return known ? { known_id: known } : { source_uri: document.getElementById('exi-source').value.trim(), smb_user: document.getElementById('exi-user').value.trim(), smb_password: document.getElementById('exi-pass').value };
+}
+async function exBrowse() {
+  const msg = document.getElementById('exi-msg'); msg.textContent = t('ex.i_browsing'); msg.className = 'cl-msg';
+  try {
+    const d = await _exCall('POST', '/api/exports/import/browse', _exImportSource());
+    msg.textContent = '';
+    const box = document.getElementById('exi-folders');
+    box.innerHTML = d.folders.length ? `<div class="ex-folder-list">${d.folders.map(f => `<label><input type="radio" name="exi-pick" value="${_exEsc(f)}" onchange="document.getElementById('exi-folder').value=this.value">${_exEsc(f)}</label>`).join('')}</div>`
+                                     : `<div class="ex-hint" style="margin-top:8px;">${t('ex.i_no_folders')}</div>`;
+  } catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
+}
+async function exStartImport() {
+  const msg = document.getElementById('exi-msg');
+  const body = { ..._exImportSource(), source_folder: document.getElementById('exi-folder').value.trim(), target_name: document.getElementById('exi-name').value.trim() };
+  if (!confirm(t('ex.i_confirm'))) return;
+  msg.textContent = t('ex.i_starting'); msg.className = 'cl-msg';
+  try { await _exCall('POST', '/api/exports/import/start', body); showToast(t('ex.i_started'), 'ok'); switchExportsPanel('runs'); }
+  catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
+}
+
+// ── runs ────────────────────────────────────────────────────────────────────
+let _exRunsFilter = null;
+async function exLoadRuns() {
+  const el = document.getElementById('expanel-runs');
+  let d;
+  try { d = await _exCall('GET', `/api/exports/runs?limit=100${_exRunsFilter ? '&schedule_id=' + _exRunsFilter : ''}`); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  const runs = d.runs || [], imports = d.imports || [];
+  const table = (title, rows, kind) => `
+    <div class="settings-group">
+      <div class="settings-group-header"><div class="chart-title-dot" style="background:${kind === 'imp' ? 'var(--accent-purple)' : 'var(--accent-cyan)'}"></div>
+        <span class="settings-group-title">${title}</span>
+        ${kind === 'run' && _exRunsFilter ? `<button class="um-action-btn" onclick="_exRunsFilter=null; exLoadRuns()">${t('ex.show_all')}</button>` : ''}</div>
+      ${rows.length ? `<table class="um-table"><thead><tr>
+        <th>${kind === 'imp' ? t('ex.col_source') : t('ex.col_vm')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead>
+        <tbody>${rows.map(r => `<tr>
+          <td class="um-username">${_exEsc(kind === 'imp' ? r.source_uri : r.vm_name)}${kind === 'imp' && r.target_name ? ` → ${_exEsc(r.target_name)}` : ''}${kind === 'run' && r.export_path ? `<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(r.export_path)}</div>` : ''}</td>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap;">${_exFmt(r.started_at)}</td>
+          <td>${_exStatusBadge(r.status, r.message)}</td>
+          <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${r.task_tag ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
+        </tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.no_runs')}</div>`}
+    </div>`;
+  el.innerHTML = table(t('ex.runs_title'), runs, 'run') + (_exRunsFilter ? '' : table(t('ex.imports_title'), imports, 'imp'));
+  clearTimeout(_exPollTimer);
+  if ([...runs, ...imports].some(r => r.status === 'RUNNING')) {
+    // poll while anything runs, but only while this panel is on screen and the cluster unchanged
+    const cid = currentCluster;
+    _exPollTimer = setTimeout(() => { if (currentCluster === cid && document.getElementById('expanel-runs')?.classList.contains('active')) exLoadRuns(); }, 5000);
+  }
+}
 
 // =============================================================================
 // community-support notice
