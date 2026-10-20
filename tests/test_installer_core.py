@@ -49,12 +49,12 @@ def test_parse_env_missing_file(tmp_path):
 
 def test_render_then_parse_roundtrip(schema, tmp_path):
     values = core.seed_default_values(schema)
-    values['SC_HOST'] = 'https://10.0.0.1/rest/v1'
+    values['TZ'] = 'Europe/Amsterdam'
     text = core.render_env(schema, values, {core.PROFILE_CORE, core.PROFILE_SENTINEL, core.PROFILE_TOOLS})
     p = tmp_path / '.env'
     p.write_text(text)
     back = core.parse_env(p)
-    assert back['SC_HOST'] == 'https://10.0.0.1/rest/v1'
+    assert back['TZ'] == 'Europe/Amsterdam'
     for f in _all_fields(schema):
         assert f.key in back
 
@@ -81,8 +81,9 @@ def test_validation_flags_placeholders(schema):
     values = core.seed_default_values(schema)
     errors = core.collect_validation_errors(schema, values, {core.PROFILE_CORE, core.PROFILE_SENTINEL})
     joined = '\n'.join(errors)
-    for key in ('SC_HOST', 'SC_PASSWORD', 'INFLUX_TOKEN', 'SENTINEL_PG_PASSWORD'):
+    for key in ('HCM_SECRET_KEY', 'SC_DASHBOARD_PASSWORD', 'INFLUX_TOKEN', 'SENTINEL_PG_PASSWORD'):
         assert key in joined, f'{key} placeholder not reported'
+    assert 'SC_HOST' not in joined, 'cluster credentials are no longer part of .env'
 
 
 def test_easy_autogen_fills_secrets_but_not_operator_keys(schema):
@@ -91,7 +92,7 @@ def test_easy_autogen_fills_secrets_but_not_operator_keys(schema):
     core.apply_easy_autogen(schema, values, core.EASY_PROFILES)
     for key in core.EASY_REQUIRED_KEYS:
         assert values[key] == before[key], f'{key} is operator-supplied and must not be generated'
-    for key in ('INFLUX_TOKEN', 'DOCKER_INFLUXDB_INIT_PASSWORD', 'SENTINEL_PG_PASSWORD', 'SC_DASHBOARD_SECRET_KEY'):
+    for key in ('INFLUX_TOKEN', 'DOCKER_INFLUXDB_INIT_PASSWORD', 'SENTINEL_PG_PASSWORD', 'SC_DASHBOARD_SECRET_KEY', 'HCM_SECRET_KEY'):
         assert values[key] not in core.PLACEHOLDERS
         assert len(values[key]) >= 24
 
@@ -131,3 +132,9 @@ def test_extract_host_ip_roundtrip():
 ])
 def test_looks_like_host(s, ok):
     assert core.looks_like_host(s) is ok
+
+
+def test_cluster_credentials_are_not_in_the_installer(schema):
+    keys = {f.key for s in schema for f in s.fields}
+    assert not keys & {'SC_HOST', 'SC_USERNAME', 'SC_PASSWORD', 'SC_VERIFY_SSL'}
+    assert 'HCM_SECRET_KEY' in keys and 'TZ' in keys

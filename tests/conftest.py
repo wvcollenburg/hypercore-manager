@@ -55,15 +55,29 @@ _stub('influxdb_client', InfluxDBClient=_InfluxDBClient, Point=_Point)
 _stub('influxdb_client.client')
 _stub('influxdb_client.client.write_api', SYNCHRONOUS='SYNCHRONOUS')
 _stub('influxdb_client.client.exceptions', InfluxDBError=type('InfluxDBError', (Exception,), {}))
-_stub('psycopg2', connect=lambda *a, **k: (_ for _ in ()).throw(RuntimeError('no db in tests')))
+class _Extensions:
+    connection = object
+
+
+_stub('psycopg2', connect=lambda *a, **k: (_ for _ in ()).throw(RuntimeError('no db in tests')),
+      extensions=_Extensions)
 _stub('psycopg2.extras', RealDictCursor=object)
 
 # the balancer reads live config from Postgres through config_db; in tests every key falls
 # back to its coded default
+_TEMPLATE = '00000000-0000-0000-0000-000000000001'
 _stub('config_db',
-      get=lambda key, default=None: default,
-      get_all=lambda: {},
-      set=lambda *a, **k: None)
+      TEMPLATE_CLUSTER_ID=_TEMPLATE,
+      DEFAULT_CLUSTER_ID=_TEMPLATE,
+      get=lambda key, cluster_id=_TEMPLATE: None,
+      get_all=lambda cluster_id=_TEMPLATE: {},
+      copy_template_to=lambda cluster_id: None,
+      save=lambda *a, **k: None,
+      save_many=lambda *a, **k: None,
+      seed_from_env=lambda: None)
+_stub('cluster_registry', TEMPLATE_CLUSTER_ID=_TEMPLATE, list_enabled=lambda: [],
+      credentials=lambda cid: ('', ''), mark_seen=lambda *a, **k: None, mark_error=lambda *a, **k: None)
+_stub('hcm_crypto', key_configured=lambda: True, ENV_VAR='HCM_SECRET_KEY')
 _stub('db', connect=lambda *a, **k: (_ for _ in ()).throw(RuntimeError('no db in tests')))
 
 
