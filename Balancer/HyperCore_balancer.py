@@ -772,6 +772,7 @@ if __name__ == "__main__":
         print(f"ERROR: {hcm_crypto.ENV_VAR} is not set — stored cluster credentials cannot be decrypted.")
     migration_logger = MigrationLogger(INFLUX_URL, INFLUX_TOKEN, INFLUX_ORG, INFLUX_BUCKET)
     threads: Dict[str, Tuple[ClusterBalancerThread, threading.Event]] = {}
+    warned_duplicates: set = set()
     last_idle_notice = 0.0
     try:
         while True:
@@ -781,13 +782,25 @@ if __name__ == "__main__":
                 print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Registry unavailable: {e}")
                 clusters = None
             if clusters is not None:
+                # two registry entries pointing at the same HyperCore cluster (e.g. two node IPs)
+                # would run two balancers against one cluster; only the first registered balances
+                suspended = set()
+                for group in cluster_registry.duplicate_groups(list(clusters.values())):
+                    for dup in group[1:]:
+                        suspended.add(dup.cluster_id)
+                        if dup.cluster_id in threads or dup.cluster_id not in warned_duplicates:
+                            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{dup.name}] Balancing SUSPENDED: same HyperCore "
+                                  f"cluster as '{group[0].name}'. Remove the duplicate entry or point it at another cluster.")
+                            warned_duplicates.add(dup.cluster_id)
                 for cid, (t, ev) in list(threads.items()):
                     c = clusters.get(cid)
-                    # stop on removal/disable, on a credential/host change, or if the thread died
-                    if c is None or c.updated_at != t.cluster.updated_at or not t.is_alive():
+                    # stop on removal/disable, on a credential/host change, if the thread died, or when suspended
+                    if c is None or c.updated_at != t.cluster.updated_at or not t.is_alive() or cid in suspended:
                         ev.set()
                         del threads[cid]
                 for cid, c in clusters.items():
+                    if cid in suspended:
+                        continue
                     if cid not in threads:
                         ev = threading.Event()
                         t = ClusterBalancerThread(c, migration_logger, ev)

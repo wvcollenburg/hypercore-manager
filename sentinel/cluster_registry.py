@@ -285,7 +285,31 @@ def delete(cluster_id: str, purge: bool = False) -> None:
         conn.close()
 
 
+def duplicate_groups(clusters: Optional[list[Cluster]] = None) -> list[list[Cluster]]:
+    """Enabled clusters that share a HyperCore cluster uuid: the same physical cluster
+    registered more than once (typically two node IPs). Ordered by registration time, so the
+    first entry of each group is the one that keeps balancing."""
+    clusters = clusters if clusters is not None else list_enabled()
+    by_uuid: dict[str, list[Cluster]] = {}
+    for c in clusters:
+        if c.hc_cluster_uuid:
+            by_uuid.setdefault(c.hc_cluster_uuid, []).append(c)
+    groups = [sorted(g, key=lambda c: (c.registered_at or datetime.min.replace(tzinfo=None)).isoformat())
+              for g in by_uuid.values() if len(g) > 1]
+    return groups
+
+
+def duplicate_of(cluster: Cluster, clusters: Optional[list[Cluster]] = None) -> Optional[Cluster]:
+    """The earlier-registered cluster this one duplicates, or None."""
+    for group in duplicate_groups(clusters):
+        if any(c.cluster_id == cluster.cluster_id for c in group) and group[0].cluster_id != cluster.cluster_id:
+            return group[0]
+    return None
+
+
 def mark_seen(cluster_id: str, hc_cluster_uuid: Optional[str] = None) -> None:
+    """Record a successful contact. When the HyperCore uuid turns out to be shared with
+    another enabled cluster, the newer registration is flagged instead of cleared."""
     conn = _connect()
     try:
         with conn.cursor() as cur:
@@ -300,6 +324,15 @@ def mark_seen(cluster_id: str, hc_cluster_uuid: Optional[str] = None) -> None:
         log.warning('cluster_registry.mark_seen(%s): %s', cluster_id, exc)
     finally:
         conn.close()
+    if hc_cluster_uuid:
+        try:
+            me = get(cluster_id)
+            dup = duplicate_of(me) if me else None
+            if dup:
+                mark_error(cluster_id, f"same HyperCore cluster as '{dup.name}' ({hc_cluster_uuid[:8]}…): "
+                                       f"registered twice? Balancing is suspended for this entry.")
+        except Exception as exc:
+            log.warning('cluster_registry duplicate check(%s): %s', cluster_id, exc)
 
 
 def mark_error(cluster_id: str, message: str) -> None:
