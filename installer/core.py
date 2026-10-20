@@ -1,4 +1,4 @@
-"""Shared installer core — used by the curses TUI and the Windows wizard.
+"""Shared installer core — used by the curses TUI (install.py) and the test suite.
 
 This module owns:
   * The schema describing every variable in .env.template.
@@ -7,8 +7,8 @@ This module owns:
   * Strong password / token generation and the easy-mode autogen pass.
   * Small utilities (host normalization, path autodetect).
 
-It deliberately has zero UI dependencies so a Windows GUI, the curses TUI,
-or a unit test can all share the same logic.
+It deliberately has zero UI dependencies so the curses TUI and the unit
+tests share the same logic.
 """
 
 from __future__ import annotations
