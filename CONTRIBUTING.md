@@ -39,6 +39,10 @@ page will say so.
   merged.
 - Postgres schema changes are a new numbered file under `postgres/init/`, idempotent
   (`IF NOT EXISTS` and friends). The migration runner applies it on the next dashboard start.
+- Modules under `shared/` are the single source for the copies inside each service directory.
+  Edit them there and run `python3 tools/sync_shared.py`; a test fails when a copy drifts.
+- Anything that reads or writes the HyperCore API should match `docs/hypercore-openapi-v1.json`;
+  `tests/test_hypercore_spec_contract.py` is where such calls are pinned.
 - Run the test suite (`pytest`) before opening the pull request. See below.
 - Versioning follows SemVer. Tag releases `vMAJOR.MINOR.PATCH` and keep `VERSION` in sync;
   the in-app updater compares the two.
@@ -49,10 +53,12 @@ A laptop with Docker Desktop is enough for a trial run; arm64 (Apple Silicon) wo
 
 ```bash
 cp .env.template .env
-# set SC_HOST / SC_USERNAME / SC_PASSWORD (read-only cluster credentials are fine with SC_DRY_RUN=true)
-# replace every CHANGE_ME, or run: python3 install.py
-docker compose --profile sentinel up --build -d
+# replace every CHANGE_ME (or run: python3 install.py)
+docker compose --profile full up --build -d
 ```
+
+Then open http://localhost:5000 and register a cluster. Read-only cluster credentials are fine:
+every cluster starts in dry-run, and only exports need write rights.
 
 On macOS, point `SC_REPO_PATH` at your checkout and `SC_SSH_KEY_PATH` at a directory that
 exists, because the dashboard container bind-mounts both for the in-app updater.
@@ -67,4 +73,5 @@ pytest -m integration       # also hits a running stack on http://localhost:5000
 ```
 
 Integration tests read the dashboard password from `.env` and skip themselves when no stack is
-reachable.
+reachable. CI (`.github/workflows/ci.yml`) runs the unit tests, validates the compose file and
+builds the images on every pull request.

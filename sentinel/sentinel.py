@@ -23,7 +23,7 @@ Two independent loops run on configurable intervals:
       Polls HyperCore for VM spec changes after a right-sizing recommendation
       has been emitted for long enough (default: 48 hours).  Writes outcome
       (resized_up / resized_down / no_action) back to the audit record.
-      Disabled when SENTINEL_OUTCOME_TRACKER_ENABLED=false or SC_HOST is unset.
+      Disabled when SENTINEL_OUTCOME_TRACKER_ENABLED=false.
 
   Webhook loop  (default 60 s)  [Phase 3 — F5]
       Dispatches outbound HTTP POST alerts for new CRITICAL/EMERGENCY audit

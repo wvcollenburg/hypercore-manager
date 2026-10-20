@@ -8,7 +8,9 @@
 
 HyperCore Manager is a containerized stack that automatically distributes virtual machine workloads across Scale Computing HyperCore cluster nodes. It monitors resource usage in real time, enforces VM placement rules, and — optionally — uses machine learning to predict and prevent future overloads before they happen.
 
-The optional **Foresight** module extends the platform with long-range capacity intelligence: multi-horizon forecasting, VM right-sizing recommendations, cluster health scoring, scenario modelling, and data sharing with a central capacity viewer.
+One installation manages any number of HyperCore clusters. Clusters are registered in the dashboard, grouped into folders, and shown to each user according to the folders they belong to, so a service provider can run one stack for all its customers.
+
+The optional **Foresight** module extends the platform with long-range capacity intelligence: multi-horizon forecasting, VM right-sizing recommendations, cluster health scoring, scenario modelling, and data sharing with a central capacity viewer. The optional **Exports** module schedules VM exports to SMB or NFS shares, with retention and import back into any registered cluster.
 
 ---
 
@@ -21,13 +23,14 @@ The optional **Foresight** module extends the platform with long-range capacity 
 - **Affinity Enforcement** — Highest-priority engine that enforces VM placement rules via HyperCore tags:
   - `node_<suffix>` — Pin a VM to a specific node (e.g. `node_241` pins to the node whose IP ends in `.241`)
   - `anti_<vm_name>` — Prevent two VMs from sharing the same node (e.g. `anti_dc02` on `dc01`)
-- **Clusters configured in the tool** — Register one or more HyperCore clusters from the dashboard (Settings → Clusters). Credentials are stored encrypted in PostgreSQL; nothing cluster-specific lives in `.env`. With more than one cluster a selector rail appears and every view, setting and Foresight analysis is per cluster.
+- **Clusters configured in the tool** — Register one or more HyperCore clusters from the dashboard (Settings → Clusters). Credentials are stored encrypted in PostgreSQL; nothing cluster-specific lives in `.env`. Every view, setting and Foresight analysis is per cluster, and the same physical cluster registered twice is detected and only balanced once.
+- **Folders and users** — Clusters live in folders in the sidebar rail (collapsible, colour-coded, searchable by folder, cluster name or address). Administrators see everything; other users see the folders they are members of. Settings, Modules and share management are admin-only; everyone has an Account page with password and two-factor settings.
 - **Live Configuration** — All tunable settings are stored in a shared PostgreSQL database. Change any parameter through the dashboard UI at runtime — no container restarts required.
 - **Built-in Dashboard** — Web-based UI (port 5000) showing node/VM performance, drive health, VSD I/O, migration event log, balancer settings, and the full Foresight interface. Fully offline-capable for dark-site deployments.
 - **Multi-language UI** — English, Dutch, French, and German, selectable from the dashboard header.
 - **User Authentication** — Username/password login with optional per-user TOTP (one-time password) two-factor. Auth can be disabled for local/dev use by leaving the dashboard credentials blank.
 - **In-app Updater** — Detects new tagged releases on origin and applies them in place with one click; database migrations ship and apply automatically with the release that needs them.
-- **Exports (optional `exports` profile)** — Daily VM exports to an SMB or NFS share in timestamped folders with retention pruning, plus VM import back into any registered cluster. Scheduled per VM from the dashboard; progress tracked from HyperCore's task API; interrupted runs re-attach after a restart.
+- **Exports (optional `exports` profile)** — Daily VM exports to an SMB or NFS share in timestamped folders with retention pruning, plus VM import back into any registered cluster. Administrators define shares once and assign them to folders; users schedule exports and run imports without ever seeing a path or a credential. The share layout mirrors the folders. Progress comes from HyperCore's task API and interrupted runs re-attach after a restart.
 - **Metrics Collection** — Comprehensive HyperCore telemetry (node performance, VM stats, drive health, VSD I/O, replication, cluster conditions) stored in InfluxDB with automatic downsampling.
 
 ### Foresight (Optional — `sentinel` profile)
@@ -41,34 +44,39 @@ The optional **Foresight** module extends the platform with long-range capacity 
 - **PDF Reports** — Downloadable capacity reports with optional branding (logo, accent colour, company name).
 - **Webhook Alerts** — HMAC-SHA256 signed HTTPS alerts for CRITICAL and EMERGENCY events, with automatic retry.
 - **Live Tunables** — All analysis thresholds and toggles are editable from the dashboard at runtime, without restarting Sentinel.
-- **Data Sharing** — Optionally push signed capacity snapshots to an Foresight-Central viewer. Includes customer-controlled field anonymisation and AES-256-GCM encrypted offline export.
+- **Data Sharing** — Optionally push signed capacity snapshots to a Foresight-Central viewer. Includes customer-controlled field anonymisation and AES-256-GCM encrypted offline export.
 
 ---
 
 ## Architecture
 
 ```
-┌────────────┐     ┌────────────┐      ┌─────────────┐
-│  Collector │────▶│  InfluxDB  │◀────│  Dashboard  │
-│  (30s poll)│     │ (metrics)  │      │  (port 5000)│
-└────────────┘     └─────┬──────┘      └──────┬──────┘
-                         │                     │
-                   ┌─────▼───────┐      ┌──────▼──────┐
-                   │  Balancer   │      │   Sentinel  │
-                   │ (reactive + │──┐   │ (Foresight)  │
-                   │  predictive │  │   │ port 8081)  │
-                   │  + affinity)│  │   └──────┬──────┘
-                   └─────────────┘  │          │
-                          │         │   ┌──────▼──────┐
-                          └─────────┼──▶│  PostgreSQL │
-                                    │   │  (config +  │
-                                    │   │conclusions) │
-                                    │   └─────────────┘
-                                    │
-                                    ▼
-                            HyperCore REST API
-                            (live migrations)
+                 HyperCore clusters (one or many, registered in the dashboard)
+                 ┌──────────┐ ┌──────────┐ ┌──────────┐
+                 │ cluster A│ │ cluster B│ │ cluster C│ ...   REST API v1
+                 └────▲─────┘ └────▲─────┘ └────▲─────┘
+        polls 30s     │ live migrations │   export / import tasks
+   ┌──────────────────┼────────────────┼────────────────┼──────────────────┐
+   │  Collector       │   Balancer     │   Exports      │   Sentinel       │
+   │  one worker      │   one engine   │   scheduler    │   one analysis   │
+   │  thread/cluster  │   per cluster  │   + REST 8082  │   engine/cluster │
+   └───────┬──────────┴───────┬────────┴───────┬────────┴────────┬─────────┘
+           │ metrics          │ events         │ runs            │ conclusions
+   ┌───────▼──────────┐   ┌───▼────────────────▼─────────────────▼─────────┐
+   │     InfluxDB     │   │                  PostgreSQL                    │
+   │ cluster_id-tagged│   │ cluster registry (encrypted creds), folders,   │
+   │ 1y + 5y buckets  │   │ users, per-cluster tunables, shares, history   │
+   └───────▲──────────┘   └───────────────────────▲────────────────────────┘
+           │                                      │
+   ┌───────┴──────────────────────────────────────┴────────────────────────┐
+   │  Dashboard (port 5000): cluster rail with folders, Infraviewer,       │
+   │  Clusterbalancer, Foresight, Exports, Settings, in-app updater        │
+   └───────────────────────────────────────────────────────────────────────┘
 ```
+
+Each service is one container; inside it, one worker per enabled cluster. Registering a cluster
+needs no restart and no compose change. Everything stored for a cluster carries its registry id,
+so clusters can be added, disabled or removed independently.
 
 | Container    | Role                                                                       |
 |--------------|----------------------------------------------------------------------------|
@@ -76,7 +84,7 @@ The optional **Foresight** module extends the platform with long-range capacity 
 | **Balancer**   | Decision engine — affinity, reactive, and predictive modes               |
 | **InfluxDB**   | Time-series metrics storage with 1-year detailed + 5-year long-term retention |
 | **PostgreSQL** | Config store and Foresight conclusions database                      |
-| **Dashboard**  | Web UI for monitoring, live configuration, and Foresight             |
+| **Dashboard**  | Web UI: cluster rail, monitoring, live configuration, users and folders, Foresight, Exports |
 | **Sentinel**   | *(optional)* Foresight capacity analysis, forecasting, and REST API  |
 | **Exports**    | *(optional)* Scheduled VM exports to SMB/NFS, retention pruning, VM imports |
 | **Grafana**    | *(optional)* Advanced metrics exploration                                |
@@ -172,17 +180,20 @@ clusters keep working until the next restart, after which their passwords must b
 
 ### Key Parameters
 
+Values in `.env` seed the **Defaults** template on first start. After that, change them per
+cluster (or for the template, or for all clusters at once) under Settings → Tunables.
+
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `SC_DRY_RUN` | `true` | **Start here.** Logs decisions without executing migrations. |
 | `SC_CPU_UPPER_THRESHOLD_PERCENT` | `50.0` | Node CPU % that triggers reactive balancing |
-| `SC_RAM_UPPER_THRESHOLD_PERCENT` | `80.0` | Node RAM % that triggers reactive balancing |
+| `SC_RAM_UPPER_THRESHOLD_PERCENT` | `65.0` | Node RAM % that triggers reactive balancing |
 | `SC_RAM_LIMIT_PERCENT` | `85.0` | Hard ceiling — never overload a target node beyond this |
 | `SC_CPU_TARGET_TOLERANCE_PERCENT` | `5.0` | Re-balancing stops when all node CPU values are within this % of the target |
 | `SC_MAX_VCPU_RATIO` | `2.0` | Max vCPU-to-thread overcommit ratio |
 | `SC_VM_MOVE_COOLDOWN_MINUTES` | `30` | Minimum time between moves of the same VM |
 | `SC_MIGRATION_COOLDOWN_MINUTES` | `5` | Minimum time between any migration events |
-| `SC_PREDICTIVE_BALANCING_ENABLED` | `false` | Enable/disable the Oracle |
+| `SC_PREDICTIVE_BALANCING_ENABLED` | `true` | Enable/disable the Oracle |
 | `SC_PREDICTIVE_INTERVAL_SECONDS` | `43200` | How often the Oracle runs (default: 12 hours) |
 | `SC_PREDICTIVE_MAX_WORKERS` | `8` | Parallel threads for VM forecasting |
 | `SC_EXCLUDE_NODE_IPS` | *(empty)* | Comma-separated node IPs to exclude from all balancing |
@@ -232,16 +243,25 @@ Affinity rules take priority over all other engines. A VM with a `node_` tag wil
 
 The dashboard is a single-page application served on port 5000. The UI is available in **English, Dutch, French, and German** — pick from the language selector in the header. The currently running version is shown in a small footer at the bottom-right of every page.
 
-It is divided into four main areas:
+The left-hand **cluster rail** lists folders and clusters (collapsible, colour-coded, with a search box that matches folder names, cluster names and addresses). The selected cluster drives every tab; breadcrumbs in the header show where you are. The rail footer holds Modules and Settings for administrators and the Account page for everyone.
 
-| Tab | Contents |
-|-----|----------|
-| **Infraviewer** | Node CPU/RAM history, drive health and temperature, VM metrics, VSD read/write I/O |
-| **Clusterbalancer** | Migration event log (last 7 days), reactive and predictive engine settings |
-| **Foresight** | Capacity forecasts, right-sizing recommendations, cluster health, reports, what-if modelling, live Sentinel tunables, data sharing — requires `sentinel` or `full` profile |
-| **Modules** | Auto-discovered InfluxDB measurements for ad-hoc data exploration |
+| Area | Contents | Who |
+|------|----------|-----|
+| **Infraviewer** | Node CPU/RAM history, drive health and temperature, VM metrics, VSD read/write I/O | everyone (own folders) |
+| **Clusterbalancer** | Migration event log (last 7 days), reactive and predictive engine settings | everyone (own folders) |
+| **Foresight** | Capacity forecasts, right-sizing recommendations, cluster health, reports, what-if modelling, live Sentinel tunables, data sharing — requires `sentinel` or `full` profile | everyone (own folders) |
+| **Exports** | Schedules, exportable VMs, imports and run history for the selected cluster — requires `exports` or `full` profile | folder members |
+| **Modules** | Auto-discovered InfluxDB measurements for ad-hoc data exploration | admins |
+| **Settings** | Clusters, Tunables (per cluster / Defaults / all), Users, Shares | admins |
+| **Account** | Own password and TOTP two-factor | everyone |
 
-Authentication is handled per-user from the Settings → Users panel, including optional per-user TOTP two-factor. To run without auth (local/dev), leave `SC_DASHBOARD_USER` blank in `.env`.
+Users have one of two roles. **Administrators** see every cluster and manage clusters, folders,
+users and shares. **Users** see the clusters in the folders they are members of and can operate
+them (settings, exports, imports) but cannot manage the installation. Folder menus in the rail
+(the "…" button) move clusters between folders, edit members and assign an export share. See
+[docs/administration.md](docs/administration.md) for the full walkthrough.
+
+To run without authentication (local/dev), leave `SC_DASHBOARD_USER` blank in `.env`; everyone is then an administrator.
 
 On first login each user sees a one-time notice explaining that this is community-supported software and where to report issues. The acknowledgement is stored per user; when auth is disabled it is stored in the browser instead.
 
@@ -278,7 +298,7 @@ Sentinel exposes a REST API on port 8081 (internal to the Docker network; proxie
 
 ### Data Sharing
 
-Sentinel can push signed capacity snapshots to an Foresight-Central viewer instance every 4 hours. Customers control which fields are anonymised before data leaves the cluster. Snapshots can also be exported manually as an AES-256-GCM encrypted `.hcb` file for offline transfer.
+Sentinel can push signed capacity snapshots to a Foresight-Central viewer instance every 4 hours. Sharing is configured per registered cluster; each cluster is enrolled separately. Customers control which fields are anonymised before data leaves the cluster. Snapshots can also be exported manually as an AES-256-GCM encrypted `.hcb` file for offline transfer.
 
 See [docs/phase4-data-sharing.md](docs/phase4-data-sharing.md) for the setup guide.
 
@@ -307,7 +327,7 @@ The optional `exports` container schedules VM exports and runs imports, driven f
 - **Retention.** After a successful export, older copies of that VM beyond the retention count
   are deleted, oldest first. SMB shares are pruned over the protocol with the stored credentials;
   for NFS, bind-mount the share into the `exports` container and set the prune path on the
-  schedule. Other VMs' folders are never touched.
+  share. Other VMs' folders are never touched.
 - **Imports.** Browse the folder's share subtree, pick an export folder, optionally rename, and
   import into the selected cluster. A name that already exists on the target is refused.
 - **Who may do what.** Members of a folder schedule exports and run imports for its clusters;
@@ -319,11 +339,14 @@ The optional `exports` container schedules VM exports and runs imports, driven f
   may be `user`, `DOMAIN\user` or `user@domain`.
 - **Share access from a laptop stack** works over SMB without any mount (userland client).
 
+Administration details (shares, folder assignment, rights) are in
+[docs/administration.md](docs/administration.md).
+
 ## Updates
 
 The dashboard includes an in-app updater that detects new releases and applies them in place. It compares the running version (read from the `VERSION` file at the repo root) against the latest semver-style git tag on `origin`, and surfaces an "Update available" badge in the header when a newer release exists.
 
-- Versioning follows [Semantic Versioning 2.0.0](https://semver.org/). During the pre-1.0 phase, MINOR bumps may include breaking changes; PATCH bumps are bug-fix and documentation only.
+- Versioning follows [Semantic Versioning 2.0.0](https://semver.org/): MAJOR when configuration, stored data or the upgrade path change incompatibly, MINOR for features, PATCH for fixes and documentation. The changelog lists upgrade notes per release; read them before clicking Apply Update across a MAJOR boundary.
 - Releases are tagged in git as `vMAJOR.MINOR.PATCH` and announced on [GitHub Releases](https://github.com/wvcollenburg/hypercore-manager/releases). Untagged commits don't trigger update prompts — only deliberate releases do, so customers are never bombarded with "update available" for in-flight development.
 - Database migrations under `postgres/init/` are applied automatically on dashboard startup; every script is idempotent (`CREATE TABLE IF NOT EXISTS` and similar guards) so existing installs never lose data when a new migration ships.
 - Manual update path (equivalent to clicking Apply Update in the dashboard): `git pull && docker compose --profile <profile> up --build -d`.
@@ -349,6 +372,8 @@ The entire stack runs fully offline once images are built. No outbound connectio
 ## Resource Requirements
 
 The core stack (Collector, Balancer, Dashboard, InfluxDB, PostgreSQL) is lightweight. Foresight (Sentinel) adds significant memory during analysis cycles due to time-series data processing; it releases memory immediately after each cycle.
+
+Sizing is by the **total number of VMs across all registered clusters**: each service runs one worker per cluster inside the same container, so ten clusters of 20 VMs behave like one cluster of 200. Raise the `memory:` limits of `balancer` and `sentinel` in `docker-compose.yaml` accordingly; the collector and exports containers stay small.
 
 ### Core Stack
 
@@ -414,7 +439,10 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 ├── tests/                           # pytest suite (unit + optional integration)
 ├── .github/                         # CI workflow and issue templates
 ├── docs/
-│   └── phase4-data-sharing.md       # Data sharing setup guide
+│   ├── administration.md            # Clusters, folders, users, shares, exports: the admin guide
+│   ├── phase4-data-sharing.md       # Data sharing setup guide
+│   ├── hypercore-openapi-v1.json    # HyperCore REST v1 spec (contract-tested)
+│   └── hypercore-openapi-v2.json    # HyperCore REST v2 spec (experimental)
 ├── influxdb/
 │   ├── Dockerfile
 │   └── init.sh                      # Creates long-term bucket and downsampling tasks
@@ -446,10 +474,11 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 ├── exports/
 │   ├── Dockerfile
 │   ├── exports.py                   # Entry point — scheduler + REST API (port 8082)
-│   ├── jobs.py                      # Export/import jobs, SMB pruning, restart recovery
+│   ├── jobs.py                      # Export/import jobs, share layout, SMB pruning, restart recovery
 │   ├── scheduler.py                 # APScheduler wiring (daily cron per schedule)
 │   ├── api.py                       # REST API proxied by the dashboard
-│   └── db.py                        # PostgreSQL schema `exports`
+│   ├── hypercore.py                 # HyperCore export/import/task calls
+│   └── db.py                        # PostgreSQL schema `exports` (schedules, runs, imports, shares)
 └── sentinel/
     ├── Dockerfile
     ├── requirements.txt
@@ -466,7 +495,8 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 
 | Document | Contents |
 |----------|----------|
-| [DEPLOY.md](DEPLOY.md) | Prerequisites, environment variables, security hardening, backup/restore, upgrade procedure, health checks, troubleshooting |
+| [DEPLOY.md](DEPLOY.md) | Prerequisites, environment variables, security hardening, backup/restore, upgrade procedure (including from 0.9.x), health checks, troubleshooting |
+| [docs/administration.md](docs/administration.md) | Day-to-day administration: registering clusters, folders and members, users and roles, shares and export layout |
 | [docs/phase4-data-sharing.md](docs/phase4-data-sharing.md) | Data sharing setup: enrollment, anonymisation, `.hcb` file format, troubleshooting |
 | [docs/hypercore-openapi-v1.json](docs/hypercore-openapi-v1.json) | Scale Computing HyperCore REST API v1 OpenAPI spec (the API every service uses); `tests/test_hypercore_spec_contract.py` checks our calls against it |
 | [docs/hypercore-openapi-v2.json](docs/hypercore-openapi-v2.json) | HyperCore REST API v2 (experimental) spec; adds task listing used for the planned activity feed |

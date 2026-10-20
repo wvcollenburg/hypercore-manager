@@ -2,9 +2,11 @@
 
 ## Overview
 
-This stack provides automated VM load balancing and capacity intelligence for a Scale Computing
-HyperCore cluster. It runs as a set of Docker containers on a management host (VM or bare-metal)
-with outbound network access to the HyperCore REST API.
+This stack provides automated VM load balancing, capacity intelligence and scheduled VM exports for
+one or more Scale Computing HyperCore clusters. It runs as a set of Docker containers on a
+management host (VM or bare-metal) with outbound network access to the HyperCore REST API of every
+registered cluster. Clusters are registered in the dashboard after the stack is up; each service
+runs one worker per cluster inside its container.
 
 **Services:**
 
@@ -48,22 +50,23 @@ dashboard later, not here.
 ### 2. Generate secrets
 
 ```bash
-# InfluxDB admin token
+`python3 install.py` generates every secret for you (easy mode asks only for the dashboard
+password). By hand, run the generator once per value:
+
+```bash
 python3 -c "import secrets; print(secrets.token_hex(32))"
-# Paste result as INFLUX_TOKEN and DOCKER_INFLUXDB_INIT_PASSWORD
-
-# Dashboard password
-python3 -c "import secrets; print(secrets.token_hex(16))"
-# Paste result as SC_DASHBOARD_PASSWORD
-
-# PostgreSQL password
-python3 -c "import secrets; print(secrets.token_hex(16))"
-# Paste result as SENTINEL_PG_PASSWORD
-
-# Sentinel API token (if using Foresight)
-python3 -c "import secrets; print(secrets.token_hex(32))"
-# Paste result as SENTINEL_API_TOKEN
 ```
+
+| Value | Used for |
+|---|---|
+| `HCM_SECRET_KEY` | Encrypts cluster and share passwords in PostgreSQL. **Back it up with the database.** |
+| `SC_DASHBOARD_SECRET_KEY` | Signs browser sessions |
+| `SC_DASHBOARD_PASSWORD` | Initial admin login (seeded once; manage users in the dashboard afterwards) |
+| `INFLUX_TOKEN`, `DOCKER_INFLUXDB_INIT_PASSWORD` | InfluxDB |
+| `SENTINEL_PG_PASSWORD` | PostgreSQL (shared by every service) |
+| `SENTINEL_API_TOKEN` | Dashboard ↔ Sentinel API |
+| `EXPORTS_API_TOKEN` | Dashboard ↔ Exports API |
+| `GF_SECURITY_ADMIN_PASSWORD` | Grafana (`tools` profile only) |
 
 ### 3. Start the core stack
 
@@ -71,8 +74,9 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 docker compose up -d
 ```
 
-This starts influxdb, postgres, collector, balancer, and dashboard. Sentinel is **not** started
-unless you add the `sentinel` profile (see below).
+This starts influxdb, postgres, collector, balancer, and dashboard. Sentinel and Exports are
+**not** started unless you add their profile (`--profile sentinel`, `--profile exports`, or
+`--profile full` for both; see below).
 
 ### 4. Verify everything is up
 
@@ -94,13 +98,29 @@ Navigate to `http://<host-ip>:5000` and log in with `SC_DASHBOARD_USER` / `SC_DA
 
 The first login shows the cluster registration form: management address, HyperCore account,
 TLS verification. Use **Test connection** first. Within a minute the collector writes metrics
-and the balancer starts evaluating in dry-run.
+and the balancer starts evaluating in dry-run. Add further clusters under Settings → Clusters;
+no restart is needed. Folders, users and shares are described in
+[docs/administration.md](docs/administration.md).
 
 ### 7. Confirm dry-run before going live
 
 Every cluster starts in dry-run mode: the balancer logs what it *would* do but performs no
 migrations. Once you have confirmed it is analysing the cluster correctly, switch **Dry run**
 off for that cluster in the dashboard's Balancer Settings. No restart is needed.
+
+---
+
+## Starting Exports
+
+```bash
+docker compose --profile exports up -d      # or --profile full for Sentinel + Exports
+```
+
+The Exports tab appears in the dashboard as soon as the container is healthy. Before users can
+schedule anything an administrator adds a share (Settings → Shares) and assigns it to the folders
+whose clusters should export there; clusters in no folder use the share flagged as their default.
+Exports land in `<share>/<folder>/<vm>_<timestamp>/`. NFS retention pruning needs the share
+mounted into the container (see the Exports variables below); SMB needs nothing extra.
 
 ---
 
@@ -116,14 +136,15 @@ docker compose --profile sentinel up -d
 docker compose --profile full --profile tools up -d
 ```
 
-Sentinel exposes a health endpoint and a REST API:
+Sentinel exposes a health endpoint (inside the container; `docker compose ps` shows it as
+`healthy`) and a REST API on 8081:
 
 ```bash
 # Health check
-curl http://localhost:8080/health
+docker compose exec sentinel python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8080/health/detail').read().decode())"
 
-# REST API (requires SENTINEL_API_TOKEN if set)
-curl -H "Authorization: Bearer <token>" http://localhost:8081/api/v1/summary
+# REST API (requires SENTINEL_API_TOKEN if set); one cluster at a time
+curl -H "Authorization: Bearer <token>" "http://localhost:8081/api/v1/summary?cluster=<cluster uuid>"
 ```
 
 The Foresight tab in the dashboard becomes active once Sentinel has completed its first
@@ -158,6 +179,10 @@ Settings → Clusters after the stack is up (address, account, TLS verification 
 
 ### Balancer
 
+These values seed the **Defaults** template on first start. Afterwards they are edited per
+cluster in the dashboard (Settings → Tunables), which also offers "apply to all clusters".
+Changing them in `.env` later does not alter clusters that already exist.
+
 | Variable | Description |
 |---|---|
 | `SC_DRY_RUN` | `true` = log only, no migrations. **Start here.** |
@@ -179,7 +204,8 @@ Settings → Clusters after the stack is up (address, account, TLS verification 
 | `EXPORTS_DEFAULT_RUN_TIME` | Pre-filled daily run time for new schedules (default 03:00, in `TZ`) |
 
 NFS pruning needs the share mounted into the container; add a `docker-compose.override.yml`
-with `services: exports: volumes: ["/mnt/nas/hypercore:/mnt/nas/hypercore"]`. SMB needs no mount.
+with `services: exports: volumes: ["/mnt/nas/hypercore:/mnt/nas/hypercore"]` and set that path
+as the share's prune path in Settings → Shares. SMB needs no mount.
 
 ### Dashboard
 
@@ -213,8 +239,9 @@ Before exposing the stack to any network beyond localhost, complete every item:
 - [ ] `HCM_SECRET_KEY` set, backed up together with the PostgreSQL dump
 - [ ] `SENTINEL_API_TOKEN` set to a strong random token (not empty)
 - [ ] `SC_DASHBOARD_PASSWORD` set to a strong password
-- [ ] `SC_DRY_RUN` sign-off completed before setting to `false`
+- [ ] Dry-run observation completed per cluster before switching that cluster's balancer to live (Clusterbalancer → settings)
 - [ ] Dashboard (port 5000) not directly internet-facing — place behind a reverse proxy with TLS
+- [ ] Non-admin users exist only where needed; folder membership reviewed (users see every cluster in their folders)
 - [ ] InfluxDB (port 8086) not exposed beyond the host — internal Docker network only in production
 - [ ] Sentinel API (port 8081) not exposed beyond the host — accessed via dashboard proxy only
 - [ ] Exports API (port 8082) not exposed beyond the host; `EXPORTS_API_TOKEN` set
@@ -259,7 +286,9 @@ server {
 ## Backup
 
 PostgreSQL data is stored in the `postgres-data` Docker volume. InfluxDB data is in
-`influxdb-data`.
+`influxdb-data`. The PostgreSQL dump is only useful together with the `HCM_SECRET_KEY` from
+`.env`: cluster and share passwords are stored encrypted with it. Back up `.env` alongside the
+dumps, and never restore a database under a different key.
 
 ### PostgreSQL backup
 
@@ -296,6 +325,25 @@ docker compose up -d
 ---
 
 ## Upgrading
+
+### Upgrading from 0.9.x
+
+The first release after 0.9.2 moves cluster configuration out of `.env` and supports several
+clusters. Before you pull:
+
+1. Add `HCM_SECRET_KEY` to `.env` (any long random string) and, if you want exports,
+   `EXPORTS_API_TOKEN`. `SC_HOST`, `SC_USERNAME`, `SC_PASSWORD` and `SC_VERIFY_SSL` are ignored
+   from now on and can be removed.
+2. Pull, rebuild and start as below. Migrations `019`–`024` apply on the first dashboard start.
+3. Log in. The onboarding form asks for your cluster: re-enter the address and account that
+   were in `.env`. The collector, balancer and Sentinel pick it up within a minute, the balancer
+   **in dry-run**; switch it back to live once you have checked the settings, which were copied
+   from your `.env` values into that cluster's tunables.
+4. Metrics written by 0.9.x carry no cluster tag and are no longer shown. Forecasts and the
+   balancer's averages therefore start from scratch; Foresight needs its usual 14 days of history
+   again. The old data stays in InfluxDB until its retention expires.
+5. If you ran the former standalone export manager, its schedules are not migrated: create a
+   share, assign it, and re-create the schedules from the Exports tab.
 
 ### 1. Pull latest code
 
@@ -377,7 +425,7 @@ docker compose logs --tail=100 dashboard
 All application logs are structured JSON. Filter with `jq`:
 
 ```bash
-docker compose logs sentinel | grep '{' | jq 'select(.levelname == "WARNING")'
+docker compose logs sentinel | grep '{' | jq 'select(.level == "WARNING")'
 ```
 
 ---
@@ -385,9 +433,10 @@ docker compose logs sentinel | grep '{' | jq 'select(.levelname == "WARNING")'
 ## Health Checks
 
 ```bash
-# Sentinel health endpoint
-curl http://localhost:8080/health
-curl http://localhost:8080/health/detail
+# Sentinel and Exports health (ports 8080/8082 inside the containers; compose reports healthy)
+docker compose ps
+docker compose exec sentinel python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8080/health/detail').read().decode())"
+docker compose exec exports  python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8082/health').read().decode())"
 
 # InfluxDB
 curl http://localhost:8086/health
@@ -414,17 +463,38 @@ Common causes: missing or incorrect `.env` values, PostgreSQL or InfluxDB not ye
 
 ### Balancer is not migrating VMs
 
-1. Confirm `SC_DRY_RUN=false` in `.env`
+1. Confirm the cluster's balancer is not in dry-run (the rail badge says **dry run** or **live**;
+   switch it in Clusterbalancer → settings for that cluster)
 2. Check CPU/RAM thresholds — balancing only triggers when a node exceeds them
-3. Check `SC_EXCLUDE_NODE_IPS` — the target node may be excluded
-4. Review balancer logs for `would migrate` or `skipping` messages
+3. Check the excluded node IPs for that cluster — the target node may be excluded
+4. Check the cluster is not flagged as a duplicate registration (the balancer suspends itself for
+   the newer entry when the same HyperCore cluster is registered twice)
+5. Review balancer logs for `would migrate` or `skipping` messages
+
+### A cluster shows "duplicate" in the rail
+
+Two registry entries point at the same HyperCore cluster (for example two node addresses). Remove
+or disable one of them; the remaining entry resumes normal operation.
+
+### Exports tab is missing
+
+The tab appears only while the `exports` container is healthy and the dashboard can reach it
+with `EXPORTS_API_TOKEN`. Check `docker compose --profile exports ps` and the dashboard log.
+
+### Export run fails with 403
+
+The HyperCore account registered for that cluster lacks export/import rights. Grant them (VM
+export/import, snapshot) or register an account that has them; read-only accounts are enough for
+monitoring and dry-run only.
 
 ### Sentinel shows no data in dashboard
 
 1. Confirm sentinel is running: `docker compose --profile sentinel ps`
 2. Check sentinel logs for errors on first collection/analysis cycle
 3. The Foresight tab populates after the first analysis cycle (up to 1 hour by default)
-4. Verify `SENTINEL_API_TOKEN` matches between `.env` and the dashboard's `SENTINEL_API_TOKEN`
+4. The banner above the tab shows how many days of history the selected cluster has; forecasts
+   need 14 days from the moment the cluster was registered
+5. Verify `SENTINEL_API_TOKEN` matches between `.env` and the dashboard's `SENTINEL_API_TOKEN`
 
 ### `.env` changes not taking effect
 

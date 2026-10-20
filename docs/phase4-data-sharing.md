@@ -2,10 +2,14 @@
 
 ## What is Data Sharing?
 
-Foresight Sentinel can push capacity conclusions to an Foresight-Central viewer operated
+Foresight Sentinel can push capacity conclusions to a Foresight-Central viewer operated
 by your managed service provider (MSP). This lets your MSP team
 review your cluster's forecast snapshots, right-sizing recommendations, and capacity projections
 without requiring direct access to your HyperCore environment.
+
+Sharing is configured **per registered cluster**: select the cluster in the rail, then open the
+Data Sharing panel on the Foresight tab. Each cluster is enrolled with its own code and pushes
+its own snapshots; one installation with five clusters appears as five clusters in the viewer.
 
 Data sharing is **opt-in** and push-only: Sentinel initiates all connections outbound from your
 site to the viewer. The viewer has no inbound access to your cluster or to the InfluxDB metrics
