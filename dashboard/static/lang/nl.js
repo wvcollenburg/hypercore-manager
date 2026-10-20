@@ -594,6 +594,8 @@ window.LANG = {
 
   'nav.account': "Account",
 
+  'settings.admin_only': "Instellingen zijn alleen beschikbaar voor beheerders.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",

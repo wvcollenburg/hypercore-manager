@@ -1427,6 +1427,9 @@
   </div>
 
   <!-- ─── settings tab ─── -->
+  <div class="tab-content" id="tab-account">
+    <div id="accountContent"></div>
+  </div>
   <div class="tab-content" id="tab-settings">
     <div id="settingsContent">
       <div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div>
@@ -1703,6 +1706,7 @@ function switchTab(t) {
   document.querySelectorAll(`[data-tab="${t}"]`).forEach(e => e.classList.add('active'));
   document.getElementById(`tab-${t}`).classList.add('active');
   if (t === 'settings')        loadSettings();
+  if (t === 'account')         loadAccount();
   if (t === 'sentinel')        loadSentinel();
   if (t === 'clusterbalancer') switchCbPanel('miglog');
   if (t === 'infraviewer')     switchIvPanel('nodes');
@@ -3684,8 +3688,8 @@ async function loadSettings() {
   const isAdmin = me?.role === 'admin';
 
   if (me && !isAdmin && !me.dev_mode) {
-    // plain users: only their own account; tunables, clusters and users are admin matters
-    document.getElementById('settingsContent').innerHTML = _renderMyAccountCard(me);
+    // plain users never land here (the rail offers them Account only); be safe anyway
+    document.getElementById('settingsContent').innerHTML = `<div class="empty-state">${t('settings.admin_only')}</div>`;
     return;
   }
   let html = '';
@@ -3696,15 +3700,18 @@ async function loadSettings() {
   html += _settingsTargetBar(isAdmin);
   html += _renderGroups(groups, vals, isAdmin);
 
-  if (me) {
-    html += _renderMyAccountCard(me);
-    if (me.role === 'admin') {
-      const users = await apiFetch('/api/users');
-      html += _renderUsersCard(users || [], me);
-    }
+  if (me && me.role === 'admin') {
+    const users = await apiFetch('/api/users');
+    html += _renderUsersCard(users || [], me);
   }
 
   document.getElementById('settingsContent').innerHTML = html;
+}
+
+async function loadAccount() {
+  const me = await apiFetch('/api/users/me');
+  const el = document.getElementById('accountContent');
+  el.innerHTML = me ? _renderMyAccountCard(me) : `<div class="empty-state">${t('empty.settings_failed')}</div>`;
 }
 
 // ── user manager helpers ─────────────────────────────────────────────────────
@@ -4928,10 +4935,10 @@ function _renderRailFooter(isAdmin) {
   const el = document.getElementById('railFooter');
   if (!el) return;
   // admins navigate to Modules and the full Settings; everyone else only reaches their own account
-  el.innerHTML = isAdmin ? `
+  const account = `<div class="rail-nav" data-tab="account" onclick="switchTab('account')"><span class="rail-nav-icon">👤</span><span>${t('nav.account')}</span></div>`;
+  el.innerHTML = (isAdmin ? `
     <div class="rail-nav" data-tab="modules" onclick="switchTab('modules')"><span class="rail-nav-icon">▦</span><span>${t('nav.modules')}</span></div>
-    <div class="rail-nav" data-tab="settings" onclick="switchTab('settings')"><span class="rail-nav-icon">⚙</span><span>${t('nav.settings_short')}</span></div>` : `
-    <div class="rail-nav" data-tab="settings" onclick="switchTab('settings')"><span class="rail-nav-icon">👤</span><span>${t('nav.account')}</span></div>`;
+    <div class="rail-nav" data-tab="settings" onclick="switchTab('settings')"><span class="rail-nav-icon">⚙</span><span>${t('nav.settings_short')}</span></div>` : '') + account;
   const active = document.querySelector('.tab-content.active')?.id?.replace('tab-', '');
   if (active) el.querySelectorAll(`[data-tab="${active}"]`).forEach(e => e.classList.add('active'));
 }

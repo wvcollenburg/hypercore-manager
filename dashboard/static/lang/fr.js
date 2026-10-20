@@ -594,6 +594,8 @@ window.LANG = {
 
   'nav.account': "Compte",
 
+  'settings.admin_only': "Les param\u00e8tres sont r\u00e9serv\u00e9s aux administrateurs.",
+
   // community-support notice (shown once per user)
   'community.title':        'Logiciel soutenu par la communaut\u00e9',
   'community.body':         "HyperCore Manager est un logiciel open source maintenu sur une base communautaire. Il ne s'agit pas d'un produit officiel de Scale Computing et il est fourni sans support officiel ni SLA. Utilisez-le \u00e0 vos propres risques.",
