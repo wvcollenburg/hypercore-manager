@@ -541,6 +541,19 @@ window.LANG = {
   'clusters.no_secret_key': "HCM_SECRET_KEY ist auf dem Dashboard nicht gesetzt, daher können keine Zugangsdaten gespeichert werden. Setzen Sie es in .env und starten Sie den Stack neu.",
   'clusters.none_yet': "Noch keine Cluster registriert.",
 
+  // cluster rail badges, duplicate warning, settings target
+  'clusters.mode_dry': "TESTLAUF",
+  'clusters.mode_live': "LIVE",
+  'clusters.health': "Foresight-Gesundheitswert",
+  'clusters.dup_short': "Gleicher HyperCore-Cluster wie ein anderer Eintrag",
+  'clusters.dup_warning': "{names} zeigen auf denselben HyperCore-Cluster. Nur {keeper} balanciert; entfernen Sie den doppelten Eintrag oder richten Sie ihn auf einen anderen Cluster.",
+  'clusters.defaults': "Standardwerte (Vorlage für neue Cluster)",
+  'clusters.settings_for': "Einstellungen für",
+  'clusters.edit_defaults': "Standardwerte bearbeiten",
+  'clusters.edit_cluster_settings': "Zurück zu diesem Cluster",
+  'clusters.apply_all': "Auf alle Cluster anwenden",
+  'clusters.defaults_hint': "Änderungen hier gelten für ab jetzt registrierte Cluster.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-unterst\u00fctzte Software',
   'community.body':         "HyperCore Manager ist Open-Source-Software, die auf Community-Basis gepflegt wird. Es ist kein offizielles Produkt von Scale Computing und wird ohne offiziellen Support oder SLA bereitgestellt. Die Nutzung erfolgt auf eigene Gefahr.",

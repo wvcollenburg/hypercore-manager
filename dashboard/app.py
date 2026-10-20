@@ -814,10 +814,38 @@ def post_config():
 # cluster registry API — clusters are configured here, not in .env
 # =============================================================================
 
-def _cluster_payload(c):
+def _cluster_payload(c, extras=None):
     d = c.to_dict()
     d['has_password'] = True
+    if extras:
+        d.update(extras.get(c.cluster_id, {}))
     return d
+
+
+def _cluster_extras(clusters):
+    """Per-cluster facts for the rail: balancer mode and latest Foresight health score."""
+    ids = [c.cluster_id for c in clusters]
+    out = {cid: {'dry_run': None, 'health_score': None, 'health_severity': None} for cid in ids}
+    if not ids:
+        return out
+    try:
+        with _pg() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""SELECT cluster_id::text AS cluster_id, value FROM config.tunables
+                               WHERE key = 'DRY_RUN' AND cluster_id = ANY(%s::uuid[])""", (ids,))
+                for r in cur.fetchall():
+                    out[r['cluster_id']]['dry_run'] = str(r['value']).lower() == 'true'
+                cur.execute("""SELECT DISTINCT ON (cluster_id) cluster_id::text AS cluster_id,
+                                      health_score, severity::text AS severity
+                               FROM recommendations.cluster_health_scores
+                               WHERE cluster_id = ANY(%s::uuid[]) AND expires_at > NOW()
+                               ORDER BY cluster_id, calculated_at DESC""", (ids,))
+                for r in cur.fetchall():
+                    out[r['cluster_id']]['health_score'] = r['health_score']
+                    out[r['cluster_id']]['health_severity'] = r['severity']
+    except Exception as exc:
+        app.logger.warning('cluster extras unavailable: %s', exc)
+    return out
 
 
 @app.route('/api/clusters', methods=['GET'])
@@ -830,11 +858,15 @@ def api_clusters_list():
     except Exception as e:
         return jsonify({'error': str(e), 'clusters': [], 'selected': None}), 200
     enabled = [c for c in clusters if c.enabled]
+    extras = _cluster_extras(clusters)
+    groups = cluster_registry.duplicate_groups(enabled)
     return jsonify({
-        'clusters': [_cluster_payload(c) for c in clusters],
+        'clusters': [_cluster_payload(c, extras) for c in clusters],
         'enabled_count': len(enabled),
         'selected': _cluster_id() if enabled else None,
         'secret_key_configured': hcm_crypto.key_configured(),
+        # entries that point at the same HyperCore cluster (same uuid): the first keeps balancing
+        'duplicate_groups': [[c.cluster_id for c in g] for g in groups],
     })
 
 
@@ -1405,7 +1437,7 @@ def sentinel_vms():
         headers = {}
         if sentinel_token:
             headers['Authorization'] = f'Bearer {sentinel_token}'
-        rq = _req.Request(f'{sentinel_api_url}/api/v1/vms', headers=headers)
+        rq = _req.Request(f'{sentinel_api_url}/api/v1/vms?cluster={_cluster_id()}', headers=headers)
         with _req.urlopen(rq, timeout=10) as resp:
             return jsonify(json.loads(resp.read().decode()))
     except urllib.error.HTTPError as e:
@@ -1436,7 +1468,7 @@ def sentinel_whatif():
             headers['Authorization'] = f'Bearer {sentinel_token}'
 
         rq = _req.Request(
-            f'{sentinel_api_url}/api/v1/whatif',
+            f'{sentinel_api_url}/api/v1/whatif?cluster={_cluster_id()}',
             data=payload,
             headers=headers,
             method='POST',
@@ -1468,7 +1500,7 @@ def sentinel_get_tunables():
         headers = {}
         if sentinel_token:
             headers['Authorization'] = f'Bearer {sentinel_token}'
-        rq = _req.Request(f'{sentinel_api_url}/api/v1/tunables', headers=headers)
+        rq = _req.Request(f'{sentinel_api_url}/api/v1/tunables?cluster={_cluster_id()}', headers=headers)
         with _req.urlopen(rq, timeout=10) as resp:
             return jsonify(json.loads(resp.read().decode()))
     except urllib.error.HTTPError as e:
@@ -1495,7 +1527,7 @@ def sentinel_put_tunables():
         if sentinel_token:
             headers['Authorization'] = f'Bearer {sentinel_token}'
         rq = _req.Request(
-            f'{sentinel_api_url}/api/v1/tunables',
+            f'{sentinel_api_url}/api/v1/tunables?cluster={_cluster_id()}',
             data=payload, headers=headers, method='PUT',
         )
         with _req.urlopen(rq, timeout=10) as resp:
@@ -1523,7 +1555,7 @@ def sentinel_trigger_trend_run():
         if sentinel_token:
             headers['Authorization'] = f'Bearer {sentinel_token}'
         rq = _req.Request(
-            f'{sentinel_api_url}/api/v1/trend/run',
+            f'{sentinel_api_url}/api/v1/trend/run?cluster={_cluster_id()}',
             data=b'', headers=headers, method='POST',
         )
         with _req.urlopen(rq, timeout=10) as resp:
@@ -1551,7 +1583,7 @@ def sentinel_get_sharing():
         headers = {}
         if sentinel_token:
             headers['Authorization'] = f'Bearer {sentinel_token}'
-        rq = _req.Request(f'{sentinel_api_url}/api/v1/sharing', headers=headers)
+        rq = _req.Request(f'{sentinel_api_url}/api/v1/sharing?cluster={_cluster_id()}', headers=headers)
         with _req.urlopen(rq, timeout=10) as resp:
             return jsonify(json.loads(resp.read().decode()))
     except urllib.error.HTTPError as e:
@@ -1578,7 +1610,7 @@ def sentinel_put_sharing():
         if sentinel_token:
             headers['Authorization'] = f'Bearer {sentinel_token}'
         rq = _req.Request(
-            f'{sentinel_api_url}/api/v1/sharing',
+            f'{sentinel_api_url}/api/v1/sharing?cluster={_cluster_id()}',
             data=payload, headers=headers, method='PUT',
         )
         with _req.urlopen(rq, timeout=10) as resp:
@@ -1605,7 +1637,7 @@ def sentinel_export_test_push():
         if sentinel_token:
             headers['Authorization'] = f'Bearer {sentinel_token}'
         rq = _req.Request(
-            f'{sentinel_api_url}/api/v1/export/test-push',
+            f'{sentinel_api_url}/api/v1/export/test-push?cluster={_cluster_id()}',
             data=b'{}', headers=headers, method='POST',
         )
         with _req.urlopen(rq, timeout=60) as resp:
@@ -1631,7 +1663,7 @@ def sentinel_export_snapshot():
         headers = {}
         if sentinel_token:
             headers['Authorization'] = f'Bearer {sentinel_token}'
-        rq = _req.Request(f'{sentinel_api_url}/api/v1/export/snapshot', headers=headers)
+        rq = _req.Request(f'{sentinel_api_url}/api/v1/export/snapshot?cluster={_cluster_id()}', headers=headers)
         with _req.urlopen(rq, timeout=30) as resp:
             return jsonify(json.loads(resp.read().decode()))
     except urllib.error.HTTPError as e:
@@ -1654,7 +1686,7 @@ def sentinel_export_hcb():
 
     passphrase = request.args.get('passphrase', '')
     qs = urlencode({'passphrase': passphrase}) if passphrase else ''
-    url = f'{sentinel_api_url}/api/v1/export/hcb'
+    url = f'{sentinel_api_url}/api/v1/export/hcb?cluster={_cluster_id()}'
     if qs:
         url = f'{url}?{qs}'
 

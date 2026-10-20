@@ -2711,7 +2711,9 @@ async function applyGroup(groupId) {
   const updates = _staged[groupId];
   if (!updates || !Object.keys(updates).length) return;
   try {
-    const r = await fetch(_withCluster('/api/config'), {
+    const applyAll = document.getElementById('settingsApplyAll')?.checked;
+    const ep = applyAll && _settingsTarget !== 'defaults' ? '/api/config?apply_to_all=1' : '/api/config';
+    const r = await fetch(_withCluster(ep), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates)
@@ -3612,6 +3614,7 @@ async function loadSettings() {
     const cl = await apiFetch('/api/clusters');
     html += _renderClustersCard((cl && cl.clusters) || [], me);
   }
+  html += _settingsTargetBar(isAdmin);
   html += _renderGroups(groups, vals, isAdmin);
 
   if (me) {
@@ -4199,7 +4202,7 @@ async function loadBalancerSettings() {
   data.forEach(item => { vals[item.key] = item.value; });
   const groups = CTRL_GROUPS.filter(g => g.tab === 'balancer');
   const isAdmin = _currentUser?.role === 'admin';
-  document.getElementById('balancerSettingsContent').innerHTML = _renderGroups(groups, vals, isAdmin);
+  document.getElementById('balancerSettingsContent').innerHTML = _settingsTargetBar(isAdmin) + _renderGroups(groups, vals, isAdmin);
 }
 
 // =============================================================================
@@ -4414,12 +4417,16 @@ const CLUSTER_LS_KEY = 'hcm.cluster';
 let CLUSTERS = [];           // all registered clusters (enabled or not)
 let currentCluster = null;   // cluster_id the data views are about
 let _isAdminCached = false;
+let _clusterDupGroups = [];      // groups of enabled clusters sharing one HyperCore uuid
+let _settingsTarget = 'cluster'; // 'cluster' = selected cluster, 'defaults' = the Defaults template
 try { currentCluster = localStorage.getItem(CLUSTER_LS_KEY) || null; } catch (_) {}
 
 function _withCluster(ep) {
   // every data call carries the selected cluster; the server validates it and falls
   // back to the first enabled cluster when it is missing or stale
   const url = `${API_BASE}${ep}`;
+  if (ep.startsWith('/api/config') && _settingsTarget === 'defaults')
+    return url + (ep.includes('?') ? '&' : '?') + 'cluster=defaults';
   if (!currentCluster || !ep.startsWith('/api/') || ep.startsWith('/api/clusters') || ep.startsWith('/api/users')
       || ep.startsWith('/api/update') || /[?&]cluster=/.test(ep)) return url;
   return url + (ep.includes('?') ? '&' : '?') + 'cluster=' + encodeURIComponent(currentCluster);
@@ -4442,6 +4449,7 @@ async function loadClusters() {
   const d = await apiFetch('/api/clusters');
   if (!d) return;
   CLUSTERS = d.clusters || [];
+  _clusterDupGroups = d.duplicate_groups || [];
   const enabled = CLUSTERS.filter(c => c.enabled);
   if (!currentCluster || !enabled.some(c => c.cluster_id === currentCluster)) {
     currentCluster = d.selected || (enabled[0] && enabled[0].cluster_id) || null;
@@ -4456,12 +4464,17 @@ function _renderClusterRail(enabled) {
   const rail = document.getElementById('clusterRail');
   const list = document.getElementById('clusterRailList');
   if (enabled.length < 2) { rail.hidden = true; document.body.classList.remove('has-rail'); return; }
+  const dupIds = new Set((_clusterDupGroups || []).flatMap(g => g.slice(1)));
   list.innerHTML = enabled.map((c, i) => `
     <div class="cluster-item ${c.cluster_id === currentCluster ? 'active' : ''}" onclick="selectCluster('${c.cluster_id}')" title="${_clEsc(c.host)}">
       <span class="cluster-dot" style="background:${_clColour(c, i)}"></span>
-      <div style="min-width:0;">
-        <div class="cluster-item-name">${_clEsc(c.name)}</div>
+      <div style="min-width:0;flex:1;">
+        <div class="cluster-item-name">${_clEsc(c.name)}${dupIds.has(c.cluster_id) ? ' <span title="' + _clEsc(t('clusters.dup_short')) + '" style="color:var(--accent-amber)">⚠</span>' : ''}</div>
         <div class="cluster-item-sub ${c.last_error ? 'err' : ''}">${c.last_error ? t('clusters.status_error') : _clAgo(c.last_seen_at)}</div>
+        <div class="cluster-item-sub" style="display:flex;gap:6px;margin-top:3px;">
+          ${c.dry_run === null || c.dry_run === undefined ? '' : `<span style="color:${c.dry_run ? 'var(--accent-amber)' : 'var(--accent-green)'}">${c.dry_run ? t('clusters.mode_dry') : t('clusters.mode_live')}</span>`}
+          ${c.health_score === null || c.health_score === undefined ? '' : `<span title="${_clEsc(t('clusters.health'))}">♥ ${Math.round(c.health_score)}</span>`}
+        </div>
       </div>
     </div>`).join('');
   rail.hidden = false;
@@ -4574,10 +4587,34 @@ function _renderClustersCard(clusters, me) {
         <span class="settings-group-title">${t('clusters.title')}</span>
         <span style="font-size:12px;color:var(--text-muted);">${t('clusters.subtitle')}</span>
       </div>
+      ${(_clusterDupGroups || []).map(g => {
+        const names = g.map(id => (clusters.find(c => c.cluster_id === id) || {}).name || id);
+        return `<div style="margin:8px 0;padding:8px 12px;border-radius:6px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.35);color:var(--accent-amber);font-size:12px;">⚠ ${_clEsc(t('clusters.dup_warning', {names: names.join(', '), keeper: names[0]}))}</div>`;
+      }).join('')}
       ${clusters.length ? `<table class="cl-table"><tr><th>${t('clusters.name')}</th><th>${t('clusters.username')}</th><th></th><th>${t('clusters.status')}</th><th></th></tr>${rows}</table>`
                         : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('clusters.none_yet')}</div>`}
       ${isAdmin ? `<div class="um-section" style="margin-top:14px;"><div class="um-section-title">${t('clusters.add')}</div>${_clusterFormHtml('cl-new', null)}</div>` : ''}
     </div>`;
+}
+
+function _settingsTargetBar(isAdmin) {
+  const enabled = CLUSTERS.filter(c => c.enabled);
+  const cur = enabled.find(c => c.cluster_id === currentCluster);
+  const name = _settingsTarget === 'defaults' ? t('clusters.defaults') : (cur ? cur.name : '—');
+  return `
+    <div class="settings-group" style="padding:10px 14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12px;">
+      <span style="color:var(--text-muted);">${t('clusters.settings_for')}</span>
+      <strong>${_clEsc(name)}</strong>
+      ${isAdmin ? `<button class="refresh-btn" onclick="setSettingsTarget('${_settingsTarget === 'defaults' ? 'cluster' : 'defaults'}')">${_settingsTarget === 'defaults' ? t('clusters.edit_cluster_settings') : t('clusters.edit_defaults')}</button>` : ''}
+      ${isAdmin && _settingsTarget !== 'defaults' && enabled.length > 1 ? `<label style="display:flex;align-items:center;gap:6px;margin-left:auto;cursor:pointer;"><input type="checkbox" id="settingsApplyAll">${t('clusters.apply_all')}</label>` : ''}
+      ${_settingsTarget === 'defaults' ? `<span style="color:var(--text-muted);">${t('clusters.defaults_hint')}</span>` : ''}
+    </div>`;
+}
+
+function setSettingsTarget(target) {
+  _settingsTarget = target;
+  if (document.getElementById('settingsContent') && typeof loadSettings === 'function') loadSettings();
+  if (document.getElementById('balancerSettingsContent') && typeof loadBalancerSettings === 'function') loadBalancerSettings();
 }
 
 function _renderOnboarding(show, secretOk) {
