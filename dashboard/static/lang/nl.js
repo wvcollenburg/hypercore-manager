@@ -590,6 +590,8 @@ window.LANG = {
   'folders.collapse_all': "Alle mappen inklappen",
   'folders.expand_all': "Alle mappen uitklappen",
 
+  'nav.settings_short': "Instellingen",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",
