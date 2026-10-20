@@ -2,15 +2,13 @@
 
 **Cluster Balancing, Capacity Intelligence & Self-Updating Stack for Scale Computing HyperCore**
 
-> **🟡 Beta — v0.9.x · Source-available, all rights reserved**
+> **Community supported · Apache-2.0**
 >
-> This software is in active beta with a limited set of customers. The source is published for transparency, evaluation, and beta feedback only. No license is granted for production use, redistribution, or derivative works without prior written authorization — see [LICENSE](LICENSE). To inquire about a license, contact wvancollenburg@scalecomputing.com.
+> HyperCore Manager is open-source software maintained on a community-supported basis. It is **not** an official Scale Computing product: there is no official support, no SLA, and no guarantee of future releases. Use it at your own risk. Questions, bug reports and feature requests go through [GitHub Issues](https://github.com/wvcollenburg/hypercore-manager/issues). See [CONTRIBUTING.md](CONTRIBUTING.md) for how contributions are handled.
 
 HyperCore Manager is a containerized stack that automatically distributes virtual machine workloads across Scale Computing HyperCore cluster nodes. It monitors resource usage in real time, enforces VM placement rules, and — optionally — uses machine learning to predict and prevent future overloads before they happen.
 
-The optional **SC//Foresight** module extends the platform with long-range capacity intelligence: multi-horizon forecasting, VM right-sizing recommendations, cluster health scoring, scenario modelling, and data sharing with a central capacity viewer.
-
-**[⬇ Download the Windows installer from the latest release](https://github.com/wvcollenburg/hypercore-manager/releases)**
+The optional **Foresight** module extends the platform with long-range capacity intelligence: multi-horizon forecasting, VM right-sizing recommendations, cluster health scoring, scenario modelling, and data sharing with a central capacity viewer.
 
 ---
 
@@ -24,13 +22,13 @@ The optional **SC//Foresight** module extends the platform with long-range capac
   - `node_<suffix>` — Pin a VM to a specific node (e.g. `node_241` pins to the node whose IP ends in `.241`)
   - `anti_<vm_name>` — Prevent two VMs from sharing the same node (e.g. `anti_dc02` on `dc01`)
 - **Live Configuration** — All tunable settings are stored in a shared PostgreSQL database. Change any parameter through the dashboard UI at runtime — no container restarts required.
-- **Built-in Dashboard** — Web-based UI (port 5000) showing node/VM performance, drive health, VSD I/O, migration event log, balancer settings, and the full SC//Foresight interface. Fully offline-capable for dark-site deployments.
+- **Built-in Dashboard** — Web-based UI (port 5000) showing node/VM performance, drive health, VSD I/O, migration event log, balancer settings, and the full Foresight interface. Fully offline-capable for dark-site deployments.
 - **Multi-language UI** — English, Dutch, French, and German, selectable from the dashboard header.
 - **User Authentication** — Username/password login with optional per-user TOTP (one-time password) two-factor. Auth can be disabled for local/dev use by leaving the dashboard credentials blank.
 - **In-app Updater** — Detects new tagged releases on origin and applies them in place with one click; database migrations ship and apply automatically with the release that needs them.
 - **Metrics Collection** — Comprehensive HyperCore telemetry (node performance, VM stats, drive health, VSD I/O, replication, cluster conditions) stored in InfluxDB with automatic downsampling.
 
-### SC//Foresight (Optional — `sentinel` profile)
+### Foresight (Optional — `sentinel` profile)
 
 - **Capacity Forecasting** — Regression-based forecasts across four horizons (30, 90, 180, 365 days) for CPU, RAM, storage capacity, storage latency, and network throughput. Confidence-scored; low-confidence forecasts are suppressed.
 - **VM Right-Sizing** — Detects over- and under-provisioned VMs via three independent signals: sustained CPU usage, storage latency correlation, and recurring CPU spike patterns.
@@ -41,7 +39,7 @@ The optional **SC//Foresight** module extends the platform with long-range capac
 - **PDF Reports** — Downloadable capacity reports with optional branding (logo, accent colour, company name).
 - **Webhook Alerts** — HMAC-SHA256 signed HTTPS alerts for CRITICAL and EMERGENCY events, with automatic retry.
 - **Live Tunables** — All analysis thresholds and toggles are editable from the dashboard at runtime, without restarting Sentinel.
-- **Data Sharing** — Optionally push signed capacity snapshots to an SC//Foresight-Central viewer. Includes customer-controlled field anonymisation and AES-256-GCM encrypted offline export.
+- **Data Sharing** — Optionally push signed capacity snapshots to an Foresight-Central viewer. Includes customer-controlled field anonymisation and AES-256-GCM encrypted offline export.
 
 ---
 
@@ -55,7 +53,7 @@ The optional **SC//Foresight** module extends the platform with long-range capac
                          │                     │
                    ┌─────▼───────┐      ┌──────▼──────┐
                    │  Balancer   │      │   Sentinel  │
-                   │ (reactive + │──┐   │(SC//Foresight│
+                   │ (reactive + │──┐   │ (Foresight)  │
                    │  predictive │  │   │ port 8081)  │
                    │  + affinity)│  │   └──────┬──────┘
                    └─────────────┘  │          │
@@ -75,9 +73,9 @@ The optional **SC//Foresight** module extends the platform with long-range capac
 | **Collector**  | Polls HyperCore API, writes metrics to InfluxDB                          |
 | **Balancer**   | Decision engine — affinity, reactive, and predictive modes               |
 | **InfluxDB**   | Time-series metrics storage with 1-year detailed + 5-year long-term retention |
-| **PostgreSQL** | Config store and SC//Foresight conclusions database                      |
-| **Dashboard**  | Web UI for monitoring, live configuration, and SC//Foresight             |
-| **Sentinel**   | *(optional)* SC//Foresight capacity analysis, forecasting, and REST API  |
+| **PostgreSQL** | Config store and Foresight conclusions database                      |
+| **Dashboard**  | Web UI for monitoring, live configuration, and Foresight             |
+| **Sentinel**   | *(optional)* Foresight capacity analysis, forecasting, and REST API  |
 | **Grafana**    | *(optional)* Advanced metrics exploration                                |
 
 ---
@@ -90,24 +88,13 @@ The optional **SC//Foresight** module extends the platform with long-range capac
   - Compose v2 is the `docker compose` (no hyphen) command. The legacy python `docker-compose` 1.29.x is **not supported** — it has known recreate bugs that break the in-app updater. On Debian/Ubuntu, install via `sudo apt install docker-compose-v2`.
 - HyperCore cluster management IP and a service account with read + migration permissions.
 - Outbound HTTPS access to the HyperCore REST API (or fully offline — see [Dark-Site Deployment](#dark-site--air-gapped-deployment)).
-- ~2 vCPU / 4 GB RAM minimum for the core stack; more for SC//Foresight (see [Resource Requirements](#resource-requirements)).
+- ~2 vCPU / 4 GB RAM minimum for the core stack; more for Foresight (see [Resource Requirements](#resource-requirements)).
 
-There are four supported installation paths, in rough order of operator effort.
+There are two supported installation paths. Both work equally well on a laptop with Docker Desktop for a trial run as on a dedicated Linux VM; Apple Silicon and other arm64 hosts are supported.
 
-### Method 1 — Windows Deploy Wizard
+### Method 1 — Manual Docker Compose
 
-A standalone Windows executable that provisions a fresh HyperCore VM with the entire stack ready to run. Easiest path for typical operators.
-
-1. Download `HyperCoreDeploy.exe` from [GitHub Releases](https://github.com/wvcollenburg/hypercore-manager/releases) (currently unsigned during beta — Windows SmartScreen will warn).
-2. Run it. Enter the HyperCore management IP, cluster credentials, target VM name, and the Linux user/password for the new VM.
-3. Click Deploy. The wizard provisions an Ubuntu VM via cloud-init, deploys the repo, and brings up the full stack. Bootstrap takes 3–6 minutes.
-4. Advanced mode lets you tune VM resources (vCPU, RAM, disk, VLAN tag) and edit the full `.env` before deploy.
-
-The dashboard admin password is shown on the review page — copy it before clicking Deploy. See [installer/windows/README.md](installer/windows/README.md) for the full wizard guide and recovery options.
-
-### Method 2 — Manual Docker Compose
-
-For power users running the stack on existing infrastructure they already manage.
+For operators running the stack on infrastructure they already manage.
 
 ```bash
 git clone https://github.com/wvcollenburg/hypercore-manager.git
@@ -123,9 +110,9 @@ The dashboard is available at **http://localhost:5000**.
 
 > **Note:** On first startup, the balancer needs ~2.5 minutes to fill its averaging buffers before it begins evaluating the cluster. The dashboard will show data after the first collector cycle (~30 seconds).
 
-### Method 3 — Interactive Curses Installer (Linux/macOS)
+### Method 2 — Interactive Curses Installer (Linux/macOS)
 
-`install.py` walks every `.env` setting interactively, explaining each one and generating strong secrets on demand. Pre-fills any existing `.env`. Helpful when you want guided configuration without committing to the full Windows wizard.
+`install.py` walks every `.env` setting interactively, explaining each one and generating strong secrets on demand. Pre-fills any existing `.env`. Helpful when you want guided configuration instead of editing the file by hand.
 
 ```bash
 git clone https://github.com/wvcollenburg/hypercore-manager.git
@@ -137,13 +124,7 @@ python3 install.py
 
 The installer also detects whether Compose v2 is present on the host and warns if the legacy v1 is in the way. Windows users can run this via WSL, or `pip install windows-curses` first.
 
-### Method 4 — Cloud-init Provisioning
-
-For automation pipelines that already drive VM creation. The Windows wizard uses cloud-init under the hood; the same template generator (`installer/windows/cloudinit.py`) can be invoked from any system that can attach userData to a Scale Computing VM. The generated cloud-init payload includes the repo tarball and a first-boot bootstrap script that brings the stack up unattended.
-
-This path is most useful for MSPs deploying many clusters on a schedule or as part of an existing provisioning pipeline.
-
-### Starting with SC//Foresight
+### Starting with Foresight
 
 ```bash
 # Core stack + Sentinel capacity analysis
@@ -156,7 +137,7 @@ docker compose --profile full up --build -d
 docker compose --profile tools up --build -d
 ```
 
-> **Note:** SC//Foresight requires at least 14 days of metrics history before meaningful forecasts and right-sizing analysis can be produced.
+> **Note:** Foresight requires at least 14 days of metrics history before meaningful forecasts and right-sizing analysis can be produced.
 
 ---
 
@@ -183,9 +164,9 @@ All settings are defined in `.env` and seeded into a shared PostgreSQL config da
 
 See [DEPLOY.md](DEPLOY.md) for the full configuration reference.
 
-### SC//Foresight Tunables
+### Foresight Tunables
 
-All Sentinel analysis thresholds are live-editable from the SC//Foresight → Settings tab in the dashboard. Key parameters:
+All Sentinel analysis thresholds are live-editable from the Foresight → Settings tab in the dashboard. Key parameters:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -225,23 +206,26 @@ It is divided into four main areas:
 
 | Tab | Contents |
 |-----|----------|
-| **SC//Infraviewer** | Node CPU/RAM history, drive health and temperature, VM metrics, VSD read/write I/O |
-| **SC//Clusterbalancer** | Migration event log (last 7 days), reactive and predictive engine settings |
-| **SC//Foresight** | Capacity forecasts, right-sizing recommendations, cluster health, reports, what-if modelling, live Sentinel tunables, data sharing — requires `sentinel` or `full` profile |
+| **Infraviewer** | Node CPU/RAM history, drive health and temperature, VM metrics, VSD read/write I/O |
+| **Clusterbalancer** | Migration event log (last 7 days), reactive and predictive engine settings |
+| **Foresight** | Capacity forecasts, right-sizing recommendations, cluster health, reports, what-if modelling, live Sentinel tunables, data sharing — requires `sentinel` or `full` profile |
 | **Modules** | Auto-discovered InfluxDB measurements for ad-hoc data exploration |
 
 Authentication is handled per-user from the Settings → Users panel, including optional per-user TOTP two-factor. To run without auth (local/dev), leave `SC_DASHBOARD_USER` blank in `.env`.
 
+On first login each user sees a one-time notice explaining that this is community-supported software and where to report issues. The acknowledgement is stored per user; when auth is disabled it is stored in the browser instead.
+
 ---
 
-## SC//Foresight in Detail
+## Foresight in Detail
 
-SC//Foresight (the `sentinel` container) runs four independent background loops:
+Foresight (the `sentinel` container) runs five independent background loops:
 
 1. **Connectivity loop** — lightweight InfluxDB ping every 5 minutes
 2. **Analysis loop** — full capacity analysis every hour: forecasting, right-sizing, resize advice, cluster health scoring. Queries InfluxDB on demand and frees all data after each cycle to keep memory usage flat.
-3. **Outcome loop** — polls HyperCore every 6 hours for VM vCPU changes and records whether right-sizing recommendations were followed
-4. **Webhook loop** — dispatches CRITICAL and EMERGENCY alerts every 60 seconds via outbound HTTPS POST (HMAC-SHA256 signed, retry schedule: 5 min, 30 min, dead-letter)
+3. **Pruning loop** — every 15 minutes, drops conclusions for VMs that no longer exist on the cluster and enforces the retention window
+4. **Outcome loop** — polls HyperCore every 6 hours for VM vCPU changes and records whether right-sizing recommendations were followed
+5. **Webhook loop** — dispatches CRITICAL and EMERGENCY alerts every 60 seconds via outbound HTTPS POST (HMAC-SHA256 signed, retry schedule: 5 min, 30 min, dead-letter)
 
 ### REST API
 
@@ -264,12 +248,12 @@ Sentinel exposes a REST API on port 8081 (internal to the Docker network; proxie
 
 ### Data Sharing
 
-Sentinel can push signed capacity snapshots to an SC//Foresight-Central viewer instance every 4 hours. Customers control which fields are anonymised before data leaves the cluster. Snapshots can also be exported manually as an AES-256-GCM encrypted `.hcb` file for offline transfer.
+Sentinel can push signed capacity snapshots to an Foresight-Central viewer instance every 4 hours. Customers control which fields are anonymised before data leaves the cluster. Snapshots can also be exported manually as an AES-256-GCM encrypted `.hcb` file for offline transfer.
 
 See [docs/phase4-data-sharing.md](docs/phase4-data-sharing.md) for the setup guide.
 
 The central viewer that receives these snapshots is a separate deployment:
-**[SC//Foresight-Central](https://github.com/wvcollenburg/sc-foresight-central)** — multi-tenant MSP capacity viewer.
+**[Foresight-Central](https://github.com/wvcollenburg/sc-foresight-central)** — multi-tenant MSP capacity viewer.
 
 ---
 
@@ -302,7 +286,7 @@ The entire stack runs fully offline once images are built. No outbound connectio
 
 ## Resource Requirements
 
-The core stack (Collector, Balancer, Dashboard, InfluxDB, PostgreSQL) is lightweight. SC//Foresight (Sentinel) adds significant memory during analysis cycles due to time-series data processing; it releases memory immediately after each cycle.
+The core stack (Collector, Balancer, Dashboard, InfluxDB, PostgreSQL) is lightweight. Foresight (Sentinel) adds significant memory during analysis cycles due to time-series data processing; it releases memory immediately after each cycle.
 
 ### Core Stack
 
@@ -313,7 +297,7 @@ The core stack (Collector, Balancer, Dashboard, InfluxDB, PostgreSQL) is lightwe
 | 100  | 2         | 2 GB            | 23 GB       |
 | 500  | 4         | 4 GB            | 112 GB      |
 
-### SC//Foresight (Sentinel) — Peak Analysis Memory
+### Foresight (Sentinel) — Peak Analysis Memory
 
 Sentinel queries InfluxDB on demand and frees all data after each analysis cycle. Peak usage occurs during the analysis window and depends on the number of managed VMs and the `SENTINEL_ANALYSIS_WINDOW_DAYS` setting (default 14 days).
 
@@ -348,18 +332,19 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 ```
 ├── docker-compose.yaml
 ├── .env.template
-├── VERSION                          # Single line: current version (e.g. 0.9.1)
-├── LICENSE                          # Source-available, all rights reserved
+├── VERSION                          # Single line: current version (e.g. 1.0.0)
+├── LICENSE                          # Apache License 2.0
+├── NOTICE
 ├── README.md
 ├── DEPLOY.md                        # Full operational guide
+├── CONTRIBUTING.md                  # How issues and contributions are handled
+├── SECURITY.md                      # How to report a vulnerability
+├── CHANGELOG.md
 ├── install.py                       # Interactive curses installer (Linux/macOS)
 ├── installer/
-│   ├── core.py                      # .env schema, validation, autogen helpers
-│   └── windows/
-│       ├── wizard.py                # Windows GUI deploy wizard
-│       ├── cloudinit.py             # Cloud-init userData template generator
-│       ├── hypercore.py             # Scale Computing REST client
-│       └── README.md                # Wizard guide and recovery notes
+│   └── core.py                      # .env schema, validation, autogen helpers
+├── tests/                           # pytest suite (unit + optional integration)
+├── .github/                         # CI workflow and issue templates
 ├── docs/
 │   └── phase4-data-sharing.md       # Data sharing setup guide
 ├── influxdb/
@@ -384,6 +369,8 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 │   ├── requirements.txt
 │   ├── config_db.py
 │   ├── migrations.py                # DB migration runner (idempotent)
+│   ├── versioning.py                # semver helpers for the updater
+│   ├── user_db.py                   # users, passwords, TOTP
 │   ├── app.py                       # Flask API, Sentinel proxy, in-app updater
 │   └── static/
 │       ├── index.html               # Single-page dashboard
@@ -406,8 +393,10 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 |----------|----------|
 | [DEPLOY.md](DEPLOY.md) | Prerequisites, environment variables, security hardening, backup/restore, upgrade procedure, health checks, troubleshooting |
 | [docs/phase4-data-sharing.md](docs/phase4-data-sharing.md) | Data sharing setup: enrollment, anonymisation, `.hcb` file format, troubleshooting |
-| [installer/windows/README.md](installer/windows/README.md) | Windows Deploy Wizard guide: easy mode, advanced mode, deployment flow, recovery |
-| [LICENSE](LICENSE) | Source-available license, all rights reserved |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Filing good issues, running the stack locally, how code contributions are handled |
+| [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
+| [LICENSE](LICENSE) | Apache License 2.0 |
 
 ---
 
@@ -415,22 +404,16 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 
 | Repository | Description |
 |------------|-------------|
-| [SC//Foresight-Central](https://github.com/wvcollenburg/sc-foresight-central) | Multi-tenant MSP viewer — aggregates capacity snapshots pushed by Sentinel across all enrolled customer clusters |
+| [Foresight-Central](https://github.com/wvcollenburg/sc-foresight-central) | Multi-tenant MSP viewer — aggregates capacity snapshots pushed by Sentinel across all enrolled customer clusters |
 
 ---
 
 ## Disclaimer
 
-**USE AT YOUR OWN RISK.** While HyperCore Manager has been carefully developed and tested, it is provided "as is" without warranty of any kind, express or implied. Scale Computing accepts no responsibility or liability for any damage, data loss, downtime, or other consequences resulting from the use of this software. Always run in dry-run mode (`SC_DRY_RUN=true`) for an extended observation period before enabling live migrations.
+**USE AT YOUR OWN RISK.** HyperCore Manager is community-supported software, not an official Scale Computing product. It is provided "as is" without warranty of any kind, express or implied, and without any official support or service-level commitment. Neither the authors nor Scale Computing accept responsibility or liability for any damage, data loss, downtime, or other consequences resulting from its use. The balancer live-migrates virtual machines using cluster credentials you provide: always run in dry-run mode (`SC_DRY_RUN=true`) for an extended observation period before enabling live migrations.
 
 ## License
 
-**Source-available. All rights reserved.**
+Copyright (c) 2026 Scale Computing.
 
-Copyright (c) 2026 William David van Collenburg and Scale Computing.
-
-This source code is published for transparency, evaluation, and beta feedback purposes only. Reading the source and submitting issues or pull requests is welcome. No license is granted to use, copy, modify, redistribute, or create derivative works of this software, in source or binary form, for any purpose. All such rights are reserved by the copyright holders.
-
-See [LICENSE](LICENSE) for the full text. To inquire about a license for use beyond the above, contact wvancollenburg@scalecomputing.com.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+Licensed under the Apache License, Version 2.0. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0. Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See [LICENSE](LICENSE) for the full text and [NOTICE](NOTICE) for attribution.

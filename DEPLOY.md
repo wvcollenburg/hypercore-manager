@@ -1,4 +1,4 @@
-# HyperCore Cluster Balancer / SC//Foresight — Deployment Guide
+# HyperCore Manager — Deployment Guide
 
 ## Overview
 
@@ -15,7 +15,7 @@ with outbound network access to the HyperCore REST API.
 | `collector` | always-on | — | Polls HyperCore every 30s, writes to InfluxDB |
 | `balancer` | always-on | — | Reactive + predictive VM migration engine |
 | `dashboard` | always-on | 5000 | Web UI |
-| `sentinel` | `sentinel` / `full` | 8081 (internal) | SC//Foresight capacity analysis + REST API |
+| `sentinel` | `sentinel` / `full` | 8081 (internal) | Foresight capacity analysis + REST API |
 | `grafana` | `tools` | 3000 | Optional metrics explorer |
 
 ---
@@ -35,8 +35,8 @@ with outbound network access to the HyperCore REST API.
 ### 1. Clone and configure
 
 ```bash
-git clone <repo-url> DRSProject
-cd DRSProject
+git clone https://github.com/wvcollenburg/hypercore-manager.git
+cd hypercore-manager
 cp .env.template .env
 ```
 
@@ -58,7 +58,7 @@ python3 -c "import secrets; print(secrets.token_hex(16))"
 python3 -c "import secrets; print(secrets.token_hex(16))"
 # Paste result as SENTINEL_PG_PASSWORD
 
-# Sentinel API token (if using SC//Foresight)
+# Sentinel API token (if using Foresight)
 python3 -c "import secrets; print(secrets.token_hex(32))"
 # Paste result as SENTINEL_API_TOKEN
 ```
@@ -100,7 +100,7 @@ docker compose up -d --no-deps balancer
 
 ---
 
-## Starting SC//Foresight (Sentinel)
+## Starting Foresight (Sentinel)
 
 Sentinel is gated behind Docker Compose profiles to keep it optional.
 
@@ -122,7 +122,7 @@ curl http://localhost:8080/health
 curl -H "Authorization: Bearer <token>" http://localhost:8081/api/v1/summary
 ```
 
-The SC//Foresight tab in the dashboard becomes active once Sentinel has completed its first
+The Foresight tab in the dashboard becomes active once Sentinel has completed its first
 analysis cycle (default: 1 hour after startup).
 
 ---
@@ -171,7 +171,7 @@ analysis cycle (default: 1 hour after startup).
 | `SC_DASHBOARD_PASSWORD` | Web UI login password |
 | `SC_DASHBOARD_STALE_SECONDS` | Age (seconds) at which metric data is shown as stale |
 
-### SC//Foresight — Sentinel
+### Foresight — Sentinel
 
 | Variable | Description |
 |---|---|
@@ -403,7 +403,7 @@ Common causes: missing or incorrect `.env` values, PostgreSQL or InfluxDB not ye
 
 1. Confirm sentinel is running: `docker compose --profile sentinel ps`
 2. Check sentinel logs for errors on first collection/analysis cycle
-3. The SC//Foresight tab populates after the first analysis cycle (up to 1 hour by default)
+3. The Foresight tab populates after the first analysis cycle (up to 1 hour by default)
 4. Verify `SENTINEL_API_TOKEN` matches between `.env` and the dashboard's `SENTINEL_API_TOKEN`
 
 ### `.env` changes not taking effect
