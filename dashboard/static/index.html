@@ -519,6 +519,43 @@
   .vm-modal-chart-wrap { position: relative; height: 160px; }
 
   /* update modal */
+  /* cluster rail — only rendered when more than one cluster is enabled */
+  .cluster-rail {
+    position: fixed; left: 0; top: 0; bottom: 0; width: 210px; z-index: 60;
+    background: var(--bg-secondary); border-right: 1px solid var(--border);
+    padding: 18px 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
+  }
+  .cluster-rail[hidden] { display: none; }
+  body.has-rail .header, body.has-rail .nav-tabs, body.has-rail .main { margin-left: 210px; }
+  .cluster-rail-title {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--text-muted); margin: 0 6px 8px;
+  }
+  .cluster-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px;
+    cursor: pointer; border: 1px solid transparent; color: var(--text-secondary);
+  }
+  .cluster-item:hover { background: var(--bg-card); }
+  .cluster-item.active { background: var(--bg-card); border-color: var(--border-active, var(--border)); color: var(--text-primary); }
+  .cluster-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .cluster-item-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cluster-item-sub { font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+  .cluster-item-sub.err { color: var(--accent-red); }
+  .cl-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .cl-table th { text-align: left; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .cl-table td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .cl-table tr:last-child td { border-bottom: none; }
+  .cl-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
+  .cl-form label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+  .cl-form input[type=text], .cl-form input[type=password] {
+    width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 6px; font-size: 12px;
+    background: var(--bg-input, var(--bg-primary)); border: 1px solid var(--border); color: var(--text-primary);
+  }
+  .cl-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .cl-msg { font-size: 12px; margin-top: 8px; min-height: 16px; }
+  .cl-msg.ok { color: var(--accent-green); } .cl-msg.err { color: var(--accent-red); }
+  .cl-status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
   /* community-support notice (shown once per user) */
   .community-notice-body { font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
   .community-notice-body a { color: var(--accent-cyan); }
@@ -853,6 +890,11 @@
 </style>
 </head>
 <body>
+
+<aside class="cluster-rail" id="clusterRail" hidden>
+  <div class="cluster-rail-title" data-i18n="clusters.rail_title">Clusters</div>
+  <div id="clusterRailList"></div>
+</aside>
 
 <div class="header">
   <div class="header-left">
@@ -1626,7 +1668,7 @@ function _fetchEnd()  { if (--_fetchCount <= 0) { _fetchCount = 0; document.body
 
 async function apiFetch(ep) {
   _fetchStart();
-  try { const r=await fetch(`${API_BASE}${ep}`); if(!r.ok) throw new Error(`HTTP ${r.status}`); return await r.json(); }
+  try { const r=await fetch(_withCluster(ep)); if(!r.ok) throw new Error(`HTTP ${r.status}`); return await r.json(); }
   catch(e) { console.error(`API error (${ep}):`,e); return null; }
   finally { _fetchEnd(); }
 }
@@ -2669,7 +2711,7 @@ async function applyGroup(groupId) {
   const updates = _staged[groupId];
   if (!updates || !Object.keys(updates).length) return;
   try {
-    const r = await fetch(`${API_BASE}/api/config`, {
+    const r = await fetch(_withCluster('/api/config'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates)
@@ -3565,7 +3607,12 @@ async function loadSettings() {
   const groups = CTRL_GROUPS.filter(g => g.tab === 'general');
   const isAdmin = me?.role === 'admin';
 
-  let html = _renderGroups(groups, vals, isAdmin);
+  let html = '';
+  if (me) {
+    const cl = await apiFetch('/api/clusters');
+    html += _renderClustersCard((cl && cl.clusters) || [], me);
+  }
+  html += _renderGroups(groups, vals, isAdmin);
 
   if (me) {
     html += _renderMyAccountCard(me);
@@ -4361,6 +4408,195 @@ function sharingPreviewSnapshot() {
 }
 
 // =============================================================================
+// clusters — registry, selection rail, onboarding, settings card
+// =============================================================================
+const CLUSTER_LS_KEY = 'hcm.cluster';
+let CLUSTERS = [];           // all registered clusters (enabled or not)
+let currentCluster = null;   // cluster_id the data views are about
+let _isAdminCached = false;
+try { currentCluster = localStorage.getItem(CLUSTER_LS_KEY) || null; } catch (_) {}
+
+function _withCluster(ep) {
+  // every data call carries the selected cluster; the server validates it and falls
+  // back to the first enabled cluster when it is missing or stale
+  const url = `${API_BASE}${ep}`;
+  if (!currentCluster || !ep.startsWith('/api/') || ep.startsWith('/api/clusters') || ep.startsWith('/api/users')
+      || ep.startsWith('/api/update') || /[?&]cluster=/.test(ep)) return url;
+  return url + (ep.includes('?') ? '&' : '?') + 'cluster=' + encodeURIComponent(currentCluster);
+}
+
+function _clEsc(v) { return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function _clAgo(iso) {
+  if (!iso) return t('clusters.status_never');
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 90) return t('clusters.status_seen', {ago: Math.round(s) + 's'});
+  if (s < 5400) return t('clusters.status_seen', {ago: Math.round(s / 60) + 'm'});
+  return t('clusters.status_seen', {ago: Math.round(s / 3600) + 'h'});
+}
+function _clColour(c, i) {
+  const palette = ['#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#06b6d4', '#ef4444', '#84cc16', '#ec4899'];
+  return c.colour || palette[i % palette.length];
+}
+
+async function loadClusters() {
+  const d = await apiFetch('/api/clusters');
+  if (!d) return;
+  CLUSTERS = d.clusters || [];
+  const enabled = CLUSTERS.filter(c => c.enabled);
+  if (!currentCluster || !enabled.some(c => c.cluster_id === currentCluster)) {
+    currentCluster = d.selected || (enabled[0] && enabled[0].cluster_id) || null;
+    try { if (currentCluster) localStorage.setItem(CLUSTER_LS_KEY, currentCluster); } catch (_) {}
+  }
+  _renderClusterRail(enabled);
+  _renderOnboarding(enabled.length === 0, d.secret_key_configured !== false);
+  return d;
+}
+
+function _renderClusterRail(enabled) {
+  const rail = document.getElementById('clusterRail');
+  const list = document.getElementById('clusterRailList');
+  if (enabled.length < 2) { rail.hidden = true; document.body.classList.remove('has-rail'); return; }
+  list.innerHTML = enabled.map((c, i) => `
+    <div class="cluster-item ${c.cluster_id === currentCluster ? 'active' : ''}" onclick="selectCluster('${c.cluster_id}')" title="${_clEsc(c.host)}">
+      <span class="cluster-dot" style="background:${_clColour(c, i)}"></span>
+      <div style="min-width:0;">
+        <div class="cluster-item-name">${_clEsc(c.name)}</div>
+        <div class="cluster-item-sub ${c.last_error ? 'err' : ''}">${c.last_error ? t('clusters.status_error') : _clAgo(c.last_seen_at)}</div>
+      </div>
+    </div>`).join('');
+  rail.hidden = false;
+  document.body.classList.add('has-rail');
+}
+
+function selectCluster(id) {
+  if (id === currentCluster) return;
+  currentCluster = id;
+  try { localStorage.setItem(CLUSTER_LS_KEY, id); } catch (_) {}
+  _renderClusterRail(CLUSTERS.filter(c => c.enabled));
+  if (typeof refreshAll === 'function') refreshAll();
+  const settingsTab = document.getElementById('tab-settings');
+  if (settingsTab && settingsTab.classList.contains('active') && typeof loadSettings === 'function') loadSettings();
+}
+
+function _clusterFormHtml(prefix, c) {
+  c = c || {};
+  return `
+    <div class="cl-form">
+      <div><label>${t('clusters.name')}</label><input type="text" id="${prefix}-name" value="${_clEsc(c.name)}" placeholder="prod-amsterdam"></div>
+      <div><label>${t('clusters.host')}</label><input type="text" id="${prefix}-host" value="${_clEsc(c.host)}" placeholder="172.16.0.241">
+        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${t('clusters.host_hint')}</div></div>
+      <div><label>${t('clusters.username')}</label><input type="text" id="${prefix}-username" value="${_clEsc(c.username)}" autocomplete="off"></div>
+      <div><label>${t('clusters.password')}</label><input type="password" id="${prefix}-password" autocomplete="new-password" placeholder="${c.cluster_id ? _clEsc(t('clusters.password_keep')) : ''}"></div>
+      <div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="${prefix}-verify" ${c.verify_tls ? 'checked' : ''}><label for="${prefix}-verify" style="margin:0;">${t('clusters.verify_tls')}</label></div>
+      <div><label>${t('clusters.colour')}</label><input type="color" id="${prefix}-colour" value="${_clEsc(c.colour || '#3b82f6')}" style="width:48px;height:30px;border:none;background:none;"></div>
+    </div>
+    <div class="cl-actions">
+      <button class="refresh-btn" onclick="clTest('${prefix}')">${t('clusters.test')}</button>
+      <button class="update-apply-btn" onclick="clSave('${prefix}', '${c.cluster_id || ''}')">${c.cluster_id ? t('clusters.save') : t('clusters.add')}</button>
+      ${c.cluster_id ? `<button class="refresh-btn" onclick="clCancelEdit('${c.cluster_id}')">${t('clusters.cancel')}</button>` : ''}
+    </div>
+    <div class="cl-msg" id="${prefix}-msg"></div>`;
+}
+
+function _clRead(prefix) {
+  const g = id => document.getElementById(`${prefix}-${id}`);
+  return { name: g('name').value, host: g('host').value, username: g('username').value,
+           password: g('password').value, verify_tls: g('verify').checked, colour: g('colour').value };
+}
+function _clMsg(prefix, text, cls) { const el = document.getElementById(`${prefix}-msg`); if (el) { el.textContent = text; el.className = 'cl-msg ' + (cls || ''); } }
+
+async function clTest(prefix) {
+  _clMsg(prefix, t('clusters.testing'), '');
+  const r = await fetch(`${API_BASE}/api/clusters/test`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(_clRead(prefix)) });
+  const d = await r.json().catch(() => ({}));
+  if (d.ok) _clMsg(prefix, t('clusters.test_ok', {name: d.cluster_name || '?', nodes: d.node_count ?? '?', version: d.version || '?'}), 'ok');
+  else _clMsg(prefix, t('clusters.test_fail', {error: d.error || r.status}), 'err');
+}
+
+async function clSave(prefix, clusterId) {
+  const body = _clRead(prefix);
+  if (!body.password) delete body.password;
+  const url = clusterId ? `${API_BASE}/api/clusters/${clusterId}` : `${API_BASE}/api/clusters`;
+  _clMsg(prefix, t('clusters.testing'), '');
+  const r = await fetch(url, { method: clusterId ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { _clMsg(prefix, d.error || `HTTP ${r.status}`, 'err'); return; }
+  if (!clusterId && d.cluster) { currentCluster = d.cluster.cluster_id; try { localStorage.setItem(CLUSTER_LS_KEY, currentCluster); } catch (_) {} }
+  await loadClusters();
+  if (typeof loadSettings === 'function' && document.getElementById('settingsContent')) loadSettings();
+  if (typeof refreshAll === 'function') refreshAll();
+}
+
+async function clTestExisting(id) {
+  _clMsg('cl-' + id, t('clusters.testing'), '');
+  const r = await fetch(`${API_BASE}/api/clusters/${id}/test`, { method: 'POST' });
+  const d = await r.json().catch(() => ({}));
+  if (d.ok) _clMsg('cl-' + id, t('clusters.test_ok', {name: d.cluster_name || '?', nodes: d.node_count ?? '?', version: d.version || '?'}), 'ok');
+  else _clMsg('cl-' + id, t('clusters.test_fail', {error: d.error || r.status}), 'err');
+  loadClusters();
+}
+async function clToggle(id, enabled) {
+  await fetch(`${API_BASE}/api/clusters/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({enabled}) });
+  await loadClusters(); loadSettings();
+}
+async function clRemove(id, name) {
+  if (!confirm(t('clusters.confirm_remove', {name}))) return;
+  const purge = confirm(t('clusters.confirm_purge', {name}));
+  const r = await fetch(`${API_BASE}/api/clusters/${id}?purge=${purge ? 1 : 0}`, { method: 'DELETE' });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error || `HTTP ${r.status}`); return; }
+  if (currentCluster === id) { currentCluster = null; try { localStorage.removeItem(CLUSTER_LS_KEY); } catch (_) {} }
+  await loadClusters(); loadSettings(); if (typeof refreshAll === 'function') refreshAll();
+}
+function clEdit(id) { const row = document.getElementById(`cl-edit-${id}`); if (row) row.hidden = !row.hidden; }
+function clCancelEdit(id) { const row = document.getElementById(`cl-edit-${id}`); if (row) row.hidden = true; }
+
+function _renderClustersCard(clusters, me) {
+  const isAdmin = me?.role === 'admin';
+  const rows = clusters.map((c, i) => `
+    <tr>
+      <td><span class="cl-status-dot" style="background:${c.last_error ? 'var(--accent-red)' : (c.enabled ? _clColour(c, i) : 'var(--text-muted)')}"></span><strong>${_clEsc(c.name)}</strong>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(c.host)}${c.hc_cluster_uuid ? ' · ' + _clEsc(c.hc_cluster_uuid.slice(0, 8)) : ''}</div></td>
+      <td>${_clEsc(c.username)}</td>
+      <td><span class="um-badge ${c.enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${c.enabled ? t('clusters.enabled') : t('clusters.disabled')}</span></td>
+      <td style="font-size:11px;color:${c.last_error ? 'var(--accent-red)' : 'var(--text-muted)'};">${c.last_error ? _clEsc(c.last_error) : _clAgo(c.last_seen_at)}</td>
+      <td style="white-space:nowrap;">${isAdmin ? `
+        <button class="um-action-btn" onclick="clTestExisting('${c.cluster_id}')">${t('clusters.test')}</button>
+        <button class="um-action-btn" onclick="clEdit('${c.cluster_id}')">${t('clusters.edit')}</button>
+        <button class="um-action-btn" onclick="clToggle('${c.cluster_id}', ${c.enabled ? 'false' : 'true'})">${c.enabled ? t('clusters.disable') : t('clusters.enable')}</button>
+        <button class="um-action-btn danger" onclick="clRemove('${c.cluster_id}', '${_clEsc(c.name)}')">${t('clusters.remove')}</button>` : ''}
+        <div class="cl-msg" id="cl-${c.cluster_id}-msg"></div></td>
+    </tr>
+    ${isAdmin ? `<tr id="cl-edit-${c.cluster_id}" hidden><td colspan="5" style="background:var(--bg-card);">${_clusterFormHtml('cl-' + c.cluster_id, c)}</td></tr>` : ''}`).join('');
+  return `
+    <div class="settings-group">
+      <div class="settings-group-header">
+        <div class="chart-title-dot" style="background:var(--accent-blue)"></div>
+        <span class="settings-group-title">${t('clusters.title')}</span>
+        <span style="font-size:12px;color:var(--text-muted);">${t('clusters.subtitle')}</span>
+      </div>
+      ${clusters.length ? `<table class="cl-table"><tr><th>${t('clusters.name')}</th><th>${t('clusters.username')}</th><th></th><th>${t('clusters.status')}</th><th></th></tr>${rows}</table>`
+                        : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('clusters.none_yet')}</div>`}
+      ${isAdmin ? `<div class="um-section" style="margin-top:14px;"><div class="um-section-title">${t('clusters.add')}</div>${_clusterFormHtml('cl-new', null)}</div>` : ''}
+    </div>`;
+}
+
+function _renderOnboarding(show, secretOk) {
+  const bd = document.getElementById('onboardingBackdrop');
+  if (!show) { bd.classList.remove('visible'); return; }
+  const form = document.getElementById('onboardingForm');
+  if (!_isAdminCached) form.innerHTML = `<p style="margin-top:12px;color:var(--accent-amber);">${t('clusters.onboarding_admin_only')}</p>`;
+  else if (!secretOk) form.innerHTML = `<p style="margin-top:12px;color:var(--accent-red);">${t('clusters.no_secret_key')}</p>`;
+  else form.innerHTML = _clusterFormHtml('onb', null);
+  bd.classList.add('visible');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  apiFetch('/api/users/me').then(me => { _isAdminCached = !!me && (me.role === 'admin' || me.dev_mode); return loadClusters(); }).catch(() => {});
+  // keep the rail's "last seen" fresh
+  setInterval(() => { if (document.body.classList.contains('has-rail')) loadClusters(); }, 60000);
+});
+
+// =============================================================================
 // community-support notice
 // =============================================================================
 // single place that knows the project location; update when the repo moves
@@ -4595,6 +4831,19 @@ setTimeout(loadUpdateStatus, 6000);
     </div>
     <div class="community-notice-actions">
       <button class="update-apply-btn" id="communityAckBtn" onclick="acknowledgeCommunityNotice()" data-i18n="community.ack">I understand</button>
+    </div>
+  </div>
+</div>
+
+<!-- onboarding: no cluster registered yet -->
+<div class="update-modal-backdrop" id="onboardingBackdrop">
+  <div class="update-modal" role="dialog" aria-modal="true" style="max-width:640px;">
+    <div class="update-modal-header">
+      <span class="update-modal-title" data-i18n="clusters.onboarding_title">Register your first cluster</span>
+    </div>
+    <div class="community-notice-body">
+      <p data-i18n="clusters.onboarding_body">Clusters are configured here in the dashboard. Enter the management address and a HyperCore account; the collector, balancer and Foresight start working the moment the cluster is saved.</p>
+      <div id="onboardingForm"></div>
     </div>
   </div>
 </div>

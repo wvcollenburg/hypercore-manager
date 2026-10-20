@@ -42,6 +42,7 @@ import re
 import secrets
 import subprocess
 import threading
+import time
 import urllib.request
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
@@ -54,6 +55,8 @@ from flask_cors import CORS
 from influxdb_client import InfluxDBClient
 import config_db
 import user_db
+import cluster_registry
+import hcm_crypto
 from versioning import latest_semver_tag, is_newer
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
@@ -142,8 +145,45 @@ def _pg():
         conn.close()
 
 
+# ---------------------------------------------------------------------------
+# cluster selection
+# ---------------------------------------------------------------------------
+# the frontend sends ?cluster=<uuid> on every data call. The registry is cached
+# briefly so a page load with a dozen API calls costs one lookup, not twelve
+_registry_cache = {'at': 0.0, 'clusters': []}
+_REGISTRY_TTL = 10.0
+
+
+def _enabled_clusters():
+    now = time.time()
+    if now - _registry_cache['at'] > _REGISTRY_TTL:
+        try:
+            _registry_cache['clusters'] = cluster_registry.list_enabled()
+        except Exception as exc:
+            app.logger.warning('cluster registry unavailable: %s', exc)
+            _registry_cache['clusters'] = []
+        _registry_cache['at'] = now
+    return _registry_cache['clusters']
+
+
+def _invalidate_registry_cache():
+    _registry_cache['at'] = 0.0
+
+
 def _cluster_id() -> str:
-    return os.getenv('SC_CLUSTER_ID', '00000000-0000-0000-0000-000000000001')
+    """Cluster the current request is about: ?cluster=<uuid> when it names an enabled
+    cluster, else the first enabled cluster, else the defaults template (no data)."""
+    enabled = _enabled_clusters()
+    wanted = (request.args.get('cluster') or '').strip() if request else ''
+    if wanted and cluster_registry.is_uuid(wanted):
+        if any(c.cluster_id == wanted for c in enabled):
+            return wanted
+    return enabled[0].cluster_id if enabled else cluster_registry.TEMPLATE_CLUSTER_ID
+
+
+def _flux_cluster() -> str:
+    """Flux filter line restricting a query to the selected cluster."""
+    return f'|> filter(fn: (r) => r["cluster_id"] == "{_cluster_id()}")'
 
 
 def _agg_window(hours: int) -> str:
@@ -179,6 +219,7 @@ def get_nodes():
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_hours}h)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "node_metrics")
           |> filter(fn: (r) => r["_field"] != "network_online" and r["_field"] != "virtualization_online" and r["_field"] != "allow_running_vms")
           |> aggregateWindow(every: {_agg_window(range_hours)}, fn: mean, createEmpty: false)
@@ -214,6 +255,7 @@ def get_nodes():
         vcpu_query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -1h)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "vm_inventory")
           |> filter(fn: (r) => r["_field"] == "num_vcpu")
           |> filter(fn: (r) => r["vm_state"] == "RUNNING")
@@ -238,6 +280,7 @@ def get_nodes():
         current_query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -5m)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "node_metrics")
           |> filter(fn: (r) => r["_field"] == "cpu_usage")
           |> last()
@@ -270,6 +313,7 @@ def get_vms():
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_hours}h)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "vm_metrics")
           |> aggregateWindow(every: {_agg_window(range_hours)}, fn: mean, createEmpty: false)
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
@@ -309,6 +353,7 @@ def get_vms():
         current_query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -5m)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "vm_metrics")
           |> filter(fn: (r) => r["_field"] == "cpu_usage")
           |> last()
@@ -342,6 +387,7 @@ def get_drives():
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_hours}h)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "drive_metrics")
           |> aggregateWindow(every: {_agg_window(range_hours)}, fn: last, createEmpty: false)
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
@@ -400,6 +446,7 @@ def get_vsds():
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_hours}h)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "vsd_metrics")
           |> aggregateWindow(every: {_agg_window(range_hours)}, fn: mean, createEmpty: false)
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
@@ -454,6 +501,7 @@ def get_migrations():
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_days}d)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "migration_events")
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
         '''
@@ -494,6 +542,7 @@ def get_predictions():
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_days}d)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "predictive_recommendations")
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
         '''
@@ -535,6 +584,7 @@ def get_forecast_runs():
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_days}d)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "predictive_runs")
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
         '''
@@ -627,6 +677,7 @@ def query_measurement(measurement):
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_hours}h)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "{measurement}")
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
           |> sort(columns: ["_time"], desc: true)
@@ -674,6 +725,7 @@ def get_data_quality():
         active_query = f'''
 from(bucket: "{INFLUX_BUCKET}")
   |> range(start: -{stale_secs}s)
+  {_flux_cluster()}
   |> filter(fn: (r) => r._measurement == "node_metrics")
   |> filter(fn: (r) => r._field == "cpu_usage")
   |> keep(columns: ["node_uuid"])
@@ -695,6 +747,7 @@ from(bucket: "{INFLUX_BUCKET}")
         query = f'''
 from(bucket: "{INFLUX_BUCKET}")
   |> range(start: -{WINDOW_DAYS}d)
+  {_flux_cluster()}
   |> filter(fn: (r) => r._measurement == "node_metrics")
   |> filter(fn: (r) => r._field == "cpu_usage")
   |> filter(fn: (r) => {node_filter})
@@ -729,9 +782,11 @@ from(bucket: "{INFLUX_BUCKET}")
 @app.route('/api/config', methods=['GET'])
 @require_auth
 def get_config():
-    """Return all tunables with metadata for the settings UI."""
+    """Return all tunables with metadata for the settings UI (selected cluster, or the
+    defaults template when ?cluster=defaults)."""
     try:
-        return jsonify(config_db.get_with_meta())
+        cid = config_db.TEMPLATE_CLUSTER_ID if request.args.get('cluster') == 'defaults' else _cluster_id()
+        return jsonify(config_db.get_with_meta(cid))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -745,10 +800,156 @@ def post_config():
         updates = request.get_json(force=True)
         if not isinstance(updates, dict):
             return jsonify({'error': 'Expected a JSON object'}), 400
-        config_db.save_many(updates)
+        cid = config_db.TEMPLATE_CLUSTER_ID if request.args.get('cluster') == 'defaults' else _cluster_id()
+        config_db.save_many(updates, cid)
+        if request.args.get('apply_to_all') == '1':
+            for c in _enabled_clusters():
+                config_db.save_many(updates, c.cluster_id)
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# cluster registry API — clusters are configured here, not in .env
+# =============================================================================
+
+def _cluster_payload(c):
+    d = c.to_dict()
+    d['has_password'] = True
+    return d
+
+
+@app.route('/api/clusters', methods=['GET'])
+@require_auth
+def api_clusters_list():
+    """All registered clusters (never the defaults template) plus the selection the
+    server would make for this request, so the UI can initialise its picker."""
+    try:
+        clusters = cluster_registry.list_all()
+    except Exception as e:
+        return jsonify({'error': str(e), 'clusters': [], 'selected': None}), 200
+    enabled = [c for c in clusters if c.enabled]
+    return jsonify({
+        'clusters': [_cluster_payload(c) for c in clusters],
+        'enabled_count': len(enabled),
+        'selected': _cluster_id() if enabled else None,
+        'secret_key_configured': hcm_crypto.key_configured(),
+    })
+
+
+def _cluster_form(body: dict) -> dict:
+    return {
+        'name':       (body.get('name') or '').strip(),
+        'host':       cluster_registry.normalize_host(body.get('host') or ''),
+        'username':   (body.get('username') or '').strip(),
+        'password':   body.get('password') or '',
+        'verify_tls': bool(body.get('verify_tls', False)),
+        'colour':     (body.get('colour') or '').strip() or None,
+    }
+
+
+@app.route('/api/clusters', methods=['POST'])
+@require_auth
+@require_admin
+def api_clusters_create():
+    body = request.get_json(force=True, silent=True) or {}
+    f = _cluster_form(body)
+    if not (f['name'] and f['host'] and f['username'] and f['password']):
+        return jsonify({'error': 'name, host, username and password are required'}), 400
+    if not hcm_crypto.key_configured():
+        return jsonify({'error': f'{hcm_crypto.ENV_VAR} is not set on the dashboard; cannot store credentials'}), 500
+    probe = cluster_registry.test_connection(f['host'], f['username'], f['password'], f['verify_tls'])
+    if not probe.get('ok') and not body.get('force'):
+        return jsonify({'error': probe.get('error', 'connection test failed'), 'probe': probe}), 400
+    hc_uuid = probe.get('hc_cluster_uuid') or None
+    if hc_uuid:
+        dup = next((c for c in cluster_registry.list_all() if c.hc_cluster_uuid == hc_uuid), None)
+        if dup and not body.get('force'):
+            return jsonify({'error': f"this cluster is already registered as '{dup.name}'", 'duplicate_of': dup.cluster_id}), 409
+    try:
+        cid = cluster_registry.create(f['name'], f['host'], f['username'], f['password'],
+                                      verify_tls=f['verify_tls'], colour=f['colour'], hc_cluster_uuid=hc_uuid)
+    except Exception as e:
+        msg = str(e)
+        if 'ux_clusters_name' in msg or 'duplicate key' in msg:
+            return jsonify({'error': 'a cluster with that name already exists'}), 409
+        return jsonify({'error': msg}), 500
+    _invalidate_registry_cache()
+    c = cluster_registry.get(cid)
+    return jsonify({'ok': True, 'cluster': _cluster_payload(c), 'probe': probe}), 201
+
+
+@app.route('/api/clusters/<cluster_id>', methods=['PUT'])
+@require_auth
+@require_admin
+def api_clusters_update(cluster_id):
+    if not cluster_registry.get(cluster_id):
+        return jsonify({'error': 'cluster not found'}), 404
+    body = request.get_json(force=True, silent=True) or {}
+    fields = {}
+    for k in ('name', 'host', 'username', 'password', 'colour'):
+        if k in body:
+            fields[k] = body[k]
+    for k in ('verify_tls', 'enabled'):
+        if k in body:
+            fields[k] = bool(body[k])
+    try:
+        cluster_registry.update(cluster_id, **fields)
+    except Exception as e:
+        msg = str(e)
+        if 'ux_clusters_name' in msg or 'duplicate key' in msg:
+            return jsonify({'error': 'a cluster with that name already exists'}), 409
+        return jsonify({'error': msg}), 500
+    _invalidate_registry_cache()
+    return jsonify({'ok': True, 'cluster': _cluster_payload(cluster_registry.get(cluster_id))})
+
+
+@app.route('/api/clusters/<cluster_id>', methods=['DELETE'])
+@require_auth
+@require_admin
+def api_clusters_delete(cluster_id):
+    if not cluster_registry.get(cluster_id):
+        return jsonify({'error': 'cluster not found'}), 404
+    purge = request.args.get('purge') == '1'
+    try:
+        cluster_registry.delete(cluster_id, purge=purge)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    _invalidate_registry_cache()
+    return jsonify({'ok': True, 'purged': purge})
+
+
+@app.route('/api/clusters/test', methods=['POST'])
+@require_auth
+@require_admin
+def api_clusters_test_new():
+    """Connection test for the add/edit form (credentials from the body)."""
+    f = _cluster_form(request.get_json(force=True, silent=True) or {})
+    if not (f['host'] and f['username']):
+        return jsonify({'ok': False, 'error': 'host and username are required'}), 400
+    return jsonify(cluster_registry.test_connection(f['host'], f['username'], f['password'], f['verify_tls']))
+
+
+@app.route('/api/clusters/<cluster_id>/test', methods=['POST'])
+@require_auth
+@require_admin
+def api_clusters_test_existing(cluster_id):
+    """Connection test with the stored credentials; records the outcome on the cluster."""
+    c = cluster_registry.get(cluster_id)
+    if not c:
+        return jsonify({'ok': False, 'error': 'cluster not found'}), 404
+    try:
+        username, password = cluster_registry.credentials(cluster_id)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'cannot decrypt stored password: {e}'}), 500
+    result = cluster_registry.test_connection(c.host, username, password, c.verify_tls)
+    if result.get('ok'):
+        cluster_registry.mark_seen(cluster_id, result.get('hc_cluster_uuid') or None)
+    else:
+        cluster_registry.mark_error(cluster_id, result.get('error', 'connection test failed'))
+    _invalidate_registry_cache()
+    return jsonify(result)
 
 
 # =============================================================================
