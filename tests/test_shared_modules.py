@@ -65,3 +65,28 @@ def test_is_uuid():
     import cluster_registry as cr
     assert cr.is_uuid(cr.TEMPLATE_CLUSTER_ID)
     assert not cr.is_uuid('default') and not cr.is_uuid('') and not cr.is_uuid(None)
+
+
+# --- duplicate detection (same HyperCore cluster registered twice) ----------------
+
+def _cluster(cid, name, hc_uuid, registered):
+    import cluster_registry as cr
+    from datetime import datetime, timezone
+    return cr.Cluster(cluster_id=cid, name=name, host='10.0.0.1', username='u', verify_tls=False, enabled=True,
+                      is_template=False, hc_cluster_uuid=hc_uuid, colour=None, last_seen_at=None, last_error=None,
+                      registered_at=datetime(2026, 10, registered, tzinfo=timezone.utc), updated_at=None)
+
+
+def test_duplicate_groups_by_hypercore_uuid():
+    import cluster_registry as cr
+    a = _cluster('a' * 8 + '-0000-0000-0000-000000000001', 'Lab 241', 'hc-1', 1)
+    b = _cluster('b' * 8 + '-0000-0000-0000-000000000002', 'Lab 242', 'hc-1', 2)
+    c = _cluster('c' * 8 + '-0000-0000-0000-000000000003', 'Prod', 'hc-2', 3)
+    d = _cluster('d' * 8 + '-0000-0000-0000-000000000004', 'Unknown yet', None, 4)
+    groups = cr.duplicate_groups([c, b, d, a])
+    assert len(groups) == 1
+    assert [x.name for x in groups[0]] == ['Lab 241', 'Lab 242'], 'oldest registration first'
+    assert cr.duplicate_of(b, [a, b, c, d]).name == 'Lab 241'
+    assert cr.duplicate_of(a, [a, b, c, d]) is None, 'the keeper is not a duplicate'
+    assert cr.duplicate_of(c, [a, b, c, d]) is None
+    assert cr.duplicate_groups([a, c, d]) == []

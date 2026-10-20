@@ -17,6 +17,14 @@ All notable changes to this project are documented here. The format follows
   and is not shown. New migration `020_cluster_registry.sql`.
 - `shared/` holds the single source of the modules every service embeds, with
   `tools/sync_shared.py` and a test that fails when a copy drifts.
+- Sentinel runs one analysis engine per enabled cluster and its REST API answers for the
+  cluster named by `?cluster=`; live tunables are per cluster. The dashboard rail shows the
+  balancer mode (dry run / live) and the latest Foresight health score per cluster; settings
+  can target the selected cluster, the Defaults template, or be applied to all clusters.
+- Registering the same HyperCore cluster twice (for example two node addresses) is refused at
+  registration and, if it slips through, detected at first contact: the newer entry is flagged
+  in the dashboard and the balancer suspends itself for it so only one balancer acts per
+  physical cluster.
 
 ### Changed
 - Released as community-supported open-source software under the Apache License 2.0.

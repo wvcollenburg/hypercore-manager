@@ -76,3 +76,24 @@ def test_compose_passes_secret_key_to_every_service(repo):
         after = text.split(f'\n  {svc}:\n', 1)[1]
         block = re.split(r'\n  [a-z-]+:\n', after, maxsplit=1)[0]   # up to the next service header
         assert 'HCM_SECRET_KEY=${HCM_SECRET_KEY}' in block, f'{svc} lacks HCM_SECRET_KEY'
+
+
+def test_dashboard_sentinel_proxies_pass_the_cluster(repo):
+    src = (repo / 'dashboard' / 'app.py').read_text()
+    urls = re.findall(r"f'\{sentinel_api_url\}/api/v1/[^'\n]*'", src)
+    assert len(urls) >= 10
+    missing = [u for u in urls if 'cluster={_cluster_id()}' not in u]
+    assert missing == [], missing
+
+
+def test_sentinel_api_resolves_cluster_per_request(repo):
+    src = (repo / 'sentinel' / 'api.py').read_text()
+    assert "request.args.get('cluster')" in src
+    assert 'SENTINEL_CFGS' in src
+    assert 'trigger(_cfg().cluster_id)' in src
+
+
+def test_sentinel_runs_one_engine_per_cluster(repo):
+    src = (repo / 'sentinel' / 'sentinel.py').read_text()
+    assert 'class ClusterEngine' in src and 'def _reconcile_engines' in src
+    assert '_trigger_event' not in src, 'global trigger replaced by per-engine events'
