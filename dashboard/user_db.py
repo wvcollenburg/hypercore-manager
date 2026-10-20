@@ -74,6 +74,11 @@ def ensure_table() -> None:
                         updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                 """)
+                # columns added after the first release; mirrors postgres/init/019_community_ack.sql
+                cur.execute("""
+                    ALTER TABLE config.users
+                        ADD COLUMN IF NOT EXISTS community_ack BOOLEAN NOT NULL DEFAULT FALSE
+                """)
             conn.commit()
         finally:
             conn.close()
@@ -263,6 +268,23 @@ def enable_otp(username: str, code: str) -> bool:
     finally:
         conn.close()
     return True
+
+
+def set_community_ack(username: str) -> None:
+    """Record that *username* has acknowledged the community-support notice."""
+    try:
+        conn = _connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    'UPDATE config.users SET community_ack = TRUE, updated_at = NOW() WHERE username = %s',
+                    (username,),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning('user_db: set_community_ack(%s) error: %s', username, exc)
 
 
 def disable_otp(username: str) -> None:

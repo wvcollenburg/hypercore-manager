@@ -382,7 +382,7 @@ def screen_profiles(stdscr, state: dict) -> bool:
     """First screen: pick which profiles you'll run. Returns False if cancelled."""
     items = [
         ("core",     "Core stack (always on)",                 "InfluxDB, Postgres, Collector, Balancer, Dashboard", True),
-        ("sentinel", "Sentinel — SC//Foresight (recommended)", "Capacity forecasting, right-sizing, REST API",       True),
+        ("sentinel", "Sentinel — Foresight (recommended)", "Capacity forecasting, right-sizing, REST API",       True),
         ("tools",    "Grafana (optional)",                     "Extra metrics-explorer UI on port 3000",            False),
     ]
     selected = {key for key, _, _, default in items if default}

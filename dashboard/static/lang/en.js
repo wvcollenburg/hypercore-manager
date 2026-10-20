@@ -83,7 +83,7 @@ window.LANG = {
   'empty.no_forecasts':         'No forecast data available.',
   'empty.no_resize':            'No concrete resize advice yet.',
   'empty.no_exhaustion':        'No resource exhaustion alerts.',
-  'empty.sentinel_unavailable': 'SC//Foresight data unavailable — is Sentinel running?',
+  'empty.sentinel_unavailable': 'Foresight data unavailable — is Sentinel running?',
   'empty.settings_failed':      'Could not load settings.',
   'empty.sentinel_settings_unavail': 'Sentinel unavailable — settings cannot be loaded.',
   'empty.settings_load_failed': 'Failed to load settings: {msg}',
@@ -173,7 +173,7 @@ window.LANG = {
   'sentinel.days':              'days',
   'sentinel.already_exhausted': 'already exhausted',
   'sentinel.exhaustion_in':     'exhaustion in',
-  'sentinel.warming_title':     'SC//Foresight is warming up',
+  'sentinel.warming_title':     'Foresight is warming up',
   'sentinel.warming_running':   'Sentinel is running and collecting metrics. The first capacity analysis will produce recommendations shortly.',
   'sentinel.warming_first_run': 'First analysis is running now\u2026',
   'sentinel.warming_first_in':  'First analysis in',
@@ -265,7 +265,7 @@ window.LANG = {
   'reports.logo_too_large':      'Logo must be under 500 KB.',
   'reports.save_branding':       'Save Branding',
   'reports.saved':               '\u2713 Saved',
-  'reports.pdf_title':           'SC//Foresight Reports',
+  'reports.pdf_title':           'Foresight Reports',
   'reports.pdf_desc':            'Generate a full capacity intelligence PDF report from the latest analysis data. The report includes forecasts, right-sizing recommendations, exhaustion alerts, and resize advice.',
   'reports.download_pdf':        '\u2193 Download PDF Report',
   'reports.generating':          'Generating\u2026',
@@ -279,7 +279,7 @@ window.LANG = {
 
   // data sharing panel
   'sharing.connection_title':   'Connection',
-  'sharing.connection_desc':    'Configure the SC//Foresight-Central viewer endpoint to enable scheduled snapshot pushes.',
+  'sharing.connection_desc':    'Configure the Foresight-Central viewer endpoint to enable scheduled snapshot pushes.',
   'sharing.enabled':            'Sharing enabled',
   'sharing.viewer_url':         'Viewer URL',
   'sharing.bearer_token':       'Bearer Token',
@@ -308,7 +308,7 @@ window.LANG = {
 
   // HCB export modal
   'hcb.title':     'Export Snapshot (.hcb)',
-  'hcb.desc':      'Set a passphrase to encrypt this file. You will need to enter the same passphrase when importing into SC//Foresight-Central.',
+  'hcb.desc':      'Set a passphrase to encrypt this file. You will need to enter the same passphrase when importing into Foresight-Central.',
   'hcb.passphrase':'Passphrase',
   'hcb.confirm':   'Confirm passphrase',
   'hcb.cancel':    'Cancel',
@@ -433,7 +433,7 @@ window.LANG = {
   'info.STALE_SECONDS.benefits':  'Quickly surfaces collection failures, network issues, or InfluxDB problems before they silently affect dashboard accuracy.',
   'info.STALE_SECONDS.careful':   'Set too low (below POLL_INTERVAL) and nodes will always appear stale. Should be at least 2\u20133\u00d7 POLL_INTERVAL to account for normal write timing variance.',
 
-  // ─── info popup body text (ⓘ) — Sentinel / SC//Foresight settings ────────
+  // ─── info popup body text (ⓘ) — Sentinel / Foresight settings ────────
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.what':      'VMs consistently using less than this % of allocated CPU over the analysis window are flagged as over-provisioned.',
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.benefits':  'Identifies VMs with too many vCPUs allocated, freeing up capacity that can be reassigned to under-provisioned VMs or allow higher VM density on the same hardware.',
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.careful':   'Set too high and intentionally reserved VMs (standby servers, batch jobs with variable load) get incorrectly flagged. Consider your workload mix before lowering below 20%.',
@@ -497,4 +497,18 @@ window.LANG = {
   'info.SENTINEL_WEBHOOK_ENABLED.what':      'Master switch for the outbound webhook dispatcher. When enabled, Sentinel fires signed HTTP POST alerts to SENTINEL_WEBHOOK_URL for new CRITICAL and EMERGENCY events.',
   'info.SENTINEL_WEBHOOK_ENABLED.benefits':  'Pushes critical capacity alerts to external systems (Slack, PagerDuty, ticketing tools) in real time without polling the API. Each request is signed with HMAC-SHA256 for verification.',
   'info.SENTINEL_WEBHOOK_ENABLED.careful':   'Has no effect unless SENTINEL_WEBHOOK_URL is also set (environment variable \u2014 restart required). Toggling this off suppresses all outbound alerts without a restart.',
+
+  // Clusterbalancer forecast log (the Oracle)
+  'cb.forecastlog':  'Forecast Log',
+  'chart.forecast_runs':  'Oracle Run Summary',
+  'loading.forecast_runs':  'Loading Oracle runs...',
+  'chart.predictions':  'Queued Recommendations',
+  'loading.predictions':  'Loading predictions...',
+
+  // community-support notice (shown once per user)
+  'community.title':        'Community-supported software',
+  'community.body':         "HyperCore Manager is open-source software maintained on a community-supported basis. It is not an official Scale Computing product and comes without official support or SLA. Use it at your own risk.",
+  'community.issues_hint':  "If you run into a problem, please open an issue on the GitHub project page:",
+  'community.issues_link':  'Open the issue tracker',
+  'community.ack':          'I understand',
 };

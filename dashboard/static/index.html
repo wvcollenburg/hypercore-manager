@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HyperCore Cluster Dashboard</title>
+<title>HyperCore Manager</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f172a'/><polygon points='16,4 27,10 27,22 16,28 5,22 5,10' fill='none' stroke='%2338bdf8' stroke-width='2'/><circle cx='16' cy='16' r='3' fill='%2338bdf8'/></svg>">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f172a'/><polygon points='16,4 27,10 27,22 16,28 5,22 5,10' fill='none' stroke='%2338bdf8' stroke-width='2'/><circle cx='16' cy='16' r='3' fill='%2338bdf8'/></svg>">
 <!-- ─── i18n: cookie override → browser language → fallback English ─── -->
 <script>
@@ -68,12 +69,11 @@
     background: var(--bg-secondary);
   }
   .header-left { display: flex; align-items: center; gap: 16px; }
-  .logo {
-    width: 36px; height: 36px;
-    display: flex; align-items: center; justify-content: center;
+  /* text-only wordmark — no image assets */
+  .header h1 {
+    font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 600;
+    letter-spacing: 0.02em; color: var(--text-primary);
   }
-  .logo img { width: 36px; height: 36px; object-fit: contain; }
-  .header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
   .header h1 span { color: var(--text-secondary); font-weight: 400; }
   .header-right { display: flex; align-items: center; gap: 16px; }
   .status-dot {
@@ -519,6 +519,10 @@
   .vm-modal-chart-wrap { position: relative; height: 160px; }
 
   /* update modal */
+  /* community-support notice (shown once per user) */
+  .community-notice-body { font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
+  .community-notice-body a { color: var(--accent-cyan); }
+  .community-notice-actions { display: flex; justify-content: flex-end; }
   .update-modal-backdrop {
     display: none; position: fixed; inset: 0; z-index: 10200;
     background: rgba(0,0,0,0.7); backdrop-filter: blur(2px);
@@ -618,7 +622,7 @@
   .settings-toast.ok { border-color: var(--accent-green); color: var(--accent-green); }
   .settings-toast.err { border-color: var(--accent-red); color: var(--accent-red); }
 
-  /* ─── SC//Infraviewer tab ─── */
+  /* ─── Infraviewer tab ─── */
   .iv-sub-nav {
     display: flex; gap: 0; border-bottom: 1px solid var(--border);
     margin-bottom: 20px; background: var(--bg-secondary);
@@ -633,7 +637,7 @@
   .iv-panel { display: none; }
   .iv-panel.active { display: block; }
 
-  /* ─── SC//Clusterbalancer tab ─── */
+  /* ─── Clusterbalancer tab ─── */
   .cb-sub-nav {
     display: flex; gap: 0; border-bottom: 1px solid var(--border);
     margin-bottom: 20px; background: var(--bg-secondary);
@@ -648,7 +652,7 @@
   .cb-panel { display: none; }
   .cb-panel.active { display: block; }
 
-  /* ─── SC//Foresight tab ─── */
+  /* ─── Foresight tab ─── */
   .sentinel-sub-nav {
     display: flex; gap: 0; border-bottom: 1px solid var(--border);
     margin-bottom: 20px; background: var(--bg-secondary);
@@ -852,8 +856,7 @@
 
 <div class="header">
   <div class="header-left">
-    <div class="logo"><img src="/static/img/LogoBall.png" alt="Scale Computing"></div>
-    <h1>HyperCore <span>Dashboard</span></h1>
+    <h1>HyperCore <span>Manager</span></h1>
   </div>
   <div class="header-right">
     <div style="display:flex;align-items:center;gap:8px;">
@@ -877,16 +880,16 @@
 </div>
 
 <div class="nav-tabs">
-  <div class="nav-tab active" data-tab="infraviewer" onclick="switchTab('infraviewer')">SC//Infraviewer</div>
-  <div class="nav-tab" data-tab="clusterbalancer" onclick="switchTab('clusterbalancer')">SC//Clusterbalancer</div>
-  <div class="nav-tab" data-tab="sentinel" onclick="switchTab('sentinel')">SC//Foresight</div>
+  <div class="nav-tab active" data-tab="infraviewer" onclick="switchTab('infraviewer')">Infraviewer</div>
+  <div class="nav-tab" data-tab="clusterbalancer" onclick="switchTab('clusterbalancer')">Clusterbalancer</div>
+  <div class="nav-tab" data-tab="sentinel" onclick="switchTab('sentinel')">Foresight</div>
   <div class="nav-tab" data-tab="modules" data-i18n="nav.modules" onclick="switchTab('modules')">Modules</div>
   <div class="nav-tab" data-tab="settings" data-i18n="nav.settings" onclick="switchTab('settings')">⚙ Settings</div>
   <a href="/logout" class="nav-logout" title="Sign out">⏻</a>
 </div>
 
 <div class="main">
-  <!-- ─── SC//Infraviewer tab ─── -->
+  <!-- ─── Infraviewer tab ─── -->
   <div class="tab-content active" id="tab-infraviewer">
     <div class="iv-sub-nav">
       <div class="iv-sub-tab active" data-ivpanel="nodes" data-i18n="iv.nodes_drives" onclick="switchIvPanel('nodes')">Nodes &amp; Drives</div>
@@ -969,7 +972,7 @@
     </div>
   </div>
 
-  <!-- ─── SC//Clusterbalancer tab ─── -->
+  <!-- ─── Clusterbalancer tab ─── -->
   <div class="tab-content" id="tab-clusterbalancer">
     <div class="cb-sub-nav">
       <div class="cb-sub-tab active" data-cbpanel="miglog"           data-i18n="cb.miglog"            onclick="switchCbPanel('miglog')">Migration Log</div>
@@ -1020,7 +1023,7 @@
     </div>
   </div>
 
-  <!-- ─── SC//Foresight tab ─── -->
+  <!-- ─── Foresight tab ─── -->
   <div class="tab-content" id="tab-sentinel">
     <!-- sub-navigation -->
     <div class="sentinel-sub-nav">
@@ -1130,7 +1133,7 @@
 
       <!-- download section -->
       <div class="chart-container">
-        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="reports.pdf_title">SC//Foresight Reports</span></div>
+        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="reports.pdf_title">Foresight Reports</span></div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="reports.pdf_desc">
           Generate a full capacity intelligence PDF report from the latest analysis data.
           The report includes forecasts, right-sizing recommendations, exhaustion alerts, and resize advice.
@@ -1237,7 +1240,7 @@
       <div class="chart-container" style="margin-bottom:16px;">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span data-i18n="sharing.connection_title">Connection</span></div>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="sharing.connection_desc">
-          Configure the SC//Foresight-Central viewer endpoint to enable scheduled snapshot pushes.
+          Configure the Foresight-Central viewer endpoint to enable scheduled snapshot pushes.
         </p>
         <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:20px;">
           <div style="display:flex;align-items:center;gap:12px;">
@@ -2811,7 +2814,7 @@ document.addEventListener('click', function(e) {
 });
 
 // =============================================================================
-// SC//Foresight — Sentinel dashboard
+// Foresight — Sentinel dashboard
 // =============================================================================
 
 let _sentinelLoaded = false;
@@ -3390,6 +3393,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // pre-fetch current user so role checks are available before any settings tab opens
   apiFetch('/api/users/me').then(me => {
     _currentUser = me || null;
+    _maybeShowCommunityNotice(me);
     if (_currentUser?.role !== 'admin') {
       // hide the Data Sharing tab and its panel entirely for non-admins
       const sharingTab = document.querySelector('[data-spanel="datasharing"]');
@@ -3795,7 +3799,7 @@ async function umAdminResetPw(username) {
        : showToast(d.error || 'Error', 'err');
 }
 
-// ── SC//Clusterbalancer sub-panel switching ───────────────────────────────────
+// ── Clusterbalancer sub-panel switching ───────────────────────────────────
 let _balancerSettingsLoaded = false;
 let _currentUser = null;
 
@@ -3808,7 +3812,7 @@ function switchCbPanel(p) {
 }
 
 // =============================================================================
-// SC//Foresight — Sentinel settings
+// Foresight — Sentinel settings
 // =============================================================================
 
 const SENT_INFO = {
@@ -4152,7 +4156,7 @@ async function loadBalancerSettings() {
 }
 
 // =============================================================================
-// SC//Foresight — Data Sharing
+// Foresight — Data Sharing
 // =============================================================================
 
 let _bearerTokenSaved = false;
@@ -4357,6 +4361,36 @@ function sharingPreviewSnapshot() {
 }
 
 // =============================================================================
+// community-support notice
+// =============================================================================
+// single place that knows the project location; update when the repo moves
+const REPO_URL = 'https://github.com/wvcollenburg/hypercore-manager';
+const COMMUNITY_ACK_LS_KEY = 'hcm.communityAck';
+
+function _maybeShowCommunityNotice(me) {
+  if (!me) return;
+  let acked;
+  if (me.dev_mode) {
+    // auth disabled: no user row to persist on, fall back to this browser
+    try { acked = localStorage.getItem(COMMUNITY_ACK_LS_KEY) === '1'; } catch (_) { acked = false; }
+  } else {
+    acked = !!me.community_ack;
+  }
+  if (acked) return;
+  const link = document.getElementById('communityIssuesLink');
+  if (link) link.href = REPO_URL + '/issues';
+  document.getElementById('communityNoticeBackdrop').classList.add('visible');
+}
+
+async function acknowledgeCommunityNotice() {
+  document.getElementById('communityNoticeBackdrop').classList.remove('visible');
+  try { localStorage.setItem(COMMUNITY_ACK_LS_KEY, '1'); } catch (_) {}
+  try {
+    await fetch(API_BASE + '/api/users/me/community-ack', { method: 'POST' });
+  } catch (_) {}
+}
+
+// =============================================================================
 // auto-update
 // =============================================================================
 let _updatePollTimer = null;
@@ -4545,6 +4579,23 @@ setTimeout(loadUpdateStatus, 6000);
     </div>
     <div class="update-changelog" id="updateChangelog"></div>
     <div class="update-log" id="updateLog"></div>
+  </div>
+</div>
+
+<!-- community-support notice: shown once per user after first login -->
+<div class="update-modal-backdrop" id="communityNoticeBackdrop">
+  <div class="update-modal" role="dialog" aria-modal="true" aria-labelledby="communityNoticeTitle">
+    <div class="update-modal-header">
+      <span class="update-modal-title" id="communityNoticeTitle" data-i18n="community.title">Community-supported software</span>
+    </div>
+    <div class="community-notice-body">
+      <p data-i18n="community.body">HyperCore Manager is open-source software maintained on a community-supported basis. It is not an official Scale Computing product and comes without official support or SLA. Use it at your own risk.</p>
+      <p style="margin-top:10px;"><span data-i18n="community.issues_hint">If you run into a problem, please open an issue on the GitHub project page:</span>
+        <a id="communityIssuesLink" href="#" target="_blank" rel="noopener" data-i18n="community.issues_link">Open the issue tracker</a></p>
+    </div>
+    <div class="community-notice-actions">
+      <button class="update-apply-btn" id="communityAckBtn" onclick="acknowledgeCommunityNotice()" data-i18n="community.ack">I understand</button>
+    </div>
   </div>
 </div>
 

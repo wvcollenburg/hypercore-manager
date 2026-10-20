@@ -1,5 +1,5 @@
 """
-sentinel.py — SC//Foresight Sentinel entry point.
+sentinel.py — Foresight Sentinel entry point.
 
 Architecture
 ------------

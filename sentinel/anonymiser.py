@@ -2,7 +2,7 @@
 H2: Anonymisation engine.
 
 Produces stable HMAC-based pseudonyms for sensitive fields so that
-timeseries coherence is preserved in the SC//Foresight-Central viewer even
+timeseries coherence is preserved in the Foresight-Central viewer even
 when customer names are not transmitted in the clear.
 
 Customer-selectable per-field via config.sharing_prefs.

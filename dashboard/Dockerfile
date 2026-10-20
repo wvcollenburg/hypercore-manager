@@ -1,11 +1,17 @@
 FROM python:3.11-slim
 WORKDIR /app
 
-# Install system dependencies (curl for vendor assets, git + docker-compose for auto-update)
+# install system dependencies (curl for vendor assets, git + docker compose v2 for auto-update)
+# the compose binary is fetched for the image's own CPU architecture so Apply Update works on
+# arm64 hosts (Apple Silicon laptops, Ampere VMs) as well as x86_64
 RUN apt-get update && apt-get install -y curl git docker.io && rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL "https://github.com/docker/compose/releases/download/v2.27.1/docker-compose-linux-x86_64" \
+    ARCH="$(uname -m)" && \
+    curl -fsSL "https://github.com/docker/compose/releases/download/v2.27.1/docker-compose-linux-${ARCH}" \
       -o /usr/local/bin/docker-compose && \
     chmod +x /usr/local/bin/docker-compose && \
+    mkdir -p /usr/local/lib/docker/cli-plugins && \
+    ln -s /usr/local/bin/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose && \
+    docker-compose version && \
     git config --global --add safe.directory /repo
 
 COPY requirements.txt .
@@ -13,6 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 COPY config_db.py .
 COPY user_db.py .
+COPY versioning.py .
 COPY migrations.py .
 COPY reports/ reports/
 COPY static/ static/

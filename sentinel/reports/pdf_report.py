@@ -1,5 +1,5 @@
 """
-reports/pdf_report.py — E5: SC//Foresight PDF report generation.
+reports/pdf_report.py — E5: Foresight PDF report generation.
 
 Manager-ready capacity intelligence report.  Light print theme, narrative
 executive summary, curated insights — not raw data dumps.
@@ -286,7 +286,7 @@ def generate(data: dict) -> bytes:
         except Exception:
             log.warning('Branding logo could not be decoded — skipping')
 
-    story.append(_h1('SC//Foresight'))
+    story.append(_h1('Foresight'))
     story.append(Paragraph('Capacity Intelligence Report', ParagraphStyle(
         'Sub', parent=styles['Normal'], fontSize=14, textColor=dark_c,
         fontName='Helvetica-Bold', spaceBefore=0, spaceAfter=10)))
@@ -600,7 +600,7 @@ def generate(data: dict) -> bytes:
     # ── footer ────────────────────────────────────────────────────────────────
     story.append(Spacer(1, 10*mm))
     story.append(_hr())
-    footer_parts = ['SC//Foresight  ·  Capacity Intelligence Module  ·  HyperCore Cluster Balancer']
+    footer_parts = ['Foresight  ·  Capacity Intelligence Module  ·  HyperCore Manager']
     if company_name:
         footer_parts.append(f'Prepared for {company_name}')
     footer_parts.append(f'Generated {data.get("generated_at", "")}')

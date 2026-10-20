@@ -1,5 +1,5 @@
 """
-api.py — SC//Foresight REST API (F1–F4, F6).
+api.py — Foresight REST API (F1–F4, F6).
 
 Runs as a Flask application on a dedicated port (default 8081), started as
 a daemon thread alongside the health endpoint.
@@ -1200,7 +1200,7 @@ def get_export_hcb():
 
     Designed for air-gapped / offline transfer — no viewer registration required.
     The caller supplies a passphrase via the ?passphrase= query parameter.  The
-    same passphrase must be entered when importing the file into SC//Foresight-Central.
+    same passphrase must be entered when importing the file into Foresight-Central.
 
     Anonymisation is applied according to config.sharing_prefs toggles if a prefs
     row exists; it is skipped silently if the table is not yet migrated.
@@ -1215,7 +1215,7 @@ def get_export_hcb():
         return jsonify({
             'error': 'passphrase_required',
             'message': 'Supply a passphrase via ?passphrase=<value>. '
-                       'You will need it to import the file into SC//Foresight-Central.',
+                       'You will need it to import the file into Foresight-Central.',
         }), 400
 
     cfg = _cfg()

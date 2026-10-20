@@ -1,5 +1,5 @@
 """
-sync_push.py — Scheduled HTTPS sync push to SC//Foresight-Central.
+sync_push.py — Scheduled HTTPS sync push to Foresight-Central.
 
 Runs as a background thread in sentinel. Every SENTINEL_SYNC_INTERVAL_HOURS
 (default 4), builds a delta snapshot (since last successful sync), signs it,

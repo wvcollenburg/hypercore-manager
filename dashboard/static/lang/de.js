@@ -83,7 +83,7 @@ window.LANG = {
   'empty.no_forecasts':         'Keine Prognosedaten verf\u00fcgbar.',
   'empty.no_resize':            'Noch keine konkreten Gr\u00f6\u00dfenänderungshinweise.',
   'empty.no_exhaustion':        'Keine Ersch\u00f6pfungswarnungen.',
-  'empty.sentinel_unavailable': 'SC//Foresight-Daten nicht verf\u00fcgbar \u2014 l\u00e4uft Sentinel?',
+  'empty.sentinel_unavailable': 'Foresight-Daten nicht verf\u00fcgbar \u2014 l\u00e4uft Sentinel?',
   'empty.settings_failed':      'Einstellungen konnten nicht geladen werden.',
   'empty.sentinel_settings_unavail': 'Sentinel nicht verf\u00fcgbar \u2014 Einstellungen k\u00f6nnen nicht geladen werden.',
   'empty.settings_load_failed': 'Einstellungen laden fehlgeschlagen: {msg}',
@@ -173,7 +173,7 @@ window.LANG = {
   'sentinel.days':              'Tage',
   'sentinel.already_exhausted': 'bereits ersch\u00f6pft',
   'sentinel.exhaustion_in':     'Ersch\u00f6pfung in',
-  'sentinel.warming_title':     'SC//Foresight w\u00e4rmt sich auf',
+  'sentinel.warming_title':     'Foresight w\u00e4rmt sich auf',
   'sentinel.warming_running':   'Sentinel l\u00e4uft und sammelt Metriken. Die erste Kapazit\u00e4tsanalyse wird bald Empfehlungen liefern.',
   'sentinel.warming_first_run': 'Erste Analyse l\u00e4uft gerade\u2026',
   'sentinel.warming_first_in':  'Erste Analyse in',
@@ -265,7 +265,7 @@ window.LANG = {
   'reports.logo_too_large':      'Logo muss unter 500\u00a0KB sein.',
   'reports.save_branding':       'Branding speichern',
   'reports.saved':               '\u2713 Gespeichert',
-  'reports.pdf_title':           'SC//Foresight Berichte',
+  'reports.pdf_title':           'Foresight Berichte',
   'reports.pdf_desc':            'Generieren Sie einen vollst\u00e4ndigen Kapazit\u00e4tsintelligenz-PDF-Bericht aus den neuesten Analysedaten. Der Bericht enth\u00e4lt Prognosen, Gr\u00f6\u00dfenänderungsempfehlungen, Ersch\u00f6pfungswarnungen und Gr\u00f6\u00dfenänderungshinweise.',
   'reports.download_pdf':        '\u2193 PDF-Bericht herunterladen',
   'reports.generating':          'Wird generiert\u2026',
@@ -279,7 +279,7 @@ window.LANG = {
 
   // data sharing panel
   'sharing.connection_title':   'Verbindung',
-  'sharing.connection_desc':    'Konfigurieren Sie den SC//Foresight-Central Viewer-Endpunkt, um geplante Snapshot-\u00dcbertragungen zu aktivieren.',
+  'sharing.connection_desc':    'Konfigurieren Sie den Foresight-Central Viewer-Endpunkt, um geplante Snapshot-\u00dcbertragungen zu aktivieren.',
   'sharing.enabled':            'Freigabe aktiviert',
   'sharing.viewer_url':         'Viewer-URL',
   'sharing.bearer_token':       'Bearer-Token',
@@ -308,7 +308,7 @@ window.LANG = {
 
   // HCB export modal
   'hcb.title':     'Snapshot exportieren (.hcb)',
-  'hcb.desc':      'Legen Sie eine Passphrase fest, um diese Datei zu verschl\u00fcsseln. Sie m\u00fcssen dieselbe Passphrase beim Import in SC//Foresight-Central eingeben.',
+  'hcb.desc':      'Legen Sie eine Passphrase fest, um diese Datei zu verschl\u00fcsseln. Sie m\u00fcssen dieselbe Passphrase beim Import in Foresight-Central eingeben.',
   'hcb.passphrase':'Passphrase',
   'hcb.confirm':   'Passphrase best\u00e4tigen',
   'hcb.cancel':    'Abbrechen',
@@ -496,4 +496,18 @@ window.LANG = {
   'info.SENTINEL_WEBHOOK_ENABLED.what':      'Master switch for the outbound webhook dispatcher. When enabled, Sentinel fires signed HTTP POST alerts to SENTINEL_WEBHOOK_URL for new CRITICAL and EMERGENCY events.',
   'info.SENTINEL_WEBHOOK_ENABLED.benefits':  'Pushes critical capacity alerts to external systems (Slack, PagerDuty, ticketing tools) in real time without polling the API. Each request is signed with HMAC-SHA256 for verification.',
   'info.SENTINEL_WEBHOOK_ENABLED.careful':   'Has no effect unless SENTINEL_WEBHOOK_URL is also set (environment variable \u2014 restart required). Toggling this off suppresses all outbound alerts without a restart.',
+
+  // Clusterbalancer forecast log (the Oracle)
+  'cb.forecastlog':  'Prognoseprotokoll',
+  'chart.forecast_runs':  '\u00dcbersicht der Oracle-L\u00e4ufe',
+  'loading.forecast_runs':  'Oracle-L\u00e4ufe werden geladen...',
+  'chart.predictions':  'Ausstehende Empfehlungen',
+  'loading.predictions':  'Vorhersagen werden geladen...',
+
+  // community-support notice (shown once per user)
+  'community.title':        'Community-unterst\u00fctzte Software',
+  'community.body':         "HyperCore Manager ist Open-Source-Software, die auf Community-Basis gepflegt wird. Es ist kein offizielles Produkt von Scale Computing und wird ohne offiziellen Support oder SLA bereitgestellt. Die Nutzung erfolgt auf eigene Gefahr.",
+  'community.issues_hint':  "Bei Problemen \u00f6ffnen Sie bitte ein Issue auf der GitHub-Projektseite:",
+  'community.issues_link':  'Issue-Tracker \u00f6ffnen',
+  'community.ack':          'Verstanden',
 };

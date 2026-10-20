@@ -83,7 +83,7 @@ window.LANG = {
   'empty.no_forecasts':         'Aucune donn\u00e9e de pr\u00e9vision disponible.',
   'empty.no_resize':            'Aucun conseil de redimensionnement concret.',
   'empty.no_exhaustion':        "Aucune alerte d'\u00e9puisement des ressources.",
-  'empty.sentinel_unavailable': 'Donn\u00e9es SC//Foresight indisponibles \u2014 Sentinel fonctionne-t-il\u00a0?',
+  'empty.sentinel_unavailable': 'Donn\u00e9es Foresight indisponibles \u2014 Sentinel fonctionne-t-il\u00a0?',
   'empty.settings_failed':      'Impossible de charger les param\u00e8tres.',
   'empty.sentinel_settings_unavail': 'Sentinel indisponible \u2014 les param\u00e8tres ne peuvent pas \u00eatre charg\u00e9s.',
   'empty.settings_load_failed': 'Chargement des param\u00e8tres \u00e9chou\u00e9\u00a0: {msg}',
@@ -173,7 +173,7 @@ window.LANG = {
   'sentinel.days':              'jours',
   'sentinel.already_exhausted': 'd\u00e9j\u00e0 \u00e9puis\u00e9',
   'sentinel.exhaustion_in':     '\u00e9puisement dans',
-  'sentinel.warming_title':     'SC//Foresight se pr\u00e9pare',
+  'sentinel.warming_title':     'Foresight se pr\u00e9pare',
   'sentinel.warming_running':   'Sentinel fonctionne et collecte des m\u00e9triques. La premi\u00e8re analyse de capacit\u00e9 produira bient\u00f4t des recommandations.',
   'sentinel.warming_first_run': 'Premi\u00e8re analyse en cours\u2026',
   'sentinel.warming_first_in':  'Premi\u00e8re analyse dans',
@@ -265,7 +265,7 @@ window.LANG = {
   'reports.logo_too_large':      'Le logo doit faire moins de 500\u00a0Ko.',
   'reports.save_branding':       "Sauvegarder l'image de marque",
   'reports.saved':               '\u2713 Sauvegard\u00e9',
-  'reports.pdf_title':           'Rapports SC//Foresight',
+  'reports.pdf_title':           'Rapports Foresight',
   'reports.pdf_desc':            "G\u00e9n\u00e9rez un rapport PDF complet d'intelligence de capacit\u00e9 \u00e0 partir des derni\u00e8res donn\u00e9es d'analyse. Le rapport comprend des pr\u00e9visions, des recommandations de redimensionnement, des alertes d'\u00e9puisement et des conseils de redimensionnement.",
   'reports.download_pdf':        '\u2193 T\u00e9l\u00e9charger le rapport PDF',
   'reports.generating':          'G\u00e9n\u00e9ration\u2026',
@@ -279,7 +279,7 @@ window.LANG = {
 
   // data sharing panel
   'sharing.connection_title':   'Connexion',
-  'sharing.connection_desc':    'Configurez le point de terminaison du visualiseur SC//Foresight-Central pour activer les envois de snapshots planifi\u00e9s.',
+  'sharing.connection_desc':    'Configurez le point de terminaison du visualiseur Foresight-Central pour activer les envois de snapshots planifi\u00e9s.',
   'sharing.enabled':            'Partage activ\u00e9',
   'sharing.viewer_url':         'URL du visualiseur',
   'sharing.bearer_token':       'Token Bearer',
@@ -308,7 +308,7 @@ window.LANG = {
 
   // HCB export modal
   'hcb.title':     'Exporter le snapshot (.hcb)',
-  'hcb.desc':      "D\u00e9finissez une phrase secr\u00e8te pour chiffrer ce fichier. Vous devrez entrer la m\u00eame phrase secr\u00e8te lors de l'importation dans SC//Foresight-Central.",
+  'hcb.desc':      "D\u00e9finissez une phrase secr\u00e8te pour chiffrer ce fichier. Vous devrez entrer la m\u00eame phrase secr\u00e8te lors de l'importation dans Foresight-Central.",
   'hcb.passphrase':'Phrase secr\u00e8te',
   'hcb.confirm':   'Confirmer la phrase secr\u00e8te',
   'hcb.cancel':    'Annuler',
@@ -496,4 +496,18 @@ window.LANG = {
   'info.SENTINEL_WEBHOOK_ENABLED.what':      'Master switch for the outbound webhook dispatcher. When enabled, Sentinel fires signed HTTP POST alerts to SENTINEL_WEBHOOK_URL for new CRITICAL and EMERGENCY events.',
   'info.SENTINEL_WEBHOOK_ENABLED.benefits':  'Pushes critical capacity alerts to external systems (Slack, PagerDuty, ticketing tools) in real time without polling the API. Each request is signed with HMAC-SHA256 for verification.',
   'info.SENTINEL_WEBHOOK_ENABLED.careful':   'Has no effect unless SENTINEL_WEBHOOK_URL is also set (environment variable \u2014 restart required). Toggling this off suppresses all outbound alerts without a restart.',
+
+  // Clusterbalancer forecast log (the Oracle)
+  'cb.forecastlog':  'Journal des pr\u00e9visions',
+  'chart.forecast_runs':  'R\u00e9sum\u00e9 des ex\u00e9cutions Oracle',
+  'loading.forecast_runs':  'Chargement des ex\u00e9cutions Oracle...',
+  'chart.predictions':  'Recommandations en attente',
+  'loading.predictions':  'Chargement des pr\u00e9dictions...',
+
+  // community-support notice (shown once per user)
+  'community.title':        'Logiciel soutenu par la communaut\u00e9',
+  'community.body':         "HyperCore Manager est un logiciel open source maintenu sur une base communautaire. Il ne s'agit pas d'un produit officiel de Scale Computing et il est fourni sans support officiel ni SLA. Utilisez-le \u00e0 vos propres risques.",
+  'community.issues_hint':  "En cas de probl\u00e8me, veuillez ouvrir une issue sur la page GitHub du projet\u00a0:",
+  'community.issues_link':  'Ouvrir le suivi des issues',
+  'community.ack':          'J'ai compris',
 };

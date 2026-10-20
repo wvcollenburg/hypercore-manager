@@ -83,7 +83,7 @@ window.LANG = {
   'empty.no_forecasts':         'Geen prognosegegevens beschikbaar.',
   'empty.no_resize':            'Nog geen concreet vergrotingsadvies.',
   'empty.no_exhaustion':        'Geen uitputtingswaarschuwingen.',
-  'empty.sentinel_unavailable': 'SC//Foresight-gegevens niet beschikbaar \u2014 werkt Sentinel?',
+  'empty.sentinel_unavailable': 'Foresight-gegevens niet beschikbaar \u2014 werkt Sentinel?',
   'empty.settings_failed':      'Kan instellingen niet laden.',
   'empty.sentinel_settings_unavail': 'Sentinel niet beschikbaar \u2014 instellingen kunnen niet worden geladen.',
   'empty.settings_load_failed': 'Instellingen laden mislukt: {msg}',
@@ -173,7 +173,7 @@ window.LANG = {
   'sentinel.days':              'dagen',
   'sentinel.already_exhausted': 'al uitgeput',
   'sentinel.exhaustion_in':     'uitputting over',
-  'sentinel.warming_title':     'SC//Foresight is aan het opwarmen',
+  'sentinel.warming_title':     'Foresight is aan het opwarmen',
   'sentinel.warming_running':   'Sentinel werkt en verzamelt statistieken. De eerste capaciteitsanalyse zal binnenkort aanbevelingen geven.',
   'sentinel.warming_first_run': 'Eerste analyse wordt nu uitgevoerd\u2026',
   'sentinel.warming_first_in':  'Eerste analyse over',
@@ -265,7 +265,7 @@ window.LANG = {
   'reports.logo_too_large':      'Logo moet kleiner zijn dan 500 KB.',
   'reports.save_branding':       'Opmaak opslaan',
   'reports.saved':               '\u2713 Opgeslagen',
-  'reports.pdf_title':           'SC//Foresight Rapporten',
+  'reports.pdf_title':           'Foresight Rapporten',
   'reports.pdf_desc':            'Genereer een volledig capaciteitsintelligentie-PDF-rapport op basis van de laatste analysegegevens. Het rapport bevat prognoses, aanbevelingen voor rechtsizing, uitputtingswaarschuwingen en vergrotingsadvies.',
   'reports.download_pdf':        '\u2193 PDF-rapport downloaden',
   'reports.generating':          'Genereren\u2026',
@@ -279,7 +279,7 @@ window.LANG = {
 
   // data sharing panel
   'sharing.connection_title':   'Verbinding',
-  'sharing.connection_desc':    'Configureer het SC//Foresight-Central viewer-eindpunt om geplande snapshot-pushes in te schakelen.',
+  'sharing.connection_desc':    'Configureer het Foresight-Central viewer-eindpunt om geplande snapshot-pushes in te schakelen.',
   'sharing.enabled':            'Delen ingeschakeld',
   'sharing.viewer_url':         'Viewer URL',
   'sharing.bearer_token':       'Bearer Token',
@@ -308,7 +308,7 @@ window.LANG = {
 
   // HCB export modal
   'hcb.title':     'Snapshot exporteren (.hcb)',
-  'hcb.desc':      'Stel een wachtwoordzin in om dit bestand te versleutelen. U moet dezelfde wachtwoordzin invoeren bij het importeren in SC//Foresight-Central.',
+  'hcb.desc':      'Stel een wachtwoordzin in om dit bestand te versleutelen. U moet dezelfde wachtwoordzin invoeren bij het importeren in Foresight-Central.',
   'hcb.passphrase':'Wachtwoordzin',
   'hcb.confirm':   'Wachtwoordzin bevestigen',
   'hcb.cancel':    'Annuleren',
@@ -496,4 +496,18 @@ window.LANG = {
   'info.SENTINEL_WEBHOOK_ENABLED.what':      'Master switch for the outbound webhook dispatcher. When enabled, Sentinel fires signed HTTP POST alerts to SENTINEL_WEBHOOK_URL for new CRITICAL and EMERGENCY events.',
   'info.SENTINEL_WEBHOOK_ENABLED.benefits':  'Pushes critical capacity alerts to external systems (Slack, PagerDuty, ticketing tools) in real time without polling the API. Each request is signed with HMAC-SHA256 for verification.',
   'info.SENTINEL_WEBHOOK_ENABLED.careful':   'Has no effect unless SENTINEL_WEBHOOK_URL is also set (environment variable \u2014 restart required). Toggling this off suppresses all outbound alerts without a restart.',
+
+  // Clusterbalancer forecast log (the Oracle)
+  'cb.forecastlog':  'Voorspellingslog',
+  'chart.forecast_runs':  'Overzicht Oracle-runs',
+  'loading.forecast_runs':  'Oracle-runs laden...',
+  'chart.predictions':  'Aanbevelingen in wachtrij',
+  'loading.predictions':  'Voorspellingen laden...',
+
+  // community-support notice (shown once per user)
+  'community.title':        'Community-ondersteunde software',
+  'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",
+  'community.issues_hint':  "Loopt u tegen een probleem aan, open dan een issue op de GitHub-projectpagina:",
+  'community.issues_link':  'Open de issue-tracker',
+  'community.ack':          'Ik begrijp het',
 };

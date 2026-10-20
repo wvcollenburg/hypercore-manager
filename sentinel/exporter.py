@@ -2,7 +2,7 @@
 H1: Delta snapshot builder.
 
 Serialises Sentinel's PostgreSQL conclusions into a signed JSON payload
-suitable for pushing to SC//Foresight-Central.
+suitable for pushing to Foresight-Central.
 
 A "delta" snapshot includes only rows created/updated after a given
 ``last_sync_at`` timestamp.  A full snapshot (``last_sync_at=None``) includes

@@ -22,7 +22,7 @@ Endpoints:
     GET /api/query/<measurement> - Generic query for any measurement
     GET /                   - Serves the dashboard HTML
 
-SC//Foresight (Sentinel) endpoints — E1-E7:
+Foresight (Sentinel) endpoints — E1-E7:
     GET /api/sentinel/summary        - Overview: health score, counts (E3/E6)
     GET /api/sentinel/forecasts      - Capacity forecast snapshots (E1)
     GET /api/sentinel/rightsizing    - Right-sizing recommendations (E2)
@@ -54,6 +54,7 @@ from flask_cors import CORS
 from influxdb_client import InfluxDBClient
 import config_db
 import user_db
+from versioning import latest_semver_tag, is_newer
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
@@ -751,7 +752,7 @@ def post_config():
 
 
 # =============================================================================
-# SC//Foresight (sentinel) API — E1-E6
+# Foresight (sentinel) API — E1-E6
 # all routes query the recommendations schema in PostgreSQL directly
 # =============================================================================
 
@@ -1546,7 +1547,7 @@ def logout():
 def api_me():
     if not _AUTH_ENABLED:
         return jsonify({'user_id': None, 'username': 'dev', 'role': 'admin',
-                        'otp_enabled': False, 'dev_mode': True})
+                        'otp_enabled': False, 'dev_mode': True, 'community_ack': None})
     u = user_db.get_by_username(session['username'])
     if not u:
         return jsonify({'error': 'User not found'}), 404
@@ -1556,7 +1557,19 @@ def api_me():
         'role':        u['role'],
         'otp_enabled': u['otp_enabled'],
         'dev_mode':    False,
+        'community_ack': bool(u.get('community_ack', False)),
     })
+
+
+@app.route('/api/users/me/community-ack', methods=['POST'])
+@require_auth
+def api_me_community_ack():
+    """Record that the current user has seen the community-support notice."""
+    if not _AUTH_ENABLED:
+        # no user row to persist on; the frontend falls back to localStorage
+        return jsonify({'ok': True, 'dev_mode': True})
+    user_db.set_community_ack(session['username'])
+    return jsonify({'ok': True, 'dev_mode': False})
 
 
 @app.route('/api/users', methods=['GET'])
@@ -1700,9 +1713,6 @@ def _git(*args, timeout=10):
     return r.stdout.strip() if r.returncode == 0 else ''
 
 
-_SEMVER_RE = re.compile(r'^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$')
-
-
 def _read_version_file() -> str:
     """Return the project version from <repo>/VERSION, or '' if unreadable."""
     try:
@@ -1712,34 +1722,13 @@ def _read_version_file() -> str:
         return ''
 
 
-def _semver_key(v: str):
-    """Sort key for semver-like version strings.
-
-    Pre-release suffixes sort *below* the matching release per the SemVer
-    spec, so v0.9.0-rc.1 < v0.9.0. Returns None for unparseable input.
-    """
-    m = _SEMVER_RE.match(v.strip())
-    if not m:
-        return None
-    major, minor, patch, pre = m.groups()
-    pre_key = (0, pre) if pre else (1, '')
-    return (int(major), int(minor), int(patch), pre_key)
-
-
 def _latest_remote_tag() -> str:
     """Return the highest semver-like tag known to git, or '' if none.
 
     Assumes `git fetch --tags` has run, so local tags mirror origin.
     """
     raw = _git('tag', '-l')
-    if not raw:
-        return ''
-    candidates = [(t, _semver_key(t)) for t in raw.splitlines() if t.strip()]
-    valid = [(t, k) for t, k in candidates if k is not None]
-    if not valid:
-        return ''
-    valid.sort(key=lambda x: x[1])
-    return valid[-1][0]
+    return latest_semver_tag(raw.splitlines()) if raw else ''
 
 
 def _changelog_between(local_tag: str, remote_tag: str) -> list[str]:
@@ -1751,6 +1740,13 @@ def _changelog_between(local_tag: str, remote_tag: str) -> list[str]:
 
 
 def _check_for_update():
+    # the running version comes from the local VERSION file and must be published even
+    # when the remote check fails, so the footer always shows what is installed
+    current_version = _read_version_file()
+    _write_update_patch({
+        'current_version': current_version or None,
+        'current_label':   f'v{current_version}' if current_version else None,
+    })
     try:
         r = subprocess.run(
             ['git', '-C', _REPO_PATH, 'fetch', '--tags', '--quiet'],
@@ -1763,15 +1759,12 @@ def _check_for_update():
             })
             return
 
-        current_version = _read_version_file()
         remote_tag      = _latest_remote_tag()
         # tag conventionally has a leading 'v'; the version string itself does not
         remote_version  = remote_tag.lstrip('v') if remote_tag else ''
         local_tag       = f'v{current_version}' if current_version else ''
 
-        cur_key = _semver_key(current_version) if current_version else None
-        rem_key = _semver_key(remote_version)  if remote_version  else None
-        update_available = bool(cur_key and rem_key and rem_key > cur_key)
+        update_available = is_newer(remote_version, current_version)
 
         changelog = _changelog_between(local_tag, remote_tag) if update_available else []
 
@@ -1997,16 +1990,6 @@ def index():
     return send_from_directory('static', 'index.html')
 
 
-@app.route('/lcars')
-@require_auth
-def index_lcars():
-    return send_from_directory('static', 'index2.html')
-
-
-@app.route('/lcars2')
-@require_auth
-def index_lcars2():
-    return send_from_directory('static', 'index3.html')
 
 
 if __name__ == '__main__':
