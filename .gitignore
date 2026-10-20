@@ -58,3 +58,5 @@ dist/
 # ── Documentation source (keep README, exclude Word/binary docs) ─────────────
 *.docx
 SENTINEL.md
+# ── Internal working notes (not for the public repo, for now) ────────────────
+BACKLOG.md
