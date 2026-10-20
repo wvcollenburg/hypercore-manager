@@ -1,5 +1,8 @@
 """Shared installer core — used by the curses TUI (install.py) and the test suite.
 
+Clusters are not configured here: they are registered in the dashboard after the stack
+is up. The .env holds databases, secrets, ports and application defaults only.
+
 This module owns:
   * The schema describing every variable in .env.template.
   * .env file parsing + rendering.
@@ -39,7 +42,7 @@ PROFILE_SENTINEL = "sentinel"
 PROFILE_TOOLS = "tools"
 
 # easy-mode required keys — filled by the operator, never autogen'd
-EASY_REQUIRED_KEYS = {"SC_HOST", "SC_USERNAME", "SC_PASSWORD", "SC_DASHBOARD_PASSWORD"}
+EASY_REQUIRED_KEYS = {"SC_DASHBOARD_PASSWORD"}
 
 # easy-mode default profile set
 EASY_PROFILES = {PROFILE_CORE, PROFILE_SENTINEL}
@@ -205,85 +208,39 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- HyperCore --------
+        # -------- secrets & time --------
         Section(
-            key="hypercore",
-            title="HyperCore Cluster",
-            blurb="Connection details and credentials for the Scale HyperCore REST API",
+            key="secrets",
+            title="Secrets & time",
+            blurb="Encryption key for stored cluster credentials, timezone for schedules",
             fields=[
                 Field(
-                    key="SC_HOST",
-                    label="REST API URL",
-                    default="https://nodeip/rest/v1",
+                    key="HCM_SECRET_KEY",
+                    label="Credential encryption key",
+                    type="token",
+                    default="CHANGE_ME",
                     must_change=True,
                     description=(
-                        "Full URL to the HyperCore REST API. Must include the protocol "
-                        "(https://) and the /rest/v1 path. The Collector polls this "
-                        "endpoint on every cycle and the Balancer issues migrations "
-                        "through it."
+                        "HyperCore clusters are registered in the dashboard (Settings -> Clusters); "
+                        "their passwords are stored in PostgreSQL encrypted with this key. Every "
+                        "service that talks to a cluster receives it."
                     ),
                     why_default=(
-                        "Placeholder — the cluster IP differs per deployment and there "
-                        "is no sensible global default."
+                        "There is no safe default for a key. The installer generates a 256-bit "
+                        "random value; press G to generate."
                     ),
                     when_change=(
-                        "Always. Replace 'nodeip' with any node IP in the cluster "
-                        "(HyperCore handles the routing internally). Example: "
-                        "https://192.168.1.10/rest/v1"
+                        "Never casually: changing it makes every stored cluster password "
+                        "unreadable until re-entered. Back it up with the database."
                     ),
                 ),
                 Field(
-                    key="SC_USERNAME",
-                    label="Username",
-                    default="admin",
-                    description=(
-                        "HyperCore service account name used for read + migration "
-                        "operations. Must have rights to list nodes/VMs and live-migrate."
-                    ),
-                    why_default=(
-                        "'admin' works on a fresh cluster but is a poor practice — every "
-                        "audit trail will read 'admin'."
-                    ),
-                    when_change=(
-                        "Strongly recommended: create a dedicated service account "
-                        "(e.g. 'svc-balancer') so audit logs identify the automation."
-                    ),
-                ),
-                Field(
-                    key="SC_PASSWORD",
-                    label="Password",
-                    type="password",
-                    default="password",
-                    must_change=True,
-                    description=(
-                        "Password for SC_USERNAME. Stored as plaintext in .env on the "
-                        "management host — protect file permissions accordingly."
-                    ),
-                    why_default=(
-                        "Placeholder — 'password' is obviously not a real credential."
-                    ),
-                    when_change=(
-                        "Always. Use the actual cluster password for the service account."
-                    ),
-                ),
-                Field(
-                    key="SC_VERIFY_SSL",
-                    label="Verify TLS",
-                    type="bool",
-                    default="false",
-                    description=(
-                        "Whether to verify the HyperCore TLS certificate. When false, "
-                        "the Collector and Balancer accept self-signed certs without "
-                        "complaint."
-                    ),
-                    why_default=(
-                        "false — most HyperCore clusters ship with a self-signed cert "
-                        "that won't validate against a public CA bundle."
-                    ),
-                    when_change=(
-                        "Set true if you've installed a certificate signed by a CA the "
-                        "host trusts. Recommended for production where MITM matters."
-                    ),
+                    key="TZ",
+                    label="Timezone",
+                    default="UTC",
+                    description="IANA timezone used for scheduled jobs and log timestamps (e.g. Europe/Amsterdam).",
+                    why_default="UTC is unambiguous for logs shared across sites.",
+                    when_change="Set your local zone if you want 'daily at 03:00' to mean local time.",
                 ),
             ],
         ),

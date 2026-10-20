@@ -498,40 +498,20 @@ def screen_mode(stdscr) -> Optional[str]:
 
 
 def screen_easy(stdscr, state: dict) -> bool:
-    """Easy-mode: 4-field form. Returns True on save, False on quit."""
+    """Easy-mode: one field (dashboard password); every secret is generated.
+    Clusters are registered in the dashboard once the stack is running."""
     values: dict[str, str] = state["values"]
 
     easy_fields = [
         {
-            "key": "SC_HOST",
-            "label": "HyperCore IP",
-            "hint": "Any node IP (e.g. 192.168.1.10) — protocol & /rest/v1 added automatically",
-            "type": "text",
-        },
-        {
-            "key": "SC_USERNAME",
-            "label": "HyperCore username",
-            "hint": "Service account with rights to live-migrate VMs",
-            "type": "text",
-        },
-        {
-            "key": "SC_PASSWORD",
-            "label": "HyperCore password",
-            "hint": "Cluster password for the username above",
-            "type": "password",
-        },
-        {
             "key": "SC_DASHBOARD_PASSWORD",
             "label": "Dashboard password",
-            "hint": "Initial admin password for the web UI on port 5000",
+            "hint": "Initial admin password for the web UI on port 5000 — clusters are registered there afterwards",
             "type": "password",
         },
     ]
 
     staged: dict[str, str] = {
-        "SC_HOST": extract_host_ip(values.get("SC_HOST", "")),
-        "SC_USERNAME": values.get("SC_USERNAME", "admin") or "admin",
-        "SC_PASSWORD": "" if values.get("SC_PASSWORD", "") in PLACEHOLDERS else values.get("SC_PASSWORD", ""),
         "SC_DASHBOARD_PASSWORD": "" if values.get("SC_DASHBOARD_PASSWORD", "") in PLACEHOLDERS else values.get("SC_DASHBOARD_PASSWORD", ""),
     }
 
@@ -541,30 +521,9 @@ def screen_easy(stdscr, state: dict) -> bool:
     n_items = n_fields + 1
 
     def commit() -> bool:
-        ip = staged["SC_HOST"].strip()
-        if "://" in ip:
-            ip = ip.split("://", 1)[1]
-        if "/" in ip:
-            ip = ip.split("/", 1)[0]
-        if not ip:
-            message_box(stdscr, "Missing HyperCore IP", ["Please enter the IP address of any HyperCore node."], color_pair=C_WARN)
-            return False
-        if not looks_like_host(ip):
-            if not confirm_box(stdscr, "Unusual host", [f"'{ip}' doesn't look like an IP or hostname.", "", "Continue anyway?"], default_yes=False):
-                return False
-        if not staged["SC_USERNAME"].strip():
-            message_box(stdscr, "Missing username", ["Please enter the HyperCore service account username."], color_pair=C_WARN)
-            return False
-        if not staged["SC_PASSWORD"]:
-            message_box(stdscr, "Missing password", ["Please enter the HyperCore password."], color_pair=C_WARN)
-            return False
         if not staged["SC_DASHBOARD_PASSWORD"]:
             message_box(stdscr, "Missing dashboard password", ["Please enter (or generate) a dashboard admin password."], color_pair=C_WARN)
             return False
-
-        values["SC_HOST"] = normalize_sc_host(ip)
-        values["SC_USERNAME"] = staged["SC_USERNAME"].strip()
-        values["SC_PASSWORD"] = staged["SC_PASSWORD"]
         values["SC_DASHBOARD_PASSWORD"] = staged["SC_DASHBOARD_PASSWORD"]
 
         autofill_paths(state["sections"], values)

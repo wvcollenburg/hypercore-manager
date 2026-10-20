@@ -89,11 +89,10 @@ services:
     build: ./Collector
     container_name: sc_collector
     environment:
+      # encrypts cluster credentials stored in PostgreSQL; shared by every service that talks to HyperCore
+      - HCM_SECRET_KEY=${HCM_SECRET_KEY}
+      - TZ=${TZ:-UTC}
       # HyperCore credentials
-      - SC_HOST=${SC_HOST}
-      - SC_USERNAME=${SC_USERNAME}
-      - SC_PASSWORD=${SC_PASSWORD}
-      - SC_VERIFY_SSL=${SC_VERIFY_SSL}
       # InfluxDB connection
       - INFLUX_URL=http://influxdb:8086
       - INFLUX_TOKEN=${INFLUX_TOKEN}
@@ -122,11 +121,10 @@ services:
     build: ./Balancer
     container_name: sc_balancer
     environment:
+      # encrypts cluster credentials stored in PostgreSQL; shared by every service that talks to HyperCore
+      - HCM_SECRET_KEY=${HCM_SECRET_KEY}
+      - TZ=${TZ:-UTC}
       # HyperCore credentials
-      - SC_HOST=${SC_HOST}
-      - SC_USERNAME=${SC_USERNAME}
-      - SC_PASSWORD=${SC_PASSWORD}
-      - SC_VERIFY_SSL=${SC_VERIFY_SSL}
 
       # master toggles
       - SC_DRY_RUN=${SC_DRY_RUN}
@@ -181,6 +179,9 @@ services:
     ports:
       - "5000:5000"
     environment:
+      # encrypts cluster credentials stored in PostgreSQL; shared by every service that talks to HyperCore
+      - HCM_SECRET_KEY=${HCM_SECRET_KEY}
+      - TZ=${TZ:-UTC}
       - INFLUX_URL=http://influxdb:8086
       - INFLUX_TOKEN=${INFLUX_TOKEN}
       - INFLUX_ORG=${INFLUX_ORG}
@@ -256,6 +257,9 @@ services:
     ports:
       - "8081:8081"    # Foresight REST API (F1-F4, F6)
     environment:
+      # encrypts cluster credentials stored in PostgreSQL; shared by every service that talks to HyperCore
+      - HCM_SECRET_KEY=${HCM_SECRET_KEY}
+      - TZ=${TZ:-UTC}
       # InfluxDB (read-only consumer)
       - INFLUX_URL=http://influxdb:8086
       - INFLUX_TOKEN=${INFLUX_TOKEN}
@@ -289,11 +293,6 @@ services:
       # phase 2 REST API (F1-F4, F6)
       - SENTINEL_API_PORT=8081
       - SENTINEL_API_TOKEN=${SENTINEL_API_TOKEN:-}
-      # phase 3 HyperCore credentials — C7 outcome tracking, same as Collector
-      - SC_HOST=${SC_HOST}
-      - SC_USERNAME=${SC_USERNAME}
-      - SC_PASSWORD=${SC_PASSWORD}
-      - SC_VERIFY_SSL=${SC_VERIFY_SSL}
       # phase 3 outcome tracker (C7)
       - SENTINEL_OUTCOME_TRACKER_ENABLED=${SENTINEL_OUTCOME_TRACKER_ENABLED:-true}
       - SENTINEL_OUTCOME_CHECK_DELAY_HOURS=${SENTINEL_OUTCOME_CHECK_DELAY_HOURS:-48}
