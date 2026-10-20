@@ -21,6 +21,7 @@ The optional **Foresight** module extends the platform with long-range capacity 
 - **Affinity Enforcement** — Highest-priority engine that enforces VM placement rules via HyperCore tags:
   - `node_<suffix>` — Pin a VM to a specific node (e.g. `node_241` pins to the node whose IP ends in `.241`)
   - `anti_<vm_name>` — Prevent two VMs from sharing the same node (e.g. `anti_dc02` on `dc01`)
+- **Clusters configured in the tool** — Register one or more HyperCore clusters from the dashboard (Settings → Clusters). Credentials are stored encrypted in PostgreSQL; nothing cluster-specific lives in `.env`. With more than one cluster a selector rail appears and every view, setting and Foresight analysis is per cluster.
 - **Live Configuration** — All tunable settings are stored in a shared PostgreSQL database. Change any parameter through the dashboard UI at runtime — no container restarts required.
 - **Built-in Dashboard** — Web-based UI (port 5000) showing node/VM performance, drive health, VSD I/O, migration event log, balancer settings, and the full Foresight interface. Fully offline-capable for dark-site deployments.
 - **Multi-language UI** — English, Dutch, French, and German, selectable from the dashboard header.
@@ -101,12 +102,15 @@ git clone https://github.com/wvcollenburg/hypercore-manager.git
 cd hypercore-manager
 
 cp .env.template .env
-# Edit .env — set SC_HOST, SC_USERNAME, SC_PASSWORD, and change all CHANGE_ME values
+# Edit .env — replace every CHANGE_ME (HCM_SECRET_KEY, database secrets, dashboard password)
 
 docker compose up --build -d
 ```
 
-The dashboard is available at **http://localhost:5000**.
+The dashboard is available at **http://localhost:5000**. Log in, and the first screen asks for
+your cluster: management address plus a HyperCore account. Save it and the collector, balancer
+and Foresight start on that cluster within a minute. Add further clusters under
+Settings → Clusters.
 
 > **Note:** On first startup, the balancer needs ~2.5 minutes to fill its averaging buffers before it begins evaluating the cluster. The dashboard will show data after the first collector cycle (~30 seconds).
 
@@ -143,7 +147,23 @@ docker compose --profile tools up --build -d
 
 ## Configuration
 
-All settings are defined in `.env` and seeded into a shared PostgreSQL config database on first startup. After that, settings can be changed live through the dashboard UI — no container restart required. Cluster credentials and connection strings are environment-only and require a restart to change.
+Clusters are registered in the dashboard, never in `.env`. Everything else (database secrets,
+ports, the `HCM_SECRET_KEY` that encrypts stored cluster credentials, and the application defaults
+below) is defined in `.env`. The defaults are seeded into PostgreSQL on first start as the
+**Defaults** template; every cluster you register gets its own copy, editable live in the dashboard
+without a restart. Database connection strings and secrets remain environment-only.
+
+### Registering clusters
+
+Settings → Clusters (admin only): name, management address (any node IP or hostname), HyperCore
+username and password, and whether to verify the TLS certificate. **Test connection** logs in
+and reads the cluster name, node count and HyperCore version before anything is saved. The
+balancer account needs rights to live-migrate VMs; read-only accounts work for monitoring and
+dry-run. A cluster can be disabled (collection and balancing pause, history stays) or removed
+(optionally purging its Foresight history).
+
+`HCM_SECRET_KEY` protects the stored passwords. Back it up with the database; if it is lost the
+clusters keep working until the next restart, after which their passwords must be re-entered.
 
 ### Key Parameters
 
@@ -343,6 +363,12 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 ├── install.py                       # Interactive curses installer (Linux/macOS)
 ├── installer/
 │   └── core.py                      # .env schema, validation, autogen helpers
+├── shared/                          # single source for modules copied into each service
+│   ├── cluster_registry.py          # config.clusters access, credentials, connection test
+│   ├── hcm_crypto.py                # Fernet encryption keyed by HCM_SECRET_KEY
+│   └── config_db.py                 # per-cluster live tunables
+├── tools/
+│   └── sync_shared.py               # copies shared/ into the service directories
 ├── tests/                           # pytest suite (unit + optional integration)
 ├── .github/                         # CI workflow and issue templates
 ├── docs/

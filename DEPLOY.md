@@ -41,7 +41,8 @@ cp .env.template .env
 ```
 
 Open `.env` and fill in every `CHANGE_ME` value. See the **Environment Variable Reference**
-section below for details on each setting.
+section below for details on each setting. Cluster addresses and credentials are entered in the
+dashboard later, not here.
 
 ### 2. Generate secrets
 
@@ -88,15 +89,17 @@ docker compose logs <service-name> --tail=50
 
 Navigate to `http://<host-ip>:5000` and log in with `SC_DASHBOARD_USER` / `SC_DASHBOARD_PASSWORD`.
 
-### 6. Confirm SC_DRY_RUN before going live
+### 6. Register the cluster
 
-The balancer starts in dry-run mode (`SC_DRY_RUN=true`). In this mode it logs what it *would*
-do but performs no migrations. Once you have confirmed it is analysing the cluster correctly,
-set `SC_DRY_RUN=false` in `.env` and restart the balancer:
+The first login shows the cluster registration form: management address, HyperCore account,
+TLS verification. Use **Test connection** first. Within a minute the collector writes metrics
+and the balancer starts evaluating in dry-run.
 
-```bash
-docker compose up -d --no-deps balancer
-```
+### 7. Confirm dry-run before going live
+
+Every cluster starts in dry-run mode: the balancer logs what it *would* do but performs no
+migrations. Once you have confirmed it is analysing the cluster correctly, switch **Dry run**
+off for that cluster in the dashboard's Balancer Settings. No restart is needed.
 
 ---
 
@@ -129,14 +132,15 @@ analysis cycle (default: 1 hour after startup).
 
 ## Environment Variable Reference
 
-### HyperCore Cluster
+### Clusters and secrets
+
+HyperCore clusters are **not** configured in `.env`. Register them in the dashboard under
+Settings → Clusters after the stack is up (address, account, TLS verification per cluster).
 
 | Variable | Required | Description |
 |---|---|---|
-| `SC_HOST` | Yes | Full URL to HyperCore REST API, e.g. `https://192.168.1.10/rest/v1` |
-| `SC_USERNAME` | Yes | HyperCore service account username |
-| `SC_PASSWORD` | Yes | HyperCore service account password |
-| `SC_VERIFY_SSL` | Yes | `true` to verify TLS certificate; `false` only for self-signed certs |
+| `HCM_SECRET_KEY` | Yes | Encrypts cluster (and share) passwords stored in PostgreSQL. Any long random string; `install.py` generates one. Back it up with the database. |
+| `TZ` | No | IANA timezone for scheduled jobs and log timestamps (default `UTC`) |
 
 ### InfluxDB
 
@@ -191,7 +195,8 @@ See `.env.template` for the full list including forecast toggles, thresholds, an
 Before exposing the stack to any network beyond localhost, complete every item:
 
 - [ ] All `CHANGE_ME` values replaced with strong random secrets
-- [ ] `SC_VERIFY_SSL=true` (or self-signed cert explicitly documented)
+- [ ] "Verify TLS" enabled on every cluster with a trusted certificate (self-signed documented otherwise)
+- [ ] `HCM_SECRET_KEY` set, backed up together with the PostgreSQL dump
 - [ ] `SENTINEL_API_TOKEN` set to a strong random token (not empty)
 - [ ] `SC_DASHBOARD_PASSWORD` set to a strong password
 - [ ] `SC_DRY_RUN` sign-off completed before setting to `false`

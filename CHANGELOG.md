@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Multi-cluster.** HyperCore clusters are registered in the dashboard (Settings → Clusters)
+  instead of `.env`; credentials are stored Fernet-encrypted in PostgreSQL under the new
+  `HCM_SECRET_KEY`. The collector and balancer run one worker per enabled cluster, every
+  InfluxDB point carries a `cluster_id` tag and every query filters on it, tunables are per
+  cluster with a Defaults template, and a cluster rail appears when more than one is enabled.
+  Fresh installs start with an onboarding form. `SC_HOST`, `SC_USERNAME`, `SC_PASSWORD` and
+  `SC_VERIFY_SSL` are gone from `.env`; data written before this version has no cluster tag
+  and is not shown. New migration `020_cluster_registry.sql`.
+- `shared/` holds the single source of the modules every service embeds, with
+  `tools/sync_shared.py` and a test that fails when a copy drifts.
+
 ### Changed
 - Released as community-supported open-source software under the Apache License 2.0.
   Copyright Scale Computing. The source-available "all rights reserved" terms are withdrawn.
