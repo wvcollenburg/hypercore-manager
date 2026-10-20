@@ -219,6 +219,11 @@ Placement rules are defined as tags on VMs in HyperCore — no balancer configur
 | `node_<suffix>` | Pin VM to the node whose LAN IP ends with `<suffix>` | `node_241` |
 | `anti_<vm_name>` | Never place this VM on the same node as `<vm_name>` | `anti_dc02` |
 
+Only one installation may balance a given cluster live. A second HyperCore Manager pointed at
+the same cluster must stay in dry-run, otherwise two engines will move VMs against each other.
+Within one installation this is enforced automatically (the same cluster registered twice is
+detected and the duplicate's balancer suspended); across installations it is an operator rule.
+
 Affinity rules take priority over all other engines. A VM with a `node_` tag will be moved back to its pinned node even if doing so would worsen cluster balance.
 
 ---
