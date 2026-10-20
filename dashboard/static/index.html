@@ -580,6 +580,8 @@
   .popmenu-item.danger:hover { color: var(--accent-red); }
   .popmenu-title { padding: 4px 10px 6px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); }
   .popmenu-sep { height: 1px; background: var(--border); margin: 5px 0; }
+  .popmenu-search { width: 100%; box-sizing: border-box; margin: 2px 0 6px; font-size: 12px; }
+  .popmenu-scroll { max-height: 40vh; overflow-y: auto; }
   .um-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
   .um-toolbar .um-input { width: 220px; }
   .um-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
@@ -4722,18 +4724,31 @@ function _openMenu(ev, html) {
   m.style.left = `${Math.min(r.left, window.innerWidth - m.offsetWidth - 8)}px`;
 }
 
+function _clusterMenuRows(clusterId, q) {
+  const c = CLUSTERS.find(x => x.cluster_id === clusterId);
+  const needle = (q || '').trim().toLowerCase();
+  const list = FOLDERS.filter(f => !needle || f.name.toLowerCase().includes(needle))
+    .sort((a, b) => ((c && c.folder_id === b.folder_id) - (c && c.folder_id === a.folder_id)) || a.name.localeCompare(b.name));
+  if (!FOLDERS.length) return `<div class="popmenu-item" style="color:var(--text-muted);cursor:default;">${t('folders.none_yet')}</div>`;
+  if (!list.length)    return `<div class="popmenu-item" style="color:var(--text-muted);cursor:default;">${t('folders.no_match')}</div>`;
+  return list.map(f => `
+    <div class="popmenu-item" onclick="moveClusterToFolder('${clusterId}', '${f.folder_id}')">
+      <span class="cluster-dot" style="background:${_clEsc(f.colour || 'var(--text-muted)')}"></span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_clEsc(f.name)}</span>${c && c.folder_id === f.folder_id ? '✓' : ''}
+    </div>`).join('');
+}
+function clusterMenuSearch(clusterId, q) { const box = document.getElementById('clusterMenuRows'); if (box) box.innerHTML = _clusterMenuRows(clusterId, q); }
+
 function openClusterMenu(ev, clusterId) {
   const c = CLUSTERS.find(x => x.cluster_id === clusterId);
-  const rows = FOLDERS.map(f => `
-    <div class="popmenu-item" onclick="moveClusterToFolder('${clusterId}', '${f.folder_id}')">
-      <span class="cluster-dot" style="background:${_clEsc(f.colour || 'var(--text-muted)')}"></span>${_clEsc(f.name)}${c && c.folder_id === f.folder_id ? ' ✓' : ''}
-    </div>`).join('');
+  const many = FOLDERS.length > 6;
   _openMenu(ev, `
     <div class="popmenu-title">${t('folders.move_to')}</div>
-    ${rows || `<div class="popmenu-item" style="color:var(--text-muted);cursor:default;">${t('folders.none_yet')}</div>`}
+    ${many ? `<input class="um-input popmenu-search" placeholder="${_clEsc(t('users.search_folders'))}" oninput="clusterMenuSearch('${clusterId}', this.value)" onclick="event.stopPropagation()" autocomplete="off">` : ''}
+    <div class="popmenu-scroll" id="clusterMenuRows">${_clusterMenuRows(clusterId, '')}</div>
     <div class="popmenu-sep"></div>
     <div class="popmenu-item" onclick="moveClusterToFolder('${clusterId}', null)">${t('folders.unfiled')}${c && !c.folder_id ? ' ✓' : ''}</div>
     <div class="popmenu-item" onclick="newFolderPrompt('${clusterId}')">+ ${t('folders.new')}</div>`);
+  if (many) setTimeout(() => document.querySelector('.popmenu .popmenu-search')?.focus(), 30);
 }
 
 function openFolderMenu(ev, folderId) {
