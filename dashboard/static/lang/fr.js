@@ -620,6 +620,10 @@ window.LANG = {
   'users.password': "Mot de passe",
   'users.you': "vous",
 
+  'users.search_folders': "Rechercher des dossiers…",
+  'users.folder_count': "{n} dossiers sur {total}",
+  'users.folders_hint': "L'utilisateur voit tous les clusters des dossiers cochés.",
+
   // community-support notice (shown once per user)
   'community.title':        'Logiciel soutenu par la communaut\u00e9',
   'community.body':         "HyperCore Manager est un logiciel open source maintenu sur une base communautaire. Il ne s'agit pas d'un produit officiel de Scale Computing et il est fourni sans support officiel ni SLA. Utilisez-le \u00e0 vos propres risques.",
