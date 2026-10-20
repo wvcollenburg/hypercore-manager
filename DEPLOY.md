@@ -108,8 +108,8 @@ Sentinel is gated behind Docker Compose profiles to keep it optional.
 # Start sentinel alongside the core stack
 docker compose --profile sentinel up -d
 
-# Or start the full stack including sentinel and grafana
-docker compose --profile full up -d
+# Or with the 'full' profile (core + sentinel); add --profile tools for grafana
+docker compose --profile full --profile tools up -d
 ```
 
 Sentinel exposes a health endpoint and a REST API:

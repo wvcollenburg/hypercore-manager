@@ -130,8 +130,8 @@ The installer also detects whether Compose v2 is present on the host and warns i
 # Core stack + Sentinel capacity analysis
 docker compose --profile sentinel up --build -d
 
-# Core stack + Sentinel + Grafana
-docker compose --profile full up --build -d
+# Core stack + Sentinel + Grafana (the `full` profile covers Sentinel; Grafana is the `tools` profile)
+docker compose --profile full --profile tools up --build -d
 
 # Grafana only (without Sentinel)
 docker compose --profile tools up --build -d
