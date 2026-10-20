@@ -5,3 +5,4 @@ prophet==1.5.0
 influxdb-client==1.50.0
 urllib3==2.8.0
 psycopg2-binary==2.9.13
+cryptography==42.0.8

@@ -5,6 +5,13 @@ PostgreSQL-backed key/value store for runtime-tunable settings.
 All three containers (Balancer, Collector, Dashboard) share the same rows
 in config.tunables on the sc_postgres instance.
 
+Tunables are **per cluster**. Row cluster_id …0001 is the "Defaults" template
+(see cluster_registry.py): its values are seeded from env vars / hardcoded
+defaults and copied to every newly registered cluster. Every function takes an
+optional cluster_id; omitted means the template.
+
+Canonical copy: shared/config_db.py — run tools/sync_shared.py after editing.
+
 Connection: PG_HOST / PG_PORT / PG_DB / PG_USER / PG_PASSWORD env vars.
 
 Graceful degradation: if PostgreSQL is unreachable, all reads fall back to
@@ -27,8 +34,9 @@ logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 
-# phase 1: single-cluster deployment — override via SC_CLUSTER_ID env var
-DEFAULT_CLUSTER_ID = os.getenv('SC_CLUSTER_ID', '00000000-0000-0000-0000-000000000001')
+# the defaults template row; real clusters are created by cluster_registry.create()
+TEMPLATE_CLUSTER_ID = '00000000-0000-0000-0000-000000000001'
+DEFAULT_CLUSTER_ID = TEMPLATE_CLUSTER_ID   # backwards-compatible name
 
 # registry: key → (env_var_name, hardcoded_default, type_hint)
 TUNABLES = {
@@ -65,14 +73,14 @@ TUNABLES = {
 
 
 # ---------------------------------------------------------------------------
-# type helpers — unchanged from SQLite version
+# type helpers
 # ---------------------------------------------------------------------------
 
 def _cast(value: str, type_hint: str) -> Any:
     if type_hint == 'bool':
         return str(value).lower() in ('true', '1', 'yes', 'y')
     if type_hint == 'int':
-        return int(float(value))  # float() first handles the "30.0" edge case
+        return int(float(value))  # float() first handles "30.0" edge case
     if type_hint == 'float':
         return float(value)
     if type_hint == 'list':
@@ -123,6 +131,7 @@ def seed_from_env() -> None:
     - Missing keys are inserted from env var (or hardcoded default).
     - Existing keys are updated from env var only if their stored value still
       matches the hardcoded default (i.e. never touched by the user via the UI).
+    Seeds the Defaults template row only; clusters copy from it on creation.
     Falls back silently if PostgreSQL is unreachable.
     """
     with _lock:
@@ -159,7 +168,28 @@ def seed_from_env() -> None:
             logger.warning('config_db: PostgreSQL unavailable during seed, using env vars: %s', exc)
 
 
-def get(key: str) -> Any:
+def copy_template_to(cluster_id: str) -> None:
+    """Give a cluster every tunable it lacks, copied from the Defaults template.
+    Used when a new key ships in a release so existing clusters pick it up."""
+    with _lock:
+        try:
+            conn = _connect()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        '''INSERT INTO config.tunables (cluster_id, key, value, type)
+                           SELECT %s, key, value, type FROM config.tunables WHERE cluster_id = %s
+                           ON CONFLICT (cluster_id, key) DO NOTHING''',
+                        (cluster_id, TEMPLATE_CLUSTER_ID),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.warning('config_db: copy_template_to(%s) failed: %s', cluster_id, exc)
+
+
+def get(key: str, cluster_id: str = TEMPLATE_CLUSTER_ID) -> Any:
     """Return a single tunable cast to its Python type."""
     with _lock:
         try:
@@ -168,7 +198,7 @@ def get(key: str) -> Any:
                 with conn.cursor() as cur:
                     cur.execute(
                         'SELECT value, type FROM config.tunables WHERE cluster_id = %s AND key = %s',
-                        (DEFAULT_CLUSTER_ID, key),
+                        (cluster_id, key),
                     )
                     row = cur.fetchone()
             finally:
@@ -181,7 +211,7 @@ def get(key: str) -> Any:
             return _env_fallback(key)
 
 
-def get_all() -> dict:
+def get_all(cluster_id: str = TEMPLATE_CLUSTER_ID) -> dict:
     """Return all tunables as {key: typed_value}."""
     with _lock:
         try:
@@ -190,7 +220,7 @@ def get_all() -> dict:
                 with conn.cursor() as cur:
                     cur.execute(
                         'SELECT key, value, type FROM config.tunables WHERE cluster_id = %s',
-                        (DEFAULT_CLUSTER_ID,),
+                        (cluster_id,),
                     )
                     rows = cur.fetchall()
             finally:
@@ -201,7 +231,7 @@ def get_all() -> dict:
             return {k: _env_fallback(k) for k in TUNABLES}
 
 
-def save(key: str, value: Any) -> None:
+def save(key: str, value: Any, cluster_id: str = TEMPLATE_CLUSTER_ID) -> None:
     """Upsert a single tunable."""
     if key not in TUNABLES:
         raise ValueError(f'Unknown tunable: {key}')
@@ -216,7 +246,7 @@ def save(key: str, value: Any) -> None:
                            VALUES (%s, %s, %s, %s, NOW())
                            ON CONFLICT (cluster_id, key) DO UPDATE
                                SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at''',
-                        (DEFAULT_CLUSTER_ID, key, _serialize(value, type_hint), type_hint),
+                        (cluster_id, key, _serialize(value, type_hint), type_hint),
                     )
                 conn.commit()
             finally:
@@ -225,7 +255,7 @@ def save(key: str, value: Any) -> None:
             logger.warning('config_db: PostgreSQL unavailable for save(%s), change dropped: %s', key, exc)
 
 
-def save_many(updates: dict) -> None:
+def save_many(updates: dict, cluster_id: str = TEMPLATE_CLUSTER_ID) -> None:
     """Upsert multiple tunables in one transaction. Unknown keys are silently skipped."""
     with _lock:
         try:
@@ -241,7 +271,7 @@ def save_many(updates: dict) -> None:
                                VALUES (%s, %s, %s, %s, NOW())
                                ON CONFLICT (cluster_id, key) DO UPDATE
                                    SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at''',
-                            (DEFAULT_CLUSTER_ID, key, _serialize(value, type_hint), type_hint),
+                            (cluster_id, key, _serialize(value, type_hint), type_hint),
                         )
                 conn.commit()
             finally:
@@ -250,7 +280,7 @@ def save_many(updates: dict) -> None:
             logger.warning('config_db: PostgreSQL unavailable for save_many(), changes dropped: %s', exc)
 
 
-def get_with_meta() -> list:
+def get_with_meta(cluster_id: str = TEMPLATE_CLUSTER_ID) -> list:
     """Return all tunables with type and timestamp — for the settings API."""
     with _lock:
         try:
@@ -262,7 +292,7 @@ def get_with_meta() -> list:
                              FROM config.tunables
                             WHERE cluster_id = %s
                             ORDER BY key''',
-                        (DEFAULT_CLUSTER_ID,),
+                        (cluster_id,),
                     )
                     rows = cur.fetchall()
             finally:

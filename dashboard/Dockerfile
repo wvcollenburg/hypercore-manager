@@ -20,6 +20,8 @@ COPY app.py .
 COPY config_db.py .
 COPY user_db.py .
 COPY versioning.py .
+COPY cluster_registry.py .
+COPY hcm_crypto.py .
 COPY migrations.py .
 COPY reports/ reports/
 COPY static/ static/
