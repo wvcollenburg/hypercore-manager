@@ -625,6 +625,9 @@ window.LANG = {
   'users.folder_count': "{n} of {total} folders",
   'users.folders_hint': "The user sees every cluster in the checked folders.",
 
+  'clusters.rail_search': "Search folders and clusters…",
+  'clusters.rail_no_match': "Nothing matches.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-supported software',
   'community.body':         "HyperCore Manager is open-source software maintained on a community-supported basis. It is not an official Scale Computing product and comes without official support or SLA. Use it at your own risk.",

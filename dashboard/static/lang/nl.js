@@ -624,6 +624,9 @@ window.LANG = {
   'users.folder_count': "{n} van {total} mappen",
   'users.folders_hint': "De gebruiker ziet alle clusters in de aangevinkte mappen.",
 
+  'clusters.rail_search': "Mappen en clusters zoeken…",
+  'clusters.rail_no_match': "Niets gevonden.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",

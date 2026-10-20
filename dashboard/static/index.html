@@ -532,11 +532,14 @@
   /* update modal */
   /* cluster rail — only rendered when more than one cluster is enabled */
   .cluster-rail {
-    position: fixed; left: 0; top: 0; bottom: 0; width: 210px; z-index: 60;
+    position: fixed; left: 0; top: 0; bottom: 0; width: 236px; z-index: 60;
     background: var(--bg-secondary); border-right: 1px solid var(--border);
     padding: 18px 12px 0; display: flex; flex-direction: column; gap: 6px;
   }
   /* the folder/cluster list scrolls on its own; the footer below it never moves */
+  .rail-search { width: 100%; box-sizing: border-box; margin: 0 0 6px; padding: 7px 9px; border-radius: 6px; font-size: 12px;
+    background: var(--bg-input, var(--bg-primary)); border: 1px solid var(--border); color: var(--text-primary); }
+  .rail-search:focus { outline: none; border-color: var(--border-active, var(--accent-blue)); }
   .cluster-rail-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; }
   .rail-footer { flex: 0 0 auto; border-top: 1px solid var(--border); margin: 0 -12px; padding: 8px 10px 10px; background: var(--bg-secondary); display: flex; flex-direction: column; gap: 2px; }
   .rail-nav { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer;
@@ -545,7 +548,7 @@
   .rail-nav.active { color: var(--accent-blue); background: var(--bg-card); border-color: var(--border-active, var(--border)); }
   .rail-nav-icon { width: 16px; text-align: center; font-size: 13px; opacity: 0.9; }
   .cluster-rail[hidden] { display: none; }
-  body.has-rail .header, body.has-rail .nav-tabs, body.has-rail .main { margin-left: 210px; }
+  body.has-rail .header, body.has-rail .nav-tabs, body.has-rail .main { margin-left: 236px; }
   .cluster-rail-title {
     font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 1px;
     text-transform: uppercase; color: var(--text-muted); margin: 0 6px 8px;
@@ -879,7 +882,7 @@
   #dataQualityBanner.visible { display: block; }
   #dataQualityBanner.info { background: #0f2238; border-top-color: #38bdf8; color: #9fd3f0; }
   #dataQualityBanner.warn { background: #3b2a08; border-top-color: #f59e0b; color: #fcd34d; }
-  body.has-rail #dataQualityBanner { left: 210px; }
+  body.has-rail #dataQualityBanner { left: 236px; }
 
   /* ── user manager ─────────────────────────────────────────────────────── */
   .um-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -969,6 +972,8 @@
     <button class="rail-tool" onclick="setAllFolders(true)" title="Collapse all" data-i18n-title="folders.collapse_all">⊟</button>
     <button class="rail-tool" onclick="setAllFolders(false)" title="Expand all" data-i18n-title="folders.expand_all">⊞</button>
   </div>
+  <input type="search" id="railSearch" class="rail-search" placeholder="Search" data-i18n-placeholder="clusters.rail_search"
+         oninput="railSearch(this.value)" onkeydown="if (event.key === 'Escape') { this.value = ''; railSearch(''); }" autocomplete="off">
   <div id="clusterRailList" class="cluster-rail-list"></div>
   <nav class="rail-footer" id="railFooter"></nav>
 </aside>
@@ -1587,6 +1592,10 @@ function applyI18n() {
   document.querySelectorAll('[data-i18n-title]').forEach(el => {
     const val = t(el.dataset.i18nTitle);
     if (val !== el.dataset.i18nTitle) el.title = val;
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const val = t(el.dataset.i18nPlaceholder);
+    if (val !== el.dataset.i18nPlaceholder) el.placeholder = val;
   });
 }
 
@@ -4663,7 +4672,7 @@ function _renderClusterRail(enabled) {
     </div>`;
 
   const group = (key, name, colour, members, adminMenu) => {
-    const collapsed = _collapsedFolders.has(key);
+    const collapsed = !(_railQuery || '').trim() && _collapsedFolders.has(key);
     const vars = colour ? `--fc:${_clEsc(colour)};--fc-tint:${_tint(colour, 0.16)}` : '';
     return `
     <div class="cluster-folder ${collapsed ? 'collapsed' : ''}" style="${vars}" onclick="toggleFolder('${key}')" title="${_clEsc(name)}">
@@ -4678,18 +4687,29 @@ function _renderClusterRail(enabled) {
     </div>`;
   };
 
+  // search: a folder whose name matches shows with all its clusters; otherwise only the
+  // clusters whose name or host matches, under their folder, with the folder forced open
+  const q = (_railQuery || '').trim().toLowerCase();
+  const matchC = c => !q || c.name.toLowerCase().includes(q) || (c.host || '').toLowerCase().includes(q);
   let html = '';
   let idx = 0;
+  let hits = 0;
   for (const f of FOLDERS) {
-    const members = enabled.filter(c => c.folder_id === f.folder_id);
-    if (!members.length && !_isAdminView) continue;
+    const all = enabled.filter(c => c.folder_id === f.folder_id);
+    const folderHit = q && f.name.toLowerCase().includes(q);
+    const members = folderHit ? all : all.filter(matchC);
+    if (q && !folderHit && !members.length) continue;
+    if (!all.length && !_isAdminView) continue;
+    hits += members.length + (folderHit ? 1 : 0);
     html += group(f.folder_id, f.name, f.colour, members, _isAdminView);
   }
-  const unfiled = enabled.filter(c => !c.folder_id || !FOLDERS.some(f => f.folder_id === c.folder_id));
+  const unfiled = enabled.filter(c => (!c.folder_id || !FOLDERS.some(f => f.folder_id === c.folder_id)) && matchC(c));
   if (unfiled.length) {
+    hits += unfiled.length;
     html += FOLDERS.length ? group('__unfiled__', t('folders.unfiled'), null, unfiled, false)
                            : unfiled.map(c => item(c, idx++)).join('');
   }
+  if (q && !hits) html = `<div class="folder-empty" style="padding-top:12px;">${t('clusters.rail_no_match')}</div>`;
   if (_isAdminView) html += `<div class="rail-add"><button class="refresh-btn" onclick="newFolderPrompt()">+ ${t('folders.new')}</button></div>`;
   list.innerHTML = html;
   rail.hidden = false;
@@ -4728,6 +4748,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   _updateBreadcrumbs();
 });
+// ── rail search ──────────────────────────────────────────────────────────────
+let _railQuery = '';
+function railSearch(v) { _railQuery = v || ''; _renderClusterRail(CLUSTERS.filter(c => c.enabled)); }
+
 const FOLDERS_COLLAPSED_KEY = 'hcm.folders.collapsed';
 let _collapsedFolders = new Set();
 try { _collapsedFolders = new Set(JSON.parse(localStorage.getItem(FOLDERS_COLLAPSED_KEY) || '[]')); } catch (_) {}
