@@ -26,6 +26,12 @@ All notable changes to this project are documented here. The format follows
 - The running version is shown in the footer even when the update check cannot reach the
   remote repository.
 - Obsolete `version:` key removed from `docker-compose.yaml`.
+- Sentinel: Flux queries that drop the `_time` column (`query_active_vms`,
+  `query_running_vms`) crashed the record normaliser with a KeyError. The VM
+  pruning loop had therefore failed on every cycle since April 2026, and the
+  cluster-health HA memory check silently counted RAM of VMs that were no
+  longer running. Both work again. The prune's own SQL also compared a
+  `uuid` column with a `text[]` parameter; cast fixed.
 
 ## [0.9.2] - 2026-05-10
 - Public beta release preparation; first release with the Windows installer attached.

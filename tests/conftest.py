@@ -54,6 +54,7 @@ _stub('dotenv', load_dotenv=lambda *a, **k: None)
 _stub('influxdb_client', InfluxDBClient=_InfluxDBClient, Point=_Point)
 _stub('influxdb_client.client')
 _stub('influxdb_client.client.write_api', SYNCHRONOUS='SYNCHRONOUS')
+_stub('influxdb_client.client.exceptions', InfluxDBError=type('InfluxDBError', (Exception,), {}))
 _stub('psycopg2', connect=lambda *a, **k: (_ for _ in ()).throw(RuntimeError('no db in tests')))
 _stub('psycopg2.extras', RealDictCursor=object)
 

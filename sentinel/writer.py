@@ -84,6 +84,7 @@ class Writer:
             log.warning('prune_stale_vms: active VM set is empty — skipping to avoid false purge')
             return 0
 
+        # vm_uuid columns are UUID; psycopg2 sends a Python list as text[], so cast explicitly
         active_uuids = list(active_vms.keys())
         cluster_id   = self._cfg.cluster_id
         total        = 0
@@ -96,21 +97,21 @@ class Writer:
                     # used to safely target only VM-keyed rows in forecast_snapshots
                     cur.execute(
                         '''SELECT DISTINCT vm_name FROM recommendations.right_sizing
-                           WHERE cluster_id = %s AND NOT (vm_uuid = ANY(%s))''',
+                           WHERE cluster_id = %s AND NOT (vm_uuid = ANY(%s::uuid[]))''',
                         (cluster_id, active_uuids),
                     )
                     stale_names = [row[0] for row in cur.fetchall()]
 
                     cur.execute(
                         '''DELETE FROM recommendations.right_sizing
-                           WHERE cluster_id = %s AND NOT (vm_uuid = ANY(%s))''',
+                           WHERE cluster_id = %s AND NOT (vm_uuid = ANY(%s::uuid[]))''',
                         (cluster_id, active_uuids),
                     )
                     total += cur.rowcount
 
                     cur.execute(
                         '''DELETE FROM recommendations.resize_recommendations
-                           WHERE cluster_id = %s AND NOT (vm_uuid = ANY(%s))''',
+                           WHERE cluster_id = %s AND NOT (vm_uuid = ANY(%s::uuid[]))''',
                         (cluster_id, active_uuids),
                     )
                     total += cur.rowcount

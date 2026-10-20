@@ -62,13 +62,19 @@ class InfluxReader:
 
     @staticmethod
     def _normalise(record) -> dict[str, Any]:
-        """Convert a raw FluxRecord to a normalised dict."""
+        """Convert a raw FluxRecord to a normalised dict.
+
+        Queries that end in ``keep(columns: [...])`` without ``_time`` return records
+        with no time column; FluxRecord.get_time() raises KeyError on those, so the
+        value is read defensively and comes back as None.
+        """
+        values = record.values
         return {
-            'time':        record.get_time(),
-            'measurement': record.values.get('_measurement'),
-            'field':       record.values.get('_field'),
-            'value':       record.values.get('_value'),
-            **{k: v for k, v in record.values.items()
+            'time':        values.get('_time'),
+            'measurement': values.get('_measurement'),
+            'field':       values.get('_field'),
+            'value':       values.get('_value'),
+            **{k: v for k, v in values.items()
                if k not in ('_time', '_measurement', '_field', '_value',
                             '_start', '_stop', 'result', 'table')},
         }
