@@ -1,0 +1,4 @@
+# test-only dependencies; the containers pin their own runtime versions
+pytest==8.4.2
+cryptography>=42
+requests>=2.31

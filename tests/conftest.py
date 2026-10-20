@@ -1,0 +1,84 @@
+"""
+Shared fixtures for the HyperCore Manager test suite.
+
+The application modules live in per-container directories (dashboard/, Balancer/,
+sentinel/, installer/) rather than one package, so the repo paths are added to
+sys.path here. Heavy third-party dependencies that the containers install but a
+test environment does not need (InfluxDB client, psycopg2, python-dotenv, Prophet)
+are replaced with light stubs *before* the modules under test are imported.
+"""
+from __future__ import annotations
+
+import os
+import sys
+import types
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parent.parent
+for sub in ('dashboard', 'Balancer', 'sentinel', '.'):
+    p = str(REPO / sub)
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+
+def _stub(name: str, **attrs) -> types.ModuleType:
+    """Register a stub module under *name* unless the real one imports cleanly."""
+    try:
+        __import__(name)
+        return sys.modules[name]
+    except Exception:
+        mod = types.ModuleType(name)
+        for k, v in attrs.items():
+            setattr(mod, k, v)
+        sys.modules[name] = mod
+        return mod
+
+
+class _Point:
+    def __init__(self, *_a, **_k): pass
+    def tag(self, *_a, **_k): return self
+    def field(self, *_a, **_k): return self
+    def time(self, *_a, **_k): return self
+
+
+class _InfluxDBClient:
+    def __init__(self, *_a, **_k): pass
+    def write_api(self, *_a, **_k): return self
+    def query_api(self, *_a, **_k): return self
+    def close(self): pass
+
+
+_stub('dotenv', load_dotenv=lambda *a, **k: None)
+_stub('influxdb_client', InfluxDBClient=_InfluxDBClient, Point=_Point)
+_stub('influxdb_client.client')
+_stub('influxdb_client.client.write_api', SYNCHRONOUS='SYNCHRONOUS')
+_stub('psycopg2', connect=lambda *a, **k: (_ for _ in ()).throw(RuntimeError('no db in tests')))
+_stub('psycopg2.extras', RealDictCursor=object)
+
+# the balancer reads live config from Postgres through config_db; in tests every key falls
+# back to its coded default
+_stub('config_db',
+      get=lambda key, default=None: default,
+      get_all=lambda: {},
+      set=lambda *a, **k: None)
+_stub('db', connect=lambda *a, **k: (_ for _ in ()).throw(RuntimeError('no db in tests')))
+
+
+@pytest.fixture(scope='session')
+def repo() -> Path:
+    return REPO
+
+
+@pytest.fixture(scope='session')
+def env_template(repo) -> dict[str, str]:
+    """Key/value pairs from .env.template (comments and blanks skipped)."""
+    out = {}
+    for line in (repo / '.env.template').read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        k, _, v = line.partition('=')
+        out[k.strip()] = v.strip()
+    return out
