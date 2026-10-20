@@ -541,10 +541,25 @@
   .cluster-item-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cluster-item-sub { font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
   .cluster-item-sub.err { color: var(--accent-red); }
-  .cluster-folder { display: flex; align-items: center; gap: 8px; padding: 10px 6px 4px; color: var(--text-muted);
-    font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; }
-  .cluster-folder .cluster-dot { width: 8px; height: 8px; }
+  .cluster-rail-head { display: flex; align-items: center; gap: 4px; margin: 0 2px 8px; }
+  .cluster-rail-head .cluster-rail-title { flex: 1; margin: 0; }
+  .rail-tool { background: none; border: 1px solid transparent; color: var(--text-muted); cursor: pointer; font-size: 12px;
+    line-height: 1; padding: 3px 5px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; }
+  .rail-tool:hover { color: var(--text-primary); border-color: var(--border); background: var(--bg-card); }
+  .cluster-folder { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; padding: 7px 8px 7px 10px; border-radius: 6px;
+    border-left: 3px solid var(--fc, var(--text-muted)); background: var(--fc-tint, rgba(255,255,255,0.04));
+    cursor: pointer; user-select: none; color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; }
+  .cluster-folder:hover { filter: brightness(1.15); }
+  .folder-chevron { display: inline-block; width: 10px; color: var(--fc, var(--text-muted)); transition: transform 0.15s; font-size: 10px; }
+  .cluster-folder.collapsed .folder-chevron { transform: rotate(-90deg); }
+  .folder-glyph { width: 13px; height: 10px; border-radius: 2px; background: var(--fc, var(--text-muted)); position: relative; flex-shrink: 0; opacity: 0.9; }
+  .folder-glyph::before { content: ''; position: absolute; left: 0; top: -3px; width: 6px; height: 3px; border-radius: 2px 2px 0 0; background: inherit; }
   .cluster-folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .folder-count { font-size: 10px; font-weight: 500; color: var(--text-muted); background: var(--bg-primary); padding: 1px 7px; border-radius: 10px; letter-spacing: 0; }
+  .folder-children { margin-left: 10px; padding-left: 6px; border-left: 1px dashed var(--border); display: flex; flex-direction: column; gap: 4px; }
+  .folder-children.collapsed { display: none; }
+  .folder-empty { font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; padding: 4px 10px 6px; }
   .cluster-item { position: relative; }
   .kebab { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; line-height: 1;
     padding: 2px 4px; border-radius: 4px; visibility: hidden; }
@@ -919,7 +934,11 @@
 <body>
 
 <aside class="cluster-rail" id="clusterRail" hidden>
-  <div class="cluster-rail-title" data-i18n="clusters.rail_title">Clusters</div>
+  <div class="cluster-rail-head">
+    <div class="cluster-rail-title" data-i18n="clusters.rail_title">Clusters</div>
+    <button class="rail-tool" onclick="setAllFolders(true)" title="Collapse all" data-i18n-title="folders.collapse_all">⊟</button>
+    <button class="rail-tool" onclick="setAllFolders(false)" title="Expand all" data-i18n-title="folders.expand_all">⊞</button>
+  </div>
   <div id="clusterRailList"></div>
 </aside>
 
@@ -1524,6 +1543,10 @@ function applyI18n() {
     const key = el.dataset.i18n;
     const val = t(key);
     if (val !== key) el.textContent = val;
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const val = t(el.dataset.i18nTitle);
+    if (val !== el.dataset.i18nTitle) el.title = val;
   });
 }
 
@@ -4521,31 +4544,60 @@ function _renderClusterRail(enabled) {
       ${_isAdminView ? `<button class="kebab" title="${_clEsc(t('folders.menu'))}" onclick="event.stopPropagation(); openClusterMenu(event, '${c.cluster_id}')">⋯</button>` : ''}
     </div>`;
 
-  const folderHeader = f => `
-    <div class="cluster-folder">
-      <span class="cluster-dot" style="background:${_clEsc(f.colour || 'var(--text-muted)')}"></span>
-      <span class="cluster-folder-name" title="${_clEsc(f.name)}">${_clEsc(f.name)}</span>
-      ${_isAdminView ? `<button class="kebab" title="${_clEsc(t('folders.menu'))}" onclick="event.stopPropagation(); openFolderMenu(event, '${f.folder_id}')">⋯</button>` : ''}
+  const group = (key, name, colour, members, adminMenu) => {
+    const collapsed = _collapsedFolders.has(key);
+    const vars = colour ? `--fc:${_clEsc(colour)};--fc-tint:${_tint(colour, 0.16)}` : '';
+    return `
+    <div class="cluster-folder ${collapsed ? 'collapsed' : ''}" style="${vars}" onclick="toggleFolder('${key}')" title="${_clEsc(name)}">
+      <span class="folder-chevron">▾</span>
+      <span class="folder-glyph"></span>
+      <span class="cluster-folder-name">${_clEsc(name)}</span>
+      <span class="folder-count">${members.length}</span>
+      ${adminMenu ? `<button class="kebab" title="${_clEsc(t('folders.menu'))}" onclick="event.stopPropagation(); openFolderMenu(event, '${key}')">⋯</button>` : ''}
+    </div>
+    <div class="folder-children ${collapsed ? 'collapsed' : ''}">
+      ${members.length ? members.map(c => item(c, idx++)).join('') : `<div class="folder-empty">${t('folders.empty')}</div>`}
     </div>`;
+  };
 
   let html = '';
   let idx = 0;
   for (const f of FOLDERS) {
     const members = enabled.filter(c => c.folder_id === f.folder_id);
     if (!members.length && !_isAdminView) continue;
-    html += folderHeader(f);
-    html += members.length ? members.map(c => item(c, idx++)).join('')
-                           : `<div class="cluster-item-sub" style="padding:2px 12px 6px;">${t('folders.empty')}</div>`;
+    html += group(f.folder_id, f.name, f.colour, members, _isAdminView);
   }
   const unfiled = enabled.filter(c => !c.folder_id || !FOLDERS.some(f => f.folder_id === c.folder_id));
   if (unfiled.length) {
-    if (FOLDERS.length) html += `<div class="cluster-folder"><span class="cluster-folder-name">${t('folders.unfiled')}</span></div>`;
-    html += unfiled.map(c => item(c, idx++)).join('');
+    html += FOLDERS.length ? group('__unfiled__', t('folders.unfiled'), null, unfiled, false)
+                           : unfiled.map(c => item(c, idx++)).join('');
   }
   if (_isAdminView) html += `<div class="rail-add"><button class="refresh-btn" onclick="newFolderPrompt()">+ ${t('folders.new')}</button></div>`;
   list.innerHTML = html;
   rail.hidden = false;
   document.body.classList.add('has-rail');
+}
+
+// ── folder collapse state (remembered per browser) ──────────────────────────
+const FOLDERS_COLLAPSED_KEY = 'hcm.folders.collapsed';
+let _collapsedFolders = new Set();
+try { _collapsedFolders = new Set(JSON.parse(localStorage.getItem(FOLDERS_COLLAPSED_KEY) || '[]')); } catch (_) {}
+function _saveCollapsed() { try { localStorage.setItem(FOLDERS_COLLAPSED_KEY, JSON.stringify([..._collapsedFolders])); } catch (_) {} }
+function toggleFolder(key) {
+  if (_collapsedFolders.has(key)) _collapsedFolders.delete(key); else _collapsedFolders.add(key);
+  _saveCollapsed();
+  _renderClusterRail(CLUSTERS.filter(c => c.enabled));
+}
+function setAllFolders(collapsed) {
+  _collapsedFolders = collapsed ? new Set([...FOLDERS.map(f => f.folder_id), '__unfiled__']) : new Set();
+  _saveCollapsed();
+  _renderClusterRail(CLUSTERS.filter(c => c.enabled));
+}
+function _tint(hex, alpha) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return 'rgba(255,255,255,0.04)';
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 
 // ── popover menus ───────────────────────────────────────────────────────────

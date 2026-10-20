@@ -587,6 +587,9 @@ window.LANG = {
   'folders.confirm_add_shown': "{n} gebruikers aan deze map toevoegen?",
   'folders.confirm_remove_shown': "{n} gebruikers uit deze map verwijderen?",
 
+  'folders.collapse_all': "Alle mappen inklappen",
+  'folders.expand_all': "Alle mappen uitklappen",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",

@@ -587,6 +587,9 @@ window.LANG = {
   'folders.confirm_add_shown': "{n} Benutzer zu diesem Ordner hinzufügen?",
   'folders.confirm_remove_shown': "{n} Benutzer aus diesem Ordner entfernen?",
 
+  'folders.collapse_all': "Alle Ordner einklappen",
+  'folders.expand_all': "Alle Ordner ausklappen",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-unterst\u00fctzte Software',
   'community.body':         "HyperCore Manager ist Open-Source-Software, die auf Community-Basis gepflegt wird. Es ist kein offizielles Produkt von Scale Computing und wird ohne offiziellen Support oder SLA bereitgestellt. Die Nutzung erfolgt auf eigene Gefahr.",
