@@ -1532,6 +1532,16 @@ document.addEventListener('click', function(e) {
 // ──────────────────────────────────────────────────────────────────────────
 const API_BASE = window.location.origin;
 
+// cluster selection state — declared here because _withCluster() is called by the very first
+// refreshAll() during script execution; a later `let` would still be in its temporal dead zone
+const CLUSTER_LS_KEY = 'hcm.cluster';
+let CLUSTERS = [];           // all registered clusters (enabled or not)
+let currentCluster = null;   // cluster_id the data views are about
+let _isAdminCached = false;
+let _clusterDupGroups = [];      // groups of enabled clusters sharing one HyperCore uuid
+let _settingsTarget = 'cluster'; // 'cluster' = selected cluster, 'defaults' = the Defaults template
+try { currentCluster = localStorage.getItem(CLUSTER_LS_KEY) || null; } catch (_) {}
+
 Chart.defaults.color = '#6b7a8d';
 Chart.defaults.borderColor = '#1e2a3a';
 Chart.defaults.font.family = "'JetBrains Mono', monospace";
@@ -4414,13 +4424,7 @@ function sharingPreviewSnapshot() {
 // =============================================================================
 // clusters — registry, selection rail, onboarding, settings card
 // =============================================================================
-const CLUSTER_LS_KEY = 'hcm.cluster';
-let CLUSTERS = [];           // all registered clusters (enabled or not)
-let currentCluster = null;   // cluster_id the data views are about
-let _isAdminCached = false;
-let _clusterDupGroups = [];      // groups of enabled clusters sharing one HyperCore uuid
-let _settingsTarget = 'cluster'; // 'cluster' = selected cluster, 'defaults' = the Defaults template
-try { currentCluster = localStorage.getItem(CLUSTER_LS_KEY) || null; } catch (_) {}
+// (cluster state is declared next to API_BASE, before the first refreshAll() runs)
 
 function _withCluster(ep) {
   // every data call carries the selected cluster; the server validates it and falls
