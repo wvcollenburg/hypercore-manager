@@ -231,3 +231,74 @@ def update_import(import_id: int, **fields) -> None:
 
 def get_active_imports() -> list[dict]:
     return _all("SELECT * FROM exports.imports WHERE status = 'RUNNING' ORDER BY id")
+
+
+# --------------------------------------------------------------------- shares
+def _share_row(r: Optional[dict]) -> Optional[dict]:
+    if r is None:
+        return None
+    d = dict(r)
+    d['has_password'] = bool(d.pop('password_enc', None))
+    return d
+
+
+def get_shares() -> list[dict]:
+    rows = _all('''SELECT s.*, (SELECT COUNT(*) FROM config.folders f WHERE f.share_id = s.id) AS folder_count
+                     FROM exports.shares s ORDER BY lower(s.name)''')
+    return [_share_row(r) for r in rows]
+
+
+def get_share(share_id: int, with_secret: bool = False) -> Optional[dict]:
+    r = _one('SELECT * FROM exports.shares WHERE id = %s', (share_id,))
+    if r is None:
+        return None
+    if with_secret:
+        d = dict(r)
+        d['password'] = decrypt_password(d['password_enc']) if d.get('password_enc') else ''
+        return d
+    return _share_row(r)
+
+
+def add_share(name: str, uri_base: str, username: str = None, password: str = None, prune_path: str = None) -> int:
+    return _one(
+        '''INSERT INTO exports.shares (name, uri_base, username, password_enc, prune_path)
+           VALUES (%s,%s,%s,%s,%s) RETURNING id''',
+        (name.strip(), uri_base.strip().rstrip('/'), (username or '').strip() or None,
+         encrypt_password(password) if password else None, (prune_path or '').strip().rstrip('/') or None))['id']
+
+
+def update_share(share_id: int, **fields) -> None:
+    sets, params = [], []
+    for k, v in fields.items():
+        if k == 'password':
+            if v:
+                sets.append('password_enc = %s'); params.append(encrypt_password(v))
+            continue
+        if k not in ('name', 'uri_base', 'username', 'prune_path'):
+            continue
+        if isinstance(v, str):
+            v = v.strip().rstrip('/') if k in ('uri_base', 'prune_path') else v.strip()
+            if k != 'name':
+                v = v or None
+        sets.append(f'{k} = %s'); params.append(v)
+    if not sets:
+        return
+    sets.append('updated_at = NOW()'); params.append(share_id)
+    _exec(f'UPDATE exports.shares SET {", ".join(sets)} WHERE id = %s', params)
+
+
+def delete_share(share_id: int) -> None:
+    _exec('DELETE FROM exports.shares WHERE id = %s', (share_id,))
+
+
+def share_for_cluster(cluster_id: str) -> Optional[dict]:
+    """The share assigned to the cluster's folder (with decrypted password), or None."""
+    r = _one('''SELECT s.* FROM config.clusters c
+                  JOIN config.folders f ON f.folder_id = c.folder_id
+                  JOIN exports.shares s ON s.id = f.share_id
+                 WHERE c.cluster_id = %s''', (cluster_id,))
+    if r is None:
+        return None
+    d = dict(r)
+    d['password'] = decrypt_password(d['password_enc']) if d.get('password_enc') else ''
+    return d

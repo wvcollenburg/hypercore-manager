@@ -413,7 +413,7 @@ def list_folders() -> list[dict[str, Any]]:
     conn = _connect()
     try:
         with conn.cursor() as cur:
-            cur.execute('''SELECT f.folder_id::text AS folder_id, f.name, f.colour, f.created_at,
+            cur.execute('''SELECT f.folder_id::text AS folder_id, f.name, f.colour, f.created_at, f.share_id,
                                   COALESCE(json_agg(json_build_object('user_id', u.user_id::text, 'username', u.username)
                                            ORDER BY u.username) FILTER (WHERE u.user_id IS NOT NULL), '[]') AS members
                              FROM config.folders f
@@ -447,12 +447,16 @@ def create_folder(name: str, colour: Optional[str] = None) -> str:
         conn.close()
 
 
-def update_folder(folder_id: str, name: Optional[str] = None, colour: Optional[str] = None) -> None:
+def update_folder(folder_id: str, name: Optional[str] = None, colour: Optional[str] = None,
+                  share_id=...) -> None:
+    """share_id: an exports.shares id to assign, None to clear, omitted to leave untouched."""
     sets, params = [], []
     if name is not None:
         sets.append('name = %s'); params.append(name.strip())
     if colour is not None:
         sets.append('colour = %s'); params.append(colour or None)
+    if share_id is not ...:
+        sets.append('share_id = %s'); params.append(int(share_id) if share_id not in (None, '', 0) else None)
     if not sets:
         return
     sets.append('updated_at = NOW()'); params.append(folder_id)

@@ -704,6 +704,29 @@ window.LANG = {
 
   'ex.i_tenant_hint': "Gespeicherte Orte sind auf den Ordner dieses Clusters ({tenant}) beschr\u00e4nkt; Exporte anderer Ordner werden nicht angeboten.",
 
+  // export shares (admin) and folder assignment
+  'settings.tab.shares': "Freigaben",
+  'shares.title': "FREIGABEN",
+  'shares.subtitle': "Wohin Exporte gehen. Weisen Sie einem Ordner eine Freigabe über das Ordnermenü in der Seitenleiste zu.",
+  'shares.name': "Name",
+  'shares.uri': "Freigabe-URI",
+  'shares.uri_hint': "smb://nas.local/backups/hypercore oder nfs://nas.local/export. Jeder Ordner erhält hier einen eigenen Unterordner.",
+  'shares.prune_path': "Mount-Pfad (NFS)",
+  'shares.prune_hint': "Nur für NFS: ein Bind-Mount desselben Ordners im exports-Container, für die Bereinigung.",
+  'shares.folders': "Ordner",
+  'shares.none': "Noch keine Freigaben. Unten eine hinzufügen und einem Ordner zuweisen.",
+  'shares.none_short': "Keine Freigaben definiert",
+  'shares.add': "Freigabe hinzufügen",
+  'shares.test_ok': "Freigabe erreichbar, {n} Ordner im Stammverzeichnis.",
+  'shares.confirm_remove': "Freigabe '{name}' entfernen? Ordner, die sie nutzen, verlieren ihren Exportort; auf der Freigabe wird nichts gelöscht.",
+  'shares.assign': "Export-Freigabe",
+  'shares.assign_title': "Export-Freigabe für diesen Ordner",
+  'shares.unassign': "Keine Freigabe",
+  'shares.none_assigned': "keine",
+  'ex.no_share': "Dem Ordner dieses Clusters ist keine Export-Freigabe zugewiesen. Ein Administrator legt sie unter Einstellungen → Freigaben an und weist sie über das Ordnermenü zu.",
+  'ex.location_line': "Exporte gehen auf Freigabe {share}: {path}",
+  'ex.i_from': "Import von Freigabe {share}: {path}",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-unterst\u00fctzte Software',
   'community.body':         "HyperCore Manager ist Open-Source-Software, die auf Community-Basis gepflegt wird. Es ist kein offizielles Produkt von Scale Computing und wird ohne offiziellen Support oder SLA bereitgestellt. Die Nutzung erfolgt auf eigene Gefahr.",

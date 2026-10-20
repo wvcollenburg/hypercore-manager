@@ -125,3 +125,14 @@ def test_exports_module_wiring(repo):
     for line in (repo / 'exports' / 'requirements.txt').read_text().splitlines():
         if line.strip() and not line.startswith('#'):
             assert '==' in line, f'exports/requirements.txt: {line!r} is not pinned'
+
+
+def test_export_shares_wiring(repo):
+    assert (repo / 'postgres' / 'init' / '023_exports_shares.sql').exists()
+    api = (repo / 'exports' / 'api.py').read_text()
+    for route in ("@app.get('/api/v1/shares')", "@app.post('/api/v1/shares')", "@app.delete('/api/v1/shares/<int:sid>')", "@app.post('/api/v1/shares/<int:sid>/test')"):
+        assert route in api, route
+    app = (repo / 'dashboard' / 'app.py').read_text()
+    assert "if sub.startswith('shares') and not _is_admin_request()" in app, 'share management must stay admin-only'
+    reg = (repo / 'shared' / 'cluster_registry.py').read_text()
+    assert 'share_id' in reg

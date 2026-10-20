@@ -43,7 +43,9 @@ def build_path_uri(base: str, user: str | None, password: str | None) -> str:
     if not user:
         return base
     parts = urlsplit(base)
-    userinfo = quote(user, safe='')
+    # HyperCore accepts DOMAIN\\user (and plain user); normalise user@domain the same way the
+    # SMB client does, so the form an admin typed never matters
+    userinfo = quote(smb_username(user), safe='')
     if password:
         userinfo += ':' + quote(password, safe='')
     host = parts.hostname or parts.netloc
@@ -60,11 +62,51 @@ def tenant_slug(cluster) -> str:
     return safe_name(name) if name else '_unfiled'
 
 
-def effective_base(sched) -> str:
-    """Where this schedule's exports live: <destination>/<tenant>. Resolved at run time, so a
-    cluster moved to another folder writes to (and prunes in) its new folder from then on."""
+def location_for_cluster(cluster_id: str) -> dict | None:
+    """Where a cluster's exports live: the share assigned to its folder, plus the tenant
+    subfolder. Returns {base, user, password, prune_path, share_name, tenant} or None when the
+    folder has no share (or the cluster has no folder)."""
+    share = db.share_for_cluster(cluster_id)
+    if not share:
+        return None
+    cluster = cluster_registry.get(cluster_id)
+    tenant = tenant_slug(cluster)
+    return {
+        'base': f"{share['uri_base'].rstrip('/')}/{tenant}",
+        'user': share.get('username') or '',
+        'password': share.get('password') or '',
+        'prune_path': f"{share['prune_path'].rstrip('/')}/{tenant}" if share.get('prune_path') else None,
+        'share_name': share['name'],
+        'tenant': tenant,
+    }
+
+
+def location_for_schedule(sched) -> dict:
+    """The folder's share wins; a schedule that still carries its own destination (legacy,
+    pre-shares) is honoured when the folder has none."""
+    loc = location_for_cluster(sched['cluster_id'])
+    if loc:
+        return loc
+    if not sched.get('path_uri_base'):
+        raise HyperCoreError("no share assigned to this cluster's folder (Settings → Shares, then the folder menu)")
     cluster = cluster_registry.get(sched['cluster_id'])
-    return f"{sched['path_uri_base'].rstrip('/')}/{tenant_slug(cluster)}"
+    tenant = tenant_slug(cluster)
+    return {
+        'base': f"{sched['path_uri_base'].rstrip('/')}/{tenant}",
+        'user': sched.get('smb_user') or '',
+        'password': db.decrypt_password(sched['smb_pass_enc']) if sched.get('smb_pass_enc') else '',
+        'prune_path': f"{sched['prune_path'].rstrip('/')}/{tenant}" if sched.get('prune_path') else None,
+        'share_name': None,
+        'tenant': tenant,
+    }
+
+
+def effective_base(sched) -> str:
+    """Kept for the API: the resolved <share>/<tenant> path, or '' when unresolvable."""
+    try:
+        return location_for_schedule(sched)['base']
+    except HyperCoreError:
+        return ''
 
 
 def ensure_smb_dir(base_uri: str, user: str | None, password: str | None) -> None:
@@ -131,18 +173,22 @@ def run_export(schedule_id: int) -> None:
 
     run_id = db.start_run(schedule_id)
     folder = f"{safe_name(sched['vm_name'])}_{datetime.now().strftime(TIMESTAMP_FMT)}"
-    smb_pass = db.decrypt_password(sched['smb_pass_enc']) if sched['smb_pass_enc'] else None
-    base = effective_base(sched)
-    tenant = base.rsplit('/', 1)[-1]
-    path_uri = build_path_uri(f"{base}/{folder}", sched['smb_user'], smb_pass)
+    try:
+        loc = location_for_schedule(sched)
+    except HyperCoreError as e:
+        db.update_run(run_id, status='ERROR', message=str(e), finished_at=_now())
+        log.error('[run %s] %s', run_id, e)
+        return
+    base, tenant = loc['base'], loc['tenant']
+    path_uri = build_path_uri(f"{base}/{folder}", loc['user'] or None, loc['password'] or None)
     db.update_run(run_id, export_path=f'{tenant}/{folder}')
     log.info('[run %s] Exporting %s to %s/%s', run_id, sched['vm_name'], tenant, folder)
 
     try:
-        if base.lower().startswith('smb://') and sched['smb_user']:
-            ensure_smb_dir(base, sched['smb_user'], smb_pass)
-        elif sched.get('prune_path'):
-            Path(sched['prune_path'], tenant).mkdir(parents=True, exist_ok=True)
+        if base.lower().startswith('smb://') and loc['user']:
+            ensure_smb_dir(base, loc['user'], loc['password'] or None)
+        elif loc.get('prune_path'):
+            Path(loc['prune_path']).mkdir(parents=True, exist_ok=True)
         hc = client_for(sched['cluster_id'])
         task_tag = hc.export_vm(sched['vm_uuid'], path_uri, compress=bool(sched['compress']))
         db.update_run(run_id, task_tag=task_tag)
@@ -248,21 +294,23 @@ def select_excess(dir_names, vm_name: str, retention: int):
 
 
 def prune_old_exports(sched) -> str:
-    """Delete the oldest export folders beyond the retention count. SMB destinations are
-    pruned over the protocol with the stored credentials; NFS (or an explicit prune_path)
-    through a local bind mount."""
-    if sched.get('prune_path'):
-        return _prune_via_mount(sched)
-    scheme = urlsplit(effective_base(sched)).scheme.lower()
-    if scheme == 'smb':
-        if not sched.get('smb_user'):
-            return 'Pruning skipped: SMB share has no stored username; add one or set a mount path.'
-        return _prune_via_smb(sched)
-    return 'Pruning skipped (no mount path configured).'
+    """Delete the oldest export folders beyond the retention count. SMB locations are pruned
+    over the protocol with the share's credentials; NFS through the share's mount path."""
+    try:
+        loc = location_for_schedule(sched)
+    except HyperCoreError as e:
+        return f'Pruning skipped: {e}'
+    if loc.get('prune_path'):
+        return _prune_via_mount(sched, loc)
+    if urlsplit(loc['base']).scheme.lower() == 'smb':
+        if not loc['user']:
+            return 'Pruning skipped: the share has no username; add one or set a mount path.'
+        return _prune_via_smb(sched, loc)
+    return 'Pruning skipped (no mount path configured on the share).'
 
 
-def _prune_via_mount(sched) -> str:
-    base = Path(sched['prune_path'], effective_base(sched).rsplit('/', 1)[-1])
+def _prune_via_mount(sched, loc) -> str:
+    base = Path(loc['prune_path'])
     if not base.is_dir():
         return f'Pruning skipped: {base} is not accessible from this container.'
     names = [d.name for d in base.iterdir() if d.is_dir()]
@@ -276,15 +324,14 @@ def _prune_via_mount(sched) -> str:
     return f'Retention: kept {kept}, removed {len(excess)}.'
 
 
-def _prune_via_smb(sched) -> str:
+def _prune_via_smb(sched, loc) -> str:
     import smbclient
     from smbclient import shutil as smb_shutil
     try:
-        unc_base, port = _smb_unc(effective_base(sched))
+        unc_base, port = _smb_unc(loc['base'])
     except HyperCoreError as e:
         return f'Pruning skipped: {e}'
-    password = db.decrypt_password(sched['smb_pass_enc']) if sched.get('smb_pass_enc') else None
-    conn = {'username': smb_username(sched['smb_user']), 'password': password, 'port': port}
+    conn = {'username': smb_username(loc['user']), 'password': loc['password'] or None, 'port': port}
     try:
         names = [e.name for e in smbclient.scandir(unc_base, **conn) if e.is_dir()]
     except Exception as e:  # noqa: BLE001
@@ -308,8 +355,12 @@ def run_import(import_id: int) -> None:
     log.info('[import %s] Importing from %s into %s', import_id, imp['source_uri'], imp['cluster_name'])
     try:
         hc = client_for(imp['cluster_id'])
-        password = db.decrypt_password(imp['smb_pass_enc']) if imp['smb_pass_enc'] else None
-        source_uri = build_path_uri(imp['source_uri'], imp['smb_user'], password)
+        if imp.get('smb_user') or imp.get('smb_pass_enc'):
+            password = db.decrypt_password(imp['smb_pass_enc']) if imp['smb_pass_enc'] else None
+            source_uri = build_path_uri(imp['source_uri'], imp['smb_user'], password)
+        else:
+            loc = location_for_cluster(imp['cluster_id'])
+            source_uri = build_path_uri(imp['source_uri'], loc['user'] or None, loc['password'] or None) if loc else imp['source_uri']
         task_tag, created = hc.import_vm(source_uri, name=imp['target_name'] or None)
         db.update_import(import_id, task_tag=task_tag, created_uuid=created or None)
         wait_for_task(hc, task_tag, lambda state, pct: db.update_import(import_id, message=f'{state} {pct}%'))

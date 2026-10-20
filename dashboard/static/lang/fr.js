@@ -704,6 +704,29 @@ window.LANG = {
 
   'ex.i_tenant_hint': "Les emplacements enregistr\u00e9s sont limit\u00e9s au dossier de ce cluster ({tenant}) ; les exports d'autres dossiers ne sont pas propos\u00e9s.",
 
+  // export shares (admin) and folder assignment
+  'settings.tab.shares': "Partages",
+  'shares.title': "PARTAGES",
+  'shares.subtitle': "Où vont les exports. Attribuez un partage à un dossier depuis le menu du dossier dans la barre latérale.",
+  'shares.name': "Nom",
+  'shares.uri': "URI du partage",
+  'shares.uri_hint': "smb://nas.local/backups/hypercore ou nfs://nas.local/export. Chaque dossier y obtient son propre sous-dossier.",
+  'shares.prune_path': "Chemin de montage (NFS)",
+  'shares.prune_hint': "NFS uniquement : un montage du même dossier dans le conteneur exports, utilisé pour la purge de rétention.",
+  'shares.folders': "Dossiers",
+  'shares.none': "Aucun partage pour le moment. Ajoutez-en un ci-dessous, puis attribuez-le à un dossier.",
+  'shares.none_short': "Aucun partage défini",
+  'shares.add': "Ajouter un partage",
+  'shares.test_ok': "Partage accessible, {n} dossier(s) à la racine.",
+  'shares.confirm_remove': "Supprimer le partage '{name}' ? Les dossiers qui l'utilisent perdent leur emplacement d'export ; rien n'est supprimé sur le partage.",
+  'shares.assign': "Partage d'export",
+  'shares.assign_title': "Partage d'export de ce dossier",
+  'shares.unassign': "Aucun partage",
+  'shares.none_assigned': "aucun",
+  'ex.no_share': "Aucun partage d'export n'est attribué au dossier de ce cluster. Un administrateur en ajoute un dans Paramètres → Partages et l'attribue depuis le menu du dossier.",
+  'ex.location_line': "Les exports vont sur le partage {share} : {path}",
+  'ex.i_from': "Import depuis le partage {share} : {path}",
+
   // community-support notice (shown once per user)
   'community.title':        'Logiciel soutenu par la communaut\u00e9',
   'community.body':         "HyperCore Manager est un logiciel open source maintenu sur une base communautaire. Il ne s'agit pas d'un produit officiel de Scale Computing et il est fourni sans support officiel ni SLA. Utilisez-le \u00e0 vos propres risques.",

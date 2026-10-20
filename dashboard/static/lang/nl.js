@@ -704,6 +704,29 @@ window.LANG = {
 
   'ex.i_tenant_hint': "Opgeslagen locaties zijn beperkt tot de map van dit cluster ({tenant}); exports van andere mappen worden niet aangeboden.",
 
+  // export shares (admin) and folder assignment
+  'settings.tab.shares': "Shares",
+  'shares.title': "SHARES",
+  'shares.subtitle': "Waar exports naartoe gaan. Wijs een share toe aan een map via het mapmenu in de zijbalk.",
+  'shares.name': "Naam",
+  'shares.uri': "Share-URI",
+  'shares.uri_hint': "smb://nas.local/backups/hypercore of nfs://nas.local/export. Elke map krijgt hier een eigen submap.",
+  'shares.prune_path': "Mountpad (NFS)",
+  'shares.prune_hint': "Alleen voor NFS: een bind-mount van dezelfde map in de exports-container, gebruikt voor het opschonen.",
+  'shares.folders': "Mappen",
+  'shares.none': "Nog geen shares. Voeg er hieronder een toe en wijs die aan een map toe.",
+  'shares.none_short': "Geen shares gedefinieerd",
+  'shares.add': "Share toevoegen",
+  'shares.test_ok': "Share bereikbaar, {n} map(pen) in de root.",
+  'shares.confirm_remove': "Share '{name}' verwijderen? Mappen die hem gebruiken verliezen hun exportlocatie; op de share wordt niets gewist.",
+  'shares.assign': "Export-share",
+  'shares.assign_title': "Export-share voor deze map",
+  'shares.unassign': "Geen share",
+  'shares.none_assigned': "geen",
+  'ex.no_share': "Aan de map van dit cluster is geen export-share toegewezen. Een beheerder voegt er een toe onder Instellingen → Shares en wijst die toe via het mapmenu in de zijbalk.",
+  'ex.location_line': "Exports gaan naar share {share}: {path}",
+  'ex.i_from': "Importeren vanaf share {share}: {path}",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",

@@ -705,6 +705,29 @@ window.LANG = {
 
   'ex.i_tenant_hint': "Saved locations are scoped to this cluster's folder ({tenant}); exports of other folders are not offered.",
 
+  // export shares (admin) and folder assignment
+  'settings.tab.shares': "Shares",
+  'shares.title': "SHARES",
+  'shares.subtitle': "Where exports go. Assign a share to a folder from the folder menu in the rail.",
+  'shares.name': "Name",
+  'shares.uri': "Share URI",
+  'shares.uri_hint': "smb://nas.local/backups/hypercore or nfs://nas.local/export. Each folder gets its own subfolder here.",
+  'shares.prune_path': "Mount path (NFS)",
+  'shares.prune_hint': "Only for NFS: a bind mount of the same folder inside the exports container, used for retention pruning.",
+  'shares.folders': "Folders",
+  'shares.none': "No shares yet. Add one below, then assign it to a folder.",
+  'shares.none_short': "No shares defined",
+  'shares.add': "Add share",
+  'shares.test_ok': "Share reachable, {n} folder(s) at the root.",
+  'shares.confirm_remove': "Remove share '{name}'? Folders using it lose their export location; nothing is deleted on the share.",
+  'shares.assign': "Export share",
+  'shares.assign_title': "Export share for this folder",
+  'shares.unassign': "No share",
+  'shares.none_assigned': "none",
+  'ex.no_share': "No export share is assigned to this cluster's folder. An administrator adds one under Settings → Shares and assigns it from the folder's menu in the rail.",
+  'ex.location_line': "Exports go to share {share}: {path}",
+  'ex.i_from': "Importing from share {share}: {path}",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-supported software',
   'community.body':         "HyperCore Manager is open-source software maintained on a community-supported basis. It is not an official Scale Computing product and comes without official support or SLA. Use it at your own risk.",

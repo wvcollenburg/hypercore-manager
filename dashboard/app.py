@@ -1096,7 +1096,8 @@ def api_folders_update(folder_id):
         return jsonify({'error': 'invalid folder id'}), 400
     body = request.get_json(force=True, silent=True) or {}
     try:
-        cluster_registry.update_folder(folder_id, name=body.get('name'), colour=body.get('colour'))
+        cluster_registry.update_folder(folder_id, name=body.get('name'), colour=body.get('colour'),
+                                       share_id=body['share_id'] if 'share_id' in body else ...)
     except Exception as e:
         if 'ux_folders_name' in str(e) or 'duplicate key' in str(e):
             return jsonify({'error': 'a folder with that name already exists'}), 409
@@ -1161,7 +1162,9 @@ def exports_status():
 def exports_proxy(sub):
     """Forward to the exports API with the selected cluster and the bearer token.
     Reads are open to every user who can see the cluster; changes need admin."""
-    if request.method in _EXPORTS_MUTATING and not _is_admin_request():
+    # users of a folder may schedule exports and run imports for its clusters (the share and its
+    # credentials are the admin's business); share management itself is admin-only
+    if sub.startswith('shares') and not _is_admin_request():
         return jsonify({'error': 'Admin access required'}), 403
     url = os.getenv('EXPORTS_API_URL', 'http://exports:8082')
     token = os.getenv('EXPORTS_API_TOKEN', '')

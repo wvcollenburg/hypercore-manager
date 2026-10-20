@@ -1494,11 +1494,13 @@
       <div class="settings-sub-tab active" data-setpanel="clusters" data-i18n="settings.tab.clusters" onclick="switchSettingsPanel('clusters')">Clusters</div>
       <div class="settings-sub-tab"        data-setpanel="tunables" data-i18n="settings.tab.tunables" onclick="switchSettingsPanel('tunables')">Tunables</div>
       <div class="settings-sub-tab"        data-setpanel="users"    data-i18n="settings.tab.users"    onclick="switchSettingsPanel('users')">Users</div>
+      <div class="settings-sub-tab"        data-setpanel="shares"   data-i18n="settings.tab.shares"   onclick="switchSettingsPanel('shares')">Shares</div>
     </div>
     <div id="settingsContent">
       <div class="settings-panel active" id="setpanel-clusters"><div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div></div>
       <div class="settings-panel" id="setpanel-tunables"></div>
       <div class="settings-panel" id="setpanel-users"></div>
+      <div class="settings-panel" id="setpanel-shares"></div>
     </div>
   </div>
   <div class="settings-toast" id="settingsToast"></div>
@@ -3766,8 +3768,85 @@ async function loadSettings() {
   const cl = me ? await apiFetch('/api/clusters') : null;
   document.getElementById('setpanel-clusters').innerHTML = _renderClustersCard((cl && cl.clusters) || [], me || {});
   document.getElementById('setpanel-tunables').innerHTML = _settingsTargetBar(isAdmin) + _renderGroups(groups, vals, isAdmin);
-  if (me && (me.role === 'admin' || me.dev_mode)) await _loadUsersPanel(me);
-  else document.getElementById('setpanel-users').innerHTML = '';
+  if (me && (me.role === 'admin' || me.dev_mode)) { await _loadUsersPanel(me); await _loadSharesPanel(); }
+  else { document.getElementById('setpanel-users').innerHTML = ''; document.getElementById('setpanel-shares').innerHTML = ''; }
+}
+
+// ── shares panel (admin): the places exports go, assigned to folders ─────────
+let SHARES = [];
+async function _loadSharesPanel() {
+  const el = document.getElementById('setpanel-shares');
+  if (!el) return;
+  const st = await apiFetch('/api/exports/status');
+  if (!st || !st.available) { el.innerHTML = `<div class="empty-state">${t('ex.unavailable')}</div>`; return; }
+  SHARES = (await apiFetch('/api/exports/shares')) || [];
+  const rows = SHARES.map(sh => `
+    <tr>
+      <td class="um-username">${_clEsc(sh.name)}<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(sh.uri_base)}</div></td>
+      <td>${_clEsc(sh.username || '—')}</td>
+      <td>${_clEsc(sh.prune_path || '—')}</td>
+      <td>${sh.folder_count}</td>
+      <td style="white-space:nowrap;">
+        <button class="um-action-btn" onclick="shTest(${sh.id})">${t('clusters.test')}</button>
+        <button class="um-action-btn" onclick="shEdit(${sh.id})">${t('clusters.edit')}</button>
+        <button class="um-action-btn danger" onclick="shRemove(${sh.id}, '${_clEsc(sh.name)}')">${t('clusters.remove')}</button>
+        <div class="cl-msg" id="sh-${sh.id}-msg"></div>
+      </td>
+    </tr>
+    <tr id="sh-edit-${sh.id}" hidden><td colspan="5" style="background:var(--bg-card);">${_shareFormHtml('sh-' + sh.id, sh)}</td></tr>`).join('');
+  el.innerHTML = `
+    <div class="settings-group">
+      <div class="settings-group-header">
+        <div class="chart-title-dot" style="background:var(--accent-cyan)"></div>
+        <span class="settings-group-title">${t('shares.title')}</span>
+        <span style="font-size:12px;color:var(--text-muted);">${t('shares.subtitle')}</span>
+      </div>
+      ${SHARES.length ? `<table class="um-table"><thead><tr><th>${t('shares.name')}</th><th>${t('ex.f_smb_user')}</th><th>${t('shares.prune_path')}</th><th>${t('shares.folders')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+                      : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('shares.none')}</div>`}
+      <div class="um-section" style="margin-top:14px;"><div class="um-section-title">${t('shares.add')}</div>${_shareFormHtml('sh-new', null)}</div>
+    </div>`;
+}
+function _shareFormHtml(prefix, sh) {
+  sh = sh || {};
+  return `
+    <div class="ex-form">
+      <div><label>${t('shares.name')}</label><input type="text" id="${prefix}-name" value="${_clEsc(sh.name)}" placeholder="NAS backups"></div>
+      <div><label>${t('shares.uri')}</label><input type="text" id="${prefix}-uri" value="${_clEsc(sh.uri_base)}" placeholder="smb://nas.local/backups/hypercore"><div class="ex-hint">${t('shares.uri_hint')}</div></div>
+      <div><label>${t('ex.f_smb_user')}</label><input type="text" id="${prefix}-user" value="${_clEsc(sh.username)}" autocomplete="off"><div class="ex-hint">${t('ex.f_smb_user_hint')}</div></div>
+      <div><label>${t('ex.f_smb_password')}</label><input type="password" id="${prefix}-pass" autocomplete="new-password" placeholder="${sh.id ? _clEsc(t('clusters.password_keep')) : ''}"></div>
+      <div><label>${t('shares.prune_path')}</label><input type="text" id="${prefix}-prune" value="${_clEsc(sh.prune_path)}" placeholder="/mnt/nas/hypercore"><div class="ex-hint">${t('shares.prune_hint')}</div></div>
+    </div>
+    <div class="cl-actions">
+      <button class="refresh-btn" onclick="shProbe('${prefix}')">${t('clusters.test')}</button>
+      <button class="update-apply-btn" onclick="shSave('${prefix}', ${sh.id || 0})">${sh.id ? t('clusters.save') : t('shares.add')}</button>
+      ${sh.id ? `<button class="refresh-btn" onclick="shEdit(${sh.id})">${t('clusters.cancel')}</button>` : ''}
+    </div>
+    <div class="cl-msg" id="${prefix}-msg"></div>`;
+}
+function _shRead(prefix) {
+  const g = id => document.getElementById(`${prefix}-${id}`);
+  return { name: g('name').value, uri_base: g('uri').value, username: g('user').value, password: g('pass').value, prune_path: g('prune').value };
+}
+function _shMsg(id, text, cls) { const el = document.getElementById(id); if (el) { el.textContent = text; el.className = 'cl-msg ' + (cls || ''); } }
+async function shProbe(prefix) {
+  _shMsg(`${prefix}-msg`, t('clusters.testing'), '');
+  try { const d = await _exCall('POST', '/api/exports/shares/probe', _shRead(prefix)); _shMsg(`${prefix}-msg`, d.ok ? t('shares.test_ok', {n: (d.folders || []).length}) : t('clusters.test_fail', {error: d.error}), d.ok ? 'ok' : 'err'); }
+  catch (e) { _shMsg(`${prefix}-msg`, e.message, 'err'); }
+}
+async function shSave(prefix, id) {
+  const body = _shRead(prefix); if (!body.password) delete body.password;
+  try { await _exCall(id ? 'PUT' : 'POST', id ? `/api/exports/shares/${id}` : '/api/exports/shares', body); await _loadSharesPanel(); }
+  catch (e) { _shMsg(`${prefix}-msg`, e.message, 'err'); }
+}
+async function shTest(id) {
+  _shMsg(`sh-${id}-msg`, t('clusters.testing'), '');
+  try { const d = await _exCall('POST', `/api/exports/shares/${id}/test`); _shMsg(`sh-${id}-msg`, d.ok ? t('shares.test_ok', {n: (d.folders || []).length}) : t('clusters.test_fail', {error: d.error}), d.ok ? 'ok' : 'err'); }
+  catch (e) { _shMsg(`sh-${id}-msg`, e.message, 'err'); }
+}
+function shEdit(id) { const r = document.getElementById(`sh-edit-${id}`); if (r) r.hidden = !r.hidden; }
+async function shRemove(id, name) {
+  if (!confirm(t('shares.confirm_remove', {name}))) return;
+  try { await _exCall('DELETE', `/api/exports/shares/${id}`); await _loadSharesPanel(); await loadClusters(); } catch (e) { alert(e.message); }
 }
 
 function switchSettingsPanel(p) {
@@ -4851,9 +4930,26 @@ function openClusterMenu(ev, clusterId) {
   if (many) setTimeout(() => document.querySelector('.popmenu .popmenu-search')?.focus(), 30);
 }
 
+async function openFolderShareMenu(ev, folderId) {
+  const f = FOLDERS.find(x => x.folder_id === folderId);
+  const shares = (await apiFetch('/api/exports/shares')) || [];
+  const rows = shares.map(sh => `<div class="popmenu-item" onclick="assignFolderShare('${folderId}', ${sh.id})">${_clEsc(sh.name)}${f && f.share_id === sh.id ? ' ✓' : ''}</div>`).join('');
+  _openMenu(ev, `
+    <div class="popmenu-title">${t('shares.assign_title')}</div>
+    ${rows || `<div class="popmenu-item" style="color:var(--text-muted);cursor:default;">${t('shares.none_short')}</div>`}
+    <div class="popmenu-sep"></div>
+    <div class="popmenu-item" onclick="assignFolderShare('${folderId}', null)">${t('shares.unassign')}${f && !f.share_id ? ' ✓' : ''}</div>`);
+}
+async function assignFolderShare(folderId, shareId) {
+  _closeMenus();
+  if (await _folderCall('PUT', `/api/folders/${folderId}`, {share_id: shareId})) await loadClusters();
+}
+
 function openFolderMenu(ev, folderId) {
+  const f = FOLDERS.find(x => x.folder_id === folderId);
   _openMenu(ev, `
     <div class="popmenu-item" onclick="openFolderMembers('${folderId}')">👥 ${t('folders.members')}</div>
+    ${_exAvailable ? `<div class="popmenu-item" onclick="openFolderShareMenu(event, '${folderId}')">🗄 ${t('shares.assign')}${f && f.share_id ? '' : ` <span style="color:var(--accent-amber);font-size:10px;">${t('shares.none_assigned')}</span>`}</div>` : ''}
     <div class="popmenu-item" onclick="renameFolderPrompt('${folderId}')">✎ ${t('folders.rename')}</div>
     <div class="popmenu-sep"></div>
     <div class="popmenu-item danger" onclick="deleteFolder('${folderId}')">🗑 ${t('folders.delete')}</div>`);
@@ -5195,7 +5291,7 @@ let _exImport = { known: [], folders: [], chosen: '' };
 async function _exProbe() {
   const d = await apiFetch('/api/exports/status');
   _exAvailable = !!(d && d.available);
-  if (d && d.available) _exDefaults = d;
+  if (d && d.available) { _exDefaults = d; _exLocation = d.location || null; }
   const tab = document.getElementById('navTabExports');
   if (tab) tab.hidden = !_exAvailable;
   return _exAvailable;
@@ -5209,7 +5305,8 @@ async function _exCall(method, path, body) {
   return d;
 }
 const _exEsc = v => _clEsc(v);
-const _exIsAdmin = () => _currentUser?.role === 'admin' || !!_currentUser?.dev_mode;
+const _exIsAdmin = () => true;   // users of a folder may schedule exports and run imports; shares are admin-only
+let _exLocation = null;
 const _exFmt = iso => iso ? new Date(iso).toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '—';
 function _exStatusBadge(status, message) {
   if (status === 'COMPLETE') return `<span class="ex-badge ok">${t('ex.status_ok')}</span>`;
@@ -5244,10 +5341,10 @@ async function exLoadSchedules() {
   try { rows = await _exCall('GET', '/api/exports/schedules'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
   const admin = _exIsAdmin();
   if (!rows.length) {
-    el.innerHTML = `<div class="empty-state">${t('ex.no_schedules')}<br><span style="font-size:11px;color:var(--text-muted)">${t('ex.no_schedules_hint')}</span></div>`;
+    el.innerHTML = _exLocationLine(null) + `<div class="empty-state">${t('ex.no_schedules')}<br><span style="font-size:11px;color:var(--text-muted)">${t('ex.no_schedules_hint')}</span></div>`;
     return;
   }
-  el.innerHTML = `<div class="settings-group"><table class="um-table"><thead><tr>
+  el.innerHTML = _exLocationLine(null) + `<div class="settings-group"><table class="um-table"><thead><tr>
       <th>${t('ex.col_vm')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_retention')}</th><th>${t('ex.col_daily_at')}</th><th>${t('ex.col_last_run')}</th><th>${t('ex.col_next_run')}</th><th></th>
     </tr></thead><tbody>${rows.map(s => `
       <tr>
@@ -5300,15 +5397,15 @@ async function exLoadVms() {
     }).join('')}</tbody></table></div>`;
 }
 function exToggleForm(i) { const r = document.getElementById(`exform-${i}`); if (r) { r.hidden = !r.hidden; if (!r.hidden) r.querySelector('input')?.focus(); } }
+function _exLocationLine(vm) {
+  if (!_exLocation) return `<div class="ex-hint" style="color:var(--accent-amber);margin-bottom:8px;">${t('ex.no_share')}</div>`;
+  return `<div class="ex-hint" style="margin-bottom:8px;">${t('ex.location_line', {share: _exEsc(_exLocation.share_name), path: _exEsc(_exLocation.base) + '/' + (vm ? _exEsc(vm.safe_name) + '_YYYYMMDD-HHMMSS/' : '')})}</div>`;
+}
 function _exScheduleForm(i, vm) {
   return `
     <input type="hidden" id="exf-${i}-vm_uuid" value="${_exEsc(vm.uuid)}"><input type="hidden" id="exf-${i}-vm_name" value="${_exEsc(vm.name)}">
+    ${_exLocationLine(vm)}
     <div class="ex-form">
-      <div><label>${t('ex.f_destination')}</label><input type="text" id="exf-${i}-path" placeholder="smb://nas.local/backups/hypercore">
-        <div class="ex-hint">${t('ex.f_destination_hint', {folder: _exEsc(vm.safe_name) + '_YYYYMMDD-HHMMSS/'})}</div></div>
-      <div><label>${t('ex.f_prune_path')}</label><input type="text" id="exf-${i}-prune" placeholder="/mnt/nas/hypercore"><div class="ex-hint">${t('ex.f_prune_hint')}</div></div>
-      <div><label>${t('ex.f_smb_user')}</label><input type="text" id="exf-${i}-user" autocomplete="off" placeholder="backup-user"><div class="ex-hint">${t('ex.f_smb_user_hint')}</div></div>
-      <div><label>${t('ex.f_smb_password')}</label><input type="password" id="exf-${i}-pass" autocomplete="new-password"><div class="ex-hint">${t('ex.f_smb_password_hint')}</div></div>
       <div><label>${t('ex.f_retention')}</label><input type="number" id="exf-${i}-retention" min="1" max="60" value="${_exDefaults.default_retention || 7}"></div>
       <div><label>${t('ex.f_run_time')}</label><input type="time" id="exf-${i}-time" value="${_exEsc(_exDefaults.default_run_time || '03:00')}"></div>
       <div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="exf-${i}-compress"><label for="exf-${i}-compress" style="margin:0;">${t('ex.f_compress')}</label></div>
@@ -5317,11 +5414,10 @@ function _exScheduleForm(i, vm) {
 }
 async function exCreateSchedule(i) {
   const g = id => document.getElementById(`exf-${i}-${id}`);
-  const body = { vm_uuid: g('vm_uuid').value, vm_name: g('vm_name').value, path_uri_base: g('path').value.trim(), prune_path: g('prune').value.trim(),
-                 smb_user: g('user').value.trim(), smb_password: g('pass').value, retention: parseInt(g('retention').value || '7', 10),
+  const body = { vm_uuid: g('vm_uuid').value, vm_name: g('vm_name').value, retention: parseInt(g('retention').value || '7', 10),
                  run_time: g('time').value || '03:00', compress: g('compress').checked };
   const msg = g('msg');
-  if (!body.path_uri_base) { msg.textContent = t('ex.f_destination_required'); msg.className = 'cl-msg err'; return; }
+  if (!_exLocation) { msg.textContent = t('ex.no_share'); msg.className = 'cl-msg err'; return; }
   try { await _exCall('POST', '/api/exports/schedules', body); showToast(t('ex.schedule_created', {name: body.vm_name}), 'ok'); exLoadVms(); }
   catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
 }
@@ -5329,25 +5425,17 @@ async function exCreateSchedule(i) {
 // ── import ──────────────────────────────────────────────────────────────────
 async function exLoadImport() {
   const el = document.getElementById('expanel-import');
-  if (!_exIsAdmin()) { el.innerHTML = `<div class="empty-state">${t('ex.admin_only')}</div>`; return; }
-  try { _exImport.known = await _exCall('GET', '/api/exports/import/known'); } catch (_) { _exImport.known = []; }
   const cur = CLUSTERS.find(c => c.cluster_id === currentCluster);
+  if (!_exLocation) { el.innerHTML = `<div class="empty-state">${t('ex.no_share')}</div>`; return; }
   el.innerHTML = `
     <div class="settings-group">
       <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div>
         <span class="settings-group-title">${t('ex.import_title')}</span>
         <span style="font-size:12px;color:var(--text-muted);">${t('ex.import_target', {cluster: _exEsc(cur ? cur.name : '')})}</span></div>
+      <div class="ex-hint" style="margin-bottom:10px;">${t('ex.i_from', {share: _exEsc(_exLocation.share_name), path: _exEsc(_exLocation.base)})}</div>
       <div class="ex-form">
-        <div><label>${t('ex.i_known')}</label>
-          <select id="exi-known" onchange="exKnownChanged()">
-            <option value="">${t('ex.i_manual')}</option>
-            ${_exImport.known.map(k => `<option value="${k.ref_id}">${_exEsc(k.effective_base || k.path_uri_base)} · ${_exEsc(k.smb_user)}</option>`).join('')}
-          </select><div class="ex-hint">${t('ex.i_known_hint')} ${t('ex.i_tenant_hint', {tenant: _exEsc((_exImport.known[0] || {}).tenant || (cur && cur.folder_id ? (FOLDERS.find(f => f.folder_id === cur.folder_id) || {}).name : '_unfiled') || '')})}</div></div>
-        <div><label>${t('ex.i_source')}</label><input type="text" id="exi-source" placeholder="smb://nas.local/backups/hypercore"></div>
-        <div><label>${t('ex.f_smb_user')}</label><input type="text" id="exi-user" autocomplete="off"></div>
-        <div><label>${t('ex.f_smb_password')}</label><input type="password" id="exi-pass" autocomplete="new-password"></div>
-        <div><label>${t('ex.i_target_name')}</label><input type="text" id="exi-name" placeholder="${_exEsc(t('ex.i_target_name_ph'))}"><div class="ex-hint">${t('ex.i_target_name_hint')}</div></div>
         <div><label>${t('ex.i_folder')}</label><input type="text" id="exi-folder" placeholder="DC02_20260101-030000"><div class="ex-hint">${t('ex.i_folder_hint')}</div></div>
+        <div><label>${t('ex.i_target_name')}</label><input type="text" id="exi-name" placeholder="${_exEsc(t('ex.i_target_name_ph'))}"><div class="ex-hint">${t('ex.i_target_name_hint')}</div></div>
       </div>
       <div class="cl-actions">
         <button class="refresh-btn" onclick="exBrowse()">${t('ex.i_browse')}</button>
@@ -5356,17 +5444,10 @@ async function exLoadImport() {
       </div>
       <div id="exi-folders"></div>
     </div>`;
+  exBrowse();
 }
-function exKnownChanged() {
-  const v = document.getElementById('exi-known').value;
-  const k = _exImport.known.find(x => String(x.ref_id) === v);
-  ['exi-source', 'exi-user', 'exi-pass'].forEach(id => { const e = document.getElementById(id); e.disabled = !!k; if (k) e.value = ''; });
-  if (k) document.getElementById('exi-source').value = k.path_uri_base;
-}
-function _exImportSource() {
-  const known = document.getElementById('exi-known').value;
-  return known ? { known_id: known } : { source_uri: document.getElementById('exi-source').value.trim(), smb_user: document.getElementById('exi-user').value.trim(), smb_password: document.getElementById('exi-pass').value };
-}
+function _exImportSource() { return {}; }   // the folder's share, resolved server-side
+
 async function exBrowse() {
   const msg = document.getElementById('exi-msg'); msg.textContent = t('ex.i_browsing'); msg.className = 'cl-msg';
   try {

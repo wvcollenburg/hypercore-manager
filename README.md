@@ -292,9 +292,12 @@ The central viewer that receives these snapshots is a separate deployment:
 The optional `exports` container schedules VM exports and runs imports, driven from the
 **Exports** tab (shown only when the container is running).
 
-- **Schedules.** Per VM: a share URI (`smb://nas.local/share/path` or `nfs://nas.local/export/path`,
-  without credentials), share username and password for SMB (stored encrypted), copies to keep,
-  daily run time (in `TZ`), optional qcow2 compression. Every run exports to
+- **Shares (admin).** Settings → Shares holds the share URIs (`smb://nas.local/share/path` or
+  `nfs://nas.local/export/path`) and their credentials, stored encrypted. A share is assigned to a
+  folder from the folder's menu in the rail: one share for everyone, or one per tenant, as you
+  prefer. Users never see a path or a password.
+- **Schedules.** Per VM: copies to keep, daily run time (in `TZ`), optional qcow2 compression.
+  The destination follows from the cluster's folder. Every run exports to
   `<destination>/<folder name>/<vm-name>_YYYYMMDD-HHMMSS/`: the share mirrors your HyperCore
   Manager folders, so an MSP can set per-tenant permissions on the share and an import can only
   pick up exports from the cluster's own folder. The tenant folder is created over SMB when
@@ -303,10 +306,10 @@ The optional `exports` container schedules VM exports and runs imports, driven f
   are deleted, oldest first. SMB shares are pruned over the protocol with the stored credentials;
   for NFS, bind-mount the share into the `exports` container and set the prune path on the
   schedule. Other VMs' folders are never touched.
-- **Imports.** Pick a saved export location (credentials reused server-side, scoped to the
-  selected cluster's folder on the share) or type one, browse for export folders, optionally
-  rename, and import into the selected cluster. A name that already exists on the target is
-  refused.
+- **Imports.** Browse the folder's share subtree, pick an export folder, optionally rename, and
+  import into the selected cluster. A name that already exists on the target is refused.
+- **Who may do what.** Members of a folder schedule exports and run imports for its clusters;
+  administrators manage shares and the folder assignment.
 - **Runs.** Export and import history with live progress from HyperCore's task API. A run
   interrupted by a container restart is re-attached by its task tag.
 - **Rights.** The cluster account registered in Settings → Clusters needs HyperCore permission to

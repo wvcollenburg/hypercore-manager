@@ -66,12 +66,16 @@ def health():
 @_require_token
 def status():
     cfg = cfg_module.load()
+    cid = _cluster_arg()
+    loc = jobs.location_for_cluster(cid) if cid else None
     return jsonify({
         'service': 'exports',
         'default_retention': cfg.default_retention,
         'default_run_time': cfg.default_run_time,
         'task_timeout_hours': cfg.task_timeout_hours,
-        'schedules': len(db.get_schedules(_cluster_arg())),
+        'schedules': len(db.get_schedules(cid)),
+        # where this cluster's exports go: the share assigned to its folder, or null
+        'location': {'share_name': loc['share_name'], 'base': loc['base'], 'tenant': loc['tenant']} if loc else None,
     })
 
 
@@ -129,16 +133,18 @@ def schedules_add():
     run_time = _valid_time(b.get('run_time') or cfg_module.load().default_run_time)
     if not run_time:
         return _err('run_time must be HH:MM (24h)')
-    for k in ('vm_uuid', 'vm_name', 'path_uri_base'):
+    for k in ('vm_uuid', 'vm_name'):
         if not (b.get(k) or '').strip():
             return _err(f'{k} is required')
+    if not (b.get('path_uri_base') or '').strip() and not jobs.location_for_cluster(cid):
+        return _err("no share is assigned to this cluster's folder; an admin can add one under Settings → Shares and assign it from the folder menu")
     try:
         retention = max(1, int(b.get('retention') or cfg_module.load().default_retention))
     except (TypeError, ValueError):
         return _err('retention must be a number')
     try:
         sid = db.add_schedule(cluster_id=cid, vm_uuid=b['vm_uuid'], vm_name=b['vm_name'],
-                              path_uri_base=b['path_uri_base'].strip(), smb_user=b.get('smb_user'),
+                              path_uri_base=(b.get('path_uri_base') or '').strip(), smb_user=b.get('smb_user'),
                               smb_password=b.get('smb_password'), prune_path=b.get('prune_path'),
                               retention=retention, run_time=run_time, compress=bool(b.get('compress')))
     except Exception as e:
@@ -227,11 +233,21 @@ def runs_status():
 
 
 # ------------------------------------------------------------------ imports
+def _folder_source(target_cluster):
+    """(base, user, password) of the share assigned to the target cluster's folder, or None."""
+    loc = jobs.location_for_cluster(target_cluster.cluster_id) if target_cluster else None
+    return (loc['base'], loc['user'], loc['password']) if loc else None
+
+
 def _resolve_source(b: dict, target_cluster):
     """(base_uri, user, password). A saved location (known_id -> schedule) keeps its credentials
     server-side and is scoped to the target cluster's tenant folder, so an import can only pick
     up exports that belong to the same HyperCore Manager folder. A manually typed source is used
     as typed (admin-only route)."""
+    if not b.get('known_id') and not (b.get('source_uri') or '').strip():
+        src = _folder_source(target_cluster)
+        if src:
+            return src
     known_id = b.get('known_id')
     if known_id:
         try:
@@ -265,6 +281,8 @@ def import_known():
 def import_browse():
     cid = _cluster_arg()
     base, user, password = _resolve_source(request.get_json(silent=True) or {}, cluster_registry.get(cid) if cid else None)
+    if not base:
+        return _err("no share is assigned to this cluster's folder")
     if not base.lower().startswith('smb://'):
         return _err('Browsing is only available for smb:// shares; for NFS type the full source path.')
     try:
@@ -299,6 +317,92 @@ def import_start():
     iid = db.add_import(cid, source_uri, smb_user, smb_password, target_name)
     scheduler.run_import(iid)
     return jsonify({'ok': True, 'id': iid}), 201
+
+
+# ------------------------------------------------------------------- shares
+@app.get('/api/v1/shares')
+@_require_token
+def shares_list():
+    return jsonify([_ser(r) for r in db.get_shares()])
+
+
+def _share_body(b: dict):
+    return {k: (b.get(k) or '') for k in ('name', 'uri_base', 'username', 'password', 'prune_path')}
+
+
+@app.post('/api/v1/shares')
+@_require_token
+def shares_add():
+    f = _share_body(request.get_json(silent=True) or {})
+    if not f['name'].strip() or not f['uri_base'].strip():
+        return _err('name and uri_base are required')
+    if not f['uri_base'].strip().lower().startswith(('smb://', 'nfs://')):
+        return _err('uri_base must start with smb:// or nfs://')
+    try:
+        sid = db.add_share(f['name'], f['uri_base'], f['username'], f['password'], f['prune_path'])
+    except Exception as e:
+        if 'duplicate key' in str(e):
+            return _err('a share with that name already exists', 409)
+        return _err(str(e), 500)
+    return jsonify({'ok': True, 'id': sid}), 201
+
+
+@app.put('/api/v1/shares/<int:sid>')
+@_require_token
+def shares_update(sid):
+    if not db.get_share(sid):
+        return _err('share not found', 404)
+    b = request.get_json(silent=True) or {}
+    fields = {k: b[k] for k in ('name', 'uri_base', 'username', 'password', 'prune_path') if k in b}
+    if 'uri_base' in fields and not str(fields['uri_base']).strip().lower().startswith(('smb://', 'nfs://')):
+        return _err('uri_base must start with smb:// or nfs://')
+    try:
+        db.update_share(sid, **fields)
+    except Exception as e:
+        if 'duplicate key' in str(e):
+            return _err('a share with that name already exists', 409)
+        return _err(str(e), 500)
+    return jsonify({'ok': True})
+
+
+@app.delete('/api/v1/shares/<int:sid>')
+@_require_token
+def shares_delete(sid):
+    db.delete_share(sid)          # folders referencing it fall back to no share (ON DELETE SET NULL)
+    return jsonify({'ok': True})
+
+
+@app.post('/api/v1/shares/<int:sid>/test')
+@_require_token
+def shares_test(sid):
+    """List the share root with the stored credentials (SMB); NFS reports the mount path state."""
+    share = db.get_share(sid, with_secret=True)
+    if not share:
+        return _err('share not found', 404)
+    base = share['uri_base']
+    if base.lower().startswith('smb://'):
+        try:
+            folders = jobs.smb_list_dirs(base, share.get('username') or '', share.get('password') or None)
+        except HyperCoreError as e:
+            return jsonify({'ok': False, 'error': str(e)})
+        return jsonify({'ok': True, 'folders': folders})
+    import os
+    pp = share.get('prune_path')
+    return jsonify({'ok': bool(pp and os.path.isdir(pp)),
+                    'error': None if pp and os.path.isdir(pp) else 'NFS shares need a mount path inside the exports container for pruning; exports still work without it.'})
+
+
+@app.post('/api/v1/shares/probe')
+@_require_token
+def shares_probe():
+    """Test credentials from the add/edit form before saving."""
+    f = _share_body(request.get_json(silent=True) or {})
+    if not f['uri_base'].strip().lower().startswith('smb://'):
+        return jsonify({'ok': True, 'folders': [], 'note': 'only SMB shares can be probed'})
+    try:
+        return jsonify({'ok': True, 'folders': jobs.smb_list_dirs(f['uri_base'].strip(), f['username'], f['password'] or None)})
+    except HyperCoreError as e:
+        return jsonify({'ok': False, 'error': str(e)})
 
 
 def start(cfg: cfg_module.Config) -> None:
