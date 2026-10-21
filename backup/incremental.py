@@ -372,6 +372,20 @@ def select_points_to_drop(points: list[dict], retention_points: int | None, rete
     return drop
 
 
+def release_anchor(chain: dict, hc: HyperCoreClient | None = None) -> None:
+    """Delete the reference snapshot of a chain whose data is gone (deleted by hand or by
+    retention); nothing can be delta'd against it any more."""
+    snap = chain.get('anchor_snapshot_uuid')
+    if not snap:
+        return
+    try:
+        hc = hc or jobs.client_for(chain['cluster_id'])
+        _safe_delete_snapshot(hc, snap, 'anchor of deleted chain')
+    except (HyperCoreError, IncrementalError) as e:
+        log.warning('anchor snapshot %s of chain %s not deleted: %s', snap[:8], chain['id'], e)
+    db.update_chain(chain['id'], anchor_snapshot_uuid=None)
+
+
 def apply_retention(plan: dict, pc: ProxyClient, share: dict) -> str:
     points = db.points_for_plan_retention(plan['id'])
     drop = select_points_to_drop(points, plan.get('retention'), plan.get('retention_days'))
@@ -392,6 +406,7 @@ def apply_retention(plan: dict, pc: ProxyClient, share: dict) -> str:
                 for p in pts:
                     db.update_point(p['id'], status='pruned')
                 db.update_chain(chain_id, status='deleted')
+                release_anchor(chain)
             else:
                 res = pc.wait(pc.submit('prune', dict(body, keep_min_seq=remaining[0]['seq'])), timeout=6 * 3600)['result']
                 for p in pts:

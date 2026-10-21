@@ -557,6 +557,7 @@ def chain_delete(chain_id):
     for p in db.get_points(chain_id):
         db.update_point(p['id'], status='pruned')
     db.update_chain(chain_id, status='deleted')
+    incremental.release_anchor(ch)
     return jsonify({'ok': True})
 
 

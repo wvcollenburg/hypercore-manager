@@ -157,7 +157,7 @@ class _FakeDB:
     def update_chain(self, cid, **f): self.chains[cid].update(f)
     def add_chain(self, plan, target_id, slug, chain_dir):
         cid = self.next; self.next += 1
-        self.chains[cid] = {'id': cid, 'plan_id': plan['id'], 'status': 'active', 'chain_dir': chain_dir, 'next_seq': 0, 'runs_since_full': 0,
+        self.chains[cid] = {'id': cid, 'plan_id': plan['id'], 'cluster_id': plan['cluster_id'], 'status': 'active', 'chain_dir': chain_dir, 'next_seq': 0, 'runs_since_full': 0,
                             'anchor_snapshot_uuid': None, 'last_serials': None, 'target_id': target_id}; return cid
     def get_chain(self, cid): return self.chains[cid]
     def add_point(self, chain_id, seq, kind, dir_, serials, blocks, bw, dur, files, definition, run_id):
@@ -259,3 +259,15 @@ def test_https_proxy_without_pin_or_ca_is_refused():
         pc.health()
     assert pcm.ProxyClient('https://10.0.0.5:8083', 't', tls_verify=True).fingerprint is None
     assert pcm.ProxyClient('https://10.0.0.5:8083', 't', tls_fingerprint='AB:CD').fingerprint == 'abcd'
+
+
+def test_deleting_a_chain_releases_its_anchor_snapshot(world):
+    """A deleted chain's reference snapshot has no use; leaving it would pile up snapshots on the VM."""
+    inc.run_incremental(4)
+    chain = world.db.chains[1]
+    assert chain['anchor_snapshot_uuid'] == 'snap-1' and 'snap-1' in world.hc.snaps
+    inc.release_anchor(chain)
+    assert ('delete_snapshot', 'snap-1') in world.hc.calls and 'snap-1' not in world.hc.snaps
+    assert world.db.chains[1]['anchor_snapshot_uuid'] is None
+    inc.release_anchor(world.db.chains[1])                        # idempotent
+    assert world.hc.calls.count(('delete_snapshot', 'snap-1')) == 1
