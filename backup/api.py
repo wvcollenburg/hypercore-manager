@@ -602,9 +602,11 @@ def restores_start():
         return _err('restore point not found')
     if chain['status'] == 'deleted':
         return _err('this chain was deleted')
-    policy = (b.get('mac_policy') or 'auto')
-    if policy not in ('auto', 'original', 'new'):
-        return _err('mac_policy must be auto, original or new')
+    policy = (b.get('mac_policy') or 'new')
+    if policy == 'auto':                                   # former default; MAC addresses are kept on request only
+        policy = 'new'
+    if policy not in ('original', 'new'):
+        return _err('mac_policy must be new or original')
     name = (b.get('target_name') or f"{chain['vm_name']}-restored").strip()
     try:
         existing = {(v['name'] or '').lower() for v in jobs.client_for(chain['cluster_id']).list_vms()}

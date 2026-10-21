@@ -36,9 +36,9 @@ DEF = {'uuid': 'src-vm', 'name': 'exptest', 'description': 'd', 'mem': 429496729
 
 
 def test_policies_and_boot_order():
-    assert rs.mac_decision('auto', source_vm_exists=False) is True
-    assert rs.mac_decision('auto', source_vm_exists=True) is False
-    assert rs.mac_decision('original', True) is True and rs.mac_decision('new', False) is False
+    # MAC addresses are kept on request only, whether or not the source VM still exists
+    assert rs.mac_decision('auto', source_vm_exists=False) is False and rs.mac_decision('new', False) is False
+    assert rs.mac_decision('original', True) is True and rs.mac_decision('original', False) is True
     disks, utils = rs.plan_devices(DEF)
     assert [d['uuid'] for d in disks] == ['disk-1'] and [u['uuid'] for u in utils] == ['nv-1', 'tpm-1']
     new_vm = {'blockDevs': [{'uuid': 'new-cd', 'type': 'IDE_CDROM'}, {'uuid': 'new-disk', 'type': 'VIRTIO_DISK'}]}
@@ -98,7 +98,7 @@ class _FakePC:
 
 class _FakeDB:
     def __init__(self):
-        self.restore = {'id': 9, 'point_id': 100, 'target_name': 'exptest-copy', 'params': {'mac_policy': 'auto', 'start': True, 'nic_connected': False}}
+        self.restore = {'id': 9, 'point_id': 100, 'target_name': 'exptest-copy', 'params': {'mac_policy': 'original', 'start': True, 'nic_connected': False}}
         self.point = {'id': 100, 'chain_id': 1, 'seq': 1, 'status': 'ok', 'definition': DEF}
         self.chain = {'id': 1, 'cluster_id': 'c1', 'vm_name': 'exptest', 'target_id': 9, 'chain_dir': 'Amsterdam/exptest_src-vm.chain', 'folder_slug': 'Amsterdam', 'status': 'active'}
     def get_restore(self, rid): return dict(self.restore)
@@ -140,7 +140,7 @@ def test_fast_restore_end_to_end(world):
     assert world.hc.proxy_devs == [] and world.hc.snaps == {}, 'staging disk and proxy snapshot removed'
     assert ('patch_vm', 'new-vm', {'bootDevices': [world.hc.new_devs[0], 'new-cd']}) in world.hc.calls
     nic = [c for c in world.hc.calls if c[0] == 'patch_nic'][0]
-    assert nic[2] == {'connected': False, 'vlan': 7, 'macAddress': '7C:4C:58:4B:5C:5E'}, 'auto policy: source gone -> original MAC'
+    assert nic[2] == {'connected': False, 'vlan': 7, 'macAddress': '7C:4C:58:4B:5C:5E'}, 'original MAC on request'
     assert ('action', 'new-vm', 'START') in world.hc.calls and r['created_uuid'] == 'new-vm' and 'MAC original' in r['message']
 
 
@@ -195,3 +195,16 @@ def test_length_stream_reads_exactly_and_reports_len():
     ls = hcm.LengthStream(iter([b'abc', b'defg', b'h']), 8)
     assert len(ls) == 8 and ls.read(2) == b'ab' and ls.read(4) == b'cdef' and ls.read(10) == b'gh' and ls.read(1) == b''
     assert hcm.LengthStream(iter([b'xy', b'z']), 3).read() == b'xyz'
+
+
+def test_refused_start_leaves_the_restore_complete(world, monkeypatch):
+    """HyperCore refuses to start a copy whose MAC address is in use; the VM is complete, the entry says so."""
+    world.hc.vms.append({'uuid': 'src-vm', 'name': 'exptest'})
+    world.db.restore['params'] = {'mac_policy': 'original', 'start': True, 'nic_connected': False}
+
+    def refuse(u, a):
+        raise rs.HyperCoreError('HyperCore API 400 on /VirDomain/action: MAC address 7C:4C:58:4B:5C:5E is already in use.')
+    monkeypatch.setattr(world.hc, 'vm_action', refuse)
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'COMPLETE' and 'Not started' in r['message'] and 'already in use' in r['message'] and r['created_uuid'] == 'new-vm'

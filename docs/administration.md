@@ -211,10 +211,11 @@ removes a chain from the target; this is the only action that deletes backups. D
 ### Restoring a VM
 
 On the **Restore points** sub-tab, open a chain's points and press **Restore** on the point you
-want. The form asks for the name of the restored VM, the MAC address policy (automatic: the
-original addresses when the backed-up VM no longer exists on the cluster, new ones otherwise),
-whether to connect the network interfaces, and whether to start the VM. Restores are listed
-under **Runs**.
+want. The form asks for the name of the restored VM, whether to keep the original MAC addresses
+(by default the copy gets new ones; the original addresses are set only on request, and
+HyperCore refuses to start a VM whose MAC address is in use by a running VM), whether to
+connect the network interfaces, and whether to start the VM. A restore whose start was refused
+is still complete: the VM exists and the entry under **Runs** says why it was not started.
 
 What happens: a diskless definition (generated from the stored VM record, with the NVRAM and
 vTPM state of the point) is imported in seconds; the proxy then writes each data disk into a

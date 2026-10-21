@@ -5670,7 +5670,7 @@ function _exRestoreFormHtml(p, chainId) {
     <div class="ex-form">
       <div><label>${t('ex.r_name')}</label><input type="text" id="rs-${p.id}-name" value="${_exEsc(vm)}-restored"></div>
       <div><label>${t('ex.r_mac')}</label><select id="rs-${p.id}-mac">
-        <option value="auto">${t('ex.r_mac_auto')}</option><option value="original">${t('ex.r_mac_original')}</option><option value="new">${t('ex.r_mac_new')}</option></select>
+        <option value="new">${t('ex.r_mac_new')}</option><option value="original">${t('ex.r_mac_original')}</option></select>
         <div class="ex-hint">${t('ex.r_mac_hint')}</div></div>
       <div style="display:flex;flex-direction:column;gap:6px;padding-top:18px;">
         <label style="margin:0;"><input type="checkbox" id="rs-${p.id}-nic"> ${t('ex.r_nic_connected')}</label>

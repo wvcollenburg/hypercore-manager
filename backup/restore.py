@@ -48,12 +48,9 @@ def render_definition(definition: dict, new_uuid: str, utility_files: dict[str, 
 
 
 def mac_decision(policy: str, source_vm_exists: bool) -> bool:
-    """True = set the original MAC addresses on the restored VM."""
-    if policy == 'original':
-        return True
-    if policy == 'new':
-        return False
-    return not source_vm_exists        # auto: original when the source VM is gone
+    """True = set the original MAC addresses on the restored VM. Only on explicit request
+    ('original'); the default is a new address, whether or not the source VM still exists."""
+    return policy == 'original'
 
 
 def plan_devices(definition: dict) -> tuple[list[dict], list[dict]]:
@@ -182,10 +179,17 @@ def _run(r: dict) -> None:
         t = hc.patch_netdev(new_nic['uuid'], **fields)
         if t:
             wait_task(hc, t, 'network device', 300)
+    not_started = None
     if params.get('start'):
-        t = hc.vm_action(new_vm['uuid'], 'START')
-        if t:
-            wait_task(hc, t, 'start', 600)
+        # the VM is complete at this point; a refused start (typically the original MAC address is
+        # in use by the still-running source VM) is reported, not treated as a failed restore
+        try:
+            t = hc.vm_action(new_vm['uuid'], 'START')
+            if t:
+                wait_task(hc, t, 'start', 600)
+        except (HyperCoreError, IncrementalError) as e:
+            not_started = str(e)
+            log.warning('[restore %s] restored VM not started: %s', rid, e)
     try:
         pc.wait(pc.submit('sweep', {'target': target, 'folder': chain['folder_slug'], 'older_than_hours': 0}), timeout=600)
     except ProxyError as e:
@@ -194,5 +198,6 @@ def _run(r: dict) -> None:
     db.update_restore(rid, status='COMPLETE', finished_at=_now(),
                       message=f"restored as '{name}' ({len(disks)} disk(s), {bytes_written >> 20} MiB written); MAC "
                               f"{'original' if use_original_mac else 'new'}, NICs {'connected' if connected else 'disconnected'}"
-                              f"{', started' if params.get('start') else ''}")
+                              + (f'. Not started: {not_started} Give it a new MAC address or stop the source VM, then start it.' if not_started
+                                 else (', started' if params.get('start') else '')))
     log.info('[restore %s] done: %s', rid, name)
