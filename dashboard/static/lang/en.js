@@ -797,6 +797,15 @@ window.LANG = {
   'ex.flr_empty': "Empty directory.",
   'ex.flr_hint': "The point is mounted read-only on the backup proxy and unmounted when closed or after 30 minutes of inactivity. Files go to your browser; the backup is never modified.",
 
+  'ex.flr_iso_vm': "Deliver to VM…",
+  'ex.flr_iso': "Deliver selection as ISO ({n})",
+  'ex.flr_iso_pick_vm': "Pick the VM that should receive the files.",
+  'ex.flr_iso_confirm': "Pack {n} item(s) into an ISO and insert it into the CD-ROM drive of '{vm}'? Copy the files inside the guest afterwards, then eject.",
+  'ex.flr_iso_started': "ISO delivery started. Watch progress under Runs; eject from there when done.",
+  'ex.flr_eject': "Eject & remove ISO",
+  'ex.flr_eject_confirm': "Eject the ISO from the VM and delete it from the cluster?",
+  'ex.flr_ejected': "ISO ejected and removed.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-supported software',
   'community.body':         "HyperCore Manager is open-source software maintained on a community-supported basis. It is not an official Scale Computing product and comes without official support or SLA. Use it at your own risk.",

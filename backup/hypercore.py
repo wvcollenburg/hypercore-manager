@@ -220,6 +220,73 @@ class HyperCoreIncrementalMixin:
         r = self._request('DELETE', f'/VirDomain/{vm_uuid}') or {}
         return r.get('taskTag', '')
 
+    # -- ISO images and CD-ROM drives (file delivery into a guest through its own front door)
+    def create_iso(self, name: str, size: int) -> str:
+        r = self._request('POST', '/ISO', json={'name': name, 'size': int(size), 'readyForInsert': False}) or {}
+        if not r.get('createdUUID'):
+            raise HyperCoreError(f'ISO not created: {r}')
+        return r['createdUUID']
+
+    def upload_iso(self, iso_uuid: str, stream, size: int) -> None:
+        """PUT the image data; `stream` yields bytes and must total exactly `size`. The body is sent
+        with a plain Content-Length (HyperCore's nginx rejects chunked uploads), so the iterable is
+        wrapped in a file-like reader that knows its length."""
+        import requests
+        url = f'{self.base}/ISO/{iso_uuid}/data'
+        try:
+            resp = requests.put(url, data=LengthStream(stream, size), auth=self.auth, verify=self.verify, timeout=(30, 3600),
+                                headers={'Content-Type': 'application/octet-stream'})
+        except requests.exceptions.RequestException as e:
+            raise HyperCoreError(f'ISO upload failed: {e}') from e
+        if not resp.ok:
+            raise HyperCoreError(f'ISO upload failed ({resp.status_code}): {resp.text[:200]}')
+
+    def ready_iso(self, iso_uuid: str) -> str:
+        r = self._request('PATCH', f'/ISO/{iso_uuid}', json={'readyForInsert': True}) or {}
+        return r.get('taskTag', '')
+
+    def delete_iso(self, iso_uuid: str) -> str:
+        r = self._request('DELETE', f'/ISO/{iso_uuid}') or {}
+        return r.get('taskTag', '')
+
+    def list_isos(self) -> list[dict]:
+        return self._request('GET', '/ISO') or []
+
+    def set_cdrom(self, cdrom_uuid: str, iso_uuid: str | None) -> str:
+        """Insert an ISO into a CD-ROM device (iso_uuid None/'' ejects)."""
+        r = self._request('PATCH', f'/VirDomainBlockDevice/{cdrom_uuid}', json={'path': f'scribe/{iso_uuid}' if iso_uuid else ''}) or {}
+        return r.get('taskTag', '')
+
+
+class LengthStream:
+    """File-like view over an iterable of bytes with a known total length, so HTTP clients send
+    Content-Length instead of chunked encoding."""
+
+    def __init__(self, iterable, size: int):
+        self._it = iter(iterable)
+        self._buf = b''
+        self.len = int(size)
+        self._sent = 0
+
+    def __len__(self):
+        return self.len
+
+    def read(self, n: int = -1) -> bytes:
+        if n is None or n < 0:
+            chunks = [self._buf] + list(self._it)
+            self._buf = b''
+            data = b''.join(chunks)
+            self._sent += len(data)
+            return data
+        while len(self._buf) < n:
+            try:
+                self._buf += next(self._it)
+            except StopIteration:
+                break
+        data, self._buf = self._buf[:n], self._buf[n:]
+        self._sent += len(data)
+        return data
+
 
 class HyperCoreClient(HyperCoreIncrementalMixin, HyperCoreClient):   # type: ignore[no-redef]
     """The export/import client plus the incremental-backup calls."""

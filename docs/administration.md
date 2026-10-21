@@ -224,6 +224,14 @@ Encrypted volumes (LUKS, BitLocker) and Windows dynamic disks are not browsable.
 Files reach the guest through the guest's own means (download, copy, or an ISO attached to the
 VM); HyperCore Manager never writes into a running VM through the hypervisor.
 
+**Deliver as ISO**: pick a VM in the file browser's toolbar and press *Deliver selection as
+ISO*. The selected files and directories are packed into an ISO 9660 image (Rock Ridge and
+Joliet, so Linux and Windows guests read the names), uploaded to the cluster and inserted into
+the VM's CD-ROM drive, with their original directory structure (`disk1-p3-ubuntu-lv/etc/hosts`
+and so on). Copy the files inside the guest, then press **Eject & remove ISO** on the entry under
+Runs → Restores; that empties the drive and deletes the image from the cluster. The limit is
+8 GiB per delivery.
+
 ### What users do with it
 
 On the **Backup** tab for a cluster they can reach:

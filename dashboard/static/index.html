@@ -5571,7 +5571,7 @@ async function exLoadRuns() {
           <td class="um-username">${_exEsc(kind === 'imp' ? r.source_uri : r.vm_name)}${(kind === 'imp' || kind === 'rst') && r.target_name ? ` → ${_exEsc(r.target_name)}` : ''}${kind === 'run' && r.export_path ? `<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(r.export_path)}</div>` : ''}</td>
           <td style="font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap;">${_exFmt(r.started_at)}</td>
           <td>${_exStatusBadge(r.status, r.message)}</td>
-          <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${kind === 'run' && r.mode ? `<span class="ex-badge ${r.mode === 'incremental' ? 'run' : 'off'}">${r.mode === 'incremental' ? t(r.point_kind === 'full' ? 'ex.point_full' : 'ex.point_delta') : t('ex.mode_export')}</span> ` : ''}${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${r.task_tag ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
+          <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${kind === 'run' && r.mode ? `<span class="ex-badge ${r.mode === 'incremental' ? 'run' : 'off'}">${r.mode === 'incremental' ? t(r.point_kind === 'full' ? 'ex.point_full' : 'ex.point_delta') : t('ex.mode_export')}</span> ` : ''}${kind === 'rst' && r.kind === 'files' ? `<span class="ex-badge off">${t('ex.files')}</span> ` : ''}${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${kind === 'rst' && r.kind === 'files' && r.created_uuid && r.status === 'COMPLETE' ? ` <button class="um-action-btn" onclick="exEjectIso(${r.id})">${t('ex.flr_eject')}</button>` : ''}${r.task_tag ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
         </tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.no_runs')}</div>`}
     </div>`;
   el.innerHTML = table(t('ex.runs_title'), runs, 'run') + (_exRunsFilter ? '' : table(t('ex.restores_title'), restores, 'rst') + table(t('ex.imports_title'), imports, 'imp'));
@@ -5660,7 +5660,8 @@ async function exFilesOpen(pointId) {
   body.innerHTML = `<div class="loading"><div class="spinner"></div><span>${t('ex.flr_mounting')}</span></div>`;
   try {
     const m = await _exCall('POST', '/api/backup/flr/mounts', {point_id: pointId});
-    _flr[pointId] = {mount: m.id, path: '/', selected: new Set(), entries: []};
+    _flr[pointId] = {mount: m.id, path: '/', selected: new Set(), entries: [], vms: []};
+    try { _flr[pointId].vms = (await _exCall('GET', '/api/backup/vms')).map(v => ({uuid: v.uuid, name: v.name})); } catch (e) {}
     await _flrLoad(pointId, '/');
   } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
 }
@@ -5691,10 +5692,26 @@ function _flrRender(pointId) {
       <span style="font-family:'JetBrains Mono',monospace;font-size:12px;">${crumbHtml}</span>
       <span style="flex:1"></span>
       <a class="um-action-btn ${n ? '' : 'disabled'}" ${n ? `href="${API_BASE}/api/backup/flr/mounts/${st.mount}/zip?paths=${encodeURIComponent([...st.selected].join(','))}&name=recovered-${pointId}.zip&cluster=${currentCluster}"` : ''}>${t('ex.flr_zip', {n})}</a>
+      <select id="flr-${pointId}-vm" style="max-width:220px;" title="${_exEsc(t('ex.flr_iso_vm'))}"><option value="">${t('ex.flr_iso_vm')}</option>${(st.vms || []).map(v => `<option value="${_exEsc(v.uuid)}">${_exEsc(v.name)}</option>`).join('')}</select>
+      <button class="um-action-btn" ${n ? '' : 'disabled'} onclick="exFilesIso(${pointId})">${t('ex.flr_iso', {n})}</button>
       <button class="um-action-btn" onclick="exFilesClose(${pointId})">${t('ex.flr_unmount')}</button>
     </div>
+    <div class="cl-msg" id="flr-${pointId}-msg"></div>
     ${st.entries.length ? `<table class="um-table"><tbody>${rows}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.flr_empty')}</div>`}
     <div class="ex-hint" style="margin-top:6px;">${t('ex.flr_hint')}</div>`;
+}
+async function exFilesIso(pointId) {
+  const st = _flr[pointId]; const vm = document.getElementById(`flr-${pointId}-vm`)?.value;
+  if (!vm) { _shMsg(`flr-${pointId}-msg`, t('ex.flr_iso_pick_vm'), 'err'); return; }
+  const vmName = (st.vms.find(v => v.uuid === vm) || {}).name || vm;
+  if (!confirm(t('ex.flr_iso_confirm', {n: st.selected.size, vm: vmName}))) return;
+  _shMsg(`flr-${pointId}-msg`, t('ex.i_starting'), '');
+  try { await _exCall('POST', `/api/backup/flr/mounts/${st.mount}/iso`, {paths: [...st.selected], vm_uuid: vm}); _shMsg(`flr-${pointId}-msg`, t('ex.flr_iso_started'), 'ok'); }
+  catch (e) { _shMsg(`flr-${pointId}-msg`, e.message, 'err'); }
+}
+async function exEjectIso(rid) {
+  if (!confirm(t('ex.flr_eject_confirm'))) return;
+  try { await _exCall('POST', `/api/backup/flr/iso/${rid}/eject`); showToast(t('ex.flr_ejected'), 'ok'); exLoadRuns(); } catch (e) { showToast(e.message, 'err'); }
 }
 function _flrToggle(pointId, full, on) { const st = _flr[pointId]; if (on) st.selected.add(full); else st.selected.delete(full); _flrRender(pointId); }
 async function exFilesClose(pointId) {

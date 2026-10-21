@@ -486,3 +486,26 @@ def test_idle_mounts_are_swept_and_api_routes_work(flr):
     assert c.post('/mounts', json={'target': {'uri': 'smb://nas/share/hcm'}, 'chain_dir': 'F/v_vm-1.chain', 'seq': 7}, headers=H).status_code == 502
     flr.mm.mounts[mid].last_used -= 5
     assert flr.mm.sweep_idle() == 1 and c.get(f'/mounts/{mid}/ls', headers=H).status_code == 404
+
+
+def test_iso_command_size_and_stream(flr, monkeypatch):
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    cmd = flr.mm.iso_command(m.id, ['/disk1-p2/etc', '/disk1-p2/etc/hosts'])
+    assert cmd[0] == 'genisoimage' and '-graft-points' in cmd and cmd[-2].startswith('disk1-p2/etc=') and cmd[-1].startswith('disk1-p2/etc/hosts=')
+    assert '-print-size' in flr.mm.iso_command(m.id, ['/disk1-p2/etc'], print_size=True)
+    with pytest.raises(FileNotFoundError):
+        flr.mm.iso_command(m.id, ['/disk1-p2/nope'])
+    real = flr.mm.run
+    def run(cmd, **kw):
+        if cmd[0] == 'genisoimage': return types.SimpleNamespace(returncode=0, stdout='Total extents scheduled to be written = 182\n182\n', stderr='')
+        return real(cmd, **kw)
+    flr.mm.run = run
+    assert flr.mm.iso_size(m.id, ['/disk1-p2/etc']) == 182 * 2048
+
+    class FakeProc:
+        def __init__(self, *a, **k): self.stdout = io.BytesIO(b'ISO' * 1000); self.stderr = io.BytesIO(b'')
+        def wait(self, timeout=None): return 0
+    import io
+    data = b''.join(flr.mm.iter_iso(m.id, ['/disk1-p2/etc'], chunk=1024, popen=FakeProc))
+    assert data == b'ISO' * 1000
+    flr.mm.unmount(m.id)

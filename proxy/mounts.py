@@ -17,6 +17,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -281,6 +282,45 @@ class MountManager:
                 yield from buf.drain()
         zf.close()
         yield from buf.drain()
+
+    # ------------------------------------------------------------------- ISO
+    def iso_command(self, mid: str, paths: list[str], print_size: bool = False) -> list[str]:
+        """genisoimage with graft points so the selection keeps its directory names (Rock Ridge + Joliet)."""
+        m = self.get(mid)
+        grafts = []
+        for p in paths:
+            fs, abs_path = self._resolve(m, p)
+            if fs is None or not os.path.exists(abs_path):
+                continue
+            arc = '/'.join(x for x in p.split('/') if x)
+            grafts.append(f'{arc}={abs_path}')
+        if not grafts:
+            raise FileNotFoundError('nothing to pack')
+        cmd = ['genisoimage', '-quiet', '-R', '-J', '-joliet-long', '-iso-level', '3', '-V', 'HCM_RECOVERY', '-graft-points']
+        cmd += ['-print-size'] if print_size else ['-o', '-']
+        return cmd + grafts
+
+    def iso_size(self, mid: str, paths: list[str]) -> int:
+        """Exact size in bytes of the ISO that iter_iso() will stream (needed before a HyperCore upload)."""
+        out = _run(self.iso_command(mid, paths, print_size=True), run=self.run, timeout=3600)
+        nums = re.findall(r'\d+', out.strip().splitlines()[-1] if out.strip() else '')
+        if not nums:
+            raise RuntimeError(f'could not determine ISO size: {out[:200]}')
+        return int(nums[-1]) * 2048          # genisoimage prints the size in 2048-byte extents
+
+    def iter_iso(self, mid: str, paths: list[str], chunk: int = 1 << 20, popen=subprocess.Popen):
+        proc = popen(self.iso_command(mid, paths), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            while True:
+                b = proc.stdout.read(chunk)
+                if not b:
+                    break
+                yield b
+        finally:
+            proc.stdout.close()
+            rc = proc.wait(timeout=60)
+            if rc:
+                log.warning('genisoimage exited with %s: %s', rc, (proc.stderr.read() or b'')[:300])
 
     # --------------------------------------------------------------- unmount
     def unmount(self, mid: str) -> None:

@@ -14,6 +14,7 @@ import time
 
 import db
 import incremental
+from hypercore import HyperCoreError
 from incremental import IncrementalError, pick_proxy, proxy_client_for
 from proxy_client import ProxyError
 
@@ -94,3 +95,99 @@ def unmount(mount_id: str) -> None:
 
 def list_mounts(cluster_id: str | None = None) -> list[dict]:
     return [dict(m) for m in _MOUNTS.values() if cluster_id is None or m['cluster_id'] == cluster_id]
+
+
+# ------------------------------------------------------------------ ISO delivery
+ISO_MAX_BYTES = 8 << 30
+
+
+def iso_name(vm_name: str) -> str:
+    safe = ''.join(c if c.isalnum() or c in '._-' else '_' for c in vm_name)[:40] or 'vm'
+    return f'hcm-recovery-{safe}-{time.strftime("%Y%m%d-%H%M%S")}.iso'
+
+
+def start_iso_delivery(mount_id: str, paths: list[str], vm_uuid: str, requested_by: str | None = None) -> int:
+    """Validate and record a file delivery; the scheduler runs deliver_iso()."""
+    import jobs
+    m = get_mount(mount_id)
+    if not paths:
+        raise IncrementalError('select at least one file or directory')
+    hc = jobs.client_for(m['cluster_id'])
+    vm = hc.get_vm(vm_uuid)
+    point = db.get_point(m['point_id']); chain = db.get_chain(m['chain_id'])
+    rid = db.add_restore(point, chain, vm.get('name') or vm_uuid, {'kind': 'files', 'mount_id': mount_id, 'paths': paths, 'vm_uuid': vm_uuid}, requested_by)
+    db._exec("UPDATE backup.restores SET kind = 'files' WHERE id = %s", (rid,))
+    return rid
+
+
+def deliver_iso(restore_id: int) -> None:
+    import jobs
+    r = db.get_restore(restore_id)
+    if not r:
+        return
+    params = r.get('params') or {}
+    try:
+        m, pc = client_for_mount(params['mount_id'])
+        hc = jobs.client_for(m['cluster_id'])
+        vm = hc.get_vm(params['vm_uuid'])
+        paths = ','.join(params['paths'])
+        size = pc._request('GET', f"/mounts/{m['id']}/iso", params={'paths': paths, 'size': 1}, timeout=3600)['size']
+        if size > ISO_MAX_BYTES:
+            raise IncrementalError(f'the selection would make a {size >> 30} GiB ISO; the limit is {ISO_MAX_BYTES >> 30} GiB')
+        name = iso_name(vm.get('name') or 'vm')
+        db.update_restore(restore_id, message=f'uploading {name} ({size >> 20} MiB) to the cluster')
+        iso_uuid = hc.create_iso(name, size)
+        try:
+            resp = stream(m['id'], 'iso', {'paths': paths})
+            hc.upload_iso(iso_uuid, resp.iter_content(1 << 20), size)
+            tag = hc.ready_iso(iso_uuid)
+            if tag:
+                incremental.wait_task(hc, tag, 'ISO ready', 600)
+            cdrom = next((b for b in vm.get('blockDevs', []) if b.get('type') == 'IDE_CDROM'), None)
+            if not cdrom:
+                tag, cd_uuid = hc.create_block_device(vm['uuid'], 0, 'IDE_CDROM')
+                incremental.wait_task(hc, tag, 'create CD-ROM', 300)
+                cdrom = {'uuid': cd_uuid}
+            tag = hc.set_cdrom(cdrom['uuid'], iso_uuid)
+            if tag:
+                incremental.wait_task(hc, tag, 'insert ISO', 300)
+        except Exception:
+            try:
+                hc.delete_iso(iso_uuid)
+            except HyperCoreError:
+                pass
+            raise
+        db.update_restore(restore_id, status='COMPLETE', finished_at=incremental._now(), created_uuid=iso_uuid,
+                          message=f"ISO '{name}' ({size >> 20} MiB, {len(params['paths'])} item(s)) inserted into the CD-ROM of '{vm.get('name')}'. "
+                                  f"Copy the files inside the guest, then eject.")
+        log.info('[restore %s] ISO delivered to %s', restore_id, vm.get('name'))
+    except (IncrementalError, HyperCoreError, ProxyError, KeyError) as e:
+        db.update_restore(restore_id, status='ERROR', message=str(e), finished_at=incremental._now())
+        log.error('[restore %s] ISO delivery failed: %s', restore_id, e)
+    except Exception as e:                                  # noqa: BLE001
+        db.update_restore(restore_id, status='ERROR', message=f'Unexpected error: {e}', finished_at=incremental._now())
+        log.exception('[restore %s] ISO delivery error', restore_id)
+
+
+def eject_iso(restore_id: int) -> str:
+    """Eject the delivered ISO from the VM's CD-ROM and delete it from the cluster."""
+    import jobs
+    r = db.get_restore(restore_id)
+    if not r or (r.get('params') or {}).get('kind') != 'files' or not r.get('created_uuid'):
+        raise IncrementalError('no delivered ISO on this entry')
+    hc = jobs.client_for(r['cluster_id'])
+    iso_uuid = r['created_uuid']
+    try:
+        vm = hc.get_vm(r['params']['vm_uuid'])
+        for b in vm.get('blockDevs', []):
+            if b.get('type') == 'IDE_CDROM' and iso_uuid in (b.get('path') or ''):
+                tag = hc.set_cdrom(b['uuid'], None)
+                if tag:
+                    incremental.wait_task(hc, tag, 'eject', 300)
+    except HyperCoreError as e:
+        log.warning('eject: VM lookup failed (%s); deleting the ISO anyway', e)
+    tag = hc.delete_iso(iso_uuid)
+    if tag:
+        incremental.wait_task(hc, tag, 'delete ISO', 300)
+    db.update_restore(restore_id, message=(r.get('message') or '') + ' Ejected and removed.', created_uuid=None)
+    return iso_uuid

@@ -796,6 +796,15 @@ window.LANG = {
   'ex.flr_empty': "Leeres Verzeichnis.",
   'ex.flr_hint': "Der Punkt ist auf dem Backup-Proxy schreibgeschützt eingehängt und wird beim Schließen oder nach 30 Minuten Inaktivität ausgehängt. Dateien gehen in Ihren Browser; das Backup wird nie verändert.",
 
+  'ex.flr_iso_vm': "An VM liefern…",
+  'ex.flr_iso': "Auswahl als ISO liefern ({n})",
+  'ex.flr_iso_pick_vm': "Wählen Sie die VM, die die Dateien erhalten soll.",
+  'ex.flr_iso_confirm': "{n} Element(e) in ein ISO packen und in das CD-ROM-Laufwerk von '{vm}' einlegen? Kopieren Sie die Dateien danach im Gast und werfen Sie das ISO aus.",
+  'ex.flr_iso_started': "ISO-Lieferung gestartet. Fortschritt unter Läufe; dort nach Abschluss auswerfen.",
+  'ex.flr_eject': "ISO auswerfen & entfernen",
+  'ex.flr_eject_confirm': "Das ISO aus der VM auswerfen und vom Cluster löschen?",
+  'ex.flr_ejected': "ISO ausgeworfen und entfernt.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-unterst\u00fctzte Software',
   'community.body':         "HyperCore Manager ist Open-Source-Software, die auf Community-Basis gepflegt wird. Es ist kein offizielles Produkt von Scale Computing und wird ohne offiziellen Support oder SLA bereitgestellt. Die Nutzung erfolgt auf eigene Gefahr.",

@@ -49,6 +49,11 @@ def run_restore(restore_id: int) -> None:
     _scheduler.add_job(restore.run_restore, args=[restore_id], id=f'restore-{restore_id}', replace_existing=True)
 
 
+def run_iso_delivery(restore_id: int) -> None:
+    import flr
+    _scheduler.add_job(flr.deliver_iso, args=[restore_id], id=f'iso-{restore_id}', replace_existing=True)
+
+
 def run_import(import_id: int) -> None:
     _scheduler.add_job(jobs.run_import, args=[import_id], id=f'import-{import_id}', replace_existing=True)
 

@@ -658,6 +658,28 @@ def flr_download(mid, kind):
     return Response(stream_with_context(r.iter_content(1 << 20)), status=r.status_code, headers=headers)
 
 
+@app.post('/api/v1/flr/mounts/<mid>/iso')
+@_require_token
+def flr_iso(mid):
+    """Deliver the selected files as an ISO inserted into a VM's CD-ROM. body: {paths:[...], vm_uuid}"""
+    b = request.get_json(silent=True) or {}
+    try:
+        rid = flr.start_iso_delivery(mid, [p for p in (b.get('paths') or []) if p], (b.get('vm_uuid') or '').strip(), b.get('requested_by'))
+    except (incremental.IncrementalError, ProxyError, HyperCoreError) as e:
+        return _err(str(e), 502)
+    scheduler.run_iso_delivery(rid)
+    return jsonify({'ok': True, 'id': rid}), 201
+
+
+@app.post('/api/v1/flr/iso/<int:rid>/eject')
+@_require_token
+def flr_eject(rid):
+    try:
+        return jsonify({'ok': True, 'iso': flr.eject_iso(rid)})
+    except (incremental.IncrementalError, HyperCoreError) as e:
+        return _err(str(e), 502)
+
+
 @app.delete('/api/v1/flr/mounts/<mid>')
 @_require_token
 def flr_unmount(mid):

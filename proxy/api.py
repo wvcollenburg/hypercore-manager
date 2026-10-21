@@ -11,6 +11,7 @@ api.py — REST API of the backup proxy (port 8083), driven by the backup servic
   GET  /mounts/<id>/ls?path=  directory listing ('/' lists the filesystems)
   GET  /mounts/<id>/file?path= stream one file
   GET  /mounts/<id>/zip?paths=a,b  stream a zip of files/directories
+  GET  /mounts/<id>/iso?paths=a,b[&size=1]  stream an ISO 9660 image of the selection (or just its size)
   DELETE /mounts/<id>         unmount
 
 Authentication: Bearer token (PROXY_API_TOKEN). An empty token disables auth, for development only.
@@ -158,6 +159,24 @@ def create_app(cfg, engine, mounts=None) -> Flask:
         name = request.args.get('name') or 'recovered-files.zip'
         return Response(stream_with_context(mounts.iter_zip(mid, paths)), mimetype='application/zip',
                         headers={'Content-Disposition': f'attachment; filename="{name}"'})
+
+    @app.get('/mounts/<mid>/iso')
+    @require_token
+    def mount_iso(mid):
+        from flask import Response, stream_with_context
+        paths = [p for p in (request.args.get('paths') or '').split(',') if p]
+        if not paths:
+            return jsonify({'error': 'paths is required'}), 400
+        try:
+            size = mounts.iso_size(mid, paths)
+        except KeyError:
+            return jsonify({'error': 'mount not found'}), 404
+        except (FileNotFoundError, RuntimeError) as e:
+            return jsonify({'error': str(e)}), 400
+        if request.args.get('size'):
+            return jsonify({'size': size})
+        return Response(stream_with_context(mounts.iter_iso(mid, paths)), mimetype='application/octet-stream',
+                        headers={'Content-Length': str(size), 'Content-Disposition': 'attachment; filename="recovery.iso"'})
 
     @app.delete('/mounts/<mid>')
     @require_token

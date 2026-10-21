@@ -796,6 +796,15 @@ window.LANG = {
   'ex.flr_empty': "Lege map.",
   'ex.flr_hint': "Het punt is alleen-lezen gekoppeld op de back-upproxy en wordt ontkoppeld bij sluiten of na 30 minuten inactiviteit. Bestanden gaan naar uw browser; de back-up wordt nooit gewijzigd.",
 
+  'ex.flr_iso_vm': "Afleveren aan VM…",
+  'ex.flr_iso': "Selectie afleveren als ISO ({n})",
+  'ex.flr_iso_pick_vm': "Kies de VM die de bestanden moet ontvangen.",
+  'ex.flr_iso_confirm': "{n} item(s) in een ISO verpakken en in het cd-romstation van '{vm}' plaatsen? Kopieer de bestanden daarna in de gast en werp de ISO uit.",
+  'ex.flr_iso_started': "ISO-aflevering gestart. Volg de voortgang onder Uitvoeringen; werp daar uit als u klaar bent.",
+  'ex.flr_eject': "ISO uitwerpen & verwijderen",
+  'ex.flr_eject_confirm': "De ISO uit de VM werpen en van het cluster verwijderen?",
+  'ex.flr_ejected': "ISO uitgeworpen en verwijderd.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",

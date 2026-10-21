@@ -167,3 +167,30 @@ def test_restore_refuses_existing_name_and_cleans_up_on_failure(world, monkeypat
     rs.run_restore(9)
     assert world.db.restore['status'] == 'ERROR' and 'target unreachable' in world.db.restore['message']
     assert world.hc.proxy_devs == [], 'staging disks removed after a failed stage'
+
+
+def test_iso_name_and_hypercore_iso_calls():
+    sys.path.insert(0, _BACKUP)
+    try:
+        saved = {n: sys.modules.pop(n) for n in _CLASH if n in sys.modules}
+        flr = importlib.import_module('flr')
+    finally:
+        sys.path.remove(_BACKUP)
+        for n in _CLASH:
+            sys.modules.pop(n, None)
+        sys.modules.update(saved)
+    n = flr.iso_name('My VM (prod)')
+    assert n.startswith('hcm-recovery-My_VM__prod_-') and n.endswith('.iso')
+    client = hcm.HyperCoreClient.__new__(hcm.HyperCoreClient)
+    calls = []
+    client._request = lambda m, p, **kw: calls.append((m, p, kw.get('json'))) or {'createdUUID': 'iso-1', 'taskTag': 't'}
+    assert client.create_iso('x.iso', 4096) == 'iso-1' and calls[-1][2] == {'name': 'x.iso', 'size': 4096, 'readyForInsert': False}
+    client.set_cdrom('cd-1', 'iso-1'); assert calls[-1] == ('PATCH', '/VirDomainBlockDevice/cd-1', {'path': 'scribe/iso-1'})
+    client.set_cdrom('cd-1', None); assert calls[-1][2] == {'path': ''}
+    client.ready_iso('iso-1'); assert calls[-1] == ('PATCH', '/ISO/iso-1', {'readyForInsert': True})
+
+
+def test_length_stream_reads_exactly_and_reports_len():
+    ls = hcm.LengthStream(iter([b'abc', b'defg', b'h']), 8)
+    assert len(ls) == 8 and ls.read(2) == b'ab' and ls.read(4) == b'cdef' and ls.read(10) == b'gh' and ls.read(1) == b''
+    assert hcm.LengthStream(iter([b'xy', b'z']), 3).read() == b'xyz'
