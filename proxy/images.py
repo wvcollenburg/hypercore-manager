@@ -123,6 +123,9 @@ class NbdBackend:
     def raw_to_image(self, raw_path: str, path: str) -> None:
         _run(['qemu-img', 'convert', '-q', '-f', 'raw', '-O', 'qcow2', '-o', 'cluster_size=2M', raw_path, path])
 
+    def shrink(self, path: str, size: int) -> None:
+        _run(['qemu-img', 'resize', '-q', '--shrink', '-f', 'qcow2', path, str(size)])
+
     def allocation_map(self, path: str) -> list[dict]:
         """Allocated, non-zero extents of an image (through its backing chain) as 1 MiB intervals."""
         import json
@@ -185,6 +188,10 @@ class FileBackend:
 
     def raw_to_image(self, raw_path: str, path: str) -> None:
         shutil.copyfile(raw_path, path)
+
+    def shrink(self, path: str, size: int) -> None:
+        with open(path, 'r+b') as fh:
+            fh.truncate(size)
 
     def allocation_map(self, path: str) -> list[dict]:
         """Non-zero 1 MiB blocks of a raw file."""

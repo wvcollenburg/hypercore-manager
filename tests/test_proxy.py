@@ -349,3 +349,30 @@ def test_stage_writes_allocated_blocks_into_a_staging_device_and_flatten_filters
                                                               'only_uuids': [nvram], 'files': {nvram: 'NEW.qcow2'}, 'definition_xml': '<domain/>', 'definition_name': 'r.xml'}, headers=H).get_json()['id'])
     out = os.path.join(stack.mounter.root, P.targets.parse_uri(tgt['uri']).key, 'hcm', 'F', '_restore', 'r')
     assert sorted(os.listdir(out)) == ['NEW.qcow2', 'r.xml'] and f['result']['files'][0]['uuid'] == nvram
+
+
+def test_copier_clamps_to_a_smaller_destination(tmp_path):
+    src, dst = str(tmp_path / 'src'), str(tmp_path / 'dst')
+    _random_file(src, 1, 44); open(dst, 'wb').truncate(540672)
+    written = P.copier.copy_intervals(src, dst, [{'lower': 0, 'upper': 0}], writers=1)
+    assert written == 540672 and os.path.getsize(dst) == 540672
+    assert open(dst, 'rb').read() == open(src, 'rb').read()[:540672]
+
+
+def test_backup_honours_image_size_and_flatten_shrinks(stack):
+    H = {'Authorization': 'Bearer t0k'}
+    nv = 'a26166e5-ddf9-4665-83f8-e6dd5254019a'
+    (stack.dev / 'virtio-dddd0001').write_bytes(b'V' * MiB)
+    tgt = {'uri': 'smb://nas/share/hcm'}
+    req = {'target': tgt, 'folder': 'F', 'vm': {'uuid': 'vm-n', 'name': 'n'}, 'point': {'kind': 'full', 'seq': 0},
+           'devices': [{'uuid': nv, 'type': 'NVRAM', 'clone_uuid': 'dddd0001-0000-0000-0000-000000000000', 'size': MiB, 'image_size': 540672, 'map': [{'lower': 0, 'upper': 0}]}]}
+    j = _wait(stack, stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id']); assert j['state'] == 'done', j
+    chain = os.path.join(stack.mounter.root, P.targets.parse_uri(tgt['uri']).key, 'hcm', 'F', 'n_vm-n.chain')
+    assert os.path.getsize(os.path.join(chain, 'base', f'nvram-{nv}.qcow2')) == 540672 and j['result']['devices'][0]['size'] == 540672
+    # an older chain with a 1 MiB NVRAM: flatten shrinks it to the requested size
+    big = os.path.join(chain, 'base', f'nvram-{nv}.qcow2'); open(big, 'ab').truncate(MiB)
+    import json as _j
+    m = _j.load(open(os.path.join(chain, 'base', 'manifest.json'))); m['devices'][0]['size'] = MiB; _j.dump(m, open(os.path.join(chain, 'base', 'manifest.json'), 'w'))
+    f = _wait(stack, stack.client.post('/jobs/flatten', json={'target': tgt, 'chain_dir': 'F/n_vm-n.chain', 'seq': 0, 'out_dir': 'F/_restore/n', 'sizes': {nv: 540672}}, headers=H).get_json()['id'])
+    assert f['state'] == 'done', f
+    assert os.path.getsize(os.path.join(os.path.dirname(chain), '_restore', 'n', f'nvram-{nv}.qcow2')) == 540672

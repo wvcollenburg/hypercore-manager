@@ -167,6 +167,14 @@ def _target_for(plan) -> tuple[dict, dict]:
     return share, loc
 
 
+def image_size(dev: dict) -> int:
+    """Virtual size the backed-up image must have. Disks: their capacity. NVRAM: its real capacity
+    (OVMF refuses a variable store of another size); vTPM: its physical size."""
+    if dev['type'] in HyperCoreClient.DISK_TYPES:
+        return int(dev['capacity'])
+    return int(dev.get('capacity') or 0) or int(dev.get('physical') or 0) or MiB
+
+
 def device_capacity(dev: dict) -> int:
     """Clone capacity: disks keep their capacity, NVRAM and vTPM get 1 MiB (their real size is below that)."""
     return int(dev['capacity']) if dev['type'] in HyperCoreClient.DISK_TYPES else MiB
@@ -273,7 +281,7 @@ def _run(plan: dict, run_id: int) -> None:
             else:
                 entry = {'map': [{'lower': 0, 'upper': 0}]}       # NVRAM / vTPM: 1 MiB, always re-copied
             req_devices.append({'uuid': dev['uuid'], 'type': dev['type'], 'clone_uuid': clone_uuid, 'size': cap,
-                                'serial': serial, **entry})
+                                'image_size': image_size(dev), 'serial': serial, **entry})
         blocks = sum(jobs_blocks(d['map']) for d in req_devices)
         disk_blocks = sum(jobs_blocks(d['map']) for d in req_devices if d['type'] in HyperCoreClient.DISK_TYPES)
         if kind == 'delta' and disk_blocks == 0:

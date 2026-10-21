@@ -71,6 +71,7 @@ def copy_intervals(src: str, dst: str, intervals: list[dict], *, writers: int = 
     """
     total = blocks_in(intervals) * MiB
     src_size = os.lseek(os.open(src, os.O_RDONLY), 0, os.SEEK_END) if os.path.exists(src) else 0
+    dst_size = os.lseek(os.open(dst, os.O_RDONLY), 0, os.SEEK_END) if os.path.exists(dst) else 0
     done = 0
     lock = threading.Lock()
     stop = threading.Event()
@@ -97,6 +98,10 @@ def copy_intervals(src: str, dst: str, intervals: list[dict], *, writers: int = 
                     view = buf.m
                 if nread <= 0:
                     break
+                if dst_size and off + nread > dst_size:
+                    nread = max(0, dst_size - off)          # destination smaller than the source (NVRAM image)
+                    if nread <= 0:
+                        break
                 if nread < MiB:                 # tail of the device: O_DIRECT needs whole sectors
                     padded = (nread + 511) // 512 * 512
                     view[nread:padded] = bytes(padded - nread)

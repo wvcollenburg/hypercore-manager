@@ -122,6 +122,7 @@ def _run(r: dict) -> None:
     out_dir = f"{chain['folder_slug']}/_restore/{dirname}"
     pc.wait(pc.submit('flatten', {'target': target, 'chain_dir': chain['chain_dir'], 'seq': point['seq'], 'out_dir': out_dir,
                                   'only_uuids': list(utility_files), 'files': {k: f'{v}.qcow2' for k, v in utility_files.items()},
+                                  'sizes': {u['uuid']: int(u.get('capacity') or 0) for u in utils if u.get('capacity')},
                                   'definition_xml': xml, 'definition_name': f'{dirname}.xml'}), timeout=3600)
 
     # 2. import the diskless VM

@@ -153,6 +153,8 @@ class Engine:
                 job.progress['current_device'] = dev['uuid'][:8]
                 src = devices.wait_for_device(dev['clone_uuid'], self.cfg.device_wait_seconds, self.cfg.dev_dir)
                 size = devices.device_size(src)
+                if dev.get('image_size'):
+                    size = min(size, int(dev['image_size']))      # NVRAM: the firmware wants its exact size
                 fname = self._device_file(dev)
                 path = os.path.join(point_dir, fname)
                 backing = os.path.join(prev_dir, fname) if prev_dir else None
@@ -220,6 +222,9 @@ class Engine:
                 name = req.get('files', {}).get(d['uuid'], d['file'])
                 dst = os.path.join(out_dir, name)
                 self.backend.flatten(src, dst)
+                want = (req.get('sizes') or {}).get(d['uuid'])
+                if want and int(want) < d.get('size', 0):
+                    self.backend.shrink(dst, int(want))        # older chains stored NVRAM at the 1 MiB clone size
                 produced.append({'uuid': d['uuid'], 'type': d['type'], 'file': name, 'size': os.path.getsize(dst)})
                 job.progress['devices_done'] += 1
                 self._persist(job)
