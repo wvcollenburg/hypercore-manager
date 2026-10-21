@@ -346,6 +346,9 @@ services:
       - PG_USER=sentinel
       - PG_PASSWORD=${SENTINEL_PG_PASSWORD}
       - BACKUP_API_PORT=8082
+      # self-proxy inside this stack (optional; remote proxies are registered in the dashboard)
+      - PROXY_API_URL=${PROXY_API_URL:-http://proxy:8083}
+      - PROXY_API_TOKEN=${PROXY_API_TOKEN:-}
       # BACKUP_* is the current name; EXPORTS_* from the first release is still honoured
       - BACKUP_API_TOKEN=${BACKUP_API_TOKEN:-${EXPORTS_API_TOKEN:-}}
       - BACKUP_TASK_TIMEOUT_HOURS=${BACKUP_TASK_TIMEOUT_HOURS:-${EXPORTS_TASK_TIMEOUT_HOURS:-8}}
@@ -370,7 +373,45 @@ services:
           memory: 256M
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # Backup proxy: reads hot-added snapshot clones and writes qcow2 chains onto
+  # backup targets. Privileged on purpose: it needs the host's block devices,
+  # /dev/nbd* and the ability to mount SMB/NFS shares. Runs here when the stack
+  # lives on a VM in the cluster (self-proxy); the same image runs in a small VM
+  # per remote cluster for the MSP case.
+  proxy:
+    build: ./proxy
+    container_name: sc_proxy
+    profiles:
+      - backup
+      - full
+    privileged: true
+    environment:
+      - TZ=${TZ:-UTC}
+      - PROXY_API_PORT=8083
+      - PROXY_API_TOKEN=${PROXY_API_TOKEN:-}
+      - PROXY_NBD_SLOTS=${PROXY_NBD_SLOTS:-8}
+      - PROXY_WRITERS=${PROXY_WRITERS:-4}
+      - PROXY_HOST_NET=/host/net
+    volumes:
+      - /dev:/dev
+      - /sys/class/net:/host/net:ro
+      - proxy-data:/var/lib/hcm-proxy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8083/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 512M
+    restart: unless-stopped
+
 volumes:
   influxdb-data:
   grafana-data:
   postgres-data:
+  proxy-data:

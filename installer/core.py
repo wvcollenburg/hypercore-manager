@@ -265,6 +265,17 @@ def build_schema() -> list[Section]:
                     when_change="Rotate it if it leaks; both the backup and dashboard containers read it from .env.",
                 ),
                 Field(
+                    key="PROXY_API_TOKEN",
+                    label="Backup proxy API token",
+                    type="token",
+                    default="CHANGE_ME",
+                    must_change=True,
+                    profiles={PROFILE_BACKUP},
+                    description="Bearer token the backup service presents to the backup proxy (the container in this stack or a proxy VM in a remote cluster).",
+                    why_default="No safe default for a token; press G to generate one.",
+                    when_change="Rotate it if it leaks; the backup and proxy containers read it from .env.",
+                ),
+                Field(
                     key="BACKUP_TASK_TIMEOUT_HOURS",
                     label="Task timeout (hours)",
                     type="int",
