@@ -787,6 +787,15 @@ window.LANG = {
   'ex.r_started': "Wiederherstellung gestartet. Fortschritt unter Läufe.",
   'ex.restores_title': "WIEDERHERSTELLUNGEN",
 
+  'ex.files': "Dateien",
+  'ex.flr_mounting': "Wiederherstellungspunkt wird auf dem Proxy eingehängt…",
+  'ex.flr_root': "Dateisysteme",
+  'ex.flr_download': "Herunterladen",
+  'ex.flr_zip': "Auswahl als Zip herunterladen ({n})",
+  'ex.flr_unmount': "Schließen",
+  'ex.flr_empty': "Leeres Verzeichnis.",
+  'ex.flr_hint': "Der Punkt ist auf dem Backup-Proxy schreibgeschützt eingehängt und wird beim Schließen oder nach 30 Minuten Inaktivität ausgehängt. Dateien gehen in Ihren Browser; das Backup wird nie verändert.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-unterst\u00fctzte Software',
   'community.body':         "HyperCore Manager ist Open-Source-Software, die auf Community-Basis gepflegt wird. Es ist kein offizielles Produkt von Scale Computing und wird ohne offiziellen Support oder SLA bereitgestellt. Die Nutzung erfolgt auf eigene Gefahr.",

@@ -787,6 +787,15 @@ window.LANG = {
   'ex.r_started': "Restauration démarrée. Suivez la progression dans Exécutions.",
   'ex.restores_title': "RESTAURATIONS",
 
+  'ex.files': "Fichiers",
+  'ex.flr_mounting': "Montage du point de restauration sur le proxy…",
+  'ex.flr_root': "Systèmes de fichiers",
+  'ex.flr_download': "Télécharger",
+  'ex.flr_zip': "Télécharger la sélection en zip ({n})",
+  'ex.flr_unmount': "Fermer",
+  'ex.flr_empty': "Répertoire vide.",
+  'ex.flr_hint': "Le point est monté en lecture seule sur le proxy de sauvegarde et démonté à la fermeture ou après 30 minutes d'inactivité. Les fichiers vont dans votre navigateur ; la sauvegarde n'est jamais modifiée.",
+
   // community-support notice (shown once per user)
   'community.title':        'Logiciel soutenu par la communaut\u00e9',
   'community.body':         "HyperCore Manager est un logiciel open source maintenu sur une base communautaire. Il ne s'agit pas d'un produit officiel de Scale Computing et il est fourni sans support officiel ni SLA. Utilisez-le \u00e0 vos propres risques.",

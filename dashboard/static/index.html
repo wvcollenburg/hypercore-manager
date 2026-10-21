@@ -5620,8 +5620,9 @@ async function exTogglePoints(id) {
       <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted)">${_exEsc(p.dir)}</span></td>
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
       <td style="font-size:11px;color:var(--text-muted)">${p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
-      <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button></td></tr>
-      <tr id="rs-form-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);">${_exRestoreFormHtml(p, id)}</td></tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.no_points')}</div>`;
+      <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" onclick="exFilesOpen(${p.id})">${t('ex.files')}</button></td></tr>
+      <tr id="rs-form-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);">${_exRestoreFormHtml(p, id)}</td></tr>
+      <tr id="flr-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);" id="flr-${p.id}-body"></td></tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.no_points')}</div>`;
   } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
 }
 function _exRestoreFormHtml(p, chainId) {
@@ -5647,6 +5648,60 @@ async function exRestoreStart(pointId) {
   _shMsg(`rs-${pointId}-msg`, t('ex.i_starting'), '');
   try { await _exCall('POST', '/api/backup/restores', body); showToast(t('ex.r_started'), 'ok'); switchExportsPanel('runs'); }
   catch (e) { _shMsg(`rs-${pointId}-msg`, e.message, 'err'); }
+}
+// ── file-level recovery ─────────────────────────────────────────────────────
+const _flr = {};   // point id -> {mount, path, selected:Set}
+async function exFilesOpen(pointId) {
+  const row = document.getElementById(`flr-${pointId}`); if (!row) return;
+  if (!row.hidden) { row.hidden = true; return; }
+  row.hidden = false;
+  const body = document.getElementById(`flr-${pointId}-body`);
+  if (_flr[pointId] && _flr[pointId].mount) { _flrRender(pointId); return; }
+  body.innerHTML = `<div class="loading"><div class="spinner"></div><span>${t('ex.flr_mounting')}</span></div>`;
+  try {
+    const m = await _exCall('POST', '/api/backup/flr/mounts', {point_id: pointId});
+    _flr[pointId] = {mount: m.id, path: '/', selected: new Set(), entries: []};
+    await _flrLoad(pointId, '/');
+  } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
+}
+async function _flrLoad(pointId, path) {
+  const st = _flr[pointId]; st.path = path;
+  const d = await _exCall('GET', `/api/backup/flr/mounts/${st.mount}/ls?path=${encodeURIComponent(path)}`);
+  st.entries = d.entries || []; _flrRender(pointId);
+}
+function _flrJoin(path, name) { return (path === '/' ? '' : path.replace(/\/$/, '')) + '/' + name; }
+function _flrRender(pointId) {
+  const st = _flr[pointId]; const body = document.getElementById(`flr-${pointId}-body`); if (!body) return;
+  const crumbs = ['/'].concat(st.path.split('/').filter(Boolean));
+  let acc = '';
+  const crumbHtml = crumbs.map((c, i) => { if (i > 0) acc += '/' + c; const p = i === 0 ? '/' : acc; return `<a href="#" onclick="_flrLoad(${pointId}, '${_exEsc(p)}'); return false;" style="color:var(--accent-cyan);">${_exEsc(i === 0 ? t('ex.flr_root') : c)}</a>`; }).join(' <span style="color:var(--text-muted)">/</span> ');
+  const rows = st.entries.map(e => {
+    const full = _flrJoin(st.path, e.name); const sel = st.selected.has(full);
+    const icon = e.kind === 'dir' ? '📁' : e.kind === 'link' ? '🔗' : '📄';
+    const name = e.kind === 'dir' ? `<a href="#" onclick="_flrLoad(${pointId}, '${_exEsc(full)}'); return false;" style="color:var(--text-primary);">${_exEsc(e.name)}</a>` : _exEsc(e.name);
+    const size = e.size != null ? (e.size >= 1048576 ? (e.size / 1048576).toFixed(1) + ' MiB' : e.size >= 1024 ? (e.size / 1024).toFixed(0) + ' KiB' : e.size + ' B') : (e.fstype ? `${_exEsc(e.fstype)} · ${(e.size || 0) / 1073741824 | 0} GiB` : '');
+    return `<tr><td style="width:24px;"><input type="checkbox" ${sel ? 'checked' : ''} onchange="_flrToggle(${pointId}, '${_exEsc(full)}', this.checked)"></td>
+      <td>${icon} ${name}</td><td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${size}</td>
+      <td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${e.mtime ? _exFmt(new Date(e.mtime * 1000).toISOString()) : ''}</td>
+      <td style="white-space:nowrap;">${e.kind === 'file' ? `<a class="um-action-btn" href="${API_BASE}/api/backup/flr/mounts/${st.mount}/file?path=${encodeURIComponent(full)}&cluster=${currentCluster}">${t('ex.flr_download')}</a>` : ''}</td></tr>`;
+  }).join('');
+  const n = st.selected.size;
+  body.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:12px;">${crumbHtml}</span>
+      <span style="flex:1"></span>
+      <a class="um-action-btn ${n ? '' : 'disabled'}" ${n ? `href="${API_BASE}/api/backup/flr/mounts/${st.mount}/zip?paths=${encodeURIComponent([...st.selected].join(','))}&name=recovered-${pointId}.zip&cluster=${currentCluster}"` : ''}>${t('ex.flr_zip', {n})}</a>
+      <button class="um-action-btn" onclick="exFilesClose(${pointId})">${t('ex.flr_unmount')}</button>
+    </div>
+    ${st.entries.length ? `<table class="um-table"><tbody>${rows}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.flr_empty')}</div>`}
+    <div class="ex-hint" style="margin-top:6px;">${t('ex.flr_hint')}</div>`;
+}
+function _flrToggle(pointId, full, on) { const st = _flr[pointId]; if (on) st.selected.add(full); else st.selected.delete(full); _flrRender(pointId); }
+async function exFilesClose(pointId) {
+  const st = _flr[pointId];
+  if (st && st.mount) { try { await _exCall('DELETE', `/api/backup/flr/mounts/${st.mount}`); } catch (e) {} }
+  delete _flr[pointId];
+  const row = document.getElementById(`flr-${pointId}`); if (row) row.hidden = true;
 }
 async function exVerifyChain(id) {
   _shMsg(`ch-${id}-msg`, t('ex.verifying'), '');

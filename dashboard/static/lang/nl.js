@@ -787,6 +787,15 @@ window.LANG = {
   'ex.r_started': "Herstel gestart. Volg de voortgang onder Uitvoeringen.",
   'ex.restores_title': "HERSTELACTIES",
 
+  'ex.files': "Bestanden",
+  'ex.flr_mounting': "Herstelpunt wordt op de proxy gekoppeld…",
+  'ex.flr_root': "Bestandssystemen",
+  'ex.flr_download': "Downloaden",
+  'ex.flr_zip': "Selectie downloaden als zip ({n})",
+  'ex.flr_unmount': "Sluiten",
+  'ex.flr_empty': "Lege map.",
+  'ex.flr_hint': "Het punt is alleen-lezen gekoppeld op de back-upproxy en wordt ontkoppeld bij sluiten of na 30 minuten inactiviteit. Bestanden gaan naar uw browser; de back-up wordt nooit gewijzigd.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",

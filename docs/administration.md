@@ -209,6 +209,21 @@ staging disk at full speed and HyperCore clones the staging disks onto the resto
 restored VM keeps the original boot order, VLANs and tags. Nothing of the backup chain is
 modified by a restore, and a restore never touches the original VM.
 
+### Recovering single files
+
+**Files** on a restore point mounts that point read-only on the backup proxy and opens a file
+browser: the filesystems of the VM (EFI partition, boot, the root volume including LVM), then
+directories and files with size and date. **Download** fetches one file; tick several files or
+directories and **Download selection as zip** streams them as one archive. **Close** unmounts
+the point; an idle mount is closed after 30 minutes. The backup is never modified: journals,
+NTFS logs and LVM metadata are replayed on a copy-on-write layer that is discarded on close.
+
+Supported filesystems: ext2/3/4, xfs, btrfs, FAT, exFAT, NTFS, and LVM volumes on any of them.
+Encrypted volumes (LUKS, BitLocker) and Windows dynamic disks are not browsable.
+
+Files reach the guest through the guest's own means (download, copy, or an ISO attached to the
+VM); HyperCore Manager never writes into a running VM through the hypervisor.
+
 ### What users do with it
 
 On the **Backup** tab for a cluster they can reach:

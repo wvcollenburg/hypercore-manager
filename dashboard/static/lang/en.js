@@ -788,6 +788,15 @@ window.LANG = {
   'ex.r_started': "Restore started. Watch progress under Runs.",
   'ex.restores_title': "RESTORES",
 
+  'ex.files': "Files",
+  'ex.flr_mounting': "Mounting the restore point on the proxy…",
+  'ex.flr_root': "Filesystems",
+  'ex.flr_download': "Download",
+  'ex.flr_zip': "Download selection as zip ({n})",
+  'ex.flr_unmount': "Close",
+  'ex.flr_empty': "Empty directory.",
+  'ex.flr_hint': "The point is mounted read-only on the backup proxy and unmounted when closed or after 30 minutes of inactivity. Files go to your browser; the backup is never modified.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-supported software',
   'community.body':         "HyperCore Manager is open-source software maintained on a community-supported basis. It is not an official Scale Computing product and comes without official support or SLA. Use it at your own risk.",
