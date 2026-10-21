@@ -61,6 +61,8 @@ class ProxyClient:
 
     def _request(self, method: str, path: str, **kw):
         if self.url.startswith('https://'):
+            if not self.fingerprint and not self.tls_verify:
+                raise ProxyError('https proxy without a pinned certificate fingerprint or CA verification; probe it first')
             self._check_pin()
         headers = {'Authorization': f'Bearer {self.token}'} if self.token else {}
         verify = self.tls_verify if self.url.startswith('https://') else True

@@ -40,6 +40,10 @@ class Config:
     concurrency: int = field(default_factory=lambda: _int('PROXY_JOB_CONCURRENCY', 2))
     # 'nbd' writes qcow2 through qemu-nbd (production); 'file' writes raw sparse files (tests)
     backend:     str = field(default_factory=lambda: _str('PROXY_BACKEND', 'nbd'))
+    # off (compose network), auto (self-signed, pinned by the service) or cert (own certificate)
+    tls:         str = field(default_factory=lambda: _str('PROXY_TLS', 'auto'))
+    tls_cert:    str = field(default_factory=lambda: _str('PROXY_TLS_CERT', ''))
+    tls_key:     str = field(default_factory=lambda: _str('PROXY_TLS_KEY', ''))
 
 
 def load() -> Config:

@@ -151,6 +151,35 @@ Requirements on the host that runs the proxy container:
 The HyperCore account registered for the cluster needs the rights Backup, Media Management,
 VM Create/Edit, VM Delete and VM Power Controls.
 
+### A proxy VM for a remote cluster
+
+For a cluster that does not host the stack VM (the MSP case), run the same container in a small
+VM on that cluster: Ubuntu 24.04 or later, 1 vCPU, 2 GB RAM, 20 GB disk, Docker, and the two
+host settings above (`nbd max_part=0`, LVM filter). Then:
+
+```bash
+docker run -d --name hcm-proxy --restart unless-stopped --privileged --memory 1g -p 8083:8083 \
+  -v /dev:/dev -v /sys:/host/sys:ro -v hcm-proxy-data:/var/lib/hcm-proxy \
+  -e PROXY_API_TOKEN=<token> -e PROXY_HOST_NET=/host/sys/class/net -e PROXY_TLS=auto -e TZ=<zone> \
+  ghcr.io/<org>/hcm-proxy:<version>      # or build it: docker build -t hcm-proxy ./proxy
+```
+
+With `PROXY_TLS=auto` the proxy generates a self-signed certificate on first start and keeps it
+in its volume. Register the proxy in the dashboard (Settings → Targets → Backup proxies) with
+`https://<vm ip>:8083` and the token: the certificate's fingerprint is pinned at that moment and
+checked on every later connection. To use your own certificate instead, set `PROXY_TLS=cert`
+with `PROXY_TLS_CERT` and `PROXY_TLS_KEY` mounted into the container and tick *verify with the
+system CA store* when registering. The dashboard's Deploy panel can create such a VM for you
+from an Ubuntu cloud image with all of this pre-configured.
+
+### Several proxies per cluster
+
+Register more than one proxy for a cluster and the backup service spreads jobs over them (least
+recently used first; one job per proxy at a time). Each proxy VM reads through its own node's
+network interface, so proxies on different nodes add bandwidth. Keep them apart with the
+balancer's anti-affinity tags: tag each proxy VM `anti_<name of the other proxy VM>` in HyperCore
+and the Clusterbalancer keeps them on separate nodes.
+
 ---
 
 ## Starting Foresight (Sentinel)

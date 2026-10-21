@@ -20,6 +20,7 @@ import jobs
 import log
 import mounts as mounts_mod
 import targets
+import tls
 
 
 def main() -> None:
@@ -33,7 +34,8 @@ def main() -> None:
     mounter = targets.Mounter(cfg.data_dir)
     engine = jobs.Engine(cfg, backend, mounter)
     mounts = mounts_mod.MountManager(cfg, backend, mounter)
-    app = api.create_app(cfg, engine, mounts)
+    ssl_ctx, fp = tls.context_for(cfg)
+    app = api.create_app(cfg, engine, mounts, tls_fingerprint=fp)
 
     def _idle_sweeper():
         while True:
@@ -44,8 +46,8 @@ def main() -> None:
                 logging.getLogger('proxy.mounts').exception('idle sweep failed')
     threading.Thread(target=_idle_sweeper, name='flr-idle', daemon=True).start()
     logger.info('Proxy starting', extra={'api_port': cfg.api_port, 'backend': backend.name, 'nbd_slots': cfg.nbd_slots,
-                                         'data_dir': cfg.data_dir})
-    api.start(app, cfg.api_port)
+                                         'data_dir': cfg.data_dir, 'tls': cfg.tls, 'tls_fingerprint': fp})
+    api.start(app, cfg.api_port, ssl_ctx)
 
     stop = threading.Event()
 

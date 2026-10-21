@@ -164,6 +164,7 @@ class _FakeDB:
         return [dict(p, chain_dir=self.chains[p['chain_id']]['chain_dir'], target_id=9) for p in self.points if p['status'] == 'ok']
     def get_points(self, cid, include_pruned=False): return [p for p in self.points if p['chain_id'] == cid and (include_pruned or p['status'] == 'ok')]
     def update_point(self, pid, **f): [p.update(f) for p in self.points if p['id'] == pid]
+    def update_proxy(self, pid, **f): pass
     def get_proxies(self, cid, enabled_only=False): return [{'id': 7, 'vm_uuid': 'proxy-vm', 'last_seen_at': None}]
     def get_proxy(self, pid, with_secret=False): return {'id': 7, 'name': 'px', 'url': 'http://px:8083', 'token': 't', 'vm_uuid': 'proxy-vm', 'tls_fingerprint': None, 'tls_verify': False}
 
@@ -244,3 +245,11 @@ def test_delta_with_no_disk_changes_is_skipped(world, monkeypatch):
     assert len([k for k, _ in world.pc.jobs if k == 'backup']) == 1, 'no proxy job for an unchanged VM'
     assert list(world.hc.snaps) == ['snap-1'], 'the previous anchor is kept, the unneeded one removed'
     assert not world.hc.devices and world.db.chains[1]['next_seq'] == 1
+
+
+def test_https_proxy_without_pin_or_ca_is_refused():
+    pc = pcm.ProxyClient('https://10.0.0.5:8083', 't')
+    with pytest.raises(pcm.ProxyError, match='pinned'):
+        pc.health()
+    assert pcm.ProxyClient('https://10.0.0.5:8083', 't', tls_verify=True).fingerprint is None
+    assert pcm.ProxyClient('https://10.0.0.5:8083', 't', tls_fingerprint='AB:CD').fingerprint == 'abcd'

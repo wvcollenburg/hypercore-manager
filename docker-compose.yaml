@@ -393,6 +393,7 @@ services:
       - PROXY_NBD_SLOTS=${PROXY_NBD_SLOTS:-8}
       - PROXY_WRITERS=${PROXY_WRITERS:-4}
       - PROXY_HOST_NET=/host/sys/class/net
+      - PROXY_TLS=off          # inside the compose network; a remote proxy VM uses PROXY_TLS=auto (self-signed, pinned)
     volumes:
       - /dev:/dev
       - /sys:/host/sys:ro     # host interfaces (MAC addresses) for proxy identity; sysfs symlinks need the whole tree

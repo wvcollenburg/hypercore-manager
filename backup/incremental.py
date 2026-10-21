@@ -66,7 +66,9 @@ def pick_proxy(cluster_id: str) -> dict:
     if not candidates:
         raise IncrementalError('no enabled backup proxy with a known VM is registered for this cluster')
     candidates.sort(key=lambda p: (p.get('last_seen_at') or datetime.min.replace(tzinfo=timezone.utc)))
-    return db.get_proxy(candidates[0]['id'], with_secret=True)
+    chosen = candidates[0]
+    db.update_proxy(chosen['id'], last_seen_at=_now())          # rotate: the next job goes to another proxy
+    return db.get_proxy(chosen['id'], with_secret=True)
 
 
 def probe_proxy(proxy_id: int, hc: HyperCoreClient | None = None) -> dict:
@@ -74,6 +76,16 @@ def probe_proxy(proxy_id: int, hc: HyperCoreClient | None = None) -> dict:
     p = db.get_proxy(proxy_id, with_secret=True)
     if not p:
         raise IncrementalError('proxy not found')
+    if p['url'].startswith('https://') and not p.get('tls_fingerprint') and not p.get('tls_verify'):
+        # first contact: pin the certificate the proxy presents now (trust on first use)
+        try:
+            from proxy_client import certificate_fingerprint
+            fp = certificate_fingerprint(p['url'])
+            db.update_proxy(proxy_id, tls_fingerprint=fp)
+            p['tls_fingerprint'] = fp
+        except Exception as e:                      # noqa: BLE001
+            db.update_proxy(proxy_id, status='error', status_detail=f'could not read the proxy certificate: {e}')
+            return {'ok': False, 'error': f'could not read the proxy certificate: {e}'}
     try:
         ident = proxy_client_for(p).identity()
     except ProxyError as e:
@@ -81,6 +93,9 @@ def probe_proxy(proxy_id: int, hc: HyperCoreClient | None = None) -> dict:
         return {'ok': False, 'error': str(e)}
     fields = {'status': 'ok', 'status_detail': None, 'last_seen_at': _now(), 'version': ident.get('version'),
               'capabilities': ident.get('capabilities')}
+    if p.get('tls_fingerprint') and ident.get('tls_fingerprint') and ident['tls_fingerprint'] != p['tls_fingerprint']:
+        fields['status'] = 'error'
+        fields['status_detail'] = 'the proxy reports a different certificate than the one pinned; re-register it if it was reinstalled'
     detected = None
     macs = [m['mac'] for m in ident.get('macs', [])]
     if macs:

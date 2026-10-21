@@ -509,3 +509,23 @@ def test_iso_command_size_and_stream(flr, monkeypatch):
     data = b''.join(flr.mm.iter_iso(m.id, ['/disk1-p2/etc'], chunk=1024, popen=FakeProc))
     assert data == b'ISO' * 1000
     flr.mm.unmount(m.id)
+
+
+def test_self_signed_certificate_and_fingerprint(tmp_path):
+    import shutil
+    if not shutil.which('openssl'):
+        pytest.skip('openssl not installed')
+    sys.path.insert(0, _PROXY)
+    try:
+        saved = sys.modules.pop('tls', None); tlsm = __import__('importlib').import_module('tls')
+    finally:
+        sys.path.pop(0); sys.modules.pop('tls', None)
+        if saved: sys.modules['tls'] = saved
+    crt, key = tlsm.ensure_self_signed(str(tmp_path / 'tls'))
+    assert os.path.exists(crt) and os.path.exists(key) and (os.stat(key).st_mode & 0o777) == 0o600
+    fp = tlsm.fingerprint(crt); assert fp and len(fp) == 64
+    assert tlsm.ensure_self_signed(str(tmp_path / 'tls')) == (crt, key), 'kept across restarts'
+    cfg = P.config.Config(data_dir=str(tmp_path), tls='off'); assert tlsm.context_for(cfg) == (None, None)
+    cfg = P.config.Config(data_dir=str(tmp_path), tls='auto'); ctx, fp2 = tlsm.context_for(cfg); assert ctx == (crt, key) and fp2 == fp
+    with pytest.raises(RuntimeError):
+        tlsm.context_for(P.config.Config(data_dir=str(tmp_path), tls='cert', tls_cert='/nope.crt', tls_key='/nope.key'))

@@ -39,9 +39,10 @@ _REQUIRED = {
 }
 
 
-def create_app(cfg, engine, mounts=None) -> Flask:
+def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
     app = Flask('proxy.api')
     app.config['API_TOKEN'] = cfg.api_token
+    app.config['TLS_FINGERPRINT'] = tls_fingerprint
 
     def require_token(f):
         @wraps(f)
@@ -62,7 +63,9 @@ def create_app(cfg, engine, mounts=None) -> Flask:
     @require_token
     def ident():
         free = getattr(getattr(engine.backend, 'pool', None), 'free', None)
-        return jsonify(identity_mod.identity(cfg, engine.backend.name, free))
+        ident = identity_mod.identity(cfg, engine.backend.name, free)
+        ident['tls_fingerprint'] = app.config.get('TLS_FINGERPRINT')
+        return jsonify(ident)
 
     @app.post('/jobs/<kind>')
     @require_token
@@ -198,7 +201,7 @@ def create_app(cfg, engine, mounts=None) -> Flask:
     return app
 
 
-def start(app: Flask, port: int) -> None:
-    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=port, threaded=True, use_reloader=False),
+def start(app: Flask, port: int, ssl_context=None) -> None:
+    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=port, threaded=True, use_reloader=False, ssl_context=ssl_context),
                      name='proxy-api', daemon=True).start()
-    log.info('Proxy REST API started', extra={'port': port})
+    log.info('Proxy REST API started', extra={'port': port, 'tls': bool(ssl_context)})

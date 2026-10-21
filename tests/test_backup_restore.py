@@ -107,6 +107,7 @@ class _FakeDB:
     def get_share(self, sid, with_secret=False): return {'id': 9, 'uri_base': 'smb://nas/share', 'username': 'u', 'password': 'p'}
     def get_os_template(self, mt, prof): return None
     def update_restore(self, rid, **f): self.restore.update(f)
+    def update_proxy(self, pid, **f): pass
     def get_proxies(self, cid, enabled_only=False): return [{'id': 7, 'vm_uuid': 'proxy-vm', 'last_seen_at': None}]
     def get_proxy(self, pid, with_secret=False): return {'id': 7, 'name': 'px', 'url': 'http://px', 'token': 't', 'vm_uuid': 'proxy-vm', 'tls_fingerprint': None, 'tls_verify': False}
 
