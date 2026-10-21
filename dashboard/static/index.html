@@ -1024,7 +1024,7 @@
   <div class="nav-tab active" data-tab="infraviewer" onclick="switchTab('infraviewer')">Infraviewer</div>
   <div class="nav-tab" data-tab="clusterbalancer" onclick="switchTab('clusterbalancer')">Clusterbalancer</div>
   <div class="nav-tab" data-tab="sentinel" onclick="switchTab('sentinel')">Foresight</div>
-  <div class="nav-tab" data-tab="exports" data-i18n="nav.exports" onclick="switchTab('exports')" id="navTabExports" hidden>Exports</div>
+  <div class="nav-tab" data-tab="exports" data-i18n="nav.exports" onclick="switchTab('exports')" id="navTabExports" hidden>Backup</div>
   <a href="/logout" class="nav-logout" title="Sign out">⏻</a>
 </div>
 
@@ -1475,7 +1475,7 @@
   <!-- ─── Exports tab (optional `exports` profile) ─── -->
   <div class="tab-content" id="tab-exports">
     <div class="exports-sub-nav">
-      <div class="exports-sub-tab active" data-expanel="schedules" data-i18n="ex.tab.schedules" onclick="switchExportsPanel('schedules')">Schedules</div>
+      <div class="exports-sub-tab active" data-expanel="schedules" data-i18n="ex.tab.schedules" onclick="switchExportsPanel('schedules')">Plans</div>
       <div class="exports-sub-tab"        data-expanel="vms"       data-i18n="ex.tab.vms"       onclick="switchExportsPanel('vms')">VMs</div>
       <div class="exports-sub-tab"        data-expanel="import"    data-i18n="ex.tab.import"    onclick="switchExportsPanel('import')">Import</div>
       <div class="exports-sub-tab"        data-expanel="runs"      data-i18n="ex.tab.runs"      onclick="switchExportsPanel('runs')">Runs</div>
@@ -1494,7 +1494,7 @@
       <div class="settings-sub-tab active" data-setpanel="clusters" data-i18n="settings.tab.clusters" onclick="switchSettingsPanel('clusters')">Clusters</div>
       <div class="settings-sub-tab"        data-setpanel="tunables" data-i18n="settings.tab.tunables" onclick="switchSettingsPanel('tunables')">Tunables</div>
       <div class="settings-sub-tab"        data-setpanel="users"    data-i18n="settings.tab.users"    onclick="switchSettingsPanel('users')">Users</div>
-      <div class="settings-sub-tab"        data-setpanel="shares"   data-i18n="settings.tab.shares"   onclick="switchSettingsPanel('shares')">Shares</div>
+      <div class="settings-sub-tab"        data-setpanel="shares"   data-i18n="settings.tab.shares"   onclick="switchSettingsPanel('shares')">Targets</div>
     </div>
     <div id="settingsContent">
       <div class="settings-panel active" id="setpanel-clusters"><div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div></div>
