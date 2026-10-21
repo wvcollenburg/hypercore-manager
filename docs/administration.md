@@ -1,12 +1,12 @@
 # Administration guide
 
 Day-to-day administration of a HyperCore Manager installation: registering clusters, grouping
-them into folders, giving people access, and setting up shares for the Exports module. Everything
+them into folders, giving people access, and setting up targets for the Backup module. Everything
 here happens in the dashboard; nothing requires a restart or an `.env` change.
 
 Two roles exist. **Administrators** see every cluster and every panel described below.
 **Users** see the clusters in the folders they are members of, operate them (balancer settings,
-Foresight, exports, imports) and manage their own account; they do not see Settings or Modules.
+Foresight, backup plans, imports) and manage their own account; they do not see Settings or Modules.
 When authentication is disabled (`SC_DASHBOARD_USER` left blank), everyone is an administrator.
 
 ---
@@ -39,7 +39,7 @@ not set, add it to `.env` and restart the stack before registering anything.
 |---|---|
 | Monitoring, Foresight, dry-run balancing | read-only |
 | Live balancing | VM live-migration |
-| Exports and imports | VM export/import and snapshot (a read-only account gets a clear 403 on the first run) |
+| Backups and imports | Backup, Media Management, VM Create/Edit, VM Delete, VM Power Controls (a read-only account gets a clear 403 on the first run) |
 
 ### Disable, remove, duplicates
 
@@ -80,7 +80,7 @@ one folder; clusters in no folder appear under **No folder**, which only adminis
   the rail header.
 - The **cluster menu** ("…" on a cluster) moves it to another folder. The list is searchable and
   can create a new folder on the spot.
-- The **folder menu** ("…" on a folder) holds **Members**, **Export share**, **Rename** and
+- The **folder menu** ("…" on a folder) holds **Members**, **Backup target**, **Rename** and
   **Delete folder**.
 - The **rail search** matches folder names, cluster names and management addresses.
 
@@ -114,41 +114,42 @@ is seeded only once; manage accounts here afterwards.
 
 ---
 
-## Shares and exports
+## Targets and backups
 
-The Exports module (profile `exports` or `full`) needs somewhere to write. Administrators define
-shares centrally and attach them to folders; users never see a URI or a credential.
+The Backup module (profile `backup` or `full`) needs somewhere to write. Administrators define
+targets centrally (an SMB or NFS share with its credentials) and attach them to folders; users
+never see a URI or a credential.
 
-### Defining a share
+### Defining a target
 
-**Settings → Shares → Add share**:
+**Settings → Targets → Add target**:
 
 | Field | Meaning |
 |---|---|
 | Name | The alias users see, for example `Backup NAS` |
 | URI | `smb://host/share/path` or `nfs://host/export/path` |
 | Username, password | For SMB. `user`, `DOMAIN\user` and `user@domain` are all accepted |
-| Prune path | NFS only: where the export is mounted inside the `exports` container, so retention can delete old copies |
+| Prune path | NFS only: where the share is mounted inside the `backup` container, so retention can delete old copies |
 
 **Probe** (in the add/edit form) connects with the values typed so far and lists the directories
-it finds, before anything is saved. **Test** (on a saved share) does the same with the stored
-credentials. Both run from the exports container, so they prove what the scheduler will see.
+it finds, before anything is saved. **Test** (on a saved target) does the same with the stored
+credentials. Both run from the backup container, so they prove what the scheduler will see.
 
-### Assigning a share
+### Assigning a target
 
-From the folder menu in the rail, **Export share** picks one of the defined shares for that
-folder (or clears it). Every cluster in the folder exports there. The **No folder** group has the
-same menu; its share is flagged as the default for clusters without a folder.
+From the folder menu in the rail, **Backup target** picks one of the defined targets for that
+folder (or clears it). Every cluster in the folder backs up there. The **No folder** group has the
+same menu; its target is flagged as the default for clusters without a folder.
 
-One share for everyone or one per tenant are both fine. What differs is only the layout on the
+One target for everyone or one per tenant are both fine. What differs is only the layout on the
 share.
 
 ### Layout on the share
 
 ```
-<share>/
+<target>/
   <Folder name>/              folder name with spaces and odd characters replaced by "_"
-    <vm>_YYYYMMDD-HHMMSS/     one directory per export, created by HyperCore
+    <vm>_YYYYMMDD-HHMMSS/     one directory per copy, created by HyperCore
       <disk>.qcow2
       <vm>.xml
   no_folder/                  clusters that are in no folder
@@ -156,23 +157,24 @@ share.
 
 The tenant directory is created over SMB when missing (NFS: by the mount). Because the layout
 mirrors the folders, you can set per-tenant permissions on the share itself, and an import can
-only pick up exports from the cluster's own folder.
+only pick up copies from the cluster's own folder.
 
 ### What users do with it
 
-On the **Exports** tab for a cluster they can reach:
+On the **Backup** tab for a cluster they can reach:
 
-- **Schedules.** Pick a VM, copies to keep, daily run time (in `TZ`) and optional compression.
-  The destination is shown as `Share/Folder/vm_timestamp` and follows from the folder; it cannot
-  be typed in. **Run now** starts an export immediately.
-- **VMs.** Every VM on the cluster with its schedule state.
-- **Import.** Browse the folder's directory on the share, pick an export, optionally rename, and
+- **Plans.** Pick a VM, copies to keep, daily run time (in `TZ`) and optional compression. The
+  destination is shown as `Target/Folder/vm_timestamp` and follows from the folder; it cannot be
+  typed in. **Run now** starts a backup immediately.
+- **VMs.** Every VM on the cluster with its plan state.
+- **Import.** Browse the folder's directory on the target, pick a copy, optionally rename, and
   import into the selected cluster. A VM name that already exists is refused.
-- **Runs.** Export and import history with live progress from HyperCore. A run interrupted by a
+- **Runs.** Backup and import history with live progress from HyperCore. A run interrupted by a
   container restart is re-attached by its task tag.
 
-Retention runs after each successful export: copies of that VM beyond the retention count are
-deleted, oldest first; other VMs' directories are never touched.
+Retention runs after each successful backup: copies of that VM beyond the retention count are
+deleted, oldest first; other VMs' directories are never touched. Deleting a plan never deletes
+the copies already on the target.
 
 ---
 

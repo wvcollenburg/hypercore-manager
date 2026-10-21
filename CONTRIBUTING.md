@@ -58,7 +58,7 @@ docker compose --profile full up --build -d
 ```
 
 Then open http://localhost:5000 and register a cluster. Read-only cluster credentials are fine:
-every cluster starts in dry-run, and only exports need write rights.
+every cluster starts in dry-run, and only backups need write rights.
 
 On macOS, point `SC_REPO_PATH` at your checkout and `SC_SSH_KEY_PATH` at a directory that
 exists, because the dashboard container bind-mounts both for the in-app updater.

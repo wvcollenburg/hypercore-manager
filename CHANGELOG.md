@@ -30,17 +30,17 @@ release is tagged.
   suspends itself.
 - **Folders, users and roles.** A cluster rail with collapsible, colour-coded folders and a
   search box (folder, cluster name, address). Administrators see everything; users see the
-  folders they are members of. Folder menus move clusters, edit members and assign an export
+  folders they are members of. Folder menus move clusters, edit members and assign a backup
   share. Settings has sub-tabs (Clusters, Tunables, Users, Shares); the users panel searches,
   sorts A–Z or by folder, and edits a user's folders. Modules and Settings are admin-only and
   live in the rail footer; everyone gets an Account page. Breadcrumbs in the header.
-- **Exports module** (`exports` profile, port 8082): the former hypercore-export-manager,
+- **Backup module** (`backup` profile, port 8082; named Exports during development): the former hypercore-export-manager,
   rebuilt on the cluster registry and PostgreSQL. Daily VM exports to SMB or NFS in timestamped
   folders with retention pruning (SMB over the protocol, NFS via a mount), import into any
   registered cluster with a duplicate-name guard, live task progress, and re-attachment of runs
   interrupted by a restart. Dashboard tab with Schedules, VMs, Import and Runs per cluster.
 - **Shares managed by administrators** (Settings → Shares) and assigned per folder, so users
-  schedule exports and run imports without seeing paths or credentials. Exports are written
+  create backup plans and run imports without seeing paths or credentials. Copies are written
   under `<share>/<folder>/<vm>_<timestamp>/` and imports are scoped to the cluster's folder;
   spaces in folder names become underscores. Clusters without a folder use the share flagged
   as their default and the `no_folder` directory. Share usernames may be `user`, `DOMAIN\user`
@@ -61,8 +61,11 @@ release is tagged.
 - Dashboard shows a one-time community-support notice per user after login
   (migration `019_community_ack.sql`).
 - Data sharing with Foresight-Central is configured per registered cluster.
-- Dashboard, Balancer, Collector and Exports Python dependencies are pinned.
+- Dashboard, Balancer, Collector and Backup Python dependencies are pinned.
 - `TZ` in `.env` sets the timezone for scheduled jobs and log timestamps.
+- The module is called **Backup** everywhere (tab, `backup` container and profile, `/api/backup`,
+  `BACKUP_*` variables, schema `backup` with `targets` and `plans`); `EXPORTS_*` variables and the
+  `exports` profile keep working for one release. Migration `025_backup_rename.sql`.
 
 ### Removed
 - Windows Deploy Wizard and the cloud-init provisioning path. Use Docker Compose or `install.py`.

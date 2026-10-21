@@ -10,7 +10,7 @@ HyperCore Manager is a containerized stack that automatically distributes virtua
 
 One installation manages any number of HyperCore clusters. Clusters are registered in the dashboard, grouped into folders, and shown to each user according to the folders they belong to, so a service provider can run one stack for all its customers.
 
-The optional **Foresight** module extends the platform with long-range capacity intelligence: multi-horizon forecasting, VM right-sizing recommendations, cluster health scoring, scenario modelling, and data sharing with a central capacity viewer. The optional **Exports** module schedules VM exports to SMB or NFS shares, with retention and import back into any registered cluster.
+The optional **Foresight** module extends the platform with long-range capacity intelligence: multi-horizon forecasting, VM right-sizing recommendations, cluster health scoring, scenario modelling, and data sharing with a central capacity viewer. The optional **Backup** module schedules VM backups to SMB or NFS targets, with retention and import back into any registered cluster.
 
 ---
 
@@ -30,7 +30,7 @@ The optional **Foresight** module extends the platform with long-range capacity 
 - **Multi-language UI** — English, Dutch, French, and German, selectable from the dashboard header.
 - **User Authentication** — Username/password login with optional per-user TOTP (one-time password) two-factor. Auth can be disabled for local/dev use by leaving the dashboard credentials blank.
 - **In-app Updater** — Detects new tagged releases on origin and applies them in place with one click; database migrations ship and apply automatically with the release that needs them.
-- **Exports (optional `exports` profile)** — Daily VM exports to an SMB or NFS share in timestamped folders with retention pruning, plus VM import back into any registered cluster. Administrators define shares once and assign them to folders; users schedule exports and run imports without ever seeing a path or a credential. The share layout mirrors the folders. Progress comes from HyperCore's task API and interrupted runs re-attach after a restart.
+- **Backup (optional `backup` profile)** — Daily VM backups to an SMB or NFS target in timestamped folders with retention pruning, plus VM import back into any registered cluster. Administrators define targets once and assign them to folders; users create backup plans and run imports without ever seeing a path or a credential. The share layout mirrors the folders. Progress comes from HyperCore's task API and interrupted runs re-attach after a restart.
 - **Metrics Collection** — Comprehensive HyperCore telemetry (node performance, VM stats, drive health, VSD I/O, replication, cluster conditions) stored in InfluxDB with automatic downsampling.
 
 ### Foresight (Optional — `sentinel` profile)
@@ -55,9 +55,9 @@ The optional **Foresight** module extends the platform with long-range capacity 
                  ┌──────────┐ ┌──────────┐ ┌──────────┐
                  │ cluster A│ │ cluster B│ │ cluster C│ ...   REST API v1
                  └────▲─────┘ └────▲─────┘ └────▲─────┘
-        polls 30s     │ live migrations │   export / import tasks
+        polls 30s     │ live migrations │   backup / import tasks
    ┌──────────────────┼────────────────┼────────────────┼──────────────────┐
-   │  Collector       │   Balancer     │   Exports      │   Sentinel       │
+   │  Collector       │   Balancer     │   Backup       │   Sentinel       │
    │  one worker      │   one engine   │   scheduler    │   one analysis   │
    │  thread/cluster  │   per cluster  │   + REST 8082  │   engine/cluster │
    └───────┬──────────┴───────┬────────┴───────┬────────┴────────┬─────────┘
@@ -70,7 +70,7 @@ The optional **Foresight** module extends the platform with long-range capacity 
            │                                      │
    ┌───────┴──────────────────────────────────────┴────────────────────────┐
    │  Dashboard (port 5000): cluster rail with folders, Infraviewer,       │
-   │  Clusterbalancer, Foresight, Exports, Settings, in-app updater        │
+   │  Clusterbalancer, Foresight, Backup, Settings, in-app updater         │
    └───────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -84,9 +84,9 @@ so clusters can be added, disabled or removed independently.
 | **Balancer**   | Decision engine — affinity, reactive, and predictive modes               |
 | **InfluxDB**   | Time-series metrics storage with 1-year detailed + 5-year long-term retention |
 | **PostgreSQL** | Config store and Foresight conclusions database                      |
-| **Dashboard**  | Web UI: cluster rail, monitoring, live configuration, users and folders, Foresight, Exports |
+| **Dashboard**  | Web UI: cluster rail, monitoring, live configuration, users and folders, Foresight, Backup |
 | **Sentinel**   | *(optional)* Foresight capacity analysis, forecasting, and REST API  |
-| **Exports**    | *(optional)* Scheduled VM exports to SMB/NFS, retention pruning, VM imports |
+| **Backup**     | *(optional)* Scheduled VM backups to SMB/NFS targets, retention pruning, VM imports |
 | **Grafana**    | *(optional)* Advanced metrics exploration                                |
 
 ---
@@ -144,11 +144,11 @@ The installer also detects whether Compose v2 is present on the host and warns i
 # Core stack + Sentinel capacity analysis
 docker compose --profile sentinel up --build -d
 
-# Core stack + Sentinel + Exports (the `full` profile covers both; Grafana is the `tools` profile)
+# Core stack + Sentinel + Backup (the `full` profile covers both; Grafana is the `tools` profile)
 docker compose --profile full --profile tools up --build -d
 
-# Core stack + Exports only
-docker compose --profile exports up --build -d
+# Core stack + Backup only
+docker compose --profile backup up --build -d
 
 # Grafana only (without Sentinel)
 docker compose --profile tools up --build -d
@@ -250,15 +250,15 @@ The left-hand **cluster rail** lists folders and clusters (collapsible, colour-c
 | **Infraviewer** | Node CPU/RAM history, drive health and temperature, VM metrics, VSD read/write I/O | everyone (own folders) |
 | **Clusterbalancer** | Migration event log (last 7 days), reactive and predictive engine settings | everyone (own folders) |
 | **Foresight** | Capacity forecasts, right-sizing recommendations, cluster health, reports, what-if modelling, live Sentinel tunables, data sharing — requires `sentinel` or `full` profile | everyone (own folders) |
-| **Exports** | Schedules, exportable VMs, imports and run history for the selected cluster — requires `exports` or `full` profile | folder members |
+| **Backup** | Backup plans, VMs, imports and run history for the selected cluster — requires `backup` or `full` profile | folder members |
 | **Modules** | Auto-discovered InfluxDB measurements for ad-hoc data exploration | admins |
-| **Settings** | Clusters, Tunables (per cluster / Defaults / all), Users, Shares | admins |
+| **Settings** | Clusters, Tunables (per cluster / Defaults / all), Users, Targets | admins |
 | **Account** | Own password and TOTP two-factor | everyone |
 
 Users have one of two roles. **Administrators** see every cluster and manage clusters, folders,
 users and shares. **Users** see the clusters in the folders they are members of and can operate
-them (settings, exports, imports) but cannot manage the installation. Folder menus in the rail
-(the "…" button) move clusters between folders, edit members and assign an export share. See
+them (settings, backup plans, imports) but cannot manage the installation. Folder menus in the rail
+(the "…" button) move clusters between folders, edit members and assign a backup target. See
 [docs/administration.md](docs/administration.md) for the full walkthrough.
 
 To run without authentication (local/dev), leave `SC_DASHBOARD_USER` blank in `.env`; everyone is then an administrator.
@@ -307,39 +307,41 @@ The central viewer that receives these snapshots is a separate deployment:
 
 ---
 
-## Exports
+## Backup
 
-The optional `exports` container schedules VM exports and runs imports, driven from the
-**Exports** tab (shown only when the container is running).
+The optional `backup` container (profile `backup` or `full`) schedules VM backups and runs
+imports, driven from the **Backup** tab (shown only when the container is running). The current
+release backs up through HyperCore's native export; proxy-based incremental backups are the next
+step on the roadmap.
 
-- **Shares (admin).** Settings → Shares holds the share URIs (`smb://nas.local/share/path` or
-  `nfs://nas.local/export/path`) and their credentials, stored encrypted. A share is assigned to a
-  folder from the folder's menu in the rail: one share for everyone, or one per tenant, as you
-  prefer. Users never see a path or a password.
-- **Schedules.** Per VM: copies to keep, daily run time (in `TZ`), optional qcow2 compression.
-  The destination follows from the cluster's folder. Every run exports to
-  `<destination>/<folder name>/<vm-name>_YYYYMMDD-HHMMSS/`: the share mirrors your HyperCore
-  Manager folders, so an MSP can set per-tenant permissions on the share and an import can only
-  pick up exports from the cluster's own folder. The tenant folder is created over SMB when
-  missing; HyperCore creates the VM folder itself. Spaces in folder names become underscores on
-  the share. Clusters without a folder use `no_folder` and the share flagged as default for them
-  (the "No folder" group in the rail has the same Export share menu).
-- **Retention.** After a successful export, older copies of that VM beyond the retention count
-  are deleted, oldest first. SMB shares are pruned over the protocol with the stored credentials;
-  for NFS, bind-mount the share into the `exports` container and set the prune path on the
-  share. Other VMs' folders are never touched.
-- **Imports.** Browse the folder's share subtree, pick an export folder, optionally rename, and
-  import into the selected cluster. A name that already exists on the target is refused.
-- **Who may do what.** Members of a folder schedule exports and run imports for its clusters;
-  administrators manage shares and the folder assignment.
-- **Runs.** Export and import history with live progress from HyperCore's task API. A run
+- **Targets (admin).** Settings → Targets holds the share URIs (`smb://nas.local/share/path` or
+  `nfs://nas.local/export/path`) and their credentials, stored encrypted. A target is assigned to a
+  folder from the folder's menu in the rail: one target for everyone, or one per tenant, as you
+  prefer. Users never see a path or a password; a location is shown as `Target / Folder / vm`.
+- **Plans.** Per VM: copies to keep, daily run time (in `TZ`), optional qcow2 compression. The
+  destination follows from the cluster's folder. Every run writes to
+  `<target>/<folder name>/<vm-name>_YYYYMMDD-HHMMSS/`: the share mirrors your HyperCore Manager
+  folders, so an MSP can set per-tenant permissions on the share and an import can only pick up
+  copies from the cluster's own folder. The tenant folder is created over SMB when missing;
+  HyperCore creates the VM folder itself. Spaces in folder names become underscores on the share.
+  Clusters without a folder use `no_folder` and the target flagged as default for them (the "No
+  folder" group in the rail has the same Backup target menu).
+- **Retention.** After a successful run, older copies of that VM beyond the retention count are
+  deleted, oldest first. SMB targets are pruned over the protocol with the stored credentials; for
+  NFS, bind-mount the share into the `backup` container and set the prune path on the target.
+  Other VMs' folders are never touched.
+- **Imports.** Browse the folder's subtree on the target, pick a copy, optionally rename, and
+  import into the selected cluster. A name that already exists on the target cluster is refused.
+- **Who may do what.** Members of a folder create plans and run imports for its clusters;
+  administrators manage targets and the folder assignment.
+- **Runs.** Backup and import history with live progress from HyperCore's task API. A run
   interrupted by a container restart is re-attached by its task tag.
-- **Rights.** The cluster account registered in Settings → Clusters needs HyperCore permission to
-  export and import VMs; a read-only account gives a clear 403 on the first run. Share usernames
-  may be `user`, `DOMAIN\user` or `user@domain`.
+- **Rights.** The cluster account registered in Settings → Clusters needs the HyperCore rights
+  Backup, Media Management, VM Create/Edit, VM Delete and VM Power Controls; a read-only account
+  gives a clear 403 on the first run. Share usernames may be `user`, `DOMAIN\user` or `user@domain`.
 - **Share access from a laptop stack** works over SMB without any mount (userland client).
 
-Administration details (shares, folder assignment, rights) are in
+Administration details (targets, folder assignment, rights) are in
 [docs/administration.md](docs/administration.md).
 
 ## Updates
@@ -373,7 +375,7 @@ The entire stack runs fully offline once images are built. No outbound connectio
 
 The core stack (Collector, Balancer, Dashboard, InfluxDB, PostgreSQL) is lightweight. Foresight (Sentinel) adds significant memory during analysis cycles due to time-series data processing; it releases memory immediately after each cycle.
 
-Sizing is by the **total number of VMs across all registered clusters**: each service runs one worker per cluster inside the same container, so ten clusters of 20 VMs behave like one cluster of 200. Raise the `memory:` limits of `balancer` and `sentinel` in `docker-compose.yaml` accordingly; the collector and exports containers stay small.
+Sizing is by the **total number of VMs across all registered clusters**: each service runs one worker per cluster inside the same container, so ten clusters of 20 VMs behave like one cluster of 200. Raise the `memory:` limits of `balancer` and `sentinel` in `docker-compose.yaml` accordingly; the collector and backup containers stay small.
 
 ### Core Stack
 
@@ -439,7 +441,7 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 ├── tests/                           # pytest suite (unit + optional integration)
 ├── .github/                         # CI workflow and issue templates
 ├── docs/
-│   ├── administration.md            # Clusters, folders, users, shares, exports: the admin guide
+│   ├── administration.md            # Clusters, folders, users, targets, backup: the admin guide
 │   ├── phase4-data-sharing.md       # Data sharing setup guide
 │   ├── hypercore-openapi-v1.json    # HyperCore REST v1 spec (contract-tested)
 │   └── hypercore-openapi-v2.json    # HyperCore REST v2 spec (experimental)
@@ -471,14 +473,15 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 │   └── static/
 │       ├── index.html               # Single-page dashboard
 │       └── lang/                    # English, Dutch, French, German translations
-├── exports/
+├── backup/
 │   ├── Dockerfile
-│   ├── exports.py                   # Entry point — scheduler + REST API (port 8082)
-│   ├── jobs.py                      # Export/import jobs, share layout, SMB pruning, restart recovery
-│   ├── scheduler.py                 # APScheduler wiring (daily cron per schedule)
+│   ├── backup.py                    # Entry point — scheduler + REST API (port 8082)
+│   ├── jobs.py                      # Backup/import jobs, share layout, SMB pruning, restart recovery
+│   ├── scheduler.py                 # APScheduler wiring (daily cron per plan)
 │   ├── api.py                       # REST API proxied by the dashboard
 │   ├── hypercore.py                 # HyperCore export/import/task calls
-│   └── db.py                        # PostgreSQL schema `exports` (schedules, runs, imports, shares)
+│   ├── vm_definition.py             # libvirt XML generated from the VM record (templates in vm_definitions/)
+│   └── db.py                        # PostgreSQL schema `backup` (plans, runs, imports, targets)
 └── sentinel/
     ├── Dockerfile
     ├── requirements.txt
@@ -496,7 +499,7 @@ Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
 | Document | Contents |
 |----------|----------|
 | [DEPLOY.md](DEPLOY.md) | Prerequisites, environment variables, security hardening, backup/restore, upgrade procedure (including from 0.9.x), health checks, troubleshooting |
-| [docs/administration.md](docs/administration.md) | Day-to-day administration: registering clusters, folders and members, users and roles, shares and export layout |
+| [docs/administration.md](docs/administration.md) | Day-to-day administration: registering clusters, folders and members, users and roles, backup targets and layout |
 | [docs/phase4-data-sharing.md](docs/phase4-data-sharing.md) | Data sharing setup: enrollment, anonymisation, `.hcb` file format, troubleshooting |
 | [docs/hypercore-openapi-v1.json](docs/hypercore-openapi-v1.json) | Scale Computing HyperCore REST API v1 OpenAPI spec (the API every service uses); `tests/test_hypercore_spec_contract.py` checks our calls against it |
 | [docs/hypercore-openapi-v2.json](docs/hypercore-openapi-v2.json) | HyperCore REST API v2 (experimental) spec; adds task listing used for the planned activity feed |
