@@ -217,6 +217,11 @@ HyperCore refuses to start a VM whose MAC address is in use by a running VM), wh
 connect the network interfaces, and whether to start the VM. A restore whose start was refused
 is still complete: the VM exists and the entry under **Runs** says why it was not started.
 
+The vTPM travels with the backup: its state is captured with every point and imported with the
+restored VM, so keys sealed in it (BitLocker with a TPM protector, LUKS with systemd-cryptenroll)
+unseal on the copy without a recovery key. Verified with a TPM-sealed LUKS key bound to PCR 7:
+the restored VM reported the same endorsement key and PCR values and unlocked the volume.
+
 What happens: a diskless definition (generated from the stored VM record, with the NVRAM and
 vTPM state of the point) is imported in seconds; the proxy then writes each data disk into a
 staging disk at full speed and HyperCore clones the staging disks onto the restored VM. The
