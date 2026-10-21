@@ -34,6 +34,14 @@ def main() -> None:
     mounter = targets.Mounter(cfg.data_dir)
     engine = jobs.Engine(cfg, backend, mounter)
     mounts = mounts_mod.MountManager(cfg, backend, mounter)
+    # A previous container life may have been stopped while images were attached or a point was
+    # mounted; the kernel keeps such nbd/dm/loop devices and they refuse I/O until cleared.
+    if hasattr(backend, 'reset_all'):
+        logger.info('nbd slots reset', extra={'disconnected': backend.reset_all(), 'slots': cfg.nbd_slots})
+    try:
+        logger.info('leftover mounts cleaned', extra=mounts.cleanup_leftovers())
+    except Exception:                               # noqa: BLE001
+        logger.exception('leftover cleanup failed')
     ssl_ctx, fp = tls.context_for(cfg)
     app = api.create_app(cfg, engine, mounts, tls_fingerprint=fp)
 

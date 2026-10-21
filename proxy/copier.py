@@ -62,6 +62,19 @@ def _chunks(intervals: list[dict], max_blocks: int = 64):
             lo += n
 
 
+def size_of(path: str) -> int:
+    """Byte size of a file or block device, 0 when it does not exist. The descriptor is closed
+    again: an open descriptor on /dev/nbdN keeps the kernel's nbd configuration alive, and a
+    configuration that outlives its qemu-nbd answers every later request with EIO."""
+    if not os.path.exists(path):
+        return 0
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        return os.lseek(fd, 0, os.SEEK_END)
+    finally:
+        os.close(fd)
+
+
 def copy_intervals(src: str, dst: str, intervals: list[dict], *, writers: int = 4,
                    progress: Callable[[int, int], None] | None = None,
                    cancelled: Callable[[], bool] | None = None) -> int:
@@ -70,8 +83,7 @@ def copy_intervals(src: str, dst: str, intervals: list[dict], *, writers: int = 
     Returns the number of bytes written (holes count). Raises RuntimeError when cancelled.
     """
     total = blocks_in(intervals) * MiB
-    src_size = os.lseek(os.open(src, os.O_RDONLY), 0, os.SEEK_END) if os.path.exists(src) else 0
-    dst_size = os.lseek(os.open(dst, os.O_RDONLY), 0, os.SEEK_END) if os.path.exists(dst) else 0
+    src_size, dst_size = size_of(src), size_of(dst)
     done = 0
     lock = threading.Lock()
     stop = threading.Event()

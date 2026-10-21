@@ -356,6 +356,33 @@ class MountManager:
         for mid in list(self.mounts):
             self.unmount(mid)
 
+    def cleanup_leftovers(self) -> dict:
+        """Undo what a previous container life left behind when it was stopped while a point was
+        mounted: filesystems mounted under our directory, hcmflr volume groups, hcmflr-* snapshot
+        devices and the loop devices under them. Best effort, in teardown order."""
+        n = {'mounts': 0, 'vgs': 0, 'dm': 0, 'loops': 0}
+        try:
+            with open('/proc/mounts') as fh:
+                mps = [ln.split()[1] for ln in fh if len(ln.split()) > 1 and ln.split()[1].startswith(self.base + '/')]
+        except OSError:
+            mps = []
+        for mp in sorted(mps, key=len, reverse=True):
+            _run(['umount', mp], check=False, run=self.run); n['mounts'] += 1
+        for vg in _run(['vgs', '--noheadings', '-o', 'vg_name'], check=False, run=self.run).split():
+            if vg.startswith('hcmflr'):
+                _run(['vgchange', '-an', vg], check=False, run=self.run); n['vgs'] += 1
+        for line in _run(['dmsetup', 'ls'], check=False, run=self.run).splitlines():
+            name = line.split()[0] if line.split() else ''
+            if name.startswith('hcmflr-'):
+                _run(['dmsetup', 'remove', '--noudevsync', '--retry', name], check=False, run=self.run); n['dm'] += 1
+        for line in _run(['losetup', '-a'], check=False, run=self.run).splitlines():
+            dev = line.split(':')[0]
+            if dev.startswith('/dev/loop') and (self.base in line or '(/dev/nbd' in line):
+                _run(['losetup', '-d', dev], check=False, run=self.run); n['loops'] += 1
+        for d in os.listdir(self.base) if os.path.isdir(self.base) else []:
+            shutil.rmtree(os.path.join(self.base, d), ignore_errors=True)
+        return n
+
 
 class _StreamBuffer(io.RawIOBase):
     """A write sink for ZipFile whose content is drained in chunks by a generator."""

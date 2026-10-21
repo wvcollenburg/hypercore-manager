@@ -529,3 +529,70 @@ def test_self_signed_certificate_and_fingerprint(tmp_path):
     cfg = P.config.Config(data_dir=str(tmp_path), tls='auto'); ctx, fp2 = tlsm.context_for(cfg); assert ctx == (crt, key) and fp2 == fp
     with pytest.raises(RuntimeError):
         tlsm.context_for(P.config.Config(data_dir=str(tmp_path), tls='cert', tls_cert='/nope.crt', tls_key='/nope.key'))
+
+
+# ---------------------------------------------------------------- stale nbd state (lab incident 2026-10-21)
+def test_copy_intervals_closes_every_descriptor(tmp_path):
+    src = tmp_path / 'src'; dst = tmp_path / 'dst'
+    src.write_bytes(os.urandom(2 << 20)); dst.write_bytes(b'\0' * (2 << 20))
+    before = len(os.listdir('/dev/fd'))
+    for _ in range(5):
+        P.copier.copy_intervals(str(src), str(dst), [{'lower': 0, 'upper': 1}], writers=2)
+    assert len(os.listdir('/dev/fd')) == before       # the size probes used to leak one descriptor per call
+    assert P.copier.size_of(str(src)) == 2 << 20 and P.copier.size_of(str(tmp_path / 'missing')) == 0
+
+
+def test_nbd_backend_retires_a_slot_that_refuses_io(tmp_path, monkeypatch):
+    pool = P.images.NbdPool(3, dev_dir=str(tmp_path))
+    be = P.images.NbdBackend(pool)
+    calls = []
+    monkeypatch.setattr(be, '_connect', lambda slot, path, ro: calls.append(('connect', slot)))
+    monkeypatch.setattr(be, '_disconnect', lambda slot, strict: calls.append(('disconnect', slot, strict)))
+    bad = {f'{tmp_path}/nbd0', f'{tmp_path}/nbd1'}
+
+    def probe(slot):
+        if slot in bad:
+            raise OSError(5, 'Input/output error')
+    monkeypatch.setattr(be, '_probe', probe)
+    with be._attached('img.qcow2', False) as slot:
+        assert slot == f'{tmp_path}/nbd2'
+    assert pool.retired == [f'{tmp_path}/nbd0', f'{tmp_path}/nbd1'] and pool.free == 1
+    assert ('disconnect', f'{tmp_path}/nbd0', False) in calls and ('disconnect', f'{tmp_path}/nbd2', True) in calls
+    bad.add(f'{tmp_path}/nbd2')
+    with pytest.raises(RuntimeError, match='every nbd slot'):
+        with be._attached('img.qcow2', False):
+            pass
+    with pytest.raises(RuntimeError, match='retired'):
+        pool.acquire()
+
+
+def test_nbd_backend_releases_slot_when_connect_fails(tmp_path, monkeypatch):
+    pool = P.images.NbdPool(1, dev_dir=str(tmp_path))
+    be = P.images.NbdBackend(pool)
+
+    def boom(slot, path, ro):
+        raise RuntimeError('qemu-nbd failed')
+    monkeypatch.setattr(be, '_connect', boom)
+    with pytest.raises(RuntimeError, match='qemu-nbd'):
+        with be._attached('img.qcow2', False):
+            pass
+    assert pool.free == 1 and not pool.retired
+
+
+def test_mount_manager_cleans_leftovers_of_a_previous_life(tmp_path):
+    cfg = types.SimpleNamespace(data_dir=str(tmp_path))
+    base = str(tmp_path / 'flr')
+    outputs = {'vgs': ' hcmflr12ab \n ubuntu-vg\n', 'dmsetup': 'hcmflr-12ab-sda2\t(252:3)\nubuntu--vg-ubuntu--lv\t(252:0)\n',
+               'losetup': f'/dev/loop7: []: (/dev/nbd3), offset 1048576\n/dev/loop8: [64512]:17 ({base}/12ab/cow-sda2)\n/dev/loop0: [64512]:1 (/var/lib/snapd/x.snap)\n'}
+    cmds = []
+
+    def run(cmd, capture_output=True, text=True, timeout=600):
+        cmds.append(cmd)
+        return types.SimpleNamespace(returncode=0, stdout=outputs.get(cmd[0], ''), stderr='')
+    mm = P.mounts.MountManager(cfg, P.images.FileBackend(), types.SimpleNamespace(release=lambda u: None), run=run)
+    os.makedirs(os.path.join(base, '12ab', 'mnt'), exist_ok=True)
+    n = mm.cleanup_leftovers()
+    assert n['vgs'] == 1 and n['dm'] == 1 and n['loops'] == 2
+    assert ['vgchange', '-an', 'hcmflr12ab'] in cmds and ['dmsetup', 'remove', '--noudevsync', '--retry', 'hcmflr-12ab-sda2'] in cmds
+    assert ['losetup', '-d', '/dev/loop7'] in cmds and ['losetup', '-d', '/dev/loop8'] in cmds and ['losetup', '-d', '/dev/loop0'] not in cmds
+    assert not os.path.exists(os.path.join(base, '12ab'))

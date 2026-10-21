@@ -147,6 +147,10 @@ Requirements on the host that runs the proxy container:
 - The proxy VM must **not** be on a HyperCore snapshot schedule: a VM with read-only clones
   attached cannot be snapshotted, so scheduled snapshots would fail while a backup runs.
 - `PROXY_API_TOKEN` set in `.env`; the backup service presents it on every job.
+- Nothing else on that host may use `/dev/nbd*`: at start the container disconnects every nbd
+  slot and removes leftover file-recovery devices (`hcmflr-*`) of a previous container life. A
+  slot the kernel left in a broken state after an unclean stop is detected on first use and
+  retired until the container restarts.
 
 The HyperCore account registered for the cluster needs the rights Backup, Media Management,
 VM Create/Edit, VM Delete and VM Power Controls.
