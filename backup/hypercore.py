@@ -6,6 +6,10 @@ export polls. Credentials come from the cluster registry.
 """
 from __future__ import annotations
 
+import atexit
+import threading
+import time
+
 import requests
 import urllib3
 
@@ -28,19 +32,104 @@ def _vm_sort_key(vm: dict):
     return (tag == '', tag, name)
 
 
+# ------------------------------------------------------------------ sessions
+# One HyperCore login session per (cluster, account), shared by every client instance in this
+# process. HyperCore opens and closes a session for each basic-auth request and counts the logins
+# against an hourly limit, so the service logs in once, reuses the cookie until the cluster says
+# 401, and renews it on its own every SESSION_MAX_AGE seconds (a logout followed by a login) to
+# keep the session list on the cluster clean. Everything is logged out at process exit.
+SESSION_MAX_AGE = 6 * 3600
+
+
+class _Session:
+    def __init__(self, base: str, username: str, password: str, verify: bool):
+        self.base, self.username, self.password, self.verify = base, username, password, verify
+        self.http = requests.Session()
+        self.http.verify = verify
+        self.logged_in_at = 0.0
+        self.lock = threading.Lock()
+
+    def login(self, timeout: float = 30) -> None:
+        self.http.cookies.clear()
+        try:
+            r = self.http.post(f'{self.base}/login', json={'username': self.username, 'password': self.password}, timeout=timeout)
+        except requests.exceptions.RequestException as e:
+            raise HyperCoreError(f'Cannot reach {self.base}: {e}') from e
+        if r.status_code == 401:
+            raise HyperCoreError('Authentication failed (401): check the cluster credentials')
+        if not r.ok:
+            raise HyperCoreError(f'HyperCore login failed ({r.status_code}): {r.text[:200]}')
+        self.logged_in_at = time.monotonic()
+
+    def logout(self) -> None:
+        if not self.logged_in_at:
+            return
+        try:
+            self.http.post(f'{self.base}/logout', timeout=10)
+        except requests.exceptions.RequestException:
+            pass
+        self.http.cookies.clear()
+        self.logged_in_at = 0.0
+
+    def ensure(self) -> None:
+        """Logged in, and not older than SESSION_MAX_AGE."""
+        with self.lock:
+            if self.logged_in_at and time.monotonic() - self.logged_in_at > SESSION_MAX_AGE:
+                self.logout()
+            if not self.logged_in_at:
+                self.login()
+
+
+_SESSIONS: dict[tuple[str, str], _Session] = {}
+_SESSIONS_LOCK = threading.Lock()
+
+
+def session_for(base: str, username: str, password: str, verify: bool) -> _Session:
+    key = (base, username)
+    with _SESSIONS_LOCK:
+        sess = _SESSIONS.get(key)
+        if sess and (sess.password != password or sess.verify != verify):     # credentials changed: start over
+            sess.logout()
+            sess = None
+        if sess is None:
+            sess = _SESSIONS[key] = _Session(base, username, password, verify)
+    return sess
+
+
+def logout_all() -> None:
+    with _SESSIONS_LOCK:
+        for sess in _SESSIONS.values():
+            sess.logout()
+        _SESSIONS.clear()
+
+
+atexit.register(logout_all)
+
+
 class HyperCoreClient:
     def __init__(self, host: str, username: str, password: str, verify_tls: bool = True, timeout: int = 30):
         self.base = cluster_registry.base_url(host)
-        self.auth = (username, password)
         self.verify = verify_tls
         self.timeout = timeout
+        self.session = session_for(self.base, username, password, verify_tls)
         if not verify_tls:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+    def http(self) -> requests.Session:
+        """The logged-in requests session, for calls that stream a body (no retry possible)."""
+        self.session.ensure()
+        return self.session.http
+
     def _request(self, method: str, path: str, **kwargs):
         url = f'{self.base}{path}'
+        timeout = kwargs.pop('timeout', self.timeout)
         try:
-            resp = requests.request(method, url, auth=self.auth, verify=self.verify, timeout=self.timeout, **kwargs)
+            resp = self.http().request(method, url, timeout=timeout, **kwargs)
+            if resp.status_code == 401:                       # session expired or revoked: log in once more
+                with self.session.lock:
+                    self.session.logout()
+                    self.session.login()
+                resp = self.session.http.request(method, url, timeout=timeout, **kwargs)
         except requests.exceptions.SSLError as e:
             raise HyperCoreError(f'TLS error talking to {url}: {e}') from e
         except requests.exceptions.ConnectionError as e:
@@ -231,11 +320,10 @@ class HyperCoreIncrementalMixin:
         """PUT the image data; `stream` yields bytes and must total exactly `size`. The body is sent
         with a plain Content-Length (HyperCore's nginx rejects chunked uploads), so the iterable is
         wrapped in a file-like reader that knows its length."""
-        import requests
         url = f'{self.base}/ISO/{iso_uuid}/data'
         try:
-            resp = requests.put(url, data=LengthStream(stream, size), auth=self.auth, verify=self.verify, timeout=(30, 3600),
-                                headers={'Content-Type': 'application/octet-stream'})
+            resp = self.http().put(url, data=LengthStream(stream, size), timeout=(30, 3600),
+                                   headers={'Content-Type': 'application/octet-stream'})
         except requests.exceptions.RequestException as e:
             raise HyperCoreError(f'ISO upload failed: {e}') from e
         if not resp.ok:

@@ -546,3 +546,33 @@ def update_restore(restore_id: int, **fields) -> None:
 
 def get_active_restores() -> list[dict]:
     return _all("SELECT * FROM backup.restores WHERE status = 'RUNNING' ORDER BY id")
+
+
+# ---------------------------------------------------------------- deployments
+def add_deployment(cluster_id: str, name: str, params: dict, requested_by: str | None = None) -> int:
+    return _one('INSERT INTO backup.deployments (cluster_id, name, params, requested_by) VALUES (%s,%s,%s,%s) RETURNING id',
+                (cluster_id, name, _json(params), requested_by))['id']
+
+
+def get_deployment(dep_id: int) -> Optional[dict]:
+    r = _one('SELECT * FROM backup.deployments WHERE id = %s', (dep_id,))
+    if r:
+        r['cluster_id'] = str(r['cluster_id'])
+    return r
+
+
+def get_deployments(cluster_id: Optional[str] = None, limit: int = 20) -> list[dict]:
+    sql = 'SELECT d.*, d.cluster_id::text AS cluster_id, c.cluster_name FROM backup.deployments d JOIN config.clusters c ON c.cluster_id = d.cluster_id'
+    params: list[Any] = []
+    if cluster_id:
+        sql += ' WHERE d.cluster_id = %s'; params.append(cluster_id)
+    sql += ' ORDER BY d.id DESC LIMIT %s'; params.append(limit)
+    return _all(sql, params)
+
+
+def update_deployment(dep_id: int, **fields) -> None:
+    allowed = {'status', 'message', 'vm_uuid', 'proxy_id', 'finished_at'}
+    items = [(k, v) for k, v in fields.items() if k in allowed]
+    if not items:
+        return
+    _exec(f'UPDATE backup.deployments SET {", ".join(f"{k} = %s" for k, _ in items)} WHERE id = %s', [v for _, v in items] + [dep_id])

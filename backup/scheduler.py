@@ -54,6 +54,11 @@ def run_iso_delivery(restore_id: int) -> None:
     _scheduler.add_job(flr.deliver_iso, args=[restore_id], id=f'iso-{restore_id}', replace_existing=True)
 
 
+def run_deployment(dep_id: int) -> None:
+    import deploy
+    _scheduler.add_job(deploy.run_deployment, args=[dep_id], id=f'deploy-{dep_id}', replace_existing=True)
+
+
 def run_import(import_id: int) -> None:
     _scheduler.add_job(jobs.run_import, args=[import_id], id=f'import-{import_id}', replace_existing=True)
 
@@ -74,6 +79,9 @@ def reconcile_interrupted() -> None:
         else:
             db.update_run(r['id'], status='ERROR', finished_at=db.now_utc(),
                           message='Interrupted by a restart before the export task started.')
+    for x in db.get_deployments():
+        if x['status'] == 'RUNNING':
+            db.update_deployment(x['id'], status='ERROR', finished_at=db.now_utc(), message='Interrupted by a restart; check the VM on the cluster and register the proxy by hand if it is up.')
     for x in db.get_active_restores():
         db.update_restore(x['id'], status='ERROR', finished_at=db.now_utc(), message='Interrupted by a restart.')
     for i in db.get_active_imports():

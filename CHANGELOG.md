@@ -52,6 +52,17 @@ release is tagged.
   retention by points and days with merge-forward pruning, a reference snapshot per plan, and
   restore points with verification. Proxies are registered per cluster and auto-detect their VM
   by MAC address. Deleting a plan retires its chain instead of deleting backups.
+- **Restore and file recovery from restore points** (migration 027). A VM is restored from any
+  point as a new VM (`<name>-restored-<time>`, MAC addresses kept or regenerated, NIC
+  disconnected on request); single files are browsed and downloaded through the dashboard, or
+  delivered as an ISO inserted into a running VM's CD-ROM and ejected afterwards. Nothing is
+  written into a guest through the hypervisor.
+- **Remote proxies** for clusters that do not host the stack: the same proxy container in a small
+  VM, reached over HTTPS with a pinned self-signed certificate (or a customer certificate),
+  several proxies per cluster with rotation and one job per proxy. An administrator can deploy
+  such a VM from the dashboard: an Ubuntu cloud image is uploaded to the cluster once and the VM
+  is created with a cloud-init document that installs Docker and the proxy container and
+  registers itself (migration 028).
 - Per-cluster data-quality banner that shows how much history a cluster has since registration.
 - HyperCore REST OpenAPI specs (v1 and v2) under `docs/`, with contract tests that pin the
   calls this project makes.

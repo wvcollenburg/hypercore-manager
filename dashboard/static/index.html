@@ -3842,7 +3842,46 @@ async function _loadProxiesPanel() {
         </div>
         <div class="cl-actions"><button class="update-apply-btn" onclick="pxAdd()">${t('proxies.add')}</button><div class="cl-msg" id="px-new-msg"></div></div>
       </div>
+      <div class="um-section" style="margin-top:14px;"><div class="um-section-title">${t('proxies.deploy')}</div>
+        <div class="ex-hint" style="margin-bottom:8px;">${t('proxies.deploy_hint')}</div>
+        <div class="ex-form">
+          <div><label>${t('proxies.cluster')}</label><select id="pxd-cluster">${clusterOpts}</select></div>
+          <div><label>${t('proxies.d_name')}</label><input type="text" id="pxd-name" placeholder="hcm-proxy-01"></div>
+          <div><label>VLAN</label><input type="number" id="pxd-vlan" value="0" min="0" max="4094"></div>
+          <div><label>vCPU / GiB RAM / GiB disk</label><div style="display:flex;gap:6px;"><input type="number" id="pxd-vcpu" value="1" min="1" style="width:60px"><input type="number" id="pxd-mem" value="2" min="1" style="width:60px"><input type="number" id="pxd-disk" value="20" min="10" style="width:70px"></div></div>
+          <div><label>${t('proxies.d_ip')}</label><select id="pxd-ipmode" onchange="document.getElementById('pxd-static').style.display=this.value==='static'?'':'none'"><option value="dhcp">DHCP</option><option value="static">${t('proxies.d_static')}</option></select></div>
+          <div id="pxd-static" style="display:none;"><label>${t('proxies.d_static_fields')}</label><div style="display:flex;gap:6px;flex-wrap:wrap;"><input type="text" id="pxd-ip" placeholder="10.0.0.5" style="width:120px"><input type="number" id="pxd-prefix" placeholder="24" value="24" style="width:60px"><input type="text" id="pxd-gw" placeholder="10.0.0.1" style="width:120px"><input type="text" id="pxd-dns" placeholder="10.0.0.2, 1.1.1.1" style="width:160px"></div></div>
+          <div><label>${t('proxies.d_image')}</label><input type="text" id="pxd-image-url" placeholder="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"><div class="ex-hint">${t('proxies.d_image_hint')}</div></div>
+          <div><label>${t('proxies.d_proxy_image')}</label><input type="text" id="pxd-proxy-image" placeholder="ghcr.io/wvcollenburg/hcm-proxy:latest"><div class="ex-hint">${t('proxies.d_proxy_image_hint')}</div></div>
+          <div><label>${t('proxies.d_tar')}</label><input type="text" id="pxd-tar" placeholder="http://…/hcm-proxy.tar"></div>
+          <div><label>${t('proxies.d_key')}</label><input type="text" id="pxd-key" placeholder="ssh-ed25519 AAAA… admin@site"></div>
+        </div>
+        <div class="cl-actions"><button class="update-apply-btn" onclick="pxDeploy()">${t('proxies.deploy_go')}</button><div class="cl-msg" id="pxd-msg"></div></div>
+        <div id="pxd-list" style="margin-top:10px;"></div>
+      </div>
     </div>`;
+  _loadDeployments();
+}
+async function _loadDeployments() {
+  const el = document.getElementById('pxd-list'); if (!el) return;
+  const rows = (await apiFetch('/api/backup/proxies/deployments?all=1')) || [];
+  if (!rows.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<table class="um-table"><thead><tr><th>${t('proxies.d_name')}</th><th>${t('proxies.cluster')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead><tbody>${rows.map(d => `
+    <tr><td class="um-username">${_clEsc(d.name)}</td><td>${_clEsc(d.cluster_name)}</td><td style="font-family:'JetBrains Mono',monospace;font-size:11px;">${_exFmt(d.started_at)}</td>
+    <td>${_exStatusBadge(d.status, d.message)}</td><td style="font-size:11px;color:var(--text-muted);max-width:420px;">${d.status === 'RUNNING' ? '' : _clEsc(d.message || '')}</td></tr>`).join('')}</tbody></table>`;
+  if (rows.some(d => d.status === 'RUNNING')) setTimeout(() => { if (document.getElementById('pxd-list')) _loadDeployments(); }, 8000);
+}
+async function pxDeploy() {
+  const g = id => document.getElementById(`pxd-${id}`);
+  const body = { cluster_id: g('cluster').value, name: g('name').value.trim(), vlan: parseInt(g('vlan').value || '0', 10), vcpu: parseInt(g('vcpu').value || '1', 10),
+                 mem_gb: parseInt(g('mem').value || '2', 10), disk_gb: parseInt(g('disk').value || '20', 10),
+                 ip: g('ipmode').value === 'static' ? {mode: 'static', address: g('ip').value.trim(), prefix: parseInt(g('prefix').value || '24', 10), gateway: g('gw').value.trim(), dns: g('dns').value.trim()} : {mode: 'dhcp'},
+                 image_url: g('image-url').value.trim(), proxy_image: g('proxy-image').value.trim(), proxy_image_tar_url: g('tar').value.trim(), authorized_key: g('key').value.trim() };
+  if (!body.name) { _shMsg('pxd-msg', t('proxies.d_name_required'), 'err'); return; }
+  if (!confirm(t('proxies.deploy_confirm', {name: body.name}))) return;
+  _shMsg('pxd-msg', t('ex.i_starting'), '');
+  try { await _exCall('POST', '/api/backup/proxies/deploy', body); _shMsg('pxd-msg', t('proxies.deploy_started'), 'ok'); _loadDeployments(); }
+  catch (e) { _shMsg('pxd-msg', e.message, 'err'); }
 }
 async function pxAdd() {
   const g = id => document.getElementById(`px-new-${id}`);

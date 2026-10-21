@@ -41,6 +41,11 @@ not set, add it to `.env` and restart the stack before registering anything.
 | Live balancing | VM live-migration |
 | Backups and imports | Backup, Media Management, VM Create/Edit, VM Delete, VM Power Controls (a read-only account gets a clear 403 on the first run) |
 
+Each service holds one login session per cluster account and reuses it: the session is renewed a
+few times a day and after a 401, and closed when the service stops. HyperCore limits the number
+of logins per account per hour, so an account shared with other tools that log in per request can
+still hit that limit; give HyperCore Manager its own account where possible.
+
 ### Disable, remove, duplicates
 
 - **Disable** pauses collection, balancing and analysis; history stays and the cluster can be
@@ -174,6 +179,14 @@ proxy VM; a self-signed certificate is pinned on registration) and the token fro
 `PROXY_API_TOKEN`. On registration the proxy is contacted and its VM on the cluster is detected
 from its MAC addresses; the status column says **VM detected** when that worked. **Test
 connection** repeats the probe. A paused proxy is not used for new runs.
+
+**Deploy a proxy VM** (same panel) creates the proxy VM for you: pick the cluster, a name, VLAN,
+sizes and DHCP or a static address, and the backup service uploads an Ubuntu cloud image to the
+cluster once, creates the VM with a cloud-init document that installs Docker and the proxy
+container, waits for its address and registers it with a freshly generated token. The list below
+the form follows the deployment; a finished one shows up in the proxies table with its VM
+detected. DEPLOY.md describes what the VM needs to reach and what to do when a deployment fails
+halfway.
 
 Without a registered proxy, plans on that cluster use HyperCore's native export.
 

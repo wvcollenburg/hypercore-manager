@@ -7,6 +7,7 @@ Bearer token (BACKUP_API_TOKEN); empty token = no auth (dev). Every list call ta
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from datetime import datetime
 from functools import wraps
@@ -685,6 +686,42 @@ def flr_eject(rid):
 def flr_unmount(mid):
     flr.unmount(mid)
     return jsonify({'ok': True})
+
+
+# ---------------------------------------------------------- proxy deployment
+@app.get('/api/v1/proxies/deployments')
+@_require_token
+def deployments_list():
+    return jsonify([_ser(d) for d in db.get_deployments(None if request.args.get('all') else _cluster_arg())])
+
+
+@app.post('/api/v1/proxies/deploy')
+@_require_token
+def deployments_start():
+    """Create a proxy VM on a cluster from a cloud image. body: {cluster_id, name, vcpu, mem_gb, disk_gb, vlan,
+    ip:{mode, address, prefix, gateway, dns}, image_url, image_name, proxy_image, proxy_image_tar_url, authorized_key, tz}"""
+    import deploy
+    b = request.get_json(silent=True) or {}
+    cid = (b.get('cluster_id') or '').strip()
+    if not cluster_registry.is_uuid(cid) or not cluster_registry.get(cid):
+        return _err('unknown cluster')
+    name = (b.get('name') or '').strip()
+    if not name or not jobs.safe_name(name) == name:
+        return _err('name is required and may only contain letters, digits, dots, dashes and underscores')
+    ip = b.get('ip') or {}
+    if ip.get('mode') == 'static' and not ip.get('address'):
+        return _err('a static address needs ip.address')
+    try:
+        params = {'name': name, 'vcpu': max(1, int(b.get('vcpu') or 1)), 'mem_gb': max(1, int(b.get('mem_gb') or 2)),
+                  'disk_gb': max(10, int(b.get('disk_gb') or 20)), 'vlan': int(b.get('vlan') or 0), 'ip': ip,
+                  'image_url': (b.get('image_url') or deploy.DEFAULT_IMAGE_URL).strip(), 'image_name': (b.get('image_name') or deploy.DEFAULT_IMAGE_NAME).strip(),
+                  'proxy_image': (b.get('proxy_image') or deploy.DEFAULT_PROXY_IMAGE).strip(), 'proxy_image_tar_url': (b.get('proxy_image_tar_url') or '').strip(),
+                  'authorized_key': (b.get('authorized_key') or '').strip(), 'tz': (b.get('tz') or os.environ.get('TZ') or 'UTC')}
+    except (TypeError, ValueError):
+        return _err('sizes and vlan must be numbers')
+    did = db.add_deployment(cid, name, params, b.get('requested_by'))
+    scheduler.run_deployment(did)
+    return jsonify({'ok': True, 'id': did}), 201
 
 
 def start(cfg: cfg_module.Config) -> None:

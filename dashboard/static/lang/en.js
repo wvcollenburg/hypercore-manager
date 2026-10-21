@@ -806,6 +806,23 @@ window.LANG = {
   'ex.flr_eject_confirm': "Eject the ISO from the VM and delete it from the cluster?",
   'ex.flr_ejected': "ISO ejected and removed.",
 
+  'proxies.deploy': "Deploy a proxy VM",
+  'proxies.deploy_hint': "Creates a small Ubuntu VM on the cluster from a cloud image, installs Docker and the proxy container with cloud-init, and registers it here. Takes a few minutes; the first run also uploads the cloud image to the cluster.",
+  'proxies.d_name': "VM name",
+  'proxies.d_ip': "IP address",
+  'proxies.d_static': "static",
+  'proxies.d_static_fields': "address / prefix / gateway / DNS",
+  'proxies.d_image': "Cloud image URL",
+  'proxies.d_image_hint': "Leave empty for Ubuntu 24.04 (noble). The image is uploaded once per cluster and reused.",
+  'proxies.d_proxy_image': "Proxy container image",
+  'proxies.d_proxy_image_hint': "Pulled by the VM. On a site without registry access give a tarball URL below instead (docker save).",
+  'proxies.d_tar': "Proxy image tarball URL (optional)",
+  'proxies.d_key': "SSH public key for the VM (optional)",
+  'proxies.d_name_required': "A VM name is required.",
+  'proxies.deploy_confirm': "Create proxy VM '{name}' on the cluster?",
+  'proxies.deploy_started': "Deployment started; progress below.",
+  'proxies.deploy_go': "Deploy",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-supported software',
   'community.body':         "HyperCore Manager is open-source software maintained on a community-supported basis. It is not an official Scale Computing product and comes without official support or SLA. Use it at your own risk.",

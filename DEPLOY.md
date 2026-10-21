@@ -169,8 +169,33 @@ in its volume. Register the proxy in the dashboard (Settings → Targets → Bac
 `https://<vm ip>:8083` and the token: the certificate's fingerprint is pinned at that moment and
 checked on every later connection. To use your own certificate instead, set `PROXY_TLS=cert`
 with `PROXY_TLS_CERT` and `PROXY_TLS_KEY` mounted into the container and tick *verify with the
-system CA store* when registering. The dashboard's Deploy panel can create such a VM for you
-from an Ubuntu cloud image with all of this pre-configured.
+system CA store* when registering.
+
+### Deploying the proxy VM from the dashboard
+
+Instead of building the VM by hand, an administrator can let the stack create it: **Settings →
+Targets → Backup proxies → Deploy a proxy VM**. The backup service downloads an Ubuntu cloud image
+(24.04 by default; the URL can be changed, for instance to a local mirror), uploads it to the
+cluster once as a virtual disk and reuses it for later proxies, then creates a UEFI VM whose
+cloud-init document installs Docker, the guest agent and the host settings above, writes a
+fresh token to `/etc/hcm-proxy.env`, and starts the proxy container with `PROXY_TLS=auto`. Once
+the VM reports an address (static from the form or via the guest agent) the proxy is registered,
+probed until the container answers, and its certificate fingerprint pinned. Progress is shown in
+the panel; the whole thing takes five to ten minutes.
+
+What the form asks for: cluster, VM name, VLAN, sizes (1 vCPU, 2 GiB, 20 GiB by default), DHCP
+or a static address, and optionally an SSH public key for the VM. The VM needs to reach the
+Docker registry that holds the proxy image; on a site without registry access, point *Proxy
+image tarball URL* at a `docker save` archive on a web server the VM can reach (the image name
+in the form must then match the tag inside the archive). The backup container itself only needs
+to reach the cloud image URL and the cluster.
+
+The deploying account needs the same rights as for backups (VM Create/Edit, VM Delete, VM Power
+Controls, Media Management). If a deployment ends in an error after the VM was created, the VM is
+left in place for inspection; delete it in HyperCore or register it by hand once it is up. Pick
+the VLAN with care: cloud-init installs its packages on the first boot only, so a VM that comes
+up on a VLAN without DHCP (or with a wrong static address) never gets the guest agent or Docker
+and will not recover by being moved later. Delete it and deploy again on the right VLAN.
 
 ### Several proxies per cluster
 

@@ -805,6 +805,23 @@ window.LANG = {
   'ex.flr_eject_confirm': "De ISO uit de VM werpen en van het cluster verwijderen?",
   'ex.flr_ejected': "ISO uitgeworpen en verwijderd.",
 
+  'proxies.deploy': "Een proxy-VM uitrollen",
+  'proxies.deploy_hint': "Maakt een kleine Ubuntu-VM op het cluster vanaf een cloud-image, installeert Docker en de proxycontainer met cloud-init en registreert hem hier. Duurt enkele minuten; de eerste keer wordt ook het cloud-image naar het cluster geüpload.",
+  'proxies.d_name': "VM-naam",
+  'proxies.d_ip': "IP-adres",
+  'proxies.d_static': "statisch",
+  'proxies.d_static_fields': "adres / prefix / gateway / DNS",
+  'proxies.d_image': "URL van het cloud-image",
+  'proxies.d_image_hint': "Leeg laten voor Ubuntu 24.04 (noble). Het image wordt één keer per cluster geüpload en hergebruikt.",
+  'proxies.d_proxy_image': "Image van de proxycontainer",
+  'proxies.d_proxy_image_hint': "Wordt door de VM opgehaald. Zonder registry-toegang geeft u hieronder een tarball-URL op (docker save).",
+  'proxies.d_tar': "Tarball-URL van het proxy-image (optioneel)",
+  'proxies.d_key': "SSH-publieke sleutel voor de VM (optioneel)",
+  'proxies.d_name_required': "Een VM-naam is verplicht.",
+  'proxies.deploy_confirm': "Proxy-VM '{name}' op het cluster aanmaken?",
+  'proxies.deploy_started': "Uitrol gestart; voortgang hieronder.",
+  'proxies.deploy_go': "Uitrollen",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",
