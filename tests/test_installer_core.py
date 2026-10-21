@@ -138,3 +138,19 @@ def test_cluster_credentials_are_not_in_the_installer(schema):
     keys = {f.key for s in schema for f in s.fields}
     assert not keys & {'SC_HOST', 'SC_USERNAME', 'SC_PASSWORD', 'SC_VERIFY_SSL'}
     assert 'HCM_SECRET_KEY' in keys and 'TZ' in keys
+
+
+def test_env_template_installer_and_compose_agree():
+    """Every variable in .env.template has an installer field and is read by the compose file, and
+    the compose file reads nothing the template lacks (apart from documented fallbacks)."""
+    import re
+    root = Path(__file__).resolve().parent.parent
+    template = set(re.findall(r'^([A-Z][A-Z0-9_]+)=', (root / '.env.template').read_text(), re.M))
+    compose = set(re.findall(r'\$\{([A-Z][A-Z0-9_]+)', (root / 'docker-compose.yaml').read_text()))
+    schema = {f.key for s in core.build_schema() for f in s.fields}
+    fallbacks = {'EXPORTS_API_TOKEN', 'EXPORTS_DEFAULT_RETENTION', 'EXPORTS_DEFAULT_RUN_TIME', 'EXPORTS_POLL_INTERVAL_SECONDS',
+                 'EXPORTS_TASK_TIMEOUT_HOURS',        # former names, honoured for one release
+                 'PROXY_API_URL'}                      # has a default in the compose file; only set for an external proxy
+    assert template == schema, (sorted(template - schema), sorted(schema - template))
+    assert template <= compose, sorted(template - compose)
+    assert compose - template <= fallbacks, sorted(compose - template - fallbacks)
