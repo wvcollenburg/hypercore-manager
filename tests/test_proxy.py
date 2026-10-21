@@ -288,3 +288,30 @@ def test_block_devices_are_written_with_o_direct(tmp_path, monkeypatch):
         monkeypatch.setattr(P.copier.os, 'O_DIRECT', 0x4000, raising=False)
     os.close(P.copier._open_write(str(f)))
     assert opened[-1][1] & P.copier.os.O_DIRECT
+
+
+def test_prune_commits_forward_and_delete_chain(stack):
+    """Three points on files; prune to keep seq >= 2: base ends up holding point 2's content, delta-0002 is gone."""
+    H = {'Authorization': 'Bearer t0k'}
+    disk = 'd0dd5d2c-9c7a-44ec-b6bc-d4ce06bb204d'
+    srcs = []
+    for i, seed in enumerate((21, 22, 23)):
+        cu = f'{i:08d}-0000-0000-0000-000000000000'; p = stack.dev / f'virtio-{cu[:8]}'; _random_file(str(p), 3, seed); srcs.append((cu, str(p)))
+    tgt = {'uri': 'smb://nas/share/hcm'}
+    base_req = {'target': tgt, 'folder': 'F', 'vm': {'uuid': 'vm-1', 'name': 'v'}}
+    for i, (cu, _) in enumerate(srcs):
+        point = {'kind': 'full', 'seq': 0} if i == 0 else {'kind': 'delta', 'seq': i, 'previous_seq': i - 1}
+        req = dict(base_req, point=point, devices=[{'uuid': disk, 'type': 'VIRTIO_DISK', 'clone_uuid': cu, 'size': 3 * MiB, 'map': [{'lower': 0, 'upper': 2}]}])
+        j = _wait(stack, stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id']); assert j['state'] == 'done', j
+    chain = os.path.join(stack.mounter.root, P.targets.parse_uri(tgt['uri']).key, 'hcm', 'F', 'v_vm-1.chain')
+    assert sorted(os.listdir(chain)) == ['base', 'chain.json', 'delta-0001', 'delta-0002']
+    j = _wait(stack, stack.client.post('/jobs/prune', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain', 'keep_min_seq': 2}, headers=H).get_json()['id'])
+    assert j['state'] == 'done', j
+    assert j['result'] == {'dirs': {'2': 'base'}, 'dropped': 2}
+    assert sorted(os.listdir(chain)) == ['base', 'chain.json']
+    assert open(os.path.join(chain, 'base', f'{disk}.qcow2'), 'rb').read() == open(srcs[2][1], 'rb').read(), 'base now holds point 2'
+    ch = json.load(open(os.path.join(chain, 'chain.json')))
+    assert [(p['seq'], p['dir']) for p in ch['points']] == [(2, 'base')]
+    assert json.load(open(os.path.join(chain, 'base', 'manifest.json')))['seq'] == 2
+    d = _wait(stack, stack.client.post('/jobs/delete_chain', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
+    assert d['result'] == {'removed': True} and not os.path.exists(chain)

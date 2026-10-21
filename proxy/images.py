@@ -113,6 +113,10 @@ class NbdBackend:
         """Merge a delta into its backing file (retention)."""
         _run(['qemu-img', 'commit', '-q', '-f', 'qcow2', delta])
 
+    def rebase(self, image: str, new_backing: str) -> None:
+        """Point an image at another backing file whose content is equivalent (unsafe mode: no data copy)."""
+        _run(['qemu-img', 'rebase', '-q', '-u', '-f', 'qcow2', '-F', 'qcow2', '-b', os.path.relpath(new_backing, os.path.dirname(image)), image])
+
     def check(self, path: str) -> bool:
         return subprocess.run(['qemu-img', 'check', '-q', path], capture_output=True).returncode == 0
 
@@ -144,7 +148,10 @@ class FileBackend:
         shutil.copyfile(src, dst)
 
     def commit(self, delta: str) -> None:
-        raise NotImplementedError('file backend keeps no backing chain')
+        pass                              # raw 'deltas' are complete; prune copies them over the base itself
+
+    def rebase(self, image: str, new_backing: str) -> None:
+        pass
 
     def check(self, path: str) -> bool:
         return os.path.exists(path)

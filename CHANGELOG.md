@@ -45,6 +45,13 @@ release is tagged.
   spaces in folder names become underscores. Clusters without a folder use the share flagged
   as their default and the `no_folder` directory. Share usernames may be `user`, `DOMAIN\user`
   or `user@domain`.
+- **Incremental backups through a backup proxy** (`proxy` container, migration 026). HyperCore's
+  changed-block tracking (`snapDiff`) tells the proxy which 1 MiB blocks changed; the proxy reads
+  them from a read-only snapshot clone hot-added to its own VM and writes qcow2 chains (base +
+  deltas) onto the target. Plans have a mode (`incremental` / `export`), a full every N runs,
+  retention by points and days with merge-forward pruning, a reference snapshot per plan, and
+  restore points with verification. Proxies are registered per cluster and auto-detect their VM
+  by MAC address. Deleting a plan retires its chain instead of deleting backups.
 - Per-cluster data-quality banner that shows how much history a cluster has since registration.
 - HyperCore REST OpenAPI specs (v1 and v2) under `docs/`, with contract tests that pin the
   calls this project makes.

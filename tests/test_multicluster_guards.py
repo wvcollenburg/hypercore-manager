@@ -134,6 +134,6 @@ def test_backup_targets_wiring(repo):
     for route in ("@app.get('/api/v1/targets')", "@app.post('/api/v1/targets')", "@app.delete('/api/v1/targets/<int:sid>')", "@app.post('/api/v1/targets/<int:sid>/test')"):
         assert route in api, route
     app = (repo / 'dashboard' / 'app.py').read_text()
-    assert "if sub.startswith('targets') and not _is_admin_request()" in app, 'target management must stay admin-only'
+    assert "if sub.startswith(('targets', 'proxies')) and not _is_admin_request()" in app, 'target and proxy management must stay admin-only'
     reg = (repo / 'shared' / 'cluster_registry.py').read_text()
     assert 'share_id' in reg

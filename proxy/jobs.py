@@ -66,7 +66,8 @@ class Engine:
 
     # ---------------------------------------------------------------- registry
     def submit(self, kind: str, request: dict) -> Job:
-        runner = {'backup': self.run_backup, 'flatten': self.run_flatten, 'verify': self.run_verify, 'sweep': self.run_sweep}[kind]
+        runner = {'backup': self.run_backup, 'flatten': self.run_flatten, 'verify': self.run_verify, 'sweep': self.run_sweep,
+                  'prune': self.run_prune, 'delete_chain': self.run_delete_chain}[kind]
         job = Job(kind, request)
         with self._lock:
             self.jobs[job.id] = job
@@ -255,5 +256,67 @@ class Engine:
                         shutil.rmtree(p, ignore_errors=True)
                         removed.append(name)
             return {'removed': removed}
+        finally:
+            self._release_target(req)
+
+    # ---------------------------------------------------------------- prune / delete
+    def run_prune(self, job: Job) -> dict:
+        """
+        request: {target, chain_dir, keep_min_seq}
+        Drops every point with seq < keep_min_seq by committing each delta forward into the base:
+        base <- delta-0001 (commit), delta-0001 removed, delta-0002 rebased onto base, ... until the
+        surviving oldest point lives in 'base'. Returns {dirs: {seq: dir}} for the remaining points.
+        """
+        req = job.request
+        root = self._with_target(req)
+        try:
+            chain_dir = os.path.join(root, req['chain_dir'])
+            chain = manifest.load_chain(chain_dir)
+            points = sorted(chain['points'], key=lambda p: p['seq'])
+            keep_min = int(req['keep_min_seq'])
+            job.progress = {'dropped': 0, 'to_drop': len([p for p in points if p['seq'] < keep_min])}
+            while points and points[0]['seq'] < keep_min:
+                oldest, nxt = points[0], points[1] if len(points) > 1 else None
+                base_dir = os.path.join(chain_dir, oldest['dir'])
+                if nxt is None:
+                    break
+                nxt_dir = os.path.join(chain_dir, nxt['dir'])
+                nxt_m = manifest.read_json(os.path.join(nxt_dir, manifest.POINT_FILE)) or {}
+                for d in nxt_m.get('devices', []):
+                    delta_file = os.path.join(nxt_dir, d['file']); base_file = os.path.join(base_dir, d['file'])
+                    if self.backend.name == 'file':
+                        shutil.copyfile(delta_file, base_file)          # raw files: the delta is complete
+                    elif os.path.exists(base_file) and not d.get('full'):
+                        self.backend.commit(delta_file)                 # fold the delta into its base
+                    else:
+                        shutil.move(delta_file, base_file)              # device that got a full inside this delta
+                    after = points[2] if len(points) > 2 else None
+                    if after and self.backend.name != 'file':
+                        after_file = os.path.join(chain_dir, after['dir'], d['file'])
+                        if os.path.exists(after_file):
+                            self.backend.rebase(after_file, base_file)
+                # the base directory now holds nxt's state: move nxt's manifest in, drop nxt's dir
+                nxt_m['dir'] = oldest['dir']
+                nxt_m['note'] = f"committed from {nxt['dir']} on {_now()}"
+                manifest.write_json(os.path.join(base_dir, manifest.POINT_FILE), nxt_m)
+                shutil.rmtree(nxt_dir, ignore_errors=True)
+                nxt['dir'] = oldest['dir']
+                points.pop(0)
+                job.progress['dropped'] += 1
+                self._persist(job)
+            chain['points'] = points
+            manifest.save_chain(chain_dir, chain)
+            return {'dirs': {str(p['seq']): p['dir'] for p in points}, 'dropped': job.progress['dropped']}
+        finally:
+            self._release_target(req)
+
+    def run_delete_chain(self, job: Job) -> dict:
+        req = job.request
+        root = self._with_target(req)
+        try:
+            chain_dir = os.path.join(root, req['chain_dir'])
+            if os.path.isdir(chain_dir):
+                shutil.rmtree(chain_dir, ignore_errors=True)
+            return {'removed': not os.path.exists(chain_dir)}
         finally:
             self._release_target(req)

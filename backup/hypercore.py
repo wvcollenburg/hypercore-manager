@@ -111,3 +111,115 @@ class HyperCoreClient:
         if isinstance(data, list) and data:
             return data[0]
         return {'state': 'UNINITIALIZED', 'progressPercent': 0}
+
+
+# ----------------------------------------------------------------- incremental backups
+# The calls below were verified on HyperCore 9.8.4 (see PLAN-cbt-incrementals.md, E1–E9).
+
+class HyperCoreIncrementalMixin:
+    """Snapshot, clone, changed-block and VM-definition calls used by the proxy path."""
+
+    DISK_TYPES = ('VIRTIO_DISK', 'IDE_DISK', 'SCSI_DISK')
+    UTILITY_TYPES = ('NVRAM', 'VTPM')
+
+    def get_vm(self, vm_uuid: str) -> dict:
+        data = self._request('GET', f'/VirDomain/{vm_uuid}') or []
+        if not data:
+            raise HyperCoreError(f'VM {vm_uuid} not found on the cluster')
+        return data[0] if isinstance(data, list) else data
+
+    def list_vms_full(self) -> list[dict]:
+        return self._request('GET', '/VirDomain') or []
+
+    def definition_of(self, vm: dict) -> dict:
+        """The subset of a VirDomain record a restore needs (stored with every point)."""
+        return {
+            'uuid': vm.get('uuid'), 'name': vm.get('name'), 'description': vm.get('description', ''),
+            'mem': vm.get('mem'), 'numVCPU': vm.get('numVCPU'), 'machineType': vm.get('machineType'),
+            'operatingSystem': vm.get('operatingSystem'), 'cpuType': vm.get('cpuType'), 'tags': vm.get('tags', ''),
+            'bootDevices': vm.get('bootDevices', []), 'useUEFISecureBoot': vm.get('useUEFISecureBoot'),
+            'blockDevs': [{k: b.get(k) for k in ('uuid', 'type', 'capacity', 'slot', 'cacheMode', 'name')} for b in vm.get('blockDevs', [])],
+            'netDevs': [{k: n.get(k) for k in ('uuid', 'type', 'macAddress', 'vlan', 'connected')} for n in vm.get('netDevs', [])],
+        }
+
+    def backup_devices(self, vm: dict) -> list[dict]:
+        """Disks plus NVRAM and vTPM; CD-ROMs are not backed up."""
+        return [b for b in vm.get('blockDevs', []) if b.get('type') in self.DISK_TYPES + self.UTILITY_TYPES]
+
+    # -- snapshots
+    def create_snapshot(self, vm_uuid: str, label: str, quiesce: bool = True) -> tuple[str, str]:
+        r = self._request('POST', '/VirDomainSnapshot', json={'domainUUID': vm_uuid, 'label': label, 'attemptQuiesce': bool(quiesce),
+                                                               'replication': False, 'type': 'USER'}) or {}
+        if not r.get('taskTag'):
+            raise HyperCoreError(f'snapshot not accepted: {r}')
+        return r['taskTag'], r.get('createdUUID', '')
+
+    def get_snapshot(self, snap_uuid: str) -> dict | None:
+        data = self._request('GET', f'/VirDomainSnapshot/{snap_uuid}') or []
+        return data[0] if data else None
+
+    def list_snapshots(self, vm_uuid: str | None = None) -> list[dict]:
+        snaps = self._request('GET', '/VirDomainSnapshot') or []
+        return [s for s in snaps if vm_uuid is None or s.get('domainUUID') == vm_uuid]
+
+    def delete_snapshot(self, snap_uuid: str) -> str:
+        r = self._request('DELETE', f'/VirDomainSnapshot/{snap_uuid}') or {}
+        return r.get('taskTag', '')
+
+    @staticmethod
+    def snapshot_serials(snapshot: dict) -> dict:
+        """device uuid -> serial number, from a snapshot's deviceSnapshots."""
+        return {d['uuid']: d['serialNumber'] for d in snapshot.get('deviceSnapshots', []) if d.get('uuid')}
+
+    # -- clones onto the proxy VM
+    def clone_device(self, device_uuid: str, snap_uuid: str, target_vm_uuid: str, capacity: int,
+                     read_only: bool = True) -> tuple[str, str]:
+        """Attach a snapshot's block device to target_vm as a new (thin) device. Returns (taskTag, createdUUID)."""
+        body = {'snapUUID': snap_uuid,
+                'template': {'virDomainUUID': target_vm_uuid, 'type': 'VIRTIO_DISK', 'capacity': int(capacity)},
+                'options': {'readOnly': bool(read_only), 'regenerateDiskID': False}}
+        r = self._request('POST', f'/VirDomainBlockDevice/{device_uuid}/clone', json=body) or {}
+        if not r.get('taskTag'):
+            raise HyperCoreError(f'clone not accepted: {r}')
+        return r['taskTag'], r.get('createdUUID', '')
+
+    def create_block_device(self, vm_uuid: str, capacity: int, dev_type: str = 'VIRTIO_DISK') -> tuple[str, str]:
+        r = self._request('POST', '/VirDomainBlockDevice', json={'virDomainUUID': vm_uuid, 'type': dev_type, 'capacity': int(capacity)}) or {}
+        if not r.get('taskTag'):
+            raise HyperCoreError(f'block device not accepted: {r}')
+        return r['taskTag'], r.get('createdUUID', '')
+
+    def get_block_device(self, device_uuid: str) -> dict | None:
+        data = self._request('GET', f'/VirDomainBlockDevice/{device_uuid}') or []
+        return data[0] if data else None
+
+    def delete_block_device(self, device_uuid: str) -> str:
+        r = self._request('DELETE', f'/VirDomainBlockDevice/{device_uuid}') or {}
+        return r.get('taskTag', '')
+
+    def snap_diff(self, device_uuid: str, serial_from: int, serial_to: int) -> list[dict]:
+        """Changed 1 MiB blocks between two serials (inclusive intervals); serial_from = 0 is the allocation map."""
+        return self._request('POST', f'/VirDomainBlockDevice/{device_uuid}/snapDiff',
+                             json={'snapshotSerialFrom': int(serial_from), 'snapshotSerialTo': int(serial_to)}) or []
+
+    # -- VM control used by restores
+    def vm_action(self, vm_uuid: str, action: str) -> str:
+        r = self._request('POST', '/VirDomain/action', json=[{'virDomainUUID': vm_uuid, 'actionType': action}]) or []
+        item = r[0] if isinstance(r, list) and r else r
+        return (item or {}).get('taskTag', '')
+
+    def patch_vm(self, vm_uuid: str, **fields) -> str:
+        r = self._request('PATCH', f'/VirDomain/{vm_uuid}', json=fields) or {}
+        return r.get('taskTag', '')
+
+    def patch_netdev(self, netdev_uuid: str, **fields) -> str:
+        r = self._request('PATCH', f'/VirDomainNetDevice/{netdev_uuid}', json=fields) or {}
+        return r.get('taskTag', '')
+
+    def delete_vm(self, vm_uuid: str) -> str:
+        r = self._request('DELETE', f'/VirDomain/{vm_uuid}') or {}
+        return r.get('taskTag', '')
+
+
+class HyperCoreClient(HyperCoreIncrementalMixin, HyperCoreClient):   # type: ignore[no-redef]
+    """The export/import client plus the incremental-backup calls."""

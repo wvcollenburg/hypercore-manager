@@ -35,13 +35,13 @@ def sync_jobs() -> int:
             log.info('Removed job %s', job.id)
     for job_id, s in wanted.items():
         hour, minute = s['run_time'].split(':')
-        _scheduler.add_job(jobs.run_export, trigger='cron', hour=int(hour), minute=int(minute),
+        _scheduler.add_job(jobs.run_plan, trigger='cron', hour=int(hour), minute=int(minute),
                            id=job_id, args=[s['id']], replace_existing=True)
     return len(wanted)
 
 
 def run_now(schedule_id: int) -> None:
-    _scheduler.add_job(jobs.run_export, args=[schedule_id], id=f'manual-{schedule_id}', replace_existing=True)
+    _scheduler.add_job(jobs.run_plan, args=[schedule_id], id=f'manual-{schedule_id}', replace_existing=True)
 
 
 def run_import(import_id: int) -> None:
@@ -52,6 +52,12 @@ def reconcile_interrupted() -> None:
     """Re-attach to runs/imports left RUNNING by a restart; rows with no task tag never got
     far enough to recover and are marked ERROR."""
     for r in db.get_active_runs():
+        if r.get('mode') == 'incremental':
+            # the proxy job may still be running, but its result is lost to us: fail the run, the
+            # sweep removes clones and the next run re-anchors (a full if the anchor is gone)
+            db.update_run(r['id'], status='ERROR', finished_at=db.now_utc(),
+                          message='Interrupted by a restart; the next run continues the chain.')
+            continue
         if r['task_tag']:
             _scheduler.add_job(jobs.resume_export, args=[r['id']], id=f"resume-run-{r['id']}", replace_existing=True)
             log.info('Resuming interrupted export run %s (task %s)', r['id'], r['task_tag'])
@@ -67,9 +73,26 @@ def reconcile_interrupted() -> None:
                              message='Interrupted by a restart before the import task started.')
 
 
+def sweep_all() -> None:
+    """Daily: stale anchor snapshots and clones left behind on every enabled cluster."""
+    import cluster_registry
+    import incremental
+    for c in cluster_registry.list_enabled():
+        try:
+            out = incremental.sweep_cluster(c.cluster_id)
+            if out['snapshots'] or out['clones']:
+                log.info('sweep %s: %s', c.name, out)
+        except Exception:        # noqa: BLE001
+            log.exception('sweep failed for %s', c.name)
+
+
 def start(sync_interval_seconds: int = 60) -> None:
     _scheduler.start()
     _scheduler.add_job(sync_jobs, trigger='interval', seconds=sync_interval_seconds, id='sync', replace_existing=True)
+    _scheduler.add_job(sweep_all, trigger='cron', hour=4, minute=30, id='sweep', replace_existing=True)
+    # first sweep a little after start: the dashboard applies new migrations at the same moment
+    from datetime import datetime, timedelta
+    _scheduler.add_job(sweep_all, trigger='date', run_date=datetime.now() + timedelta(seconds=120), id='sweep-start', replace_existing=True)
     n = sync_jobs()
     reconcile_interrupted()
     log.info('Scheduler started with %d active schedule(s)', n)

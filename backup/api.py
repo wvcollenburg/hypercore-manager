@@ -17,8 +17,10 @@ import cluster_registry
 import config as cfg_module
 import db
 import jobs
+import incremental
 import scheduler
 from hypercore import HyperCoreError
+from proxy_client import ProxyError, certificate_fingerprint, normalise_fingerprint
 
 log = logging.getLogger('backup.api')
 app = Flask('backup.api')
@@ -74,6 +76,8 @@ def status():
         'default_run_time': cfg.default_run_time,
         'task_timeout_hours': cfg.task_timeout_hours,
         'plans': len(db.get_schedules(cid)),
+        'proxies': len([p for p in db.get_proxies(cid, enabled_only=True) if p.get('vm_uuid')]) if cid else 0,
+        'default_mode': 'incremental' if cid and any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)) else 'export',
         # where this cluster's exports go: the share assigned to its folder, or null
         'location': {'share_name': loc['share_name'], 'base': loc['base'], 'tenant': loc['tenant']} if loc else None,
     })
@@ -140,13 +144,21 @@ def schedules_add():
         return _err("no share is assigned to this cluster's folder; an admin can add one under Settings → Shares and assign it from the folder menu")
     try:
         retention = max(1, int(b.get('retention') or cfg_module.load().default_retention))
+        full_every_n = max(1, int(b.get('full_every_n') or 14))
+        retention_days = int(b['retention_days']) if b.get('retention_days') not in (None, '', 0, '0') else None
     except (TypeError, ValueError):
-        return _err('retention must be a number')
+        return _err('retention, full_every_n and retention_days must be numbers')
+    mode = (b.get('mode') or '').strip() or ('incremental' if any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)) else 'export')
+    if mode not in ('export', 'incremental'):
+        return _err("mode must be 'export' or 'incremental'")
+    if mode == 'incremental' and not any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)):
+        return _err('incremental plans need a registered backup proxy for this cluster (Settings → Clusters → Proxies)')
     try:
         sid = db.add_schedule(cluster_id=cid, vm_uuid=b['vm_uuid'], vm_name=b['vm_name'],
                               path_uri_base=(b.get('path_uri_base') or '').strip(), smb_user=b.get('smb_user'),
                               smb_password=b.get('smb_password'), prune_path=b.get('prune_path'),
-                              retention=retention, run_time=run_time, compress=bool(b.get('compress')))
+                              retention=retention, run_time=run_time, compress=bool(b.get('compress')),
+                              mode=mode, full_every_n=full_every_n, retention_days=retention_days)
     except Exception as e:
         if 'duplicate key' in str(e):
             return _err('this VM already has a schedule on this cluster', 409)
@@ -178,6 +190,20 @@ def schedules_update(sid):
     for k in ('compress', 'enabled'):
         if k in b:
             fields[k] = bool(b[k])
+    if 'mode' in b:
+        if b['mode'] not in ('export', 'incremental'):
+            return _err("mode must be 'export' or 'incremental'")
+        fields['mode'] = b['mode']
+    if 'full_every_n' in b:
+        try:
+            fields['full_every_n'] = max(1, int(b['full_every_n']))
+        except (TypeError, ValueError):
+            return _err('full_every_n must be a number')
+    if 'retention_days' in b:
+        try:
+            fields['retention_days'] = int(b['retention_days']) if b['retention_days'] not in (None, '', 0, '0') else None
+        except (TypeError, ValueError):
+            return _err('retention_days must be a number')
     db.update_schedule(sid, **fields)
     scheduler.sync_jobs()
     return jsonify({'ok': True})
@@ -405,6 +431,140 @@ def shares_probe():
         return jsonify({'ok': True, 'folders': jobs.smb_list_dirs(f['uri_base'].strip(), f['username'], f['password'] or None)})
     except HyperCoreError as e:
         return jsonify({'ok': False, 'error': str(e)})
+
+
+# ------------------------------------------------------------------ proxies
+@app.get('/api/v1/proxies')
+@_require_token
+def proxies_list():
+    return jsonify([_ser(p) for p in db.get_proxies(None if request.args.get('all') else _cluster_arg())])
+
+
+@app.post('/api/v1/proxies')
+@_require_token
+def proxies_add():
+    b = request.get_json(silent=True) or {}
+    cid = (b.get('cluster_id') or '').strip()
+    if not cluster_registry.is_uuid(cid) or not cluster_registry.get(cid):
+        return _err('unknown cluster')
+    url = (b.get('url') or '').strip().rstrip('/')
+    if not url.startswith(('http://', 'https://')):
+        return _err('url must start with http:// or https://')
+    name = (b.get('name') or '').strip() or url
+    fp = normalise_fingerprint(b.get('tls_fingerprint'))
+    if url.startswith('https://') and not fp and not b.get('tls_verify'):
+        try:
+            fp = certificate_fingerprint(url)          # pin whatever the proxy presents right now (TOFU)
+        except Exception as e:                          # noqa: BLE001
+            return _err(f'could not read the proxy certificate: {e}', 502)
+    try:
+        pid = db.add_proxy(cid, name, url, b.get('token'), kind=(b.get('kind') or 'remote'), tls_fingerprint=fp,
+                           tls_verify=bool(b.get('tls_verify')))
+    except Exception as e:
+        if 'duplicate key' in str(e):
+            return _err('this proxy URL is already registered for the cluster', 409)
+        return _err(str(e), 500)
+    result = incremental.probe_proxy(pid)
+    return jsonify({'ok': True, 'id': pid, 'probe': result, 'tls_fingerprint': fp}), 201
+
+
+@app.put('/api/v1/proxies/<int:pid>')
+@_require_token
+def proxies_update(pid):
+    if not db.get_proxy(pid):
+        return _err('proxy not found', 404)
+    b = request.get_json(silent=True) or {}
+    fields = {k: b[k] for k in ('name', 'url', 'kind', 'vm_uuid', 'tls_verify', 'enabled', 'token') if k in b}
+    if 'tls_fingerprint' in b:
+        fields['tls_fingerprint'] = normalise_fingerprint(b['tls_fingerprint'])
+    if 'url' in fields:
+        fields['url'] = str(fields['url']).strip().rstrip('/')
+    db.update_proxy(pid, **fields)
+    return jsonify({'ok': True})
+
+
+@app.delete('/api/v1/proxies/<int:pid>')
+@_require_token
+def proxies_delete(pid):
+    db.delete_proxy(pid)
+    return jsonify({'ok': True})
+
+
+@app.post('/api/v1/proxies/<int:pid>/test')
+@_require_token
+def proxies_test(pid):
+    if not db.get_proxy(pid):
+        return _err('proxy not found', 404)
+    try:
+        return jsonify(incremental.probe_proxy(pid))
+    except (incremental.IncrementalError, ProxyError, HyperCoreError) as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+# ------------------------------------------------------------ chains/points
+@app.get('/api/v1/chains')
+@_require_token
+def chains_list():
+    cid = _cluster_arg()
+    rows = []
+    for ch in db.get_chains(cid, vm_uuid=request.args.get('vm_uuid') or None):
+        d = _ser(ch)
+        d.pop('active_clones', None)
+        rows.append(d)
+    return jsonify(rows)
+
+
+@app.get('/api/v1/chains/<int:chain_id>/points')
+@_require_token
+def chain_points(chain_id):
+    ch = db.get_chain(chain_id)
+    if not ch:
+        return _err('chain not found', 404)
+    return jsonify([_ser(p) for p in db.get_points(chain_id)])
+
+
+@app.delete('/api/v1/chains/<int:chain_id>')
+@_require_token
+def chain_delete(chain_id):
+    """Delete a chain's data on the target (explicit action; retiring a plan never does this)."""
+    ch = db.get_chain(chain_id)
+    if not ch:
+        return _err('chain not found', 404)
+    share = db.get_share(ch['target_id'], with_secret=True) if ch.get('target_id') else None
+    if share:
+        try:
+            proxy = incremental.pick_proxy(ch['cluster_id'])
+            pc = incremental.proxy_client_for(proxy)
+            pc.wait(pc.submit('delete_chain', {'target': {'uri': share['uri_base'], 'username': share.get('username'),
+                                                           'password': share.get('password')}, 'chain_dir': ch['chain_dir']}), timeout=3600)
+        except (incremental.IncrementalError, ProxyError) as e:
+            return _err(f'could not remove the chain on the target: {e}', 502)
+    for p in db.get_points(chain_id):
+        db.update_point(p['id'], status='pruned')
+    db.update_chain(chain_id, status='deleted')
+    return jsonify({'ok': True})
+
+
+@app.post('/api/v1/chains/<int:chain_id>/verify')
+@_require_token
+def chain_verify(chain_id):
+    ch = db.get_chain(chain_id)
+    if not ch:
+        return _err('chain not found', 404)
+    share = db.get_share(ch['target_id'], with_secret=True) if ch.get('target_id') else None
+    if not share:
+        return _err('the chain has no target any more')
+    try:
+        proxy = incremental.pick_proxy(ch['cluster_id'])
+        pc = incremental.proxy_client_for(proxy)
+        res = pc.wait(pc.submit('verify', {'target': {'uri': share['uri_base'], 'username': share.get('username'),
+                                                      'password': share.get('password')}, 'chain_dir': ch['chain_dir']}), timeout=6 * 3600)['result']
+    except (incremental.IncrementalError, ProxyError) as e:
+        return _err(str(e), 502)
+    if res.get('ok'):
+        for p in db.get_points(chain_id):
+            db.update_point(p['id'], verified_at=db.now_utc())
+    return jsonify(res)
 
 
 def start(cfg: cfg_module.Config) -> None:

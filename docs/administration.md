@@ -159,6 +159,42 @@ The tenant directory is created over SMB when missing (NFS: by the mount). Becau
 mirrors the folders, you can set per-tenant permissions on the share itself, and an import can
 only pick up copies from the cluster's own folder.
 
+### Backup proxies (incremental mode)
+
+Incremental backups read only the blocks that changed since the previous run. That work is done
+by a **backup proxy**: a container that runs on a VM inside the cluster (the HyperCore Manager
+VM itself when the stack runs there, or a small dedicated VM per remote cluster). HyperCore
+attaches a read-only clone of the VM's snapshot to the proxy's VM; the proxy reads the changed
+blocks and writes them as a qcow2 chain onto the target. See DEPLOY.md for what the proxy
+container needs on its host.
+
+**Settings → Targets → Backup proxies → Register proxy**: pick the cluster, give the proxy a
+name, its URL (`http://proxy:8083` for the container in this stack, `https://<ip>:8083` for a
+proxy VM; a self-signed certificate is pinned on registration) and the token from
+`PROXY_API_TOKEN`. On registration the proxy is contacted and its VM on the cluster is detected
+from its MAC addresses; the status column says **VM detected** when that worked. **Test
+connection** repeats the probe. A paused proxy is not used for new runs.
+
+Without a registered proxy, plans on that cluster use HyperCore's native export.
+
+### Plan modes and retention
+
+A plan has a **mode**:
+
+- **incremental** (default when the cluster has a proxy): the first run writes a full copy (the
+  *base*), every following run only the changed blocks (a *delta*). After *Full every N runs*
+  (default 14) a fresh base is taken and the old chain retires. Retention keeps *N* points
+  (default 14) and optionally drops points older than *Keep for days*; old points are merged
+  into the base, never leaving a gap. A reference snapshot per plan stays on the cluster between
+  runs (label `hcm-backup-<plan>-<run>`); if it disappears, the next run takes a full and says so.
+- **export**: HyperCore's native export every run into a timestamped directory, retention by
+  count, as in the first release. Required when no proxy exists; fine for small VMs.
+
+**Restore points** (Backup tab) lists every chain of the cluster's VMs with its points. **Verify**
+re-reads every file of a chain against the checksums written at backup time. **Delete data**
+removes a chain from the target; this is the only action that deletes backups. Deleting a plan
+*retires* its chain: no new points, retention keeps applying, restores stay possible.
+
 ### What users do with it
 
 On the **Backup** tab for a cluster they can reach:

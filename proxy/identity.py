@@ -53,6 +53,6 @@ def identity(cfg, backend_name: str, nbd_free: int | None) -> dict:
             'qemu_img': _tool_version(['qemu-img', '--version']),
             'mount_cifs': shutil.which('mount.cifs') is not None,
             'mount_nfs': shutil.which('mount.nfs') is not None or shutil.which('mount.nfs4') is not None,
-            'jobs': ['backup', 'flatten', 'verify', 'sweep'],
+            'jobs': ['backup', 'flatten', 'verify', 'sweep', 'prune', 'delete_chain'],
         },
     }

@@ -1478,9 +1478,11 @@
       <div class="exports-sub-tab active" data-expanel="schedules" data-i18n="ex.tab.schedules" onclick="switchExportsPanel('schedules')">Plans</div>
       <div class="exports-sub-tab"        data-expanel="vms"       data-i18n="ex.tab.vms"       onclick="switchExportsPanel('vms')">VMs</div>
       <div class="exports-sub-tab"        data-expanel="import"    data-i18n="ex.tab.import"    onclick="switchExportsPanel('import')">Import</div>
+      <div class="exports-sub-tab"        data-expanel="points"    data-i18n="ex.tab.points"    onclick="switchExportsPanel('points')">Restore points</div>
       <div class="exports-sub-tab"        data-expanel="runs"      data-i18n="ex.tab.runs"      onclick="switchExportsPanel('runs')">Runs</div>
     </div>
     <div class="exports-panel active" id="expanel-schedules"></div>
+    <div class="exports-panel" id="expanel-points"></div>
     <div class="exports-panel" id="expanel-vms"></div>
     <div class="exports-panel" id="expanel-import"></div>
     <div class="exports-panel" id="expanel-runs"></div>
@@ -3804,7 +3806,60 @@ async function _loadSharesPanel() {
       ${SHARES.length ? `<table class="um-table"><thead><tr><th>${t('shares.name')}</th><th>${t('ex.f_smb_user')}</th><th>${t('shares.prune_path')}</th><th>${t('shares.folders')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
                       : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('shares.none')}</div>`}
       <div class="um-section" style="margin-top:14px;"><div class="um-section-title">${t('shares.add')}</div>${_shareFormHtml('sh-new', null)}</div>
+    </div>
+    <div id="proxiesPanel"></div>`;
+  _loadProxiesPanel();
+}
+async function _loadProxiesPanel() {
+  const el = document.getElementById('proxiesPanel'); if (!el) return;
+  const proxies = (await apiFetch('/api/backup/proxies?all=1')) || [];
+  const clusterOpts = CLUSTERS.filter(c => !c.is_template).map(c => `<option value="${_clEsc(c.cluster_id)}" ${c.cluster_id === currentCluster ? 'selected' : ''}>${_clEsc(c.name)}</option>`).join('');
+  const rows = proxies.map(p => `
+    <tr>
+      <td class="um-username">${_clEsc(p.name)}<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(p.url)}</div></td>
+      <td>${_clEsc(p.cluster_name)}</td>
+      <td><span class="ex-badge ${p.status === 'ok' ? 'ok' : 'err'}">${_clEsc(p.status || '—')}</span>${p.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}<div style="font-size:10px;color:var(--text-muted);">${p.vm_uuid ? t('proxies.vm_detected') : t('proxies.vm_missing')}${p.status_detail ? ' · ' + _clEsc(p.status_detail) : ''}</div></td>
+      <td style="font-size:11px;">${_clEsc(p.version || '—')}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(p.last_seen_at)}</div></td>
+      <td style="white-space:nowrap;">
+        <button class="um-action-btn" onclick="pxTest(${p.id})">${t('clusters.test')}</button>
+        <button class="um-action-btn" onclick="pxToggle(${p.id}, ${p.enabled ? 'false' : 'true'})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
+        <button class="um-action-btn danger" onclick="pxRemove(${p.id}, '${_clEsc(p.name)}')">${t('clusters.remove')}</button>
+        <div class="cl-msg" id="px-${p.id}-msg"></div>
+      </td>
+    </tr>`).join('');
+  el.innerHTML = `
+    <div class="settings-group">
+      <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-purple)"></div>
+        <span class="settings-group-title">${t('proxies.title')}</span><span style="font-size:12px;color:var(--text-muted);">${t('proxies.subtitle')}</span></div>
+      ${proxies.length ? `<table class="um-table"><thead><tr><th>${t('shares.name')}</th><th>${t('proxies.cluster')}</th><th>${t('ex.col_status')}</th><th>${t('proxies.version')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+                       : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('proxies.none')}</div>`}
+      <div class="um-section" style="margin-top:14px;"><div class="um-section-title">${t('proxies.add')}</div>
+        <div class="ex-form">
+          <div><label>${t('proxies.cluster')}</label><select id="px-new-cluster">${clusterOpts}</select></div>
+          <div><label>${t('shares.name')}</label><input type="text" id="px-new-name" placeholder="proxy-01"></div>
+          <div><label>${t('proxies.url')}</label><input type="text" id="px-new-url" placeholder="https://10.0.0.5:8083"><div class="ex-hint">${t('proxies.url_hint')}</div></div>
+          <div><label>${t('proxies.token')}</label><input type="password" id="px-new-token" autocomplete="new-password"></div>
+        </div>
+        <div class="cl-actions"><button class="update-apply-btn" onclick="pxAdd()">${t('proxies.add')}</button><div class="cl-msg" id="px-new-msg"></div></div>
+      </div>
     </div>`;
+}
+async function pxAdd() {
+  const g = id => document.getElementById(`px-new-${id}`);
+  const body = { cluster_id: g('cluster').value, name: g('name').value, url: g('url').value, token: g('token').value, kind: 'remote' };
+  _shMsg('px-new-msg', t('clusters.testing'), '');
+  try { const d = await _exCall('POST', '/api/backup/proxies', body); _shMsg('px-new-msg', d.probe && d.probe.ok ? t('proxies.added_ok', {vm: d.probe.vm ? d.probe.vm.name : '?'}) : (d.probe && (d.probe.detail || d.probe.error)) || '', d.probe && d.probe.ok ? 'ok' : 'err'); await _loadProxiesPanel(); }
+  catch (e) { _shMsg('px-new-msg', e.message, 'err'); }
+}
+async function pxTest(id) {
+  _shMsg(`px-${id}-msg`, t('clusters.testing'), '');
+  try { const d = await _exCall('POST', `/api/backup/proxies/${id}/test`); _shMsg(`px-${id}-msg`, d.ok ? t('proxies.added_ok', {vm: d.vm ? d.vm.name : '?'}) : (d.detail || d.error || ''), d.ok ? 'ok' : 'err'); await _loadProxiesPanel(); }
+  catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
+}
+async function pxToggle(id, enabled) { try { await _exCall('PUT', `/api/backup/proxies/${id}`, {enabled}); await _loadProxiesPanel(); } catch (e) { showToast(e.message, 'err'); } }
+async function pxRemove(id, name) {
+  if (!confirm(t('proxies.confirm_remove', {name}))) return;
+  try { await _exCall('DELETE', `/api/backup/proxies/${id}`); await _loadProxiesPanel(); } catch (e) { showToast(e.message, 'err'); }
 }
 function _shareFormHtml(prefix, sh) {
   sh = sh || {};
@@ -5340,6 +5395,7 @@ function switchExportsPanel(p) {
   if (p === 'vms')       exLoadVms();
   if (p === 'import')    exLoadImport();
   if (p === 'runs')      exLoadRuns();
+  if (p === 'points')    exLoadPoints();
 }
 
 async function loadExports() {
@@ -5365,9 +5421,9 @@ async function exLoadSchedules() {
       <th>${t('ex.col_vm')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_retention')}</th><th>${t('ex.col_daily_at')}</th><th>${t('ex.col_last_run')}</th><th>${t('ex.col_next_run')}</th><th></th>
     </tr></thead><tbody>${rows.map(s => `
       <tr>
-        <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="qcow2 compression">zip</span>` : ''}</td>
+        <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="qcow2 compression">zip</span>` : ''}<div><span class="ex-badge ${s.mode === 'incremental' ? 'run' : 'off'}" title="${_exEsc(t('ex.f_mode'))}">${t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')}</span></div></td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_exLocation ? `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/` : _exEsc(s.effective_base || s.path_uri_base || '—')}</td>
-        <td><span class="ex-slots">${'<i></i>'.repeat(Math.min(s.retention, 14))}</span><span style="font-size:11px;color:var(--text-muted)">×${s.retention}</span></td>
+        <td><span class="ex-slots">${'<i></i>'.repeat(Math.min(s.retention, 14))}</span><span style="font-size:11px;color:var(--text-muted)">×${s.retention}${s.retention_days ? ` / ${s.retention_days}d` : ''}${s.mode === 'incremental' ? ` · ${t('ex.full_every', {n: s.full_every_n})}` : ''}</span></td>
         <td style="font-family:'JetBrains Mono',monospace;">${_exEsc(s.run_time)}</td>
         <td>${s.last_run ? `${_exStatusBadge(s.last_run.status, s.last_run.message)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(s.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted)">${_exFmt(s.next_run)}</td>
@@ -5413,7 +5469,7 @@ async function exLoadVms() {
       ${admin && !vm.schedule ? `<tr id="exform-${i}" hidden><td colspan="5" style="background:var(--bg-card);">${_exScheduleForm(i, vm)}</td></tr>` : ''}`;
     }).join('')}</tbody></table></div>`;
 }
-function exToggleForm(i) { const r = document.getElementById(`exform-${i}`); if (r) { r.hidden = !r.hidden; if (!r.hidden) r.querySelector('input')?.focus(); } }
+function exToggleForm(i) { const r = document.getElementById(`exform-${i}`); if (r) { r.hidden = !r.hidden; if (!r.hidden) { _exModeChanged(i); r.querySelector('input')?.focus(); } } }
 function _exLocationLine(vm) {
   if (!_exLocation) return `<div class="ex-hint" style="color:var(--accent-amber);margin-bottom:8px;">${t('ex.no_share')}</div>`;
   const path = `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/${vm ? _exEsc(vm.safe_name) + '_YYYYMMDD-HHMMSS' : ''}`;
@@ -5424,16 +5480,27 @@ function _exScheduleForm(i, vm) {
     <input type="hidden" id="exf-${i}-vm_uuid" value="${_exEsc(vm.uuid)}"><input type="hidden" id="exf-${i}-vm_name" value="${_exEsc(vm.name)}">
     ${_exLocationLine(vm)}
     <div class="ex-form">
-      <div><label>${t('ex.f_retention')}</label><input type="number" id="exf-${i}-retention" min="1" max="60" value="${_exDefaults.default_retention || 7}"></div>
+      <div><label>${t('ex.f_mode')}</label><select id="exf-${i}-mode" onchange="_exModeChanged(${i})">
+          <option value="incremental" ${_exDefaults.default_mode === 'incremental' ? 'selected' : ''} ${_exDefaults.proxies ? '' : 'disabled'}>${t('ex.mode_incremental')}</option>
+          <option value="export" ${_exDefaults.default_mode !== 'incremental' ? 'selected' : ''}>${t('ex.mode_export')}</option></select>
+        <div class="ex-hint">${t(_exDefaults.proxies ? 'ex.mode_hint' : 'ex.mode_hint_no_proxy')}</div></div>
+      <div><label>${t('ex.f_retention')}</label><input type="number" id="exf-${i}-retention" min="1" max="365" value="${_exDefaults.default_mode === 'incremental' ? 14 : (_exDefaults.default_retention || 7)}"></div>
       <div><label>${t('ex.f_run_time')}</label><input type="time" id="exf-${i}-time" value="${_exEsc(_exDefaults.default_run_time || '03:00')}"></div>
+      <div class="exf-incr-${i}"><label>${t('ex.f_full_every')}</label><input type="number" id="exf-${i}-full_every" min="1" max="365" value="14"></div>
+      <div class="exf-incr-${i}"><label>${t('ex.f_retention_days')}</label><input type="number" id="exf-${i}-retention_days" min="0" max="3650" value="" placeholder="—"></div>
       <div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="exf-${i}-compress"><label for="exf-${i}-compress" style="margin:0;">${t('ex.f_compress')}</label></div>
     </div>
     <div class="cl-actions"><button class="update-apply-btn" onclick="exCreateSchedule(${i})">${t('ex.create_schedule')}</button><span class="cl-msg" id="exf-${i}-msg"></span></div>`;
 }
+function _exModeChanged(i) {
+  const mode = document.getElementById(`exf-${i}-mode`)?.value;
+  document.querySelectorAll(`.exf-incr-${i}`).forEach(el => el.style.display = mode === 'incremental' ? '' : 'none');
+}
 async function exCreateSchedule(i) {
   const g = id => document.getElementById(`exf-${i}-${id}`);
   const body = { vm_uuid: g('vm_uuid').value, vm_name: g('vm_name').value, retention: parseInt(g('retention').value || '7', 10),
-                 run_time: g('time').value || '03:00', compress: g('compress').checked };
+                 run_time: g('time').value || '03:00', compress: g('compress').checked, mode: g('mode').value,
+                 full_every_n: parseInt(g('full_every').value || '14', 10), retention_days: parseInt(g('retention_days').value || '0', 10) || null };
   const msg = g('msg');
   if (!_exLocation) { msg.textContent = t('ex.no_share'); msg.className = 'cl-msg err'; return; }
   try { await _exCall('POST', '/api/backup/plans', body); showToast(t('ex.schedule_created', {name: body.vm_name}), 'ok'); exLoadVms(); }
@@ -5503,7 +5570,7 @@ async function exLoadRuns() {
           <td class="um-username">${_exEsc(kind === 'imp' ? r.source_uri : r.vm_name)}${kind === 'imp' && r.target_name ? ` → ${_exEsc(r.target_name)}` : ''}${kind === 'run' && r.export_path ? `<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(r.export_path)}</div>` : ''}</td>
           <td style="font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap;">${_exFmt(r.started_at)}</td>
           <td>${_exStatusBadge(r.status, r.message)}</td>
-          <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${r.task_tag ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
+          <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${kind === 'run' && r.mode ? `<span class="ex-badge ${r.mode === 'incremental' ? 'run' : 'off'}">${r.mode === 'incremental' ? t(r.point_kind === 'full' ? 'ex.point_full' : 'ex.point_delta') : t('ex.mode_export')}</span> ` : ''}${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${r.task_tag ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
         </tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.no_runs')}</div>`}
     </div>`;
   el.innerHTML = table(t('ex.runs_title'), runs, 'run') + (_exRunsFilter ? '' : table(t('ex.imports_title'), imports, 'imp'));
@@ -5513,6 +5580,55 @@ async function exLoadRuns() {
     const cid = currentCluster;
     _exPollTimer = setTimeout(() => { if (currentCluster === cid && document.getElementById('expanel-runs')?.classList.contains('active')) exLoadRuns(); }, 5000);
   }
+}
+
+// ── restore points ──────────────────────────────────────────────────────────
+const _exMiB = n => n == null ? '—' : (n >= 1024 ? (n / 1024).toFixed(1) + ' GiB' : n + ' MiB');
+async function exLoadPoints() {
+  const el = document.getElementById('expanel-points');
+  el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+  let chains;
+  try { chains = await _exCall('GET', '/api/backup/chains'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  if (!chains.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_points')}</div>`; return; }
+  const admin = _exIsAdmin();
+  el.innerHTML = `<div class="settings-group"><div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span class="settings-group-title">${t('ex.points_title')}</span></div>
+    <table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_points')}</th><th>${t('ex.col_last_point')}</th><th></th></tr></thead>
+    <tbody>${chains.map(c => `
+      <tr>
+        <td class="um-username">${_exEsc(c.vm_name)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(c.vm_uuid.slice(0, 8))}</div></td>
+        <td><span class="ex-badge ${c.status === 'active' ? 'ok' : 'off'}">${t(c.status === 'active' ? 'ex.chain_active' : 'ex.chain_retired')}</span></td>
+        <td style="font-size:11px;">${_exEsc(c.target_name || '—')} / ${_exEsc(c.folder_slug)}</td>
+        <td>${c.point_count}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted)">${_exFmt(c.last_point_at)}</td>
+        <td style="white-space:nowrap;">
+          <button class="um-action-btn" onclick="exTogglePoints(${c.id})">${t('ex.show_points')}</button>
+          ${admin ? `<button class="um-action-btn" onclick="exVerifyChain(${c.id})">${t('ex.verify')}</button>
+          <button class="um-action-btn danger" onclick="exDeleteChain(${c.id}, '${_exEsc(c.vm_name)}')">${t('ex.delete_data')}</button>` : ''}
+          <div class="cl-msg" id="ch-${c.id}-msg"></div>
+        </td>
+      </tr>
+      <tr id="ch-points-${c.id}" hidden><td colspan="6" style="background:var(--bg-card);" id="ch-points-${c.id}-body"></td></tr>`).join('')}</tbody></table></div>`;
+}
+async function exTogglePoints(id) {
+  const row = document.getElementById(`ch-points-${id}`); if (!row) return;
+  row.hidden = !row.hidden; if (row.hidden) return;
+  const body = document.getElementById(`ch-points-${id}-body`); body.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+  try {
+    const pts = await _exCall('GET', `/api/backup/chains/${id}/points`);
+    body.innerHTML = pts.length ? `<table class="um-table"><thead><tr><th>#</th><th>${t('ex.col_kind')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_changed')}</th><th>${t('ex.col_written')}</th><th>${t('ex.col_verified')}</th></tr></thead><tbody>${pts.map(p => `
+      <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted)">${_exEsc(p.dir)}</span></td>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:11px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
+      <td style="font-size:11px;color:var(--text-muted)">${p.verified_at ? _exFmt(p.verified_at) : '—'}</td></tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.no_points')}</div>`;
+  } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
+}
+async function exVerifyChain(id) {
+  _shMsg(`ch-${id}-msg`, t('ex.verifying'), '');
+  try { const d = await _exCall('POST', `/api/backup/chains/${id}/verify`); _shMsg(`ch-${id}-msg`, d.ok ? t('ex.verify_ok') : t('ex.verify_fail', {detail: JSON.stringify(d.points)}), d.ok ? 'ok' : 'err'); }
+  catch (e) { _shMsg(`ch-${id}-msg`, e.message, 'err'); }
+}
+async function exDeleteChain(id, name) {
+  if (!confirm(t('ex.confirm_delete_data', {name}))) return;
+  try { await _exCall('DELETE', `/api/backup/chains/${id}`); exLoadPoints(); } catch (e) { showToast(e.message, 'err'); }
 }
 
 // =============================================================================

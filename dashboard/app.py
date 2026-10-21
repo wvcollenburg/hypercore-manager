@@ -1184,7 +1184,7 @@ def backup_proxy(sub):
     Reads are open to every user who can see the cluster; changes need admin."""
     # folder members manage plans and imports for their clusters (the target and its credentials
     # are the admin's business); target management itself is admin-only
-    if sub.startswith('targets') and not _is_admin_request():
+    if sub.startswith(('targets', 'proxies')) and not _is_admin_request():
         return jsonify({'error': 'Admin access required'}), 403
     url, token = _backup_env()
     cid = _cluster_id()

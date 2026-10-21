@@ -155,6 +155,20 @@ def wait_for_task(hc: HyperCoreClient, task_tag: str, on_progress) -> None:
     raise HyperCoreError(f'Task {task_tag} did not finish within {CFG.task_timeout_hours}h')
 
 
+# ----------------------------------------------------------------------- plan
+def run_plan(plan_id: int) -> None:
+    """Scheduler entry point: dispatch on the plan's mode."""
+    plan = db.get_schedule(plan_id)
+    if plan is None:
+        log.warning('Plan %s no longer exists, skipping', plan_id)
+        return
+    if plan.get('mode') == 'incremental':
+        import incremental
+        incremental.run_incremental(plan_id)
+    else:
+        run_export(plan_id)
+
+
 # --------------------------------------------------------------------- export
 def run_export(schedule_id: int) -> None:
     """Entry point for the scheduler and the 'Run now' button."""
@@ -173,6 +187,7 @@ def run_export(schedule_id: int) -> None:
         return
 
     run_id = db.start_run(schedule_id)
+    db.update_run(run_id, mode='export')
     folder = f"{safe_name(sched['vm_name'])}_{datetime.now().strftime(TIMESTAMP_FMT)}"
     try:
         loc = location_for_schedule(sched)
