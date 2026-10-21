@@ -11,12 +11,14 @@ import logging
 import os
 import signal
 import threading
+import time
 
 import api
 import config
 import images
 import jobs
 import log
+import mounts as mounts_mod
 import targets
 
 
@@ -28,8 +30,19 @@ def main() -> None:
     if not cfg.api_token:
         logger.warning('PROXY_API_TOKEN is not set; REST API authentication is disabled')
     backend = images.make_backend(cfg.backend, cfg.nbd_slots, cfg.dev_dir)
-    engine = jobs.Engine(cfg, backend, targets.Mounter(cfg.data_dir))
-    app = api.create_app(cfg, engine)
+    mounter = targets.Mounter(cfg.data_dir)
+    engine = jobs.Engine(cfg, backend, mounter)
+    mounts = mounts_mod.MountManager(cfg, backend, mounter)
+    app = api.create_app(cfg, engine, mounts)
+
+    def _idle_sweeper():
+        while True:
+            time.sleep(60)
+            try:
+                mounts.sweep_idle()
+            except Exception:                       # noqa: BLE001
+                logging.getLogger('proxy.mounts').exception('idle sweep failed')
+    threading.Thread(target=_idle_sweeper, name='flr-idle', daemon=True).start()
     logger.info('Proxy starting', extra={'api_port': cfg.api_port, 'backend': backend.name, 'nbd_slots': cfg.nbd_slots,
                                          'data_dir': cfg.data_dir})
     api.start(app, cfg.api_port)
@@ -43,6 +56,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _handle)
     signal.signal(signal.SIGINT, _handle)
     stop.wait()
+    mounts.unmount_all()
     logger.info('Proxy stopped')
 
 

@@ -7,6 +7,11 @@ api.py — REST API of the backup proxy (port 8083), driven by the backup servic
   GET  /jobs                  recent jobs
   GET  /jobs/<id>             state, progress, result or error
   DELETE /jobs/<id>           request cancellation
+  POST /mounts                mount a restore point read-only {target, chain_dir, seq} -> {id, filesystems}
+  GET  /mounts/<id>/ls?path=  directory listing ('/' lists the filesystems)
+  GET  /mounts/<id>/file?path= stream one file
+  GET  /mounts/<id>/zip?paths=a,b  stream a zip of files/directories
+  DELETE /mounts/<id>         unmount
 
 Authentication: Bearer token (PROXY_API_TOKEN). An empty token disables auth, for development only.
 """
@@ -33,7 +38,7 @@ _REQUIRED = {
 }
 
 
-def create_app(cfg, engine) -> Flask:
+def create_app(cfg, engine, mounts=None) -> Flask:
     app = Flask('proxy.api')
     app.config['API_TOKEN'] = cfg.api_token
 
@@ -85,6 +90,82 @@ def create_app(cfg, engine) -> Flask:
         if not job:
             return jsonify({'error': 'not found'}), 404
         return jsonify(job.public())
+
+    # ------------------------------------------------------------------ file-level recovery
+    @app.post('/mounts')
+    @require_token
+    def mount_point():
+        if mounts is None:
+            return jsonify({'error': 'file-level recovery is not enabled on this proxy'}), 501
+        body = request.get_json(silent=True) or {}
+        for k in ('target', 'chain_dir', 'seq'):
+            if k not in body:
+                return jsonify({'error': f'missing field {k}'}), 400
+        try:
+            m = mounts.mount(body['target'], body['chain_dir'], int(body['seq']))
+        except Exception as e:                       # noqa: BLE001
+            log.warning('mount failed', exc_info=True)
+            return jsonify({'error': str(e)}), 502
+        return jsonify(m.public()), 201
+
+    @app.get('/mounts')
+    @require_token
+    def list_mounts():
+        return jsonify([m.public() for m in (mounts.mounts.values() if mounts else [])])
+
+    @app.get('/mounts/<mid>/ls')
+    @require_token
+    def mount_ls(mid):
+        try:
+            return jsonify(mounts.ls(mid, request.args.get('path') or '/'))
+        except KeyError:
+            return jsonify({'error': 'mount not found'}), 404
+        except (FileNotFoundError, NotADirectoryError):
+            return jsonify({'error': 'path not found'}), 404
+
+    @app.get('/mounts/<mid>/file')
+    @require_token
+    def mount_file(mid):
+        from flask import Response, stream_with_context
+        try:
+            fh, size, name = mounts.open_file(mid, request.args.get('path') or '')
+        except KeyError:
+            return jsonify({'error': 'mount not found'}), 404
+        except (FileNotFoundError, IsADirectoryError):
+            return jsonify({'error': 'file not found'}), 404
+
+        def gen():
+            with fh:
+                while True:
+                    b = fh.read(1 << 20)
+                    if not b:
+                        break
+                    yield b
+        return Response(stream_with_context(gen()), mimetype='application/octet-stream',
+                        headers={'Content-Length': str(size), 'Content-Disposition': f'attachment; filename="{name}"'})
+
+    @app.get('/mounts/<mid>/zip')
+    @require_token
+    def mount_zip(mid):
+        from flask import Response, stream_with_context
+        paths = [p for p in (request.args.get('paths') or '').split(',') if p]
+        if not paths:
+            return jsonify({'error': 'paths is required'}), 400
+        try:
+            mounts.get(mid)
+        except KeyError:
+            return jsonify({'error': 'mount not found'}), 404
+        name = request.args.get('name') or 'recovered-files.zip'
+        return Response(stream_with_context(mounts.iter_zip(mid, paths)), mimetype='application/zip',
+                        headers={'Content-Disposition': f'attachment; filename="{name}"'})
+
+    @app.delete('/mounts/<mid>')
+    @require_token
+    def unmount_point(mid):
+        if mounts is None or mid not in mounts.mounts:
+            return jsonify({'error': 'mount not found'}), 404
+        mounts.unmount(mid)
+        return jsonify({'ok': True})
 
     @app.delete('/jobs/<job_id>')
     @require_token

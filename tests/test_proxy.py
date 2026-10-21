@@ -14,7 +14,7 @@ import types
 import pytest
 
 _PROXY = os.path.join(os.path.dirname(__file__), '..', 'proxy')
-_CLASH = ('config', 'devices', 'copier', 'images', 'targets', 'manifest', 'identity', 'jobs', 'api', 'log')
+_CLASH = ('config', 'devices', 'copier', 'images', 'targets', 'manifest', 'identity', 'jobs', 'api', 'mounts', 'log')
 
 
 def _import():
@@ -376,3 +376,113 @@ def test_backup_honours_image_size_and_flatten_shrinks(stack):
     f = _wait(stack, stack.client.post('/jobs/flatten', json={'target': tgt, 'chain_dir': 'F/n_vm-n.chain', 'seq': 0, 'out_dir': 'F/_restore/n', 'sizes': {nv: 540672}}, headers=H).get_json()['id'])
     assert f['state'] == 'done', f
     assert os.path.getsize(os.path.join(os.path.dirname(chain), '_restore', 'n', f'nvram-{nv}.qcow2')) == 540672
+
+
+# ----------------------------------------------------------------------------- file-level recovery (mount manager)
+SFDISK = '{"partitiontable": {"label": "gpt", "unit": "sectors", "partitions": [{"node": "/dev/nbd1p1", "start": 2048, "size": 1363968, "type": "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"}, {"node": "/dev/nbd1p2", "start": 1366016, "size": 3907584, "type": "0FC63DAF-8483-4772-8E79-3D69D8477DE4"}]}}'
+
+
+def test_sfdisk_and_blkid_parsing():
+    parts = P.mounts.partitions_from_sfdisk(SFDISK, '/dev/nbd1', 15_000_928_256)
+    assert parts[0] == {'name': 'p1', 'start_bytes': 2048 * 512, 'size_bytes': 1363968 * 512, 'type': 'C12A7328-F81F-11D2-BA4B-00A0C93EC93B'}
+    assert parts[1]['name'] == 'p2' and parts[1]['start_bytes'] == 1366016 * 512
+    whole = P.mounts.partitions_from_sfdisk('', '/dev/nbd2', 123)
+    assert whole == [{'name': 'disk', 'start_bytes': 0, 'size_bytes': 123, 'type': None}]
+    assert P.mounts.parse_blkid('DEVNAME=/dev/loop3\nUUID=a-b\nTYPE=ext4\nLABEL=root\n') == {'DEVNAME': '/dev/loop3', 'UUID': 'a-b', 'TYPE': 'ext4', 'LABEL': 'root'}
+
+
+class _FakeRun:
+    """Answers the system commands the mount manager issues and records them; mounts become plain directories."""
+    def __init__(self, tmp, fstypes):
+        self.tmp, self.fstypes, self.cmds, self.loops, self.dms = tmp, fstypes, [], 0, []
+    def __call__(self, cmd, **kw):
+        self.cmds.append(cmd); out = ''
+        if cmd[0] == 'blockdev': out = '2000683008'
+        elif cmd[0] == 'sfdisk': out = SFDISK
+        elif cmd[0] == 'losetup': self.loops += 1; out = f'/dev/loop{self.loops}'
+        elif cmd[0] == 'dmsetup' and cmd[1] == 'create': self.dms.append(cmd[2])
+        elif cmd[0] == 'dmsetup' and cmd[1] == 'info': out = str(self.dms.index(cmd[-1]) + 1)       # minor = creation order
+        elif cmd[0] == 'blkid':
+            dev = cmd[-1]; idx = f'p{dev.rsplit("-", 1)[-1]}' if dev.startswith('/dev/dm-') else 'p2'; out = f'TYPE={self.fstypes.get(idx, "ext4")}\nLABEL={idx}\n'
+        elif cmd[0] == 'mount':
+            mp = cmd[-1]; (pathlib := __import__('pathlib')).Path(mp, 'etc').mkdir(parents=True, exist_ok=True)
+            pathlib.Path(mp, 'etc', 'hostname').write_text('exptest\n'); pathlib.Path(mp, 'etc', 'hosts').write_text('127.0.0.1 localhost\n')
+        return types.SimpleNamespace(returncode=0, stdout=out, stderr='')
+
+
+@pytest.fixture
+def flr(tmp_path):
+    cfg = P.config.Config(api_token='t0k', data_dir=str(tmp_path / 'data'), dev_dir=str(tmp_path / 'dev'), backend='file')
+    mounter = _FakeMounter(str(tmp_path / 'targets'))
+    # a chain with one point and one disk image (content irrelevant: the fake `run` fabricates partitions)
+    root = mounter.acquire('smb://nas/share/hcm', None, None)
+    chain = os.path.join(root, 'F', 'v_vm-1.chain'); os.makedirs(os.path.join(chain, 'base'))
+    open(os.path.join(chain, 'base', 'disk.qcow2'), 'wb').truncate(4 * MiB)
+    P.manifest.write_json(os.path.join(chain, 'base', 'manifest.json'), {'seq': 0, 'devices': [{'uuid': 'd', 'type': 'VIRTIO_DISK', 'file': 'disk.qcow2', 'size': 4 * MiB},
+                                                                                              {'uuid': 'n', 'type': 'NVRAM', 'file': 'nvram.qcow2', 'size': 540672}]})
+    P.manifest.save_chain(chain, {'points': [{'seq': 0, 'dir': 'base', 'kind': 'full'}]})
+    run = _FakeRun(tmp_path, {'p1': 'vfat', 'p2': 'ext4'})
+    mm = P.mounts.MountManager(cfg, P.images.FileBackend(), mounter, run=run, idle_seconds=1)
+    return types.SimpleNamespace(mm=mm, run=run, cfg=cfg, mounter=mounter)
+
+
+def test_mount_browse_zip_and_unmount(flr):
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert [f['name'] for f in m.filesystems] == ['disk1-p1', 'disk1-p2'] and m.filesystems[1]['fstype'] == 'ext4'
+    cmds = flr.run.cmds
+    assert any(c[0] == 'losetup' and '--read-only' in c and '--offset' in c and c[c.index('--offset') + 1] == str(2048 * 512) for c in cmds), 'read-only loop at the partition offset'
+    assert any(c[0] == 'dmsetup' and c[1] == 'create' and '--noudevsync' in c and ' snapshot /dev/loop' in c[-1] for c in cmds), 'copy-on-write overlay'
+    assert any(c[0] == 'blkid' and '-p' in c and c[-1] == '/dev/dm-1' for c in cmds), 'probed via the kernel dm node'
+    assert any(c[:4] == ['mount', '-t', 'ext4', '-o'] and c[4] == 'ro,noload' for c in cmds), 'ext4 mounted read-only without journal replay'
+    top = flr.mm.ls(m.id, '/')
+    assert [e['name'] for e in top['entries']] == ['disk1-p1', 'disk1-p2'] and top['entries'][1]['fstype'] == 'ext4'
+    lst = flr.mm.ls(m.id, '/disk1-p2/etc')
+    assert [e['name'] for e in lst['entries']] == ['hostname', 'hosts'] and lst['entries'][0]['kind'] == 'file' and lst['entries'][0]['size'] == 8
+    fh, size, name = flr.mm.open_file(m.id, '/disk1-p2/etc/hostname'); assert fh.read() == b'exptest\n' and size == 8 and name == 'hostname'; fh.close()
+    escaped = flr.mm.ls(m.id, '/disk1-p2/../../etc')          # '..' is neutralised, never escapes the mount
+    assert [e['name'] for e in escaped['entries']] == ['hostname', 'hosts']
+    with pytest.raises(FileNotFoundError):
+        flr.mm.open_file(m.id, '/nope/x')
+    import zipfile, io
+    data = b''.join(flr.mm.iter_zip(m.id, ['/disk1-p2/etc', '/disk1-p1']))
+    names = sorted(zipfile.ZipFile(io.BytesIO(data)).namelist())
+    assert names == ['disk1-p1/etc/hostname', 'disk1-p1/etc/hosts', 'disk1-p2/etc/hostname', 'disk1-p2/etc/hosts']
+    flr.mm.unmount(m.id)
+    tail = [c[0] for c in flr.run.cmds[-8:]]
+    assert tail.count('umount') == 2 and 'dmsetup' in tail and 'losetup' in tail and 'smb://nas/share/hcm' in flr.mounter.released
+    assert not os.path.exists(m.root) and m.id not in flr.mm.mounts
+
+
+def test_lvm_member_is_imported_under_a_temporary_vg(flr):
+    flr.run.fstypes = {'p1': 'vfat', 'p2': 'LVM2_member'}
+    orig = flr.run.__call__
+    def run(cmd, **kw):
+        if cmd[0] == 'pvs': return types.SimpleNamespace(returncode=0, stdout='  hcmflrabc\n', stderr='')
+        if cmd[0] == 'lvs': return types.SimpleNamespace(returncode=0, stdout='  root 9\n', stderr='')
+        if cmd[0] == 'blkid' and cmd[-1] == '/dev/dm-9': return types.SimpleNamespace(returncode=0, stdout='TYPE=ext4\n', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert [f['name'] for f in m.filesystems] == ['disk1-p1', 'disk1-p2-root']
+    assert any(c[:4] == ['mount', '-t', 'ext4', '-o'] and c[-2] == '/dev/dm-9' for c in flr.run.cmds), 'LV mounted via its kernel node'
+    assert any(c[0] == 'vgimportclone' and c[1] == '--basevgname' and '--devices' in c for c in flr.run.cmds), 'the guest VG gets a temporary name, LVM sees only the copy'
+    assert any(c[:2] == ['vgchange', '-ay'] and c[-1] == 'hcmflrabc' and '--devices' in c for c in flr.run.cmds)
+    flr.mm.unmount(m.id)
+    assert any(c[:2] == ['vgchange', '-an'] and c[-1] == 'hcmflrabc' for c in flr.run.cmds)
+
+
+def test_idle_mounts_are_swept_and_api_routes_work(flr):
+    import time
+    app = P.api.create_app(flr.cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}), flr.mm)
+    c = app.test_client(); H = {'Authorization': 'Bearer t0k'}
+    r = c.post('/mounts', json={'target': {'uri': 'smb://nas/share/hcm'}, 'chain_dir': 'F/v_vm-1.chain', 'seq': 0}, headers=H)
+    assert r.status_code == 201, r.get_json(); mid = r.get_json()['id']
+    assert c.get(f'/mounts/{mid}/ls?path=/disk1-p2/etc', headers=H).get_json()['entries'][0]['name'] == 'hostname'
+    f = c.get(f'/mounts/{mid}/file?path=/disk1-p2/etc/hosts', headers=H)
+    assert f.status_code == 200 and f.data == b'127.0.0.1 localhost\n' and 'hosts' in f.headers['Content-Disposition']
+    z = c.get(f'/mounts/{mid}/zip?paths=/disk1-p2/etc&name=etc.zip', headers=H)
+    assert z.status_code == 200 and z.mimetype == 'application/zip' and len(z.data) > 100
+    assert c.get(f'/mounts/{mid}/ls?path=/missing', headers=H).status_code == 404
+    assert c.post('/mounts', json={'target': {'uri': 'smb://nas/share/hcm'}, 'chain_dir': 'F/v_vm-1.chain', 'seq': 7}, headers=H).status_code == 502
+    flr.mm.mounts[mid].last_used -= 5
+    assert flr.mm.sweep_idle() == 1 and c.get(f'/mounts/{mid}/ls', headers=H).status_code == 404

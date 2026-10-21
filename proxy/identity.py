@@ -54,5 +54,7 @@ def identity(cfg, backend_name: str, nbd_free: int | None) -> dict:
             'mount_cifs': shutil.which('mount.cifs') is not None,
             'mount_nfs': shutil.which('mount.nfs') is not None or shutil.which('mount.nfs4') is not None,
             'jobs': ['backup', 'flatten', 'verify', 'sweep', 'prune', 'delete_chain', 'stage'],
+            'mounts': True,
+            'filesystems': ['ext4', 'ext3', 'ext2', 'xfs', 'btrfs', 'vfat', 'ntfs', 'exfat', 'lvm'],
         },
     }

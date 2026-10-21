@@ -17,6 +17,7 @@ import cluster_registry
 import config as cfg_module
 import db
 import jobs
+import flr
 import incremental
 import scheduler
 from hypercore import HyperCoreError
@@ -614,6 +615,54 @@ def restores_start():
     rid = db.add_restore(point, chain, name, params, b.get('requested_by'))
     scheduler.run_restore(rid)
     return jsonify({'ok': True, 'id': rid}), 201
+
+
+# ------------------------------------------------------- file-level recovery
+@app.get('/api/v1/flr/mounts')
+@_require_token
+def flr_mounts():
+    return jsonify(flr.list_mounts(_cluster_arg()))
+
+
+@app.post('/api/v1/flr/mounts')
+@_require_token
+def flr_mount():
+    b = request.get_json(silent=True) or {}
+    try:
+        return jsonify(flr.mount_point(int(b.get('point_id') or 0), b.get('requested_by'))), 201
+    except (incremental.IncrementalError, ProxyError, ValueError) as e:
+        return _err(str(e), 502)
+
+
+@app.get('/api/v1/flr/mounts/<mid>/ls')
+@_require_token
+def flr_ls(mid):
+    try:
+        return jsonify(flr.ls(mid, request.args.get('path') or '/'))
+    except (incremental.IncrementalError, ProxyError) as e:
+        return _err(str(e), 404 if 'not found' in str(e) else 502)
+
+
+@app.get('/api/v1/flr/mounts/<mid>/<kind>')
+@_require_token
+def flr_download(mid, kind):
+    """Streams a file (kind=file, ?path=) or a zip (kind=zip, ?paths=a,b&name=) from the proxy."""
+    if kind not in ('file', 'zip'):
+        return _err('unknown download kind', 404)
+    from flask import Response, stream_with_context
+    try:
+        r = flr.stream(mid, kind, dict(request.args))
+    except (incremental.IncrementalError, ProxyError) as e:
+        return _err(str(e), 404 if 'not found' in str(e) else 502)
+    headers = {k: v for k, v in r.headers.items() if k.lower() in ('content-length', 'content-disposition', 'content-type')}
+    return Response(stream_with_context(r.iter_content(1 << 20)), status=r.status_code, headers=headers)
+
+
+@app.delete('/api/v1/flr/mounts/<mid>')
+@_require_token
+def flr_unmount(mid):
+    flr.unmount(mid)
+    return jsonify({'ok': True})
 
 
 def start(cfg: cfg_module.Config) -> None:

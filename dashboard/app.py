@@ -1199,6 +1199,25 @@ def backup_proxy(sub):
             payload['cluster_id'] = cid
         body = json.dumps(payload).encode()
         headers['Content-Type'] = 'application/json'
+    if request.method == 'GET' and sub.startswith('flr/mounts/') and sub.rsplit('/', 1)[-1] in ('file', 'zip'):
+        # downloads stream through; nothing in them is a target path or credential
+        try:
+            rq = urllib.request.Request(f'{url}/api/v1/{sub}?{qs}', headers=headers)
+            resp = urllib.request.urlopen(rq, timeout=600)
+        except urllib.error.HTTPError as e:
+            return Response(e.read(), status=e.code, mimetype='application/json')
+        except Exception as e:
+            return jsonify({'error': f'Backup service unreachable: {e}'}), 503
+        passthrough = {k: v for k, v in resp.headers.items() if k.lower() in ('content-length', 'content-disposition', 'content-type')}
+
+        def gen():
+            with resp:
+                while True:
+                    chunk = resp.read(1 << 20)
+                    if not chunk:
+                        break
+                    yield chunk
+        return Response(gen(), status=resp.status, headers=passthrough)
     try:
         rq = urllib.request.Request(f'{url}/api/v1/{sub}?{qs}', data=body, headers=headers, method=request.method)
         with urllib.request.urlopen(rq, timeout=60) as resp:

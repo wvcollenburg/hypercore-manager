@@ -1,9 +1,10 @@
 FROM python:3.12-slim-bookworm
 
 # qemu-utils: qemu-img / qemu-nbd; cifs-utils + nfs-common: mounting backup targets;
-# util-linux: blockdev; udev: udevadm settle before detaching nbd devices
+# util-linux: blockdev/sfdisk/losetup; udev: udevadm settle; lvm2 + dmsetup: file-level recovery
+# (COW overlays, LVM import); ntfs-3g: NTFS fallback; genisoimage: ISO delivery
 RUN apt-get update \
- && apt-get install -y --no-install-recommends qemu-utils cifs-utils nfs-common util-linux udev \
+ && apt-get install -y --no-install-recommends qemu-utils cifs-utils nfs-common util-linux fdisk udev lvm2 dmsetup ntfs-3g genisoimage \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
