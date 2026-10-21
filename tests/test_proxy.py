@@ -596,3 +596,21 @@ def test_mount_manager_cleans_leftovers_of_a_previous_life(tmp_path):
     assert ['vgchange', '-an', 'hcmflr12ab'] in cmds and ['dmsetup', 'remove', '--noudevsync', '--retry', 'hcmflr-12ab-sda2'] in cmds
     assert ['losetup', '-d', '/dev/loop7'] in cmds and ['losetup', '-d', '/dev/loop8'] in cmds and ['losetup', '-d', '/dev/loop0'] not in cmds
     assert not os.path.exists(os.path.join(base, '12ab'))
+
+
+def test_backup_honours_the_chain_dir_named_by_the_service(stack):
+    """Two fulls of one VM land in two directories: the service names each chain; '..' is refused."""
+    H = {'Authorization': 'Bearer t0k'}
+    (stack.dev / 'virtio-eeee4444').write_bytes(b'E' * MiB)
+    req = {'target': {'uri': 'nfs://nas/export'}, 'folder': 'F', 'vm': {'uuid': 'vm-e', 'name': 'e'}, 'point': {'kind': 'full', 'seq': 0},
+           'chain_dir': 'F/e_vm-e_20261021-190000.chain',
+           'devices': [{'uuid': 'disk-e', 'type': 'VIRTIO_DISK', 'clone_uuid': 'eeee4444-0000-0000-0000-000000000000', 'size': MiB, 'map': [{'lower': 0, 'upper': 0}]}]}
+    j = _wait(stack, stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id'])
+    assert j['state'] == 'done', j
+    root = os.path.join(stack.mounter.root, P.targets.parse_uri(req['target']['uri']).key)
+    assert os.path.exists(os.path.join(root, 'F', 'e_vm-e_20261021-190000.chain', 'base', 'disk-e.qcow2'))
+    assert not os.path.exists(os.path.join(root, 'F', 'e_vm-e.chain'))
+    j2 = _wait(stack, stack.client.post('/jobs/backup', json=dict(req, chain_dir='F/e_vm-e_20261021-190500.chain'), headers=H).get_json()['id'])
+    assert j2['state'] == 'done', j2                      # a second full of the same VM: its own directory, no 'already exists'
+    j3 = _wait(stack, stack.client.post('/jobs/backup', json=dict(req, chain_dir='../escape.chain'), headers=H).get_json()['id'])
+    assert j3['state'] == 'failed' and 'relative' in j3['error']

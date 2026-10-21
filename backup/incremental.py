@@ -258,7 +258,7 @@ def _run(plan: dict, run_id: int) -> None:
     else:
         old_anchor = chain.get('anchor_snapshot_uuid') if chain else None
     if chain is None:
-        chain_dir = f"{loc['tenant']}/{manifest_names.chain_dirname(vm['name'], vm['uuid'])}"
+        chain_dir = f"{loc['tenant']}/{manifest_names.chain_dirname(vm['name'], vm['uuid'], time.strftime('%Y%m%d-%H%M%S'))}"
         chain_id = db.add_chain(plan, share['id'], loc['tenant'], chain_dir)
         chain = db.get_chain(chain_id)
     db.update_run(run_id, chain_id=chain['id'], point_kind=kind, message=f'{kind}: creating reference snapshot')
@@ -312,7 +312,7 @@ def _run(plan: dict, run_id: int) -> None:
 
         # 4. proxy job
         body = {'target': {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')},
-                'folder': loc['tenant'], 'vm': {'uuid': vm['uuid'], 'name': vm['name']},
+                'folder': loc['tenant'], 'vm': {'uuid': vm['uuid'], 'name': vm['name']}, 'chain_dir': chain['chain_dir'],
                 'point': {'kind': kind, 'seq': seq, 'previous_seq': prev_seq}, 'devices': req_devices,
                 'definition': definition, 'plan_id': plan['id'], 'run_id': run_id}
         job_id = pc.submit('backup', body)

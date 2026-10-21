@@ -1,6 +1,7 @@
 """backup/incremental.py, proxy_client.py and the HyperCore client additions — pure logic with fakes."""
 import importlib
 import os
+import re
 import sys
 import types
 from datetime import datetime, timedelta, timezone
@@ -92,6 +93,8 @@ def test_chain_naming_matches_the_proxy():
             sys.modules['manifest'] = saved
     for name, uuid in (('exptest', '3cf115a9-8208-41b2-a67d-0ed5421441c2'), ('My VM (prod)', 'abcdef12-0000-0000-0000-000000000000')):
         assert mn.chain_dirname(name, uuid) == pm.chain_dirname(name, uuid)
+        assert mn.chain_dirname(name, uuid, '20261021-190000') == pm.chain_dirname(name, uuid, '20261021-190000')
+    assert mn.chain_dirname('exptest', '3cf115a9-x', '20261021-190000') == 'exptest_3cf115a9_20261021-190000.chain'
     for kind, seq in (('full', 0), ('delta', 3), ('full', 14)):
         assert mn.point_dirname(kind, seq) == pm.point_dirname(kind, seq)
 
@@ -191,6 +194,9 @@ def test_first_run_is_a_full_and_second_a_delta(world):
     assert [d['clone_uuid'] for d in body['devices']] == ['clone-2', 'clone-3'] and body['devices'][1]['size'] == 1 << 20
     chain = world.db.chains[1]
     assert chain['anchor_snapshot_uuid'] == 'snap-1' and chain['next_seq'] == 1 and chain['last_serials'] == {'disk-1': 11, 'nv-1': 11}
+    # the chain directory is unique per chain (a later full starts a new chain of the same VM) and the proxy is told its name
+    assert re.fullmatch(r'Amsterdam/exptest_vm-1_\d{8}-\d{6}\.chain', chain['chain_dir']), chain['chain_dir']
+    assert body['chain_dir'] == chain['chain_dir']
     assert not world.hc.devices, 'clones detached after the run'
     assert ('snapdiff', 'disk-1', 0, 11) in world.hc.calls
     # second run: delta against serial 11, old anchor removed, new anchor kept

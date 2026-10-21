@@ -129,7 +129,11 @@ class Engine:
         req = job.request
         root = self._with_target(req)
         try:
-            chain_dir = os.path.join(root, req['folder'], manifest.chain_dirname(req['vm']['name'], req['vm']['uuid']))
+            # the service names the chain directory (unique per chain); older services did not
+            rel = req.get('chain_dir') or os.path.join(req['folder'], manifest.chain_dirname(req['vm']['name'], req['vm']['uuid']))
+            if rel.startswith('/') or '..' in rel.split('/'):
+                raise ValueError('chain_dir must be a relative path inside the target')
+            chain_dir = os.path.join(root, rel)
             kind, seq = req['point']['kind'], int(req['point']['seq'])
             prev_seq = req['point'].get('previous_seq')
             point_dir = os.path.join(chain_dir, manifest.point_dirname(kind, seq))
