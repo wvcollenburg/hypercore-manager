@@ -2368,7 +2368,7 @@ def _do_apply_update():
 
         log('Building new images (no downtime yet)...')
         r = subprocess.run(
-            ['docker-compose', '--profile', 'full', 'build'],
+            ['docker-compose', 'build'],
             capture_output=True, text=True, timeout=600,
             cwd=_REPO_PATH,
         )
@@ -2411,7 +2411,7 @@ def _do_apply_update():
                 '--env-file', f'{_REPO_PATH}/.env',
                 '-w', '/repo',
                 f'{project}-dashboard',
-                'docker-compose', '--profile', 'full', 'up', '-d',
+                'docker-compose', 'up', '-d', '--remove-orphans',
             ],
             capture_output=True, text=True, timeout=30,
         )
@@ -2424,20 +2424,6 @@ def _do_apply_update():
     except Exception as exc:
         log(f'Error: {exc}')
         _write_update_patch({'apply_in_progress': False})
-
-
-@app.route('/api/grafana/status')
-@require_auth
-def api_grafana_status():
-    """Probe Grafana over the internal network so the browser never has to; the optional
-    `tools` profile may simply not be running. Returns the URL the browser should open."""
-    url = os.getenv('GRAFANA_URL', 'http://grafana:3000')
-    try:
-        with urllib.request.urlopen(f'{url}/api/health', timeout=2) as resp:
-            ok = resp.status == 200
-    except Exception:
-        ok = False
-    return jsonify({'available': ok, 'port': int(os.getenv('GRAFANA_PUBLIC_PORT', '3000'))})
 
 
 @app.route('/api/update/status')

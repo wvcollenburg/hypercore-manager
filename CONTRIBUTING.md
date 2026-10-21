@@ -54,7 +54,7 @@ A laptop with Docker Desktop is enough for a trial run; arm64 (Apple Silicon) wo
 ```bash
 cp .env.template .env
 # replace every CHANGE_ME (or run: python3 install.py)
-docker compose --profile full up --build -d
+docker compose up --build -d
 ```
 
 Then open http://localhost:5000 and register a cluster. Read-only cluster credentials are fine:

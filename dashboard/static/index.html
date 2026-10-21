@@ -1567,22 +1567,6 @@
 
   <!-- ─── modules tab ─── -->
   <div class="tab-content" id="tab-modules">
-    <div class="chart-container" style="margin-bottom:16px;">
-      <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-amber)"></div><span data-i18n="modules.tools">Tools</span></div>
-      <div style="display:flex;align-items:center;gap:16px;padding:12px 16px;background:var(--bg-nested);border:1px solid var(--border);border-radius:8px;">
-        <div style="width:40px;height:40px;border-radius:8px;background:rgba(245,158,11,0.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">📊</div>
-        <div style="flex:1;">
-          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;">Grafana</div>
-          <div data-i18n="modules.grafana_desc" style="font-size:11px;color:var(--text-secondary);margin-top:2px;">Advanced data exploration and custom dashboards</div>
-          <div id="grafanaStatus" style="font-family:'JetBrains Mono',monospace;font-size:10px;margin-top:4px;color:var(--text-muted);"><span data-i18n="grafana.checking">Checking...</span></div>
-        </div>
-        <a id="grafanaLink" data-i18n="modules.open_grafana" href="http://localhost:3000" target="_blank" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);padding:8px 16px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;text-decoration:none;transition:all 0.2s;white-space:nowrap;" onmouseover="this.style.borderColor='var(--accent-amber)';this.style.color='var(--accent-amber)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">Open Grafana</a>
-      </div>
-      <div style="font-size:10px;color:var(--text-muted);margin-top:8px;font-family:'JetBrains Mono',monospace;">
-        <span data-i18n="modules.grafana_note">Grafana is not started by default. To launch it, run:</span>
-        <code style="background:var(--bg-primary);padding:2px 6px;border-radius:3px;margin-left:4px;">docker compose --profile tools up -d grafana</code>
-      </div>
-    </div>
     <div class="chart-container">
       <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-green)"></div><span data-i18n="modules.discovered_title">Discovered Data Modules</span></div>
       <p data-i18n="modules.auto_appear" style="font-size:12px;color:var(--text-secondary);margin-bottom:16px;">
@@ -2567,28 +2551,8 @@ function setStatus(c) {
   else{d.style.background='var(--accent-red)';s.textContent=t('header.disconnected');}
 }
 
-// ─── Grafana status check ───
-async function checkGrafana() {
-  const status = document.getElementById('grafanaStatus');
-  const link = document.getElementById('grafanaLink');
-  // probed by the dashboard over the internal network: no browser request to a port that may
-  // not be open, and the link follows the host the dashboard is being browsed from
-  const d = await apiFetch('/api/grafana/status');
-  const port = (d && d.port) || 3000;
-  if (link) link.href = `${window.location.protocol}//${window.location.hostname}:${port}`;
-  if (d && d.available) {
-    status.innerHTML = `<span style="color:var(--accent-green);">${t('grafana.running')}</span>`;
-    link.style.borderColor = 'var(--accent-green)';
-    link.style.color = 'var(--accent-green)';
-  } else {
-    status.innerHTML = `<span style="color:var(--text-muted);">${t('grafana.not_running')}</span>`;
-    link.style.borderColor = 'var(--border)';
-    link.style.color = 'var(--text-muted)';
-  }
-}
-
 async function refreshAll() {
-  await Promise.all([loadNodes(), loadVMs(), loadMigrations(), loadForecastRuns(), loadPredictions(), loadModules(), checkGrafana()]);
+  await Promise.all([loadNodes(), loadVMs(), loadMigrations(), loadForecastRuns(), loadPredictions(), loadModules()]);
 }
 
 // apply translations to static HTML before the first data fetch
@@ -4820,7 +4784,7 @@ function _withCluster(ep) {
   if (ep.startsWith('/api/config') && _settingsTarget === 'defaults')
     return url + (ep.includes('?') ? '&' : '?') + 'cluster=defaults';
   if (!currentCluster || !ep.startsWith('/api/') || ep.startsWith('/api/clusters') || ep.startsWith('/api/users')
-      || ep.startsWith('/api/update') || ep.startsWith('/api/grafana') || /[?&]cluster=/.test(ep)) return url;
+      || ep.startsWith('/api/update') || /[?&]cluster=/.test(ep)) return url;
   return url + (ep.includes('?') ? '&' : '?') + 'cluster=' + encodeURIComponent(currentCluster);
 }
 

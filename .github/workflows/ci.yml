@@ -21,6 +21,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate compose file
-        run: cp .env.template .env && docker compose --profile full config -q
+        run: cp .env.template .env && docker compose config -q
       - name: Build images
-        run: docker compose --profile sentinel build
+        run: docker compose build

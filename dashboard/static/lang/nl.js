@@ -317,17 +317,9 @@ window.LANG = {
   'hcb.mismatch':  'Wachtwoordzinnen komen niet overeen.',
 
   // modules tab
-  'modules.tools':           'Tools',
-  'modules.grafana_desc':    'Geavanceerde dataverkenning en aangepaste dashboards',
-  'modules.open_grafana':    'Grafana openen',
-  'modules.grafana_note':    'Grafana wordt standaard niet gestart. Start het met:',
   'modules.discovered_title':'Ontdekte datamodules',
   'modules.auto_appear':     'Elke container die naar InfluxDB schrijft, verschijnt hier automatisch.',
 
-  // Grafana status
-  'grafana.running':    '\u25cf Actief',
-  'grafana.not_running':'\u25cb Niet actief',
-  'grafana.checking':   'Controleren...',
 
   // auto-discovered module fallback desc
   'module.auto_desc': 'Automatisch ontdekte databron',

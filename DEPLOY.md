@@ -10,17 +10,16 @@ runs one worker per cluster inside its container.
 
 **Services:**
 
-| Service | Profile | Port | Purpose |
+| Service | Started | Port | Purpose |
 |---|---|---|---|
 | `influxdb` | always-on | 8086 (internal) | Time-series metrics store |
 | `postgres` | always-on | internal only | Config, recommendations, audit |
 | `collector` | always-on | — | Polls HyperCore every 30s, writes to InfluxDB |
 | `balancer` | always-on | — | Reactive + predictive VM migration engine |
 | `dashboard` | always-on | 5000 | Web UI |
-| `sentinel` | `sentinel` / `full` | 8081 (internal) | Foresight capacity analysis + REST API |
-| `backup` | `backup` / `full` | 8082 (internal) | VM backup/import scheduler + REST API |
-| `proxy` | `backup` / `full` | 8083 (internal) | Backup proxy: reads snapshot clones, writes backup chains (privileged) |
-| `grafana` | `tools` | 3000 | Optional metrics explorer |
+| `sentinel` | always-on | 8081 (internal) | Foresight capacity analysis + REST API |
+| `backup` | always-on | 8082 (internal) | VM backup/import scheduler + REST API |
+| `proxy` | always-on | 8083 (internal) | Backup proxy: reads snapshot clones, writes backup chains (privileged) |
 
 ---
 
@@ -67,17 +66,18 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 | `SENTINEL_PG_PASSWORD` | PostgreSQL (shared by every service) |
 | `SENTINEL_API_TOKEN` | Dashboard ↔ Sentinel API |
 | `BACKUP_API_TOKEN` | Dashboard ↔ Backup API |
-| `GF_SECURITY_ADMIN_PASSWORD` | Grafana (`tools` profile only) |
 
-### 3. Start the core stack
+### 3. Start the stack
 
 ```bash
 docker compose up -d
 ```
 
-This starts influxdb, postgres, collector, balancer, and dashboard. Sentinel and Backup are
-**not** started unless you add their profile (`--profile sentinel`, `--profile backup`, or
-`--profile full` for both; see below).
+This starts everything: influxdb, postgres, collector, balancer, dashboard, sentinel, backup and
+the backup proxy. There are no Compose profiles any more; a module you do not want is
+stopped (`docker compose stop sentinel`, `docker compose stop backup proxy`) and the dashboard
+hides its tab. Note that the proxy container runs privileged with the host's `/dev`; it only does
+something once a proxy is registered in the dashboard, see "The backup proxy" below.
 
 ### 4. Verify everything is up
 
@@ -111,18 +111,14 @@ off for that cluster in the dashboard's Balancer Settings. No restart is needed.
 
 ---
 
-## Starting Backup
+## Backup
 
-```bash
-docker compose --profile backup up -d      # or --profile full for Sentinel + Backup
-```
-
-The Backup tab appears in the dashboard as soon as the container is healthy. Before users can
+The `backup` and `proxy` containers start with the stack; the Backup tab appears in the
+dashboard as soon as the backup container is healthy. Before users can
 create a plan an administrator adds a target (Settings → Targets) and assigns it to the folders
 whose clusters should back up there; clusters in no folder use the target flagged as their default.
 Copies land in `<target>/<folder>/<vm>_<timestamp>/`. NFS retention pruning needs the share
-mounted into the container (see the Backup variables below); SMB needs nothing extra. The
-`exports` profile name from the first release still works for one more release.
+mounted into the container (see the Backup variables below); SMB needs nothing extra.
 
 ---
 
@@ -211,17 +207,9 @@ and the Clusterbalancer keeps them on separate nodes.
 
 ---
 
-## Starting Foresight (Sentinel)
+## Foresight (Sentinel)
 
-Sentinel is gated behind Docker Compose profiles to keep it optional.
-
-```bash
-# Start sentinel alongside the core stack
-docker compose --profile sentinel up -d
-
-# Or with the 'full' profile (core + sentinel); add --profile tools for grafana
-docker compose --profile full --profile tools up -d
-```
+Sentinel starts with the stack (`docker compose stop sentinel` runs without it).
 
 Sentinel exposes a health endpoint (inside the container; `docker compose ps` shows it as
 `healthy`) and a REST API on 8081:
@@ -449,8 +437,6 @@ git pull
 
 ```bash
 docker compose build
-# With sentinel:
-docker compose --profile sentinel build
 ```
 
 ### 3. Apply database migrations
@@ -470,8 +456,8 @@ In practice this means a normal upgrade is just:
 
 ```bash
 git pull
-docker compose --profile full build
-docker compose --profile full up -d
+docker compose build
+docker compose up -d
 ```
 
 …or simply clicking **Apply Update** in the dashboard.
@@ -495,8 +481,6 @@ failed script.
 
 ```bash
 docker compose up -d
-# With sentinel:
-docker compose --profile sentinel up -d
 ```
 
 ---
@@ -573,7 +557,7 @@ or disable one of them; the remaining entry resumes normal operation.
 ### Backup tab is missing
 
 The tab appears only while the `backup` container is healthy and the dashboard can reach it
-with `BACKUP_API_TOKEN`. Check `docker compose --profile backup ps` and the dashboard log.
+with `BACKUP_API_TOKEN`. Check `docker compose ps` and the dashboard log.
 
 ### Backup run fails with 403
 
@@ -583,7 +567,7 @@ that has them; read-only accounts are enough for monitoring and dry-run only.
 
 ### Sentinel shows no data in dashboard
 
-1. Confirm sentinel is running: `docker compose --profile sentinel ps`
+1. Confirm sentinel is running: `docker compose ps sentinel`
 2. Check sentinel logs for errors on first collection/analysis cycle
 3. The Foresight tab populates after the first analysis cycle (up to 1 hour by default)
 4. The banner above the tab shows how many days of history the selected cluster has; forecasts

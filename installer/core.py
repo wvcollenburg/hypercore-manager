@@ -36,10 +36,9 @@ TEMPLATE_PATH = Path(".env.template")
 # strings the schema treats as "still a placeholder, must be replaced"
 PLACEHOLDERS = {"CHANGE_ME", "https://nodeip/rest/v1", "password", ""}
 
-# profiles available in the schema, mirrors the docker-compose --profile flags
+# sections of the schema are grouped by the module they configure
 PROFILE_CORE = "core"
 PROFILE_SENTINEL = "sentinel"
-PROFILE_TOOLS = "tools"
 PROFILE_BACKUP = "backup"
 
 # easy-mode required keys — filled by the operator, never autogen'd
@@ -476,35 +475,6 @@ def build_schema() -> list[Section]:
                     when_change=(
                         "Reduce on small disks; raise if you need a longer baseline."
                     ),
-                ),
-            ],
-        ),
-
-        # -------- Grafana --------
-        Section(
-            key="grafana",
-            title="Grafana (optional)",
-            blurb="Optional metrics-explorer UI — only if you run the 'tools' profile",
-            profiles={PROFILE_TOOLS},
-            fields=[
-                Field(
-                    key="GF_SECURITY_ADMIN_PASSWORD",
-                    label="Admin password",
-                    type="password",
-                    default="CHANGE_ME",
-                    must_change=True,
-                    description=(
-                        "Password for the Grafana 'admin' user, used to log into the "
-                        "Grafana web UI on port 3000."
-                    ),
-                    why_default=(
-                        "Placeholder — Grafana would otherwise default to 'admin/admin' "
-                        "and prompt at first login."
-                    ),
-                    when_change=(
-                        "Always, before starting the tools profile. Press G to generate."
-                    ),
-                    profiles={PROFILE_TOOLS},
                 ),
             ],
         ),

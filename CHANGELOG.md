@@ -86,6 +86,12 @@ release is tagged.
   `exports` profile keep working for one release. Migration `025_backup_rename.sql`.
 
 ### Removed
+- **Grafana.** The optional `tools` profile shipped a bare Grafana without a datasource or a
+  dashboard; the dashboard covers the metrics. Point your own Grafana at InfluxDB (Flux, bucket
+  `metrics`, a read token) if you want one. `GF_SECURITY_ADMIN_PASSWORD` is no longer read.
+- **Compose profiles.** `docker compose up -d` starts everything (core, Sentinel, Backup and its
+  proxy). Old `--profile sentinel|backup|full` commands still work and change nothing; a module
+  you do not use is stopped with `docker compose stop <service>`.
 - Windows Deploy Wizard and the cloud-init provisioning path. Use Docker Compose or `install.py`.
 - Experimental LCARS dashboard theme (`/lcars`, `/lcars2`).
 - Cluster credentials in `.env`.

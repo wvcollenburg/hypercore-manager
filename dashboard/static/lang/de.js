@@ -317,17 +317,9 @@ window.LANG = {
   'hcb.mismatch':  'Passphrasen stimmen nicht \u00fcberein.',
 
   // modules tab
-  'modules.tools':           'Werkzeuge',
-  'modules.grafana_desc':    'Erweiterte Datenerkundung und benutzerdefinierte Dashboards',
-  'modules.open_grafana':    'Grafana \u00f6ffnen',
-  'modules.grafana_note':    'Grafana wird nicht standardm\u00e4\u00dfig gestartet. Zum Starten f\u00fchren Sie aus:',
   'modules.discovered_title':'Entdeckte Datenmodule',
   'modules.auto_appear':     'Jeder Container, der in InfluxDB schreibt, erscheint hier automatisch.',
 
-  // Grafana status
-  'grafana.running':    '\u25cf L\u00e4uft',
-  'grafana.not_running':'\u25cb L\u00e4uft nicht',
-  'grafana.checking':   'Wird gepr\u00fcft...',
 
   // auto-discovered module fallback desc
   'module.auto_desc': 'Automatisch entdeckte Datenquelle',

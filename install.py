@@ -384,7 +384,6 @@ def screen_profiles(stdscr, state: dict) -> bool:
         ("core",     "Core stack (always on)",                 "InfluxDB, Postgres, Collector, Balancer, Dashboard", True),
         ("sentinel", "Sentinel — Foresight (recommended)", "Capacity forecasting, right-sizing, REST API",       True),
         ("backup",   "Backup (optional)",                      "Scheduled VM backups/exports to SMB/NFS and imports", False),
-        ("tools",    "Grafana (optional)",                     "Extra metrics-explorer UI on port 3000",            False),
     ]
     selected = {key for key, _, _, default in items if default}
     selected.add("core")  # always on, locked
@@ -395,10 +394,10 @@ def screen_profiles(stdscr, state: dict) -> bool:
         stdscr.erase()
         draw_titlebar(stdscr, " HyperCore Manager — Installer  ")
         h, w = stdscr.getmaxyx()
-        draw_box(stdscr, 2, 2, h - 4, w - 4, "Step 1 of 2 — Pick the profiles you intend to run")
+        draw_box(stdscr, 2, 2, h - 4, w - 4, "Step 1 of 2 — Pick the modules you intend to use")
 
         intro = [
-            "Sections of the installer that don't apply to your chosen profiles will",
+            "Sections of the installer that don't apply to your chosen modules will",
             "be skipped, so you don't have to answer questions you'll never use.",
             "",
             "Toggle with Space.  Core is mandatory.",
@@ -790,10 +789,7 @@ def try_save(stdscr, state: dict) -> bool:
         "  docker compose build",
         "  docker compose up -d",
     ])
-    if "sentinel" in profiles:
-        msg.append("  docker compose --profile sentinel up -d")
-    if "tools" in profiles:
-        msg.append("  docker compose --profile tools up -d")
+    msg.append("  (every module starts with the stack; stop the ones you don't use, e.g. docker compose stop sentinel)")
     msg.extend(["", "After first start, set SC_DRY_RUN=false in .env once you've verified",
                 "the Balancer's proposed migrations look sensible."])
 

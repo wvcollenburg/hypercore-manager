@@ -18,13 +18,9 @@
 #     dashboard: 0.25 CPU   256MB
 #     postgres:  0.25 CPU   256MB  <- shared config store (replaces SQLite volume)
 #
-#   profile-conditional (sentinel / full):
 #     sentinel:  0.50 CPU   512MB
-#   profile-conditional (exports / full):
-#     exports:   0.25 CPU   256MB  <- VM export/import scheduler
-#
-#   optional (tools profile):
-#     grafana:   0.25 CPU   128MB
+#     backup:    0.25 CPU   256MB  <- VM backup/import scheduler
+#     proxy:     1.00 CPU  1024MB  <- backup proxy (privileged, reads snapshot clones)
 #
 # total limits intentionally exceed physical cores because the Oracle (balancer
 # spike) and Sentinel analysis runs never overlap — outside those windows the
@@ -64,27 +60,6 @@ services:
         limits:
           cpus: "1.25"
           memory: 768M
-    restart: unless-stopped
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: sc_grafana
-    profiles:
-      - tools
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
-    depends_on:
-      influxdb:
-        condition: service_healthy
-    volumes:
-      - grafana-data:/var/lib/grafana
-    deploy:
-      resources:
-        limits:
-          cpus: "0.25"
-          memory: 128M
     restart: unless-stopped
 
   collector:
@@ -202,7 +177,7 @@ services:
       # Sentinel REST API — D5 what-if proxy
       - SENTINEL_API_URL=http://sentinel:8081
       - SENTINEL_API_TOKEN=${SENTINEL_API_TOKEN:-}
-      # Backup REST API (optional `backup` profile)
+      # Backup REST API
       - BACKUP_API_URL=http://backup:8082
       - BACKUP_API_TOKEN=${BACKUP_API_TOKEN:-${EXPORTS_API_TOKEN:-}}
       # auto-update: repo is always at /repo inside the container via volume mount;
@@ -256,9 +231,6 @@ services:
   sentinel:
     build: ./sentinel
     container_name: sc_sentinel
-    profiles:
-      - sentinel
-      - full
     ports:
       - "8081:8081"    # Foresight REST API (F1-F4, F6)
     environment:
@@ -331,10 +303,6 @@ services:
   backup:
     build: ./backup
     container_name: sc_backup
-    profiles:
-      - backup
-      - exports      # former name of the profile, kept for one release
-      - full
     ports:
       - "8082:8082"    # Backup REST API (proxied by the dashboard)
     environment:
@@ -382,9 +350,6 @@ services:
   proxy:
     build: ./proxy
     container_name: sc_proxy
-    profiles:
-      - backup
-      - full
     privileged: true
     environment:
       - TZ=${TZ:-UTC}
@@ -413,6 +378,5 @@ services:
 
 volumes:
   influxdb-data:
-  grafana-data:
   postgres-data:
   proxy-data:

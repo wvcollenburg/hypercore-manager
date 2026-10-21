@@ -121,7 +121,7 @@ is seeded only once; manage accounts here afterwards.
 
 ## Targets and backups
 
-The Backup module (profile `backup` or `full`) needs somewhere to write. Administrators define
+The Backup module needs somewhere to write. Administrators define
 targets centrally (an SMB or NFS share with its credentials) and attach them to folders; users
 never see a URI or a credential.
 

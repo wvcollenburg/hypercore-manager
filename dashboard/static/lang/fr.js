@@ -317,17 +317,9 @@ window.LANG = {
   'hcb.mismatch':  'Les phrases secr\u00e8tes ne correspondent pas.',
 
   // modules tab
-  'modules.tools':           'Outils',
-  'modules.grafana_desc':    'Exploration de donn\u00e9es avanc\u00e9e et tableaux de bord personnalis\u00e9s',
-  'modules.open_grafana':    'Ouvrir Grafana',
-  'modules.grafana_note':    "Grafana n'est pas d\u00e9marr\u00e9 par d\u00e9faut. Pour le lancer, ex\u00e9cutez\u00a0:",
   'modules.discovered_title':'Modules de donn\u00e9es d\u00e9couverts',
   'modules.auto_appear':     'Chaque conteneur qui \u00e9crit dans InfluxDB appara\u00eet ici automatiquement.',
 
-  // Grafana status
-  'grafana.running':    "\u25cf En cours d'ex\u00e9cution",
-  'grafana.not_running':"\u25cb Pas en cours d'ex\u00e9cution",
-  'grafana.checking':   'V\u00e9rification...',
 
   // auto-discovered module fallback desc
   'module.auto_desc': 'Source de donn\u00e9es d\u00e9couverte automatiquement',

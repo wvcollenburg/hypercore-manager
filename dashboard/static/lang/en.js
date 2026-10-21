@@ -317,17 +317,9 @@ window.LANG = {
   'hcb.mismatch':  'Passphrases do not match.',
 
   // modules tab
-  'modules.tools':           'Tools',
-  'modules.grafana_desc':    'Advanced data exploration and custom dashboards',
-  'modules.open_grafana':    'Open Grafana',
-  'modules.grafana_note':    'Grafana is not started by default. To launch it, run:',
   'modules.discovered_title':'Discovered Data Modules',
   'modules.auto_appear':     'Every container that writes to InfluxDB appears here automatically.',
 
-  // Grafana status
-  'grafana.running':   '\u25cf Running',
-  'grafana.not_running':'\u25cb Not running',
-  'grafana.checking':  'Checking...',
 
   // auto-discovered module fallback desc
   'module.auto_desc': 'Auto-discovered data source',

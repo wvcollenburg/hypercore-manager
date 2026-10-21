@@ -30,10 +30,10 @@ The optional **Foresight** module extends the platform with long-range capacity 
 - **Multi-language UI** — English, Dutch, French, and German, selectable from the dashboard header.
 - **User Authentication** — Username/password login with optional per-user TOTP (one-time password) two-factor. Auth can be disabled for local/dev use by leaving the dashboard credentials blank.
 - **In-app Updater** — Detects new tagged releases on origin and applies them in place with one click; database migrations ship and apply automatically with the release that needs them.
-- **Backup (optional `backup` profile)** — Incremental VM backups through a backup proxy on the cluster: HyperCore's changed-block tracking tells the proxy which blocks changed, only those are read (no export rate limit) and written as qcow2 chains onto an SMB or NFS target, with a fresh full every N runs and retention by merge. Native HyperCore export remains available as a plan mode. Administrators define targets and proxies once and assign targets to folders; users create plans, browse restore points and run imports without ever seeing a path or a credential.
+- **Backup** — Incremental VM backups through a backup proxy on the cluster: HyperCore's changed-block tracking tells the proxy which blocks changed, only those are read (no export rate limit) and written as qcow2 chains onto an SMB or NFS target, with a fresh full every N runs and retention by merge. Native HyperCore export remains available as a plan mode. Administrators define targets and proxies once and assign targets to folders; users create plans, browse restore points and run imports without ever seeing a path or a credential.
 - **Metrics Collection** — Comprehensive HyperCore telemetry (node performance, VM stats, drive health, VSD I/O, replication, cluster conditions) stored in InfluxDB with automatic downsampling.
 
-### Foresight (Optional — `sentinel` profile)
+### Foresight
 
 - **Capacity Forecasting** — Regression-based forecasts across four horizons (30, 90, 180, 365 days) for CPU, RAM, storage capacity, storage latency, and network throughput. Confidence-scored; low-confidence forecasts are suppressed.
 - **VM Right-Sizing** — Detects over- and under-provisioned VMs via three independent signals: sustained CPU usage, storage latency correlation, and recurring CPU spike patterns.
@@ -85,9 +85,9 @@ so clusters can be added, disabled or removed independently.
 | **InfluxDB**   | Time-series metrics storage with 1-year detailed + 5-year long-term retention |
 | **PostgreSQL** | Config store and Foresight conclusions database                      |
 | **Dashboard**  | Web UI: cluster rail, monitoring, live configuration, users and folders, Foresight, Backup |
-| **Sentinel**   | *(optional)* Foresight capacity analysis, forecasting, and REST API  |
-| **Backup**     | *(optional)* Scheduled VM backups to SMB/NFS targets, retention pruning, VM imports |
-| **Grafana**    | *(optional)* Advanced metrics exploration                                |
+| **Sentinel**   | Foresight capacity analysis, forecasting, and REST API               |
+| **Backup**     | Backup scheduler and REST API: plans, restore points, restores, imports |
+| **Proxy**      | Backup proxy: reads snapshot clones, writes backup chains (privileged) |
 
 ---
 
@@ -141,18 +141,12 @@ The installer also detects whether Compose v2 is present on the host and warns i
 ### Starting with Foresight
 
 ```bash
-# Core stack + Sentinel capacity analysis
-docker compose --profile sentinel up --build -d
-
-# Core stack + Sentinel + Backup (the `full` profile covers both; Grafana is the `tools` profile)
-docker compose --profile full --profile tools up --build -d
-
-# Core stack + Backup only
-docker compose --profile backup up --build -d
-
-# Grafana only (without Sentinel)
-docker compose --profile tools up --build -d
+docker compose up --build -d
 ```
+
+One command starts everything: the core stack, Sentinel and Backup (with its proxy). A module
+you do not use is simply stopped, for example `docker compose stop sentinel` or
+`docker compose stop backup proxy`; the dashboard hides the tab of a module that is not running.
 
 > **Note:** Foresight requires at least 14 days of metrics history before meaningful forecasts and right-sizing analysis can be produced.
 
@@ -249,8 +243,8 @@ The left-hand **cluster rail** lists folders and clusters (collapsible, colour-c
 |------|----------|-----|
 | **Infraviewer** | Node CPU/RAM history, drive health and temperature, VM metrics, VSD read/write I/O | everyone (own folders) |
 | **Clusterbalancer** | Migration event log (last 7 days), reactive and predictive engine settings | everyone (own folders) |
-| **Foresight** | Capacity forecasts, right-sizing recommendations, cluster health, reports, what-if modelling, live Sentinel tunables, data sharing — requires `sentinel` or `full` profile | everyone (own folders) |
-| **Backup** | Backup plans, VMs, imports and run history for the selected cluster — requires `backup` or `full` profile | folder members |
+| **Foresight** | Capacity forecasts, right-sizing recommendations, cluster health, reports, what-if modelling, live Sentinel tunables, data sharing | everyone (own folders) |
+| **Backup** | Backup plans, restore points, restores, file recovery and run history for the selected cluster | folder members |
 | **Modules** | Auto-discovered InfluxDB measurements for ad-hoc data exploration | admins |
 | **Settings** | Clusters, Tunables (per cluster / Defaults / all), Users, Targets | admins |
 | **Account** | Own password and TOTP two-factor | everyone |
@@ -309,10 +303,11 @@ The central viewer that receives these snapshots is a separate deployment:
 
 ## Backup
 
-The optional `backup` container (profile `backup` or `full`) schedules VM backups and runs
-imports, driven from the **Backup** tab (shown only when the container is running). The current
-release backs up through HyperCore's native export; proxy-based incremental backups are the next
-step on the roadmap.
+The `backup` container schedules VM backups, restores and imports, driven from the **Backup**
+tab (shown only when the container is running). Incremental backups go through the `proxy`
+container, which must run on a VM inside the cluster it serves (the stack VM itself, or a proxy
+VM deployed from the dashboard for a remote cluster); HyperCore's native export remains
+available as a plan mode.
 
 - **Targets (admin).** Settings → Targets holds the share URIs (`smb://nas.local/share/path` or
   `nfs://nas.local/export/path`) and their credentials, stored encrypted. A target is assigned to a
@@ -351,7 +346,7 @@ The dashboard includes an in-app updater that detects new releases and applies t
 - Versioning follows [Semantic Versioning 2.0.0](https://semver.org/): MAJOR when configuration, stored data or the upgrade path change incompatibly, MINOR for features, PATCH for fixes and documentation. The changelog lists upgrade notes per release; read them before clicking Apply Update across a MAJOR boundary.
 - Releases are tagged in git as `vMAJOR.MINOR.PATCH` and announced on [GitHub Releases](https://github.com/wvcollenburg/hypercore-manager/releases). Untagged commits don't trigger update prompts — only deliberate releases do, so customers are never bombarded with "update available" for in-flight development.
 - Database migrations under `postgres/init/` are applied automatically on dashboard startup; every script is idempotent (`CREATE TABLE IF NOT EXISTS` and similar guards) so existing installs never lose data when a new migration ships.
-- Manual update path (equivalent to clicking Apply Update in the dashboard): `git pull && docker compose --profile <profile> up --build -d`.
+- Manual update path (equivalent to clicking Apply Update in the dashboard): `git pull && docker compose up --build -d`.
 
 ---
 
@@ -403,18 +398,16 @@ Sentinel's memory limit in `docker-compose.yaml` should be sized to cover the pe
 
 ---
 
-## Grafana
+## Bring your own Grafana
 
-Grafana is not started by default. To enable it:
-
-```bash
-docker compose --profile tools up -d grafana
-# Available at http://localhost:3000
-```
-
-Connect it to InfluxDB using the Flux query language at `http://influxdb:8086`.
+The stack no longer ships Grafana. If you want one, point your own instance at InfluxDB with the
+Flux query language: URL `http://<stack host>:8086`, organisation and bucket from `.env`
+(`INFLUX_ORG`, `INFLUX_BUCKET`, long-term data in `INFLUX_LONGTERM_BUCKET`), and a read-only
+token created in the InfluxDB UI rather than the admin token the services use. Every measurement
+carries a `cluster_id` tag.
 
 ---
+
 
 ## Project Structure
 
