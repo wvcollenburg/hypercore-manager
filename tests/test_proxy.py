@@ -315,3 +315,37 @@ def test_prune_commits_forward_and_delete_chain(stack):
     assert json.load(open(os.path.join(chain, 'base', 'manifest.json')))['seq'] == 2
     d = _wait(stack, stack.client.post('/jobs/delete_chain', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
     assert d['result'] == {'removed': True} and not os.path.exists(chain)
+
+
+def test_extents_to_intervals_merges_and_rounds():
+    f = P.images.extents_to_intervals
+    assert f([(0, MiB), (MiB, MiB)]) == [{'lower': 0, 'upper': 1}]
+    assert f([(MiB // 2, MiB)]) == [{'lower': 0, 'upper': 1}], 'partial blocks are rounded outwards'
+    assert f([(5 * MiB, MiB), (9 * MiB, 2 * MiB), (0, 0)]) == [{'lower': 5, 'upper': 5}, {'lower': 9, 'upper': 10}]
+    assert f([]) == []
+
+
+def test_stage_writes_allocated_blocks_into_a_staging_device_and_flatten_filters(stack):
+    H = {'Authorization': 'Bearer t0k'}
+    disk = 'd0dd5d2c-9c7a-44ec-b6bc-d4ce06bb204d'; nvram = 'a26166e5-ddf9-4665-83f8-e6dd5254019a'
+    src = stack.dev / 'virtio-aaaa0001'; _random_file(str(src), 4, 31)
+    with open(str(src), 'r+b') as fh:            # block 2 is all zeros: must not be copied
+        fh.seek(2 * MiB); fh.write(bytes(MiB))
+    (stack.dev / 'virtio-bbbb0001').write_bytes(b'N' * MiB)
+    tgt = {'uri': 'smb://nas/share/hcm'}
+    req = {'target': tgt, 'folder': 'F', 'vm': {'uuid': 'vm-9', 'name': 'r'}, 'point': {'kind': 'full', 'seq': 0},
+           'devices': [{'uuid': disk, 'type': 'VIRTIO_DISK', 'clone_uuid': 'aaaa0001-0000-0000-0000-000000000000', 'size': 4 * MiB, 'map': [{'lower': 0, 'upper': 3}]},
+                       {'uuid': nvram, 'type': 'NVRAM', 'clone_uuid': 'bbbb0001-0000-0000-0000-000000000000', 'size': MiB, 'map': [{'lower': 0, 'upper': 0}]}]}
+    assert _wait(stack, stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id'])['state'] == 'done'
+    # staging device appears as a (zeroed) hot-added disk on the proxy
+    staging = stack.dev / 'virtio-cccc0001'; staging.write_bytes(bytes(4 * MiB))
+    j = _wait(stack, stack.client.post('/jobs/stage', json={'target': tgt, 'chain_dir': 'F/r_vm-9.chain', 'seq': 0,
+                                                            'devices': [{'uuid': disk, 'staging_clone_uuid': 'cccc0001-0000-0000-0000-000000000000'}]}, headers=H).get_json()['id'])
+    assert j['state'] == 'done', j
+    assert j['result']['devices'][0]['blocks'] == 3 and j['result']['bytes_written'] == 3 * MiB
+    assert open(str(staging), 'rb').read() == open(str(src), 'rb').read()
+    # flatten restricted to the NVRAM only, renamed, with a definition file
+    f = _wait(stack, stack.client.post('/jobs/flatten', json={'target': tgt, 'chain_dir': 'F/r_vm-9.chain', 'seq': 0, 'out_dir': 'F/_restore/r',
+                                                              'only_uuids': [nvram], 'files': {nvram: 'NEW.qcow2'}, 'definition_xml': '<domain/>', 'definition_name': 'r.xml'}, headers=H).get_json()['id'])
+    out = os.path.join(stack.mounter.root, P.targets.parse_uri(tgt['uri']).key, 'hcm', 'F', '_restore', 'r')
+    assert sorted(os.listdir(out)) == ['NEW.qcow2', 'r.xml'] and f['result']['files'][0]['uuid'] == nvram

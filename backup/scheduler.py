@@ -44,6 +44,11 @@ def run_now(schedule_id: int) -> None:
     _scheduler.add_job(jobs.run_plan, args=[schedule_id], id=f'manual-{schedule_id}', replace_existing=True)
 
 
+def run_restore(restore_id: int) -> None:
+    import restore
+    _scheduler.add_job(restore.run_restore, args=[restore_id], id=f'restore-{restore_id}', replace_existing=True)
+
+
 def run_import(import_id: int) -> None:
     _scheduler.add_job(jobs.run_import, args=[import_id], id=f'import-{import_id}', replace_existing=True)
 
@@ -64,6 +69,8 @@ def reconcile_interrupted() -> None:
         else:
             db.update_run(r['id'], status='ERROR', finished_at=db.now_utc(),
                           message='Interrupted by a restart before the export task started.')
+    for x in db.get_active_restores():
+        db.update_restore(x['id'], status='ERROR', finished_at=db.now_utc(), message='Interrupted by a restart.')
     for i in db.get_active_imports():
         if i['task_tag']:
             _scheduler.add_job(jobs.resume_import, args=[i['id']], id=f"resume-import-{i['id']}", replace_existing=True)

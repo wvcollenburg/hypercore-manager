@@ -17,6 +17,7 @@ retires and its points expire through the same retention.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -36,6 +37,17 @@ ANCHOR_PREFIX = 'hcm-backup'
 
 class IncrementalError(Exception):
     pass
+
+
+_PROXY_LOCKS: dict[int, threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def proxy_lock(proxy_id: int) -> threading.Lock:
+    """One backup or restore at a time per proxy: the proxy VM cannot be snapshotted (restores)
+    while read-only clones (backups) are attached to it."""
+    with _LOCKS_GUARD:
+        return _PROXY_LOCKS.setdefault(proxy_id, threading.Lock())
 
 
 def _now() -> datetime:
@@ -238,6 +250,8 @@ def _run(plan: dict, run_id: int) -> None:
     serials = hc.snapshot_serials(snap)
     prev_serials = (chain.get('last_serials') or {}) if kind == 'delta' else {}
     clones: list[str] = []
+    lock = proxy_lock(proxy['id'])
+    lock.acquire()
     try:
         # 2. clones + 3. maps
         req_devices = []
@@ -265,6 +279,7 @@ def _run(plan: dict, run_id: int) -> None:
         if kind == 'delta' and disk_blocks == 0:
             # nothing changed on any disk since the previous point: no new point, keep the old anchor
             db.update_chain(chain['id'], active_clones=_delete_clones(hc, clones))
+            lock.release()
             _safe_delete_snapshot(hc, snap_uuid, 'unneeded anchor')
             db.update_run(run_id, status='COMPLETE', finished_at=_now(), blocks_changed=0, bytes_written=0,
                           message='No blocks changed since the previous point; nothing written.')
@@ -286,11 +301,13 @@ def _run(plan: dict, run_id: int) -> None:
         result = pc.wait(job_id, on_progress, timeout=CFG.task_timeout_hours * 3600)['result']
     except Exception:
         db.update_chain(chain['id'], active_clones=_delete_clones(hc, clones))
+        lock.release()
         _safe_delete_snapshot(hc, snap_uuid, 'new anchor')
         raise
 
     # 5. bookkeeping
     leftover = _delete_clones(hc, clones)
+    lock.release()
     point_id = db.add_point(chain['id'], seq, kind, result['point_dir'], serials, blocks, result.get('bytes_written', 0),
                             result.get('duration_s', 0), result.get('devices', []), definition, run_id)
     db.update_chain(chain['id'], anchor_snapshot_uuid=snap_uuid, last_serials=serials, next_seq=seq + 1,

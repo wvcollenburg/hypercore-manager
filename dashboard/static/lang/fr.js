@@ -774,6 +774,19 @@ window.LANG = {
   'ex.col_churn': "Modifié",
   'ex.col_churn_hint': "Blocs modifiés entre les deux instantanés les plus récents de la VM (ceux de HyperCore ou les nôtres) : ce qu'une sauvegarde incrémentale copierait.",
 
+  'ex.restore': "Restaurer",
+  'ex.r_name': "Nom de la VM restaurée",
+  'ex.r_mac': "Adresses MAC",
+  'ex.r_mac_auto': "d'origine si la VM source a disparu, sinon nouvelles",
+  'ex.r_mac_original': "toujours d'origine",
+  'ex.r_mac_new': "toujours nouvelles",
+  'ex.r_mac_hint': "Certains logiciels sont licenciés sur l'adresse MAC. Deux VM avec la même MAC sur un réseau entrent en conflit.",
+  'ex.r_nic_connected': "Connecter les interfaces réseau",
+  'ex.r_start': "Démarrer la VM après la restauration",
+  'ex.r_confirm': "Restaurer ce point sous le nom '{name}' ?",
+  'ex.r_started': "Restauration démarrée. Suivez la progression dans Exécutions.",
+  'ex.restores_title': "RESTAURATIONS",
+
   // community-support notice (shown once per user)
   'community.title':        'Logiciel soutenu par la communaut\u00e9',
   'community.body':         "HyperCore Manager est un logiciel open source maintenu sur une base communautaire. Il ne s'agit pas d'un produit officiel de Scale Computing et il est fourni sans support officiel ni SLA. Utilisez-le \u00e0 vos propres risques.",

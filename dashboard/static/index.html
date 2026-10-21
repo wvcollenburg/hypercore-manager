@@ -5559,24 +5559,24 @@ async function exLoadRuns() {
   const el = document.getElementById('expanel-runs');
   let d;
   try { d = await _exCall('GET', `/api/backup/runs?limit=100${_exRunsFilter ? '&schedule_id=' + _exRunsFilter : ''}`); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
-  const runs = d.runs || [], imports = d.imports || [];
+  const runs = d.runs || [], imports = d.imports || [], restores = d.restores || [];
   const table = (title, rows, kind) => `
     <div class="settings-group">
-      <div class="settings-group-header"><div class="chart-title-dot" style="background:${kind === 'imp' ? 'var(--accent-purple)' : 'var(--accent-cyan)'}"></div>
+      <div class="settings-group-header"><div class="chart-title-dot" style="background:${kind === 'imp' ? 'var(--accent-purple)' : kind === 'rst' ? 'var(--accent-amber)' : 'var(--accent-cyan)'}"></div>
         <span class="settings-group-title">${title}</span>
         ${kind === 'run' && _exRunsFilter ? `<button class="um-action-btn" onclick="_exRunsFilter=null; exLoadRuns()">${t('ex.show_all')}</button>` : ''}</div>
       ${rows.length ? `<table class="um-table"><thead><tr>
         <th>${kind === 'imp' ? t('ex.col_source') : t('ex.col_vm')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead>
         <tbody>${rows.map(r => `<tr>
-          <td class="um-username">${_exEsc(kind === 'imp' ? r.source_uri : r.vm_name)}${kind === 'imp' && r.target_name ? ` → ${_exEsc(r.target_name)}` : ''}${kind === 'run' && r.export_path ? `<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(r.export_path)}</div>` : ''}</td>
+          <td class="um-username">${_exEsc(kind === 'imp' ? r.source_uri : r.vm_name)}${(kind === 'imp' || kind === 'rst') && r.target_name ? ` → ${_exEsc(r.target_name)}` : ''}${kind === 'run' && r.export_path ? `<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(r.export_path)}</div>` : ''}</td>
           <td style="font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap;">${_exFmt(r.started_at)}</td>
           <td>${_exStatusBadge(r.status, r.message)}</td>
           <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${kind === 'run' && r.mode ? `<span class="ex-badge ${r.mode === 'incremental' ? 'run' : 'off'}">${r.mode === 'incremental' ? t(r.point_kind === 'full' ? 'ex.point_full' : 'ex.point_delta') : t('ex.mode_export')}</span> ` : ''}${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${r.task_tag ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
         </tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.no_runs')}</div>`}
     </div>`;
-  el.innerHTML = table(t('ex.runs_title'), runs, 'run') + (_exRunsFilter ? '' : table(t('ex.imports_title'), imports, 'imp'));
+  el.innerHTML = table(t('ex.runs_title'), runs, 'run') + (_exRunsFilter ? '' : table(t('ex.restores_title'), restores, 'rst') + table(t('ex.imports_title'), imports, 'imp'));
   clearTimeout(_exPollTimer);
-  if ([...runs, ...imports].some(r => r.status === 'RUNNING')) {
+  if ([...runs, ...imports, ...restores].some(r => r.status === 'RUNNING')) {
     // poll while anything runs, but only while this panel is on screen and the cluster unchanged
     const cid = currentCluster;
     _exPollTimer = setTimeout(() => { if (currentCluster === cid && document.getElementById('expanel-runs')?.classList.contains('active')) exLoadRuns(); }, 5000);
@@ -5616,11 +5616,37 @@ async function exTogglePoints(id) {
   const body = document.getElementById(`ch-points-${id}-body`); body.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
   try {
     const pts = await _exCall('GET', `/api/backup/chains/${id}/points`);
-    body.innerHTML = pts.length ? `<table class="um-table"><thead><tr><th>#</th><th>${t('ex.col_kind')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_changed')}</th><th>${t('ex.col_written')}</th><th>${t('ex.col_verified')}</th></tr></thead><tbody>${pts.map(p => `
+    body.innerHTML = pts.length ? `<table class="um-table"><thead><tr><th>#</th><th>${t('ex.col_kind')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_changed')}</th><th>${t('ex.col_written')}</th><th>${t('ex.col_verified')}</th><th></th></tr></thead><tbody>${pts.map(p => `
       <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted)">${_exEsc(p.dir)}</span></td>
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
-      <td style="font-size:11px;color:var(--text-muted)">${p.verified_at ? _exFmt(p.verified_at) : '—'}</td></tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.no_points')}</div>`;
+      <td style="font-size:11px;color:var(--text-muted)">${p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
+      <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button></td></tr>
+      <tr id="rs-form-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);">${_exRestoreFormHtml(p, id)}</td></tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.no_points')}</div>`;
   } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
+}
+function _exRestoreFormHtml(p, chainId) {
+  const vm = (p.definition && p.definition.name) || '';
+  return `
+    <div class="ex-form">
+      <div><label>${t('ex.r_name')}</label><input type="text" id="rs-${p.id}-name" value="${_exEsc(vm)}-restored"></div>
+      <div><label>${t('ex.r_mac')}</label><select id="rs-${p.id}-mac">
+        <option value="auto">${t('ex.r_mac_auto')}</option><option value="original">${t('ex.r_mac_original')}</option><option value="new">${t('ex.r_mac_new')}</option></select>
+        <div class="ex-hint">${t('ex.r_mac_hint')}</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px;padding-top:18px;">
+        <label style="margin:0;"><input type="checkbox" id="rs-${p.id}-nic"> ${t('ex.r_nic_connected')}</label>
+        <label style="margin:0;"><input type="checkbox" id="rs-${p.id}-start"> ${t('ex.r_start')}</label></div>
+    </div>
+    <div class="cl-actions"><button class="update-apply-btn" onclick="exRestoreStart(${p.id})">${t('ex.restore')}</button>
+      <button class="refresh-btn" onclick="exRestoreForm(${chainId}, ${p.id})">${t('clusters.cancel')}</button><span class="cl-msg" id="rs-${p.id}-msg"></span></div>`;
+}
+function exRestoreForm(chainId, pointId) { const r = document.getElementById(`rs-form-${pointId}`); if (r) r.hidden = !r.hidden; }
+async function exRestoreStart(pointId) {
+  const g = id => document.getElementById(`rs-${pointId}-${id}`);
+  const body = { point_id: pointId, target_name: g('name').value.trim(), mac_policy: g('mac').value, nic_connected: g('nic').checked, start: g('start').checked };
+  if (!confirm(t('ex.r_confirm', {name: body.target_name}))) return;
+  _shMsg(`rs-${pointId}-msg`, t('ex.i_starting'), '');
+  try { await _exCall('POST', '/api/backup/restores', body); showToast(t('ex.r_started'), 'ok'); switchExportsPanel('runs'); }
+  catch (e) { _shMsg(`rs-${pointId}-msg`, e.message, 'err'); }
 }
 async function exVerifyChain(id) {
   _shMsg(`ch-${id}-msg`, t('ex.verifying'), '');

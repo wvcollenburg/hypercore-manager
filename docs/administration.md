@@ -195,6 +195,20 @@ re-reads every file of a chain against the checksums written at backup time. **D
 removes a chain from the target; this is the only action that deletes backups. Deleting a plan
 *retires* its chain: no new points, retention keeps applying, restores stay possible.
 
+### Restoring a VM
+
+On the **Restore points** sub-tab, open a chain's points and press **Restore** on the point you
+want. The form asks for the name of the restored VM, the MAC address policy (automatic: the
+original addresses when the backed-up VM no longer exists on the cluster, new ones otherwise),
+whether to connect the network interfaces, and whether to start the VM. Restores are listed
+under **Runs**.
+
+What happens: a diskless definition (generated from the stored VM record, with the NVRAM and
+vTPM state of the point) is imported in seconds; the proxy then writes each data disk into a
+staging disk at full speed and HyperCore clones the staging disks onto the restored VM. The
+restored VM keeps the original boot order, VLANs and tags. Nothing of the backup chain is
+modified by a restore, and a restore never touches the original VM.
+
 ### What users do with it
 
 On the **Backup** tab for a cluster they can reach:

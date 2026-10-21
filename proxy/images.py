@@ -123,6 +123,33 @@ class NbdBackend:
     def raw_to_image(self, raw_path: str, path: str) -> None:
         _run(['qemu-img', 'convert', '-q', '-f', 'raw', '-O', 'qcow2', '-o', 'cluster_size=2M', raw_path, path])
 
+    def allocation_map(self, path: str) -> list[dict]:
+        """Allocated, non-zero extents of an image (through its backing chain) as 1 MiB intervals."""
+        import json
+        extents = json.loads(_run(['qemu-img', 'map', '--output=json', '-f', 'qcow2', path]))
+        return extents_to_intervals((e['start'], e['length']) for e in extents if e.get('data') and not e.get('zero'))
+
+
+def extents_to_intervals(extents, block: int = 1 << 20) -> list[dict]:
+    """Byte extents -> merged inclusive 1 MiB block intervals [{lower, upper}]."""
+    blocks = set()
+    for start, length in extents:
+        if length <= 0:
+            continue
+        for b in range(start // block, (start + length - 1) // block + 1):
+            blocks.add(b)
+    out, run_start, prev = [], None, None
+    for b in sorted(blocks):
+        if run_start is None:
+            run_start = prev = b
+        elif b == prev + 1:
+            prev = b
+        else:
+            out.append({'lower': run_start, 'upper': prev}); run_start = prev = b
+    if run_start is not None:
+        out.append({'lower': run_start, 'upper': prev})
+    return out
+
 
 class FileBackend:
     """Raw sparse files instead of qcow2; a delta is seeded with its backing file's content."""
@@ -158,6 +185,20 @@ class FileBackend:
 
     def raw_to_image(self, raw_path: str, path: str) -> None:
         shutil.copyfile(raw_path, path)
+
+    def allocation_map(self, path: str) -> list[dict]:
+        """Non-zero 1 MiB blocks of a raw file."""
+        block = 1 << 20; ext = []
+        with open(path, 'rb') as fh:
+            i = 0
+            while True:
+                chunk = fh.read(block)
+                if not chunk:
+                    break
+                if chunk.strip(b'\0'):
+                    ext.append((i * block, len(chunk)))
+                i += 1
+        return extents_to_intervals(ext)
 
 
 def make_backend(kind: str, nbd_slots: int, dev_dir: str = '/dev'):

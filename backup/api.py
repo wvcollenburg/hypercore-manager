@@ -254,8 +254,9 @@ def runs():
     sid = request.args.get('schedule_id', type=int)
     limit = max(1, min(request.args.get('limit', 50, type=int), 500))
     return jsonify({
-        'runs':    [_ser(r) for r in db.get_runs(_cluster_arg(), sid, limit)],
-        'imports': [] if sid else [_ser(i) for i in db.get_imports(_cluster_arg(), limit)],
+        'runs':     [_ser(r) for r in db.get_runs(_cluster_arg(), sid, limit)],
+        'imports':  [] if sid else [_ser(i) for i in db.get_imports(_cluster_arg(), limit)],
+        'restores': [] if sid else [_ser(r) for r in db.get_restores(_cluster_arg(), limit)],
     })
 
 
@@ -266,7 +267,8 @@ def runs_status():
     sid = request.args.get('schedule_id', type=int)
     runs_ = [{'id': r['id'], 'status': r['status'], 'message': r['message'] or ''} for r in db.get_runs(_cluster_arg(), sid, 50)]
     imps = [] if sid else [{'id': i['id'], 'status': i['status'], 'message': i['message'] or ''} for i in db.get_imports(_cluster_arg(), 50)]
-    return jsonify({'runs': runs_, 'imports': imps, 'active': any(x['status'] == 'RUNNING' for x in (*runs_, *imps))})
+    rsts = [] if sid else [{'id': i['id'], 'status': i['status'], 'message': i['message'] or ''} for i in db.get_restores(_cluster_arg(), 50)]
+    return jsonify({'runs': runs_, 'imports': imps, 'restores': rsts, 'active': any(x['status'] == 'RUNNING' for x in (*runs_, *imps, *rsts))})
 
 
 # ------------------------------------------------------------------ imports
@@ -576,6 +578,42 @@ def chain_verify(chain_id):
         for p in db.get_points(chain_id):
             db.update_point(p['id'], verified_at=db.now_utc())
     return jsonify(res)
+
+
+# ----------------------------------------------------------------- restores
+@app.get('/api/v1/restores')
+@_require_token
+def restores_list():
+    limit = max(1, min(request.args.get('limit', 50, type=int), 500))
+    return jsonify([_ser(r) for r in db.get_restores(_cluster_arg(), limit)])
+
+
+@app.post('/api/v1/restores')
+@_require_token
+def restores_start():
+    """Restore a point as a new VM on its cluster. body: {point_id, target_name, mac_policy: auto|original|new,
+    nic_connected: bool, start: bool}"""
+    b = request.get_json(silent=True) or {}
+    point = db.get_point(int(b.get('point_id') or 0)) if str(b.get('point_id') or '').isdigit() else None
+    chain = db.get_chain(point['chain_id']) if point else None
+    if not point or not chain or point.get('status') != 'ok':
+        return _err('restore point not found')
+    if chain['status'] == 'deleted':
+        return _err('this chain was deleted')
+    policy = (b.get('mac_policy') or 'auto')
+    if policy not in ('auto', 'original', 'new'):
+        return _err('mac_policy must be auto, original or new')
+    name = (b.get('target_name') or f"{chain['vm_name']}-restored").strip()
+    try:
+        existing = {(v['name'] or '').lower() for v in jobs.client_for(chain['cluster_id']).list_vms()}
+    except HyperCoreError as e:
+        return _err(f'could not verify VM names on the cluster ({e}); restore not started', 502)
+    if name.lower() in existing:
+        return _err(f"a VM named '{name}' already exists on the cluster; choose another name", 409)
+    params = {'mac_policy': policy, 'nic_connected': bool(b.get('nic_connected', False)), 'start': bool(b.get('start', False))}
+    rid = db.add_restore(point, chain, name, params, b.get('requested_by'))
+    scheduler.run_restore(rid)
+    return jsonify({'ok': True, 'id': rid}), 201
 
 
 def start(cfg: cfg_module.Config) -> None:

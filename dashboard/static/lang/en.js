@@ -775,6 +775,19 @@ window.LANG = {
   'ex.col_churn': "Changed",
   'ex.col_churn_hint': "Blocks changed between the VM's two newest snapshots (HyperCore's own or ours): what an incremental would copy.",
 
+  'ex.restore': "Restore",
+  'ex.r_name': "Name of the restored VM",
+  'ex.r_mac': "MAC addresses",
+  'ex.r_mac_auto': "original if the source VM is gone, otherwise new",
+  'ex.r_mac_original': "always the original",
+  'ex.r_mac_new': "always new",
+  'ex.r_mac_hint': "Some software licenses on the MAC address. Two VMs with the same MAC on one network conflict.",
+  'ex.r_nic_connected': "Connect the network interfaces",
+  'ex.r_start': "Start the VM after the restore",
+  'ex.r_confirm': "Restore this point as '{name}'?",
+  'ex.r_started': "Restore started. Watch progress under Runs.",
+  'ex.restores_title': "RESTORES",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-supported software',
   'community.body':         "HyperCore Manager is open-source software maintained on a community-supported basis. It is not an official Scale Computing product and comes without official support or SLA. Use it at your own risk.",

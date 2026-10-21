@@ -67,7 +67,7 @@ class Engine:
     # ---------------------------------------------------------------- registry
     def submit(self, kind: str, request: dict) -> Job:
         runner = {'backup': self.run_backup, 'flatten': self.run_flatten, 'verify': self.run_verify, 'sweep': self.run_sweep,
-                  'prune': self.run_prune, 'delete_chain': self.run_delete_chain}[kind]
+                  'prune': self.run_prune, 'delete_chain': self.run_delete_chain, 'stage': self.run_stage}[kind]
         job = Job(kind, request)
         with self._lock:
             self.jobs[job.id] = job
@@ -212,7 +212,10 @@ class Engine:
             os.makedirs(out_dir, exist_ok=True)
             job.progress = {'devices_total': len(pm.get('devices', [])), 'devices_done': 0}
             produced = []
+            only = set(req.get('only_uuids') or [])
             for d in pm.get('devices', []):
+                if only and d['uuid'] not in only:
+                    continue
                 src = os.path.join(chain_dir, point['dir'], d['file'])
                 name = req.get('files', {}).get(d['uuid'], d['file'])
                 dst = os.path.join(out_dir, name)
@@ -318,5 +321,52 @@ class Engine:
             if os.path.isdir(chain_dir):
                 shutil.rmtree(chain_dir, ignore_errors=True)
             return {'removed': not os.path.exists(chain_dir)}
+        finally:
+            self._release_target(req)
+
+    # ---------------------------------------------------------------- stage (fast restore)
+    def run_stage(self, job: Job) -> dict:
+        """
+        request: {target, chain_dir, seq, devices:[{uuid, staging_clone_uuid}]}
+        Writes a point's disk images into writable staging disks hot-added to this proxy's VM
+        (created by the backup service). Only allocated, non-zero blocks are copied; a fresh
+        HyperCore disk reads as zeros. The service then snapshots the proxy VM and clones the
+        staging disks onto the restored VM.
+        """
+        req = job.request
+        root = self._with_target(req)
+        try:
+            chain_dir = os.path.join(root, req['chain_dir'])
+            chain = manifest.load_chain(chain_dir)
+            point = next((p for p in chain['points'] if p['seq'] == int(req['seq'])), None)
+            if not point:
+                raise RuntimeError(f'point {req["seq"]} not found')
+            pm = manifest.read_json(os.path.join(chain_dir, point['dir'], manifest.POINT_FILE)) or {}
+            by_uuid = {d['uuid']: d for d in pm.get('devices', [])}
+            job.progress = {'devices_total': len(req['devices']), 'devices_done': 0, 'blocks_total': 0, 'blocks_done': 0}
+            out = []
+            for want in req['devices']:
+                d = by_uuid.get(want['uuid'])
+                if not d:
+                    raise RuntimeError(f'device {want["uuid"]} is not part of point {req["seq"]}')
+                image = os.path.join(chain_dir, point['dir'], d['file'])
+                dst = devices.wait_for_device(want['staging_clone_uuid'], self.cfg.device_wait_seconds, self.cfg.dev_dir)
+                intervals = self.backend.allocation_map(image)
+                job.progress['blocks_total'] += copier.blocks_in(intervals)
+                base_done = job.progress['blocks_done']
+
+                def prog(done, total, _b=base_done):
+                    job.progress['blocks_done'] = _b + done // copier.MiB
+
+                t = time.time()
+                with self.backend.open_readonly(image) as src:
+                    written = copier.copy_intervals(src, dst, intervals, writers=self.cfg.writers, progress=prog, cancelled=job.cancelled)
+                if job.cancelled():
+                    raise RuntimeError('cancelled')
+                out.append({'uuid': d['uuid'], 'file': d['file'], 'bytes_written': written, 'blocks': copier.blocks_in(intervals),
+                            'duration_s': round(time.time() - t, 1)})
+                job.progress['devices_done'] += 1
+                self._persist(job)
+            return {'devices': out, 'bytes_written': sum(x['bytes_written'] for x in out)}
         finally:
             self._release_target(req)

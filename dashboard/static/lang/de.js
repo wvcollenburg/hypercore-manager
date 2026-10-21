@@ -774,6 +774,19 @@ window.LANG = {
   'ex.col_churn': "Geändert",
   'ex.col_churn_hint': "Geänderte Blöcke zwischen den zwei neuesten Snapshots der VM (von HyperCore oder von uns): was ein inkrementelles Backup kopieren würde.",
 
+  'ex.restore': "Wiederherstellen",
+  'ex.r_name': "Name der wiederhergestellten VM",
+  'ex.r_mac': "MAC-Adressen",
+  'ex.r_mac_auto': "original, wenn die Quell-VM fehlt, sonst neu",
+  'ex.r_mac_original': "immer original",
+  'ex.r_mac_new': "immer neu",
+  'ex.r_mac_hint': "Manche Software ist an die MAC-Adresse lizenziert. Zwei VMs mit derselben MAC in einem Netz kollidieren.",
+  'ex.r_nic_connected': "Netzwerkschnittstellen verbinden",
+  'ex.r_start': "VM nach der Wiederherstellung starten",
+  'ex.r_confirm': "Diesen Punkt als '{name}' wiederherstellen?",
+  'ex.r_started': "Wiederherstellung gestartet. Fortschritt unter Läufe.",
+  'ex.restores_title': "WIEDERHERSTELLUNGEN",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-unterst\u00fctzte Software',
   'community.body':         "HyperCore Manager ist Open-Source-Software, die auf Community-Basis gepflegt wird. Es ist kein offizielles Produkt von Scale Computing und wird ohne offiziellen Support oder SLA bereitgestellt. Die Nutzung erfolgt auf eigene Gefahr.",

@@ -774,6 +774,19 @@ window.LANG = {
   'ex.col_churn': "Gewijzigd",
   'ex.col_churn_hint': "Gewijzigde blokken tussen de twee nieuwste snapshots van de VM (van HyperCore of van ons): wat een incrementele back-up zou kopiëren.",
 
+  'ex.restore': "Herstellen",
+  'ex.r_name': "Naam van de herstelde VM",
+  'ex.r_mac': "MAC-adressen",
+  'ex.r_mac_auto': "origineel als de bron-VM weg is, anders nieuw",
+  'ex.r_mac_original': "altijd origineel",
+  'ex.r_mac_new': "altijd nieuw",
+  'ex.r_mac_hint': "Sommige software licenseert op het MAC-adres. Twee VM’s met hetzelfde MAC-adres in één netwerk botsen.",
+  'ex.r_nic_connected': "Netwerkinterfaces verbinden",
+  'ex.r_start': "VM starten na het herstel",
+  'ex.r_confirm': "Dit punt herstellen als '{name}'?",
+  'ex.r_started': "Herstel gestart. Volg de voortgang onder Uitvoeringen.",
+  'ex.restores_title': "HERSTELACTIES",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",

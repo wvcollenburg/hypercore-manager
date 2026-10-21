@@ -65,7 +65,7 @@ def _nic_xml(mac: str | None) -> str:
             f'      <model type="virtio"/>\n      <source bridge="lan"/>\n    </interface>\n')
 
 
-def render(vm: dict, file_map: dict[str, str], *, new_uuid: str, template: str | None = None) -> str:
+def render(vm: dict, file_map: dict[str, str], *, new_uuid: str, template: str | None = None, include_disks: bool = True) -> str:
     """
     vm        — the VirDomain record (name, description, mem, numVCPU, machineType, operatingSystem,
                 cpuType, tags, bootDevices, blockDevs, netDevs)
@@ -73,6 +73,8 @@ def render(vm: dict, file_map: dict[str, str], *, new_uuid: str, template: str |
                 (<uuid>.qcow2); must cover every disk, the NVRAM and the vTPM device present
     new_uuid  — uuid for the imported domain (HyperCore assigns the VM its own uuid anyway)
     template  — optional learned template text overriding the shipped one
+    include_disks — False renders a diskless definition (NVRAM/vTPM only); the fast restore path
+                imports that and clones the data disks in afterwards
     """
     machine_type = vm.get('machineType') or ''
     text = load_template(machine_type, vm.get('operatingSystem'), template)
@@ -83,6 +85,8 @@ def render(vm: dict, file_map: dict[str, str], *, new_uuid: str, template: str |
     vtpm = next((b for b in vm.get('blockDevs', []) if b.get('type') == 'VTPM'), None)
     boot = {u: i + 1 for i, u in enumerate(vm.get('bootDevices') or [])}
 
+    if not include_disks:
+        disks = []
     for b in disks:
         if b['uuid'] not in file_map:
             raise ValueError(f'no file mapping for disk {b["uuid"]}')

@@ -511,3 +511,38 @@ def save_os_template(machine_type: str, os_profile: str, template: str, source: 
     _exec('''INSERT INTO backup.os_templates (machine_type, os_profile, template, source) VALUES (%s,%s,%s,%s)
              ON CONFLICT (machine_type, os_profile) DO UPDATE SET template = EXCLUDED.template, source = EXCLUDED.source, created_at = NOW()''',
           (machine_type, os_profile, template, source))
+
+
+# ------------------------------------------------------------------- restores
+def add_restore(point: dict, chain: dict, target_name: str, params: dict, requested_by: str | None = None) -> int:
+    return _one('''INSERT INTO backup.restores (kind, point_id, chain_id, cluster_id, vm_name, target_name, params, requested_by)
+                   VALUES ('vm',%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
+                (point['id'], chain['id'], chain['cluster_id'], chain['vm_name'], target_name, _json(params), requested_by))['id']
+
+
+def get_restore(restore_id: int) -> Optional[dict]:
+    r = _one('SELECT * FROM backup.restores WHERE id = %s', (restore_id,))
+    if r:
+        r['cluster_id'] = str(r['cluster_id'])
+    return r
+
+
+def get_restores(cluster_id: Optional[str] = None, limit: int = 50) -> list[dict]:
+    sql = 'SELECT r.*, r.cluster_id::text AS cluster_id FROM backup.restores r'
+    params: list[Any] = []
+    if cluster_id:
+        sql += ' WHERE r.cluster_id = %s'; params.append(cluster_id)
+    sql += ' ORDER BY r.id DESC LIMIT %s'; params.append(limit)
+    return _all(sql, params)
+
+
+def update_restore(restore_id: int, **fields) -> None:
+    allowed = {'status', 'message', 'created_uuid', 'finished_at'}
+    items = [(k, v) for k, v in fields.items() if k in allowed]
+    if not items:
+        return
+    _exec(f'UPDATE backup.restores SET {", ".join(f"{k} = %s" for k, _ in items)} WHERE id = %s', [v for _, v in items] + [restore_id])
+
+
+def get_active_restores() -> list[dict]:
+    return _all("SELECT * FROM backup.restores WHERE status = 'RUNNING' ORDER BY id")
