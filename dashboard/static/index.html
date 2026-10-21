@@ -3777,9 +3777,9 @@ let SHARES = [];
 async function _loadSharesPanel() {
   const el = document.getElementById('setpanel-shares');
   if (!el) return;
-  const st = await apiFetch('/api/exports/status');
+  const st = await apiFetch('/api/backup/status');
   if (!st || !st.available) { el.innerHTML = `<div class="empty-state">${t('ex.unavailable')}</div>`; return; }
-  SHARES = (await apiFetch('/api/exports/shares')) || [];
+  SHARES = (await apiFetch('/api/backup/targets')) || [];
   const rows = SHARES.map(sh => `
     <tr>
       <td class="um-username">${_clEsc(sh.name)}${sh.default_for_unfiled ? ` <span class="um-badge um-badge-user" title="${_clEsc(t('shares.assign_unfiled_title'))}">no_folder</span>` : ''}<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(sh.uri_base)}</div></td>
@@ -3830,23 +3830,23 @@ function _shRead(prefix) {
 function _shMsg(id, text, cls) { const el = document.getElementById(id); if (el) { el.textContent = text; el.className = 'cl-msg ' + (cls || ''); } }
 async function shProbe(prefix) {
   _shMsg(`${prefix}-msg`, t('clusters.testing'), '');
-  try { const d = await _exCall('POST', '/api/exports/shares/probe', _shRead(prefix)); _shMsg(`${prefix}-msg`, d.ok ? t('shares.test_ok', {n: (d.folders || []).length}) : t('clusters.test_fail', {error: d.error}), d.ok ? 'ok' : 'err'); }
+  try { const d = await _exCall('POST', '/api/backup/targets/probe', _shRead(prefix)); _shMsg(`${prefix}-msg`, d.ok ? t('shares.test_ok', {n: (d.folders || []).length}) : t('clusters.test_fail', {error: d.error}), d.ok ? 'ok' : 'err'); }
   catch (e) { _shMsg(`${prefix}-msg`, e.message, 'err'); }
 }
 async function shSave(prefix, id) {
   const body = _shRead(prefix); if (!body.password) delete body.password;
-  try { await _exCall(id ? 'PUT' : 'POST', id ? `/api/exports/shares/${id}` : '/api/exports/shares', body); await _loadSharesPanel(); }
+  try { await _exCall(id ? 'PUT' : 'POST', id ? `/api/backup/targets/${id}` : '/api/backup/targets', body); await _loadSharesPanel(); }
   catch (e) { _shMsg(`${prefix}-msg`, e.message, 'err'); }
 }
 async function shTest(id) {
   _shMsg(`sh-${id}-msg`, t('clusters.testing'), '');
-  try { const d = await _exCall('POST', `/api/exports/shares/${id}/test`); _shMsg(`sh-${id}-msg`, d.ok ? t('shares.test_ok', {n: (d.folders || []).length}) : t('clusters.test_fail', {error: d.error}), d.ok ? 'ok' : 'err'); }
+  try { const d = await _exCall('POST', `/api/backup/targets/${id}/test`); _shMsg(`sh-${id}-msg`, d.ok ? t('shares.test_ok', {n: (d.folders || []).length}) : t('clusters.test_fail', {error: d.error}), d.ok ? 'ok' : 'err'); }
   catch (e) { _shMsg(`sh-${id}-msg`, e.message, 'err'); }
 }
 function shEdit(id) { const r = document.getElementById(`sh-edit-${id}`); if (r) r.hidden = !r.hidden; }
 async function shRemove(id, name) {
   if (!confirm(t('shares.confirm_remove', {name}))) return;
-  try { await _exCall('DELETE', `/api/exports/shares/${id}`); await _loadSharesPanel(); await loadClusters(); } catch (e) { alert(e.message); }
+  try { await _exCall('DELETE', `/api/backup/targets/${id}`); await _loadSharesPanel(); await loadClusters(); } catch (e) { alert(e.message); }
 }
 
 function switchSettingsPanel(p) {
@@ -4932,7 +4932,7 @@ function openClusterMenu(ev, clusterId) {
 
 async function openFolderShareMenu(ev, folderId) {
   const f = FOLDERS.find(x => x.folder_id === folderId);
-  const shares = (await apiFetch('/api/exports/shares')) || [];
+  const shares = (await apiFetch('/api/backup/targets')) || [];
   const rows = shares.map(sh => `<div class="popmenu-item" onclick="assignFolderShare('${folderId}', ${sh.id})">${_clEsc(sh.name)}${f && f.share_id === sh.id ? ' ✓' : ''}</div>`).join('');
   _openMenu(ev, `
     <div class="popmenu-title">${t('shares.assign_title')}</div>
@@ -4946,7 +4946,7 @@ async function assignFolderShare(folderId, shareId) {
 }
 
 async function openUnfiledShareMenu(ev) {
-  const shares = (await apiFetch('/api/exports/shares')) || [];
+  const shares = (await apiFetch('/api/backup/targets')) || [];
   const rows = shares.map(sh => `<div class="popmenu-item" onclick="setUnfiledShare(${sh.id}, true)">${_clEsc(sh.name)}${sh.default_for_unfiled ? ' ✓' : ''}</div>`).join('');
   const cur = shares.find(sh => sh.default_for_unfiled);
   _openMenu(ev, `
@@ -4958,7 +4958,7 @@ async function openUnfiledShareMenu(ev) {
 async function setUnfiledShare(shareId, on) {
   _closeMenus();
   if (!shareId) return;
-  try { await _exCall('PUT', `/api/exports/shares/${shareId}`, {default_for_unfiled: on}); await loadClusters(); await _exProbe(); } catch (e) { alert(e.message); }
+  try { await _exCall('PUT', `/api/backup/targets/${shareId}`, {default_for_unfiled: on}); await loadClusters(); await _exProbe(); } catch (e) { alert(e.message); }
 }
 
 function openFolderMenu(ev, folderId) {
@@ -5306,7 +5306,7 @@ let _exPollTimer = null;
 let _exImport = { known: [], folders: [], chosen: '' };
 
 async function _exProbe() {
-  const d = await apiFetch('/api/exports/status');
+  const d = await apiFetch('/api/backup/status');
   _exAvailable = !!(d && d.available);
   if (d && d.available) { _exDefaults = d; _exLocation = d.location || null; }
   const tab = document.getElementById('navTabExports');
@@ -5355,7 +5355,7 @@ async function loadExports() {
 async function exLoadSchedules() {
   const el = document.getElementById('expanel-schedules');
   let rows;
-  try { rows = await _exCall('GET', '/api/exports/schedules'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  try { rows = await _exCall('GET', '/api/backup/plans'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
   const admin = _exIsAdmin();
   if (!rows.length) {
     el.innerHTML = _exLocationLine(null) + `<div class="empty-state">${t('ex.no_schedules')}<br><span style="font-size:11px;color:var(--text-muted)">${t('ex.no_schedules_hint')}</span></div>`;
@@ -5379,11 +5379,11 @@ async function exLoadSchedules() {
         </td>
       </tr>`).join('')}</tbody></table></div>`;
 }
-async function exRunNow(id)  { try { await _exCall('POST', `/api/exports/schedules/${id}/run`); showToast(t('ex.started'), 'ok'); switchExportsPanel('runs'); } catch (e) { showToast(e.message, 'err'); } }
-async function exToggle(id)  { try { await _exCall('POST', `/api/exports/schedules/${id}/toggle`); exLoadSchedules(); } catch (e) { showToast(e.message, 'err'); } }
+async function exRunNow(id)  { try { await _exCall('POST', `/api/backup/plans/${id}/run`); showToast(t('ex.started'), 'ok'); switchExportsPanel('runs'); } catch (e) { showToast(e.message, 'err'); } }
+async function exToggle(id)  { try { await _exCall('POST', `/api/backup/plans/${id}/toggle`); exLoadSchedules(); } catch (e) { showToast(e.message, 'err'); } }
 async function exRemove(id, name) {
   if (!confirm(t('ex.confirm_remove', {name}))) return;
-  try { await _exCall('DELETE', `/api/exports/schedules/${id}`); exLoadSchedules(); } catch (e) { showToast(e.message, 'err'); }
+  try { await _exCall('DELETE', `/api/backup/plans/${id}`); exLoadSchedules(); } catch (e) { showToast(e.message, 'err'); }
 }
 function exHistory(id) { _exRunsFilter = id; switchExportsPanel('runs'); }
 
@@ -5392,7 +5392,7 @@ async function exLoadVms() {
   const el = document.getElementById('expanel-vms');
   el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
   let vms;
-  try { vms = await _exCall('GET', '/api/exports/vms'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  try { vms = await _exCall('GET', '/api/backup/vms'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
   const admin = _exIsAdmin();
   if (!vms.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_vms')}</div>`; return; }
   el.innerHTML = `<div class="settings-group"><table class="um-table"><thead><tr>
@@ -5436,7 +5436,7 @@ async function exCreateSchedule(i) {
                  run_time: g('time').value || '03:00', compress: g('compress').checked };
   const msg = g('msg');
   if (!_exLocation) { msg.textContent = t('ex.no_share'); msg.className = 'cl-msg err'; return; }
-  try { await _exCall('POST', '/api/exports/schedules', body); showToast(t('ex.schedule_created', {name: body.vm_name}), 'ok'); exLoadVms(); }
+  try { await _exCall('POST', '/api/backup/plans', body); showToast(t('ex.schedule_created', {name: body.vm_name}), 'ok'); exLoadVms(); }
   catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
 }
 
@@ -5469,7 +5469,7 @@ function _exImportSource() { return {}; }   // the folder's share, resolved serv
 async function exBrowse() {
   const msg = document.getElementById('exi-msg'); msg.textContent = t('ex.i_browsing'); msg.className = 'cl-msg';
   try {
-    const d = await _exCall('POST', '/api/exports/import/browse', _exImportSource());
+    const d = await _exCall('POST', '/api/backup/import/browse', _exImportSource());
     msg.textContent = '';
     const box = document.getElementById('exi-folders');
     box.innerHTML = d.folders.length ? `<div class="ex-folder-list">${d.folders.map(f => `<label><input type="radio" name="exi-pick" value="${_exEsc(f)}" onchange="document.getElementById('exi-folder').value=this.value">${_exEsc(f)}</label>`).join('')}</div>`
@@ -5481,7 +5481,7 @@ async function exStartImport() {
   const body = { ..._exImportSource(), source_folder: document.getElementById('exi-folder').value.trim(), target_name: document.getElementById('exi-name').value.trim() };
   if (!confirm(t('ex.i_confirm'))) return;
   msg.textContent = t('ex.i_starting'); msg.className = 'cl-msg';
-  try { await _exCall('POST', '/api/exports/import/start', body); showToast(t('ex.i_started'), 'ok'); switchExportsPanel('runs'); }
+  try { await _exCall('POST', '/api/backup/import/start', body); showToast(t('ex.i_started'), 'ok'); switchExportsPanel('runs'); }
   catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
 }
 
@@ -5490,7 +5490,7 @@ let _exRunsFilter = null;
 async function exLoadRuns() {
   const el = document.getElementById('expanel-runs');
   let d;
-  try { d = await _exCall('GET', `/api/exports/runs?limit=100${_exRunsFilter ? '&schedule_id=' + _exRunsFilter : ''}`); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  try { d = await _exCall('GET', `/api/backup/runs?limit=100${_exRunsFilter ? '&schedule_id=' + _exRunsFilter : ''}`); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
   const runs = d.runs || [], imports = d.imports || [];
   const table = (title, rows, kind) => `
     <div class="settings-group">

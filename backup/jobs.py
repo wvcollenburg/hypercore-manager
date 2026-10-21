@@ -18,7 +18,7 @@ import config as cfg_module
 import db
 from hypercore import HyperCoreClient, HyperCoreError
 
-log = logging.getLogger('exports.jobs')
+log = logging.getLogger('backup.jobs')
 CFG = cfg_module.load()
 
 TIMESTAMP_FMT = '%Y%m%d-%H%M%S'

@@ -1,7 +1,7 @@
-"""exports/jobs.py and exports/hypercore.py — pure helpers ported from hypercore-export-manager.
+"""backup/jobs.py and backup/hypercore.py — pure helpers ported from hypercore-export-manager.
 
-exports/ reuses module names that sentinel/ also has (config, db, log), so its modules are
-imported here in isolation: exports/ goes first on sys.path only for the duration of the
+backup/ reuses module names that sentinel/ also has (config, db, log), so its modules are
+imported here in isolation: backup/ goes first on sys.path only for the duration of the
 import, the clashing names are purged from sys.modules before and after, and the imported
 objects are kept as module globals."""
 import importlib
@@ -10,18 +10,18 @@ import sys
 
 import pytest
 
-_EXPORTS = os.path.join(os.path.dirname(__file__), '..', 'exports')
+_BACKUP = os.path.join(os.path.dirname(__file__), '..', 'backup')
 _CLASH = ('config', 'db', 'log', 'api', 'hypercore', 'jobs', 'scheduler')
 
 
 def _import_exports_modules():
     saved = {n: sys.modules.pop(n) for n in _CLASH if n in sys.modules}
-    sys.path.insert(0, _EXPORTS)
+    sys.path.insert(0, _BACKUP)
     try:
         hc = importlib.import_module('hypercore')
         jb = importlib.import_module('jobs')
     finally:
-        sys.path.remove(_EXPORTS)
+        sys.path.remove(_BACKUP)
         for n in _CLASH:
             sys.modules.pop(n, None)
         sys.modules.update(saved)

@@ -1,5 +1,5 @@
 """
-db.py — PostgreSQL persistence for the Exports module (schema `exports`).
+db.py — PostgreSQL persistence for the Backup module (schema `backup`).
 
 Rows come back as plain dicts. Share passwords are stored Fernet-encrypted
 (hcm_crypto) and decrypted only by the job that needs them.
@@ -17,7 +17,7 @@ import psycopg2.extras
 
 import hcm_crypto
 
-log = logging.getLogger('exports.db')
+log = logging.getLogger('backup.db')
 
 
 def _dsn() -> dict:
@@ -82,7 +82,7 @@ def decrypt_password(token: str) -> str:
 # ------------------------------------------------------------------ schedules
 _SCHED_SELECT = '''SELECT s.*, s.cluster_id::text AS cluster_id, c.cluster_name, c.hc_host AS cluster_host,
                           c.enabled AS cluster_enabled
-                     FROM exports.schedules s JOIN config.clusters c ON c.cluster_id = s.cluster_id'''
+                     FROM backup.plans s JOIN config.clusters c ON c.cluster_id = s.cluster_id'''
 
 
 def add_schedule(cluster_id: str, vm_uuid: str, vm_name: str, path_uri_base: str, prune_path: str,
@@ -90,7 +90,7 @@ def add_schedule(cluster_id: str, vm_uuid: str, vm_name: str, path_uri_base: str
     smb_user = (smb_user or '').strip() or None
     smb_pass_enc = encrypt_password(smb_password) if smb_password else None
     row = _one(
-        '''INSERT INTO exports.schedules (cluster_id, vm_uuid, vm_name, path_uri_base, smb_user, smb_pass_enc,
+        '''INSERT INTO backup.plans (cluster_id, vm_uuid, vm_name, path_uri_base, smb_user, smb_pass_enc,
                                           prune_path, retention, run_time, compress)
            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
         (cluster_id, vm_uuid, vm_name, path_uri_base.rstrip('/'), smb_user, smb_pass_enc,
@@ -117,7 +117,7 @@ def update_schedule(schedule_id: int, **fields) -> None:
     if not sets:
         return
     sets.append('updated_at = NOW()'); params.append(schedule_id)
-    _exec(f'UPDATE exports.schedules SET {", ".join(sets)} WHERE id = %s', params)
+    _exec(f'UPDATE backup.plans SET {", ".join(sets)} WHERE id = %s', params)
 
 
 def get_schedules(cluster_id: Optional[str] = None) -> list[dict]:
@@ -131,11 +131,11 @@ def get_schedule(schedule_id: int) -> Optional[dict]:
 
 
 def toggle_schedule(schedule_id: int) -> None:
-    _exec('UPDATE exports.schedules SET enabled = NOT enabled, updated_at = NOW() WHERE id = %s', (schedule_id,))
+    _exec('UPDATE backup.plans SET enabled = NOT enabled, updated_at = NOW() WHERE id = %s', (schedule_id,))
 
 
 def delete_schedule(schedule_id: int) -> None:
-    _exec('DELETE FROM exports.schedules WHERE id = %s', (schedule_id,))
+    _exec('DELETE FROM backup.plans WHERE id = %s', (schedule_id,))
 
 
 def get_known_smb_locations() -> list[dict]:
@@ -144,14 +144,14 @@ def get_known_smb_locations() -> list[dict]:
     ref_id is the newest schedule holding the stored password for that location."""
     return _all(
         '''SELECT path_uri_base, smb_user, MAX(id) AS ref_id
-             FROM exports.schedules
+             FROM backup.plans
             WHERE path_uri_base ILIKE 'smb://%%' AND smb_user IS NOT NULL
             GROUP BY path_uri_base, smb_user ORDER BY path_uri_base''')
 
 
 # ----------------------------------------------------------------------- runs
 def start_run(schedule_id: int) -> int:
-    return _one('INSERT INTO exports.runs (schedule_id) VALUES (%s) RETURNING id', (schedule_id,))['id']
+    return _one('INSERT INTO backup.runs (schedule_id) VALUES (%s) RETURNING id', (schedule_id,))['id']
 
 
 def update_run(run_id: int, **fields) -> None:
@@ -159,13 +159,13 @@ def update_run(run_id: int, **fields) -> None:
     items = [(k, v) for k, v in fields.items() if k in allowed]
     if not items:
         return
-    _exec(f'UPDATE exports.runs SET {", ".join(f"{k} = %s" for k, _ in items)} WHERE id = %s',
+    _exec(f'UPDATE backup.runs SET {", ".join(f"{k} = %s" for k, _ in items)} WHERE id = %s',
           [v for _, v in items] + [run_id])
 
 
 def get_runs(cluster_id: Optional[str] = None, schedule_id: Optional[int] = None, limit: int = 50) -> list[dict]:
     sql = '''SELECT r.*, s.vm_name, s.cluster_id::text AS cluster_id, c.cluster_name
-               FROM exports.runs r JOIN exports.schedules s ON s.id = r.schedule_id
+               FROM backup.runs r JOIN backup.plans s ON s.id = r.schedule_id
                JOIN config.clusters c ON c.cluster_id = s.cluster_id'''
     where, params = [], []
     if schedule_id:
@@ -179,19 +179,19 @@ def get_runs(cluster_id: Optional[str] = None, schedule_id: Optional[int] = None
 
 
 def get_run(run_id: int) -> Optional[dict]:
-    return _one('SELECT * FROM exports.runs WHERE id = %s', (run_id,))
+    return _one('SELECT * FROM backup.runs WHERE id = %s', (run_id,))
 
 
 def last_run_for(schedule_id: int) -> Optional[dict]:
-    return _one('SELECT * FROM exports.runs WHERE schedule_id = %s ORDER BY id DESC LIMIT 1', (schedule_id,))
+    return _one('SELECT * FROM backup.runs WHERE schedule_id = %s ORDER BY id DESC LIMIT 1', (schedule_id,))
 
 
 def get_active_runs() -> list[dict]:
-    return _all("SELECT * FROM exports.runs WHERE status = 'RUNNING' ORDER BY id")
+    return _all("SELECT * FROM backup.runs WHERE status = 'RUNNING' ORDER BY id")
 
 
 def is_run_active(schedule_id: int) -> bool:
-    row = _one("SELECT COUNT(*) AS n FROM exports.runs WHERE schedule_id = %s AND status = 'RUNNING'", (schedule_id,))
+    row = _one("SELECT COUNT(*) AS n FROM backup.runs WHERE schedule_id = %s AND status = 'RUNNING'", (schedule_id,))
     return bool(row and row['n'])
 
 
@@ -200,18 +200,18 @@ def add_import(cluster_id: str, source_uri: str, smb_user: str, smb_password: st
     smb_user = (smb_user or '').strip() or None
     smb_pass_enc = encrypt_password(smb_password) if smb_password else None
     return _one(
-        '''INSERT INTO exports.imports (cluster_id, source_uri, smb_user, smb_pass_enc, target_name)
+        '''INSERT INTO backup.imports (cluster_id, source_uri, smb_user, smb_pass_enc, target_name)
            VALUES (%s,%s,%s,%s,%s) RETURNING id''',
         (cluster_id, source_uri.rstrip('/'), smb_user, smb_pass_enc, (target_name or '').strip() or None))['id']
 
 
 def get_import(import_id: int) -> Optional[dict]:
-    return _one('''SELECT i.*, i.cluster_id::text AS cluster_id, c.cluster_name FROM exports.imports i
+    return _one('''SELECT i.*, i.cluster_id::text AS cluster_id, c.cluster_name FROM backup.imports i
                    JOIN config.clusters c ON c.cluster_id = i.cluster_id WHERE i.id = %s''', (import_id,))
 
 
 def get_imports(cluster_id: Optional[str] = None, limit: int = 50) -> list[dict]:
-    sql = '''SELECT i.*, i.cluster_id::text AS cluster_id, c.cluster_name FROM exports.imports i
+    sql = '''SELECT i.*, i.cluster_id::text AS cluster_id, c.cluster_name FROM backup.imports i
              JOIN config.clusters c ON c.cluster_id = i.cluster_id'''
     params: list[Any] = []
     if cluster_id:
@@ -225,12 +225,12 @@ def update_import(import_id: int, **fields) -> None:
     items = [(k, v) for k, v in fields.items() if k in allowed]
     if not items:
         return
-    _exec(f'UPDATE exports.imports SET {", ".join(f"{k} = %s" for k, _ in items)} WHERE id = %s',
+    _exec(f'UPDATE backup.imports SET {", ".join(f"{k} = %s" for k, _ in items)} WHERE id = %s',
           [v for _, v in items] + [import_id])
 
 
 def get_active_imports() -> list[dict]:
-    return _all("SELECT * FROM exports.imports WHERE status = 'RUNNING' ORDER BY id")
+    return _all("SELECT * FROM backup.imports WHERE status = 'RUNNING' ORDER BY id")
 
 
 # --------------------------------------------------------------------- shares
@@ -244,12 +244,12 @@ def _share_row(r: Optional[dict]) -> Optional[dict]:
 
 def get_shares() -> list[dict]:
     rows = _all('''SELECT s.*, (SELECT COUNT(*) FROM config.folders f WHERE f.share_id = s.id) AS folder_count
-                     FROM exports.shares s ORDER BY lower(s.name)''')
+                     FROM backup.targets s ORDER BY lower(s.name)''')
     return [_share_row(r) for r in rows]
 
 
 def get_share(share_id: int, with_secret: bool = False) -> Optional[dict]:
-    r = _one('SELECT * FROM exports.shares WHERE id = %s', (share_id,))
+    r = _one('SELECT * FROM backup.targets WHERE id = %s', (share_id,))
     if r is None:
         return None
     if with_secret:
@@ -261,7 +261,7 @@ def get_share(share_id: int, with_secret: bool = False) -> Optional[dict]:
 
 def add_share(name: str, uri_base: str, username: str = None, password: str = None, prune_path: str = None) -> int:
     return _one(
-        '''INSERT INTO exports.shares (name, uri_base, username, password_enc, prune_path)
+        '''INSERT INTO backup.targets (name, uri_base, username, password_enc, prune_path)
            VALUES (%s,%s,%s,%s,%s) RETURNING id''',
         (name.strip(), uri_base.strip().rstrip('/'), (username or '').strip() or None,
          encrypt_password(password) if password else None, (prune_path or '').strip().rstrip('/') or None))['id']
@@ -284,20 +284,20 @@ def update_share(share_id: int, **fields) -> None:
     if not sets:
         return
     sets.append('updated_at = NOW()'); params.append(share_id)
-    _exec(f'UPDATE exports.shares SET {", ".join(sets)} WHERE id = %s', params)
+    _exec(f'UPDATE backup.targets SET {", ".join(sets)} WHERE id = %s', params)
 
 
 def delete_share(share_id: int) -> None:
-    _exec('DELETE FROM exports.shares WHERE id = %s', (share_id,))
+    _exec('DELETE FROM backup.targets WHERE id = %s', (share_id,))
 
 
 def set_default_share(share_id: Optional[int]) -> None:
     """Make *share_id* the share for clusters without a folder (None clears it)."""
     with connect() as conn:
         with conn.cursor() as cur:
-            cur.execute('UPDATE exports.shares SET default_for_unfiled = FALSE WHERE default_for_unfiled')
+            cur.execute('UPDATE backup.targets SET default_for_unfiled = FALSE WHERE default_for_unfiled')
             if share_id:
-                cur.execute('UPDATE exports.shares SET default_for_unfiled = TRUE, updated_at = NOW() WHERE id = %s', (share_id,))
+                cur.execute('UPDATE backup.targets SET default_for_unfiled = TRUE, updated_at = NOW() WHERE id = %s', (share_id,))
 
 
 def share_for_cluster(cluster_id: str) -> Optional[dict]:
@@ -305,9 +305,9 @@ def share_for_cluster(cluster_id: str) -> Optional[dict]:
     for a cluster without a folder the share flagged default_for_unfiled. None otherwise."""
     r = _one('''SELECT s.* FROM config.clusters c
                   LEFT JOIN config.folders f ON f.folder_id = c.folder_id
-                  JOIN exports.shares s
+                  JOIN backup.targets s
                     ON s.id = CASE WHEN c.folder_id IS NULL
-                                   THEN (SELECT id FROM exports.shares WHERE default_for_unfiled LIMIT 1)
+                                   THEN (SELECT id FROM backup.targets WHERE default_for_unfiled LIMIT 1)
                                    ELSE f.share_id END
                  WHERE c.cluster_id = %s''', (cluster_id,))
     if r is None:

@@ -9,7 +9,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import db
 import jobs
 
-log = logging.getLogger('exports.scheduler')
+log = logging.getLogger('backup.scheduler')
 
 _scheduler = BackgroundScheduler(job_defaults={
     'max_instances': 1,          # never run the same schedule twice at once
@@ -23,7 +23,7 @@ def _job_id(schedule_id: int) -> str:
 
 
 def sync_jobs() -> int:
-    """Reconcile APScheduler jobs with exports.schedules (enabled schedules on enabled
+    """Reconcile APScheduler jobs with backup.plans (enabled schedules on enabled
     clusters). Called on start, after every change through the API, and periodically."""
     wanted = {}
     for s in db.get_schedules():

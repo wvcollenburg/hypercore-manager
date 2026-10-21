@@ -1,7 +1,7 @@
 """
-api.py — REST API of the Exports service (port 8082), consumed by the dashboard proxy.
+api.py — REST API of the Backup service (port 8082), consumed by the dashboard proxy.
 
-Bearer token (EXPORTS_API_TOKEN); empty token = no auth (dev). Every list call takes
+Bearer token (BACKUP_API_TOKEN); empty token = no auth (dev). Every list call takes
 ?cluster=<uuid>; mutations name the cluster in the body or via the schedule.
 """
 from __future__ import annotations
@@ -20,8 +20,8 @@ import jobs
 import scheduler
 from hypercore import HyperCoreError
 
-log = logging.getLogger('exports.api')
-app = Flask('exports.api')
+log = logging.getLogger('backup.api')
+app = Flask('backup.api')
 
 
 def _require_token(f):
@@ -59,7 +59,7 @@ def _err(msg, code=400):
 
 @app.get('/health')
 def health():
-    return jsonify({'status': 'ok', 'service': 'exports'}), 200
+    return jsonify({'status': 'ok', 'service': 'backup'}), 200
 
 
 @app.get('/api/v1/status')
@@ -69,11 +69,11 @@ def status():
     cid = _cluster_arg()
     loc = jobs.location_for_cluster(cid) if cid else None
     return jsonify({
-        'service': 'exports',
+        'service': 'backup',
         'default_retention': cfg.default_retention,
         'default_run_time': cfg.default_run_time,
         'task_timeout_hours': cfg.task_timeout_hours,
-        'schedules': len(db.get_schedules(cid)),
+        'plans': len(db.get_schedules(cid)),
         # where this cluster's exports go: the share assigned to its folder, or null
         'location': {'share_name': loc['share_name'], 'base': loc['base'], 'tenant': loc['tenant']} if loc else None,
     })
@@ -98,7 +98,7 @@ def vms():
 
 
 # ---------------------------------------------------------------- schedules
-@app.get('/api/v1/schedules')
+@app.get('/api/v1/plans')
 @_require_token
 def schedules():
     rows = []
@@ -123,7 +123,7 @@ def _valid_time(v: str) -> str | None:
     return None
 
 
-@app.post('/api/v1/schedules')
+@app.post('/api/v1/plans')
 @_require_token
 def schedules_add():
     b = request.get_json(silent=True) or {}
@@ -155,7 +155,7 @@ def schedules_add():
     return jsonify({'ok': True, 'id': sid}), 201
 
 
-@app.put('/api/v1/schedules/<int:sid>')
+@app.put('/api/v1/plans/<int:sid>')
 @_require_token
 def schedules_update(sid):
     if not db.get_schedule(sid):
@@ -183,7 +183,7 @@ def schedules_update(sid):
     return jsonify({'ok': True})
 
 
-@app.post('/api/v1/schedules/<int:sid>/toggle')
+@app.post('/api/v1/plans/<int:sid>/toggle')
 @_require_token
 def schedules_toggle(sid):
     if not db.get_schedule(sid):
@@ -193,7 +193,7 @@ def schedules_toggle(sid):
     return jsonify({'ok': True})
 
 
-@app.delete('/api/v1/schedules/<int:sid>')
+@app.delete('/api/v1/plans/<int:sid>')
 @_require_token
 def schedules_delete(sid):
     db.delete_schedule(sid)
@@ -201,7 +201,7 @@ def schedules_delete(sid):
     return jsonify({'ok': True})
 
 
-@app.post('/api/v1/schedules/<int:sid>/run')
+@app.post('/api/v1/plans/<int:sid>/run')
 @_require_token
 def schedules_run(sid):
     if not db.get_schedule(sid):
@@ -320,7 +320,7 @@ def import_start():
 
 
 # ------------------------------------------------------------------- shares
-@app.get('/api/v1/shares')
+@app.get('/api/v1/targets')
 @_require_token
 def shares_list():
     return jsonify([_ser(r) for r in db.get_shares()])
@@ -330,7 +330,7 @@ def _share_body(b: dict):
     return {k: (b.get(k) or '') for k in ('name', 'uri_base', 'username', 'password', 'prune_path')}
 
 
-@app.post('/api/v1/shares')
+@app.post('/api/v1/targets')
 @_require_token
 def shares_add():
     f = _share_body(request.get_json(silent=True) or {})
@@ -347,7 +347,7 @@ def shares_add():
     return jsonify({'ok': True, 'id': sid}), 201
 
 
-@app.put('/api/v1/shares/<int:sid>')
+@app.put('/api/v1/targets/<int:sid>')
 @_require_token
 def shares_update(sid):
     if not db.get_share(sid):
@@ -367,14 +367,14 @@ def shares_update(sid):
     return jsonify({'ok': True})
 
 
-@app.delete('/api/v1/shares/<int:sid>')
+@app.delete('/api/v1/targets/<int:sid>')
 @_require_token
 def shares_delete(sid):
     db.delete_share(sid)          # folders referencing it fall back to no share (ON DELETE SET NULL)
     return jsonify({'ok': True})
 
 
-@app.post('/api/v1/shares/<int:sid>/test')
+@app.post('/api/v1/targets/<int:sid>/test')
 @_require_token
 def shares_test(sid):
     """List the share root with the stored credentials (SMB); NFS reports the mount path state."""
@@ -391,10 +391,10 @@ def shares_test(sid):
     import os
     pp = share.get('prune_path')
     return jsonify({'ok': bool(pp and os.path.isdir(pp)),
-                    'error': None if pp and os.path.isdir(pp) else 'NFS shares need a mount path inside the exports container for pruning; exports still work without it.'})
+                    'error': None if pp and os.path.isdir(pp) else 'NFS shares need a mount path inside the backup container for pruning; exports still work without it.'})
 
 
-@app.post('/api/v1/shares/probe')
+@app.post('/api/v1/targets/probe')
 @_require_token
 def shares_probe():
     """Test credentials from the add/edit form before saving."""
@@ -410,5 +410,5 @@ def shares_probe():
 def start(cfg: cfg_module.Config) -> None:
     app.config['API_TOKEN'] = cfg.api_token
     threading.Thread(target=lambda: app.run(host='0.0.0.0', port=cfg.api_port, debug=False, use_reloader=False),
-                     name='exports-api', daemon=True).start()
-    log.info('Exports REST API started', extra={'port': cfg.api_port})
+                     name='backup-api', daemon=True).start()
+    log.info('Backup REST API started', extra={'port': cfg.api_port})

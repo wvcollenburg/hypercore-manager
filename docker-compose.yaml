@@ -202,9 +202,9 @@ services:
       # Sentinel REST API — D5 what-if proxy
       - SENTINEL_API_URL=http://sentinel:8081
       - SENTINEL_API_TOKEN=${SENTINEL_API_TOKEN:-}
-      # Exports REST API (optional `exports` profile)
-      - EXPORTS_API_URL=http://exports:8082
-      - EXPORTS_API_TOKEN=${EXPORTS_API_TOKEN:-}
+      # Backup REST API (optional `backup` profile)
+      - BACKUP_API_URL=http://backup:8082
+      - BACKUP_API_TOKEN=${BACKUP_API_TOKEN:-${EXPORTS_API_TOKEN:-}}
       # auto-update: repo is always at /repo inside the container via volume mount;
       # SC_HOST_REPO_PATH carries the real host-side path so docker run can mount
       # it correctly when spawning the updater container
@@ -328,14 +328,15 @@ services:
           memory: 512M
     restart: unless-stopped
 
-  exports:
-    build: ./exports
-    container_name: sc_exports
+  backup:
+    build: ./backup
+    container_name: sc_backup
     profiles:
-      - exports
+      - backup
+      - exports      # former name of the profile, kept for one release
       - full
     ports:
-      - "8082:8082"    # Exports REST API (proxied by the dashboard)
+      - "8082:8082"    # Backup REST API (proxied by the dashboard)
     environment:
       - HCM_SECRET_KEY=${HCM_SECRET_KEY}
       - TZ=${TZ:-UTC}
@@ -344,12 +345,13 @@ services:
       - PG_DB=hypercore_balancer
       - PG_USER=sentinel
       - PG_PASSWORD=${SENTINEL_PG_PASSWORD}
-      - EXPORTS_API_PORT=8082
-      - EXPORTS_API_TOKEN=${EXPORTS_API_TOKEN:-}
-      - EXPORTS_TASK_TIMEOUT_HOURS=${EXPORTS_TASK_TIMEOUT_HOURS:-8}
-      - EXPORTS_POLL_INTERVAL_SECONDS=${EXPORTS_POLL_INTERVAL_SECONDS:-15}
-      - EXPORTS_DEFAULT_RETENTION=${EXPORTS_DEFAULT_RETENTION:-7}
-      - EXPORTS_DEFAULT_RUN_TIME=${EXPORTS_DEFAULT_RUN_TIME:-03:00}
+      - BACKUP_API_PORT=8082
+      # BACKUP_* is the current name; EXPORTS_* from the first release is still honoured
+      - BACKUP_API_TOKEN=${BACKUP_API_TOKEN:-${EXPORTS_API_TOKEN:-}}
+      - BACKUP_TASK_TIMEOUT_HOURS=${BACKUP_TASK_TIMEOUT_HOURS:-${EXPORTS_TASK_TIMEOUT_HOURS:-8}}
+      - BACKUP_POLL_INTERVAL_SECONDS=${BACKUP_POLL_INTERVAL_SECONDS:-${EXPORTS_POLL_INTERVAL_SECONDS:-15}}
+      - BACKUP_DEFAULT_RETENTION=${BACKUP_DEFAULT_RETENTION:-${EXPORTS_DEFAULT_RETENTION:-7}}
+      - BACKUP_DEFAULT_RUN_TIME=${BACKUP_DEFAULT_RUN_TIME:-${EXPORTS_DEFAULT_RUN_TIME:-03:00}}
     # NFS pruning needs the share mounted here; SMB pruning works without a mount.
     # Add in docker-compose.override.yml:  volumes: ["/mnt/nas/hypercore:/mnt/nas/hypercore"]
     healthcheck:

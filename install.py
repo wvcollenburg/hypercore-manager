@@ -383,7 +383,7 @@ def screen_profiles(stdscr, state: dict) -> bool:
     items = [
         ("core",     "Core stack (always on)",                 "InfluxDB, Postgres, Collector, Balancer, Dashboard", True),
         ("sentinel", "Sentinel — Foresight (recommended)", "Capacity forecasting, right-sizing, REST API",       True),
-        ("exports",  "Exports (optional)",                     "Scheduled VM exports to SMB/NFS and VM imports",   False),
+        ("backup",   "Backup (optional)",                      "Scheduled VM backups/exports to SMB/NFS and imports", False),
         ("tools",    "Grafana (optional)",                     "Extra metrics-explorer UI on port 3000",            False),
     ]
     selected = {key for key, _, _, default in items if default}

@@ -113,26 +113,27 @@ def test_folder_rbac_wiring(repo):
         assert fn in reg, fn
 
 
-def test_exports_module_wiring(repo):
+def test_backup_module_wiring(repo):
     assert (repo / 'postgres' / 'init' / '022_exports_schema.sql').exists()
-    for f in ('Dockerfile', 'requirements.txt', 'exports.py', 'api.py', 'jobs.py', 'scheduler.py', 'db.py', 'hypercore.py',
+    for f in ('Dockerfile', 'requirements.txt', 'backup.py', 'api.py', 'jobs.py', 'scheduler.py', 'db.py', 'hypercore.py',
               'cluster_registry.py', 'hcm_crypto.py'):
-        assert (repo / 'exports' / f).exists(), f
+        assert (repo / 'backup' / f).exists(), f
     compose = (repo / 'docker-compose.yaml').read_text()
-    assert '\n  exports:\n' in compose and 'EXPORTS_API_URL=http://exports:8082' in compose
+    assert '\n  backup:\n' in compose and 'BACKUP_API_URL=http://backup:8082' in compose
     app = (repo / 'dashboard' / 'app.py').read_text()
-    assert "@app.route('/api/exports/<path:sub>'" in app and "'/api/exports/status'" in app
-    for line in (repo / 'exports' / 'requirements.txt').read_text().splitlines():
+    assert "@app.route('/api/backup/<path:sub>'" in app and "'/api/backup/status'" in app
+    for line in (repo / 'backup' / 'requirements.txt').read_text().splitlines():
         if line.strip() and not line.startswith('#'):
-            assert '==' in line, f'exports/requirements.txt: {line!r} is not pinned'
+            assert '==' in line, f'backup/requirements.txt: {line!r} is not pinned'
 
 
-def test_export_shares_wiring(repo):
+def test_backup_targets_wiring(repo):
     assert (repo / 'postgres' / 'init' / '023_exports_shares.sql').exists()
-    api = (repo / 'exports' / 'api.py').read_text()
-    for route in ("@app.get('/api/v1/shares')", "@app.post('/api/v1/shares')", "@app.delete('/api/v1/shares/<int:sid>')", "@app.post('/api/v1/shares/<int:sid>/test')"):
+    assert (repo / 'postgres' / 'init' / '025_backup_rename.sql').exists()
+    api = (repo / 'backup' / 'api.py').read_text()
+    for route in ("@app.get('/api/v1/targets')", "@app.post('/api/v1/targets')", "@app.delete('/api/v1/targets/<int:sid>')", "@app.post('/api/v1/targets/<int:sid>/test')"):
         assert route in api, route
     app = (repo / 'dashboard' / 'app.py').read_text()
-    assert "if sub.startswith('shares') and not _is_admin_request()" in app, 'share management must stay admin-only'
+    assert "if sub.startswith('targets') and not _is_admin_request()" in app, 'target management must stay admin-only'
     reg = (repo / 'shared' / 'cluster_registry.py').read_text()
     assert 'share_id' in reg

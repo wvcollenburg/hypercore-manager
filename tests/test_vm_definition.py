@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load():
-    spec = importlib.util.spec_from_file_location('vm_definition', ROOT / 'exports' / 'vm_definition.py')
+    spec = importlib.util.spec_from_file_location('vm_definition', ROOT / 'backup' / 'vm_definition.py')
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

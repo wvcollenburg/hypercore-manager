@@ -40,7 +40,7 @@ PLACEHOLDERS = {"CHANGE_ME", "https://nodeip/rest/v1", "password", ""}
 PROFILE_CORE = "core"
 PROFILE_SENTINEL = "sentinel"
 PROFILE_TOOLS = "tools"
-PROFILE_EXPORTS = "exports"
+PROFILE_BACKUP = "backup"
 
 # easy-mode required keys — filled by the operator, never autogen'd
 EASY_REQUIRED_KEYS = {"SC_DASHBOARD_PASSWORD"}
@@ -246,60 +246,60 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- Exports --------
+        # -------- Backup --------
         Section(
-            key="exports",
-            title="Exports (VM export/import)",
-            blurb="Scheduled VM exports to SMB/NFS with retention, and VM imports",
-            profiles={PROFILE_EXPORTS},
+            key="backup",
+            title="Backup (VM backups, exports and imports)",
+            blurb="Scheduled VM backups and exports to SMB/NFS with retention, and VM imports",
+            profiles={PROFILE_BACKUP},
             fields=[
                 Field(
-                    key="EXPORTS_API_TOKEN",
-                    label="Exports API token",
+                    key="BACKUP_API_TOKEN",
+                    label="Backup API token",
                     type="token",
                     default="CHANGE_ME",
                     must_change=True,
-                    profiles={PROFILE_EXPORTS},
-                    description="Bearer token the dashboard presents to the Exports REST API on the internal network.",
+                    profiles={PROFILE_BACKUP},
+                    description="Bearer token the dashboard presents to the Backup REST API on the internal network.",
                     why_default="No safe default for a token; press G to generate one.",
-                    when_change="Rotate it if it leaks; both the exports and dashboard containers read it from .env.",
+                    when_change="Rotate it if it leaks; both the backup and dashboard containers read it from .env.",
                 ),
                 Field(
-                    key="EXPORTS_TASK_TIMEOUT_HOURS",
+                    key="BACKUP_TASK_TIMEOUT_HOURS",
                     label="Task timeout (hours)",
                     type="int",
                     default="8",
-                    profiles={PROFILE_EXPORTS},
+                    profiles={PROFILE_BACKUP},
                     description="A HyperCore export or import task that runs longer than this is marked failed.",
                     why_default="Eight hours covers multi-terabyte VMs on gigabit links.",
                     when_change="Raise it for very large VMs on slow links.",
                 ),
                 Field(
-                    key="EXPORTS_POLL_INTERVAL_SECONDS",
+                    key="BACKUP_POLL_INTERVAL_SECONDS",
                     label="Task poll interval (seconds)",
                     type="int",
                     default="15",
-                    profiles={PROFILE_EXPORTS},
+                    profiles={PROFILE_BACKUP},
                     description="How often a running task's progress is read from the cluster.",
                     why_default="Progress changes slowly; 15 s keeps the API quiet.",
                     when_change="Rarely.",
                 ),
                 Field(
-                    key="EXPORTS_DEFAULT_RETENTION",
+                    key="BACKUP_DEFAULT_RETENTION",
                     label="Default copies to keep",
                     type="int",
                     default="7",
-                    profiles={PROFILE_EXPORTS},
-                    description="Pre-filled retention for new export schedules (each schedule can override).",
+                    profiles={PROFILE_BACKUP},
+                    description="Pre-filled retention for new backup plans (each schedule can override).",
                     why_default="A week of daily copies.",
                     when_change="Match your backup policy.",
                 ),
                 Field(
-                    key="EXPORTS_DEFAULT_RUN_TIME",
+                    key="BACKUP_DEFAULT_RUN_TIME",
                     label="Default run time (HH:MM)",
                     default="03:00",
-                    profiles={PROFILE_EXPORTS},
-                    description="Pre-filled daily run time for new export schedules, in the TZ configured above.",
+                    profiles={PROFILE_BACKUP},
+                    description="Pre-filled daily run time for new backup plans, in the TZ configured above.",
                     why_default="Night-time, outside most maintenance windows.",
                     when_change="Stagger schedules across clusters to spread NAS load.",
                 ),

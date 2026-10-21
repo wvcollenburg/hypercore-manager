@@ -50,7 +50,7 @@ def test_parse_env_missing_file(tmp_path):
 def test_render_then_parse_roundtrip(schema, tmp_path):
     values = core.seed_default_values(schema)
     values['TZ'] = 'Europe/Amsterdam'
-    text = core.render_env(schema, values, {core.PROFILE_CORE, core.PROFILE_SENTINEL, core.PROFILE_TOOLS, core.PROFILE_EXPORTS})
+    text = core.render_env(schema, values, {core.PROFILE_CORE, core.PROFILE_SENTINEL, core.PROFILE_TOOLS, core.PROFILE_BACKUP})
     p = tmp_path / '.env'
     p.write_text(text)
     back = core.parse_env(p)

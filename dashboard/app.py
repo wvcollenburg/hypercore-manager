@@ -1134,40 +1134,59 @@ def api_folders_members(folder_id):
 
 
 # =============================================================================
-# Exports module proxy — the `exports` container owns schedules, runs and imports
+# Backup module proxy — the `backup` container owns plans, runs, imports and targets
 # =============================================================================
 
-_EXPORTS_MUTATING = {'POST', 'PUT', 'DELETE'}
+_BACKUP_MUTATING = {'POST', 'PUT', 'DELETE'}
 
 
-@app.route('/api/exports/status')
+# keys that would reveal a target's path or account to a non-admin; the UI shows alias/folder only
+_BACKUP_SENSITIVE_KEYS = frozenset({'base', 'user', 'username', 'path_uri_base', 'prune_path', 'smb_user',
+                                    'source_uri', 'uri_base', 'uri'})
+
+
+def _strip_sensitive(obj):
+    """Recursively drop target paths and accounts from a backup API response (non-admin callers)."""
+    if isinstance(obj, dict):
+        return {k: _strip_sensitive(v) for k, v in obj.items() if k not in _BACKUP_SENSITIVE_KEYS}
+    if isinstance(obj, list):
+        return [_strip_sensitive(v) for v in obj]
+    return obj
+
+
+def _backup_env():
+    """BACKUP_* wins; the EXPORTS_* names from the module's first release still work."""
+    url = os.getenv('BACKUP_API_URL') or os.getenv('EXPORTS_API_URL') or 'http://backup:8082'
+    token = os.getenv('BACKUP_API_TOKEN') or os.getenv('EXPORTS_API_TOKEN') or ''
+    return url, token
+
+
+@app.route('/api/backup/status')
 @require_auth
-def exports_status():
-    """Reachability of the optional exports container; the tab hides when it is off."""
-    url = os.getenv('EXPORTS_API_URL', 'http://exports:8082')
-    token = os.getenv('EXPORTS_API_TOKEN', '')
+def backup_status():
+    """Reachability of the optional backup container; the tab hides when it is off."""
+    url, token = _backup_env()
     try:
         rq = urllib.request.Request(f'{url}/api/v1/status?cluster={_cluster_id()}',
                                     headers={'Authorization': f'Bearer {token}'} if token else {})
         with urllib.request.urlopen(rq, timeout=3) as resp:
             data = json.loads(resp.read().decode())
         data['available'] = True
-        return jsonify(data)
+        return jsonify(data if _is_admin_request() else _strip_sensitive(data))
     except Exception:
         return jsonify({'available': False})
 
 
-@app.route('/api/exports/<path:sub>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+@app.route('/api/backup/<path:sub>', methods=['GET', 'POST', 'PUT', 'DELETE'])
 @require_auth
-def exports_proxy(sub):
-    """Forward to the exports API with the selected cluster and the bearer token.
+def backup_proxy(sub):
+    """Forward to the backup API with the selected cluster and the bearer token.
     Reads are open to every user who can see the cluster; changes need admin."""
-    # users of a folder may schedule exports and run imports for its clusters (the share and its
-    # credentials are the admin's business); share management itself is admin-only
-    if sub.startswith('shares') and not _is_admin_request():
+    # folder members manage plans and imports for their clusters (the target and its credentials
+    # are the admin's business); target management itself is admin-only
+    if sub.startswith('targets') and not _is_admin_request():
         return jsonify({'error': 'Admin access required'}), 403
-    url = os.getenv('EXPORTS_API_URL', 'http://exports:8082')
-    token = os.getenv('EXPORTS_API_TOKEN', '')
+    url, token = _backup_env()
     cid = _cluster_id()
     qs = request.query_string.decode()
     qs = (qs + '&' if qs else '') + f'cluster={cid}'
@@ -1176,18 +1195,24 @@ def exports_proxy(sub):
     if request.method in ('POST', 'PUT'):
         payload = request.get_json(silent=True) or {}
         # the body's cluster is always the one the user has selected and may see
-        if 'cluster_id' in payload or sub.endswith(('schedules', 'import/start')):
+        if 'cluster_id' in payload or sub.endswith(('plans', 'import/start')):
             payload['cluster_id'] = cid
         body = json.dumps(payload).encode()
         headers['Content-Type'] = 'application/json'
     try:
         rq = urllib.request.Request(f'{url}/api/v1/{sub}?{qs}', data=body, headers=headers, method=request.method)
         with urllib.request.urlopen(rq, timeout=60) as resp:
-            return Response(resp.read(), status=resp.status, mimetype='application/json')
+            raw = resp.read()
+            if _is_admin_request():
+                return Response(raw, status=resp.status, mimetype='application/json')
+            try:
+                return jsonify(_strip_sensitive(json.loads(raw.decode() or 'null'))), resp.status
+            except ValueError:
+                return Response(raw, status=resp.status, mimetype='application/json')
     except urllib.error.HTTPError as e:
         return Response(e.read(), status=e.code, mimetype='application/json')
     except Exception as e:
-        return jsonify({'error': f'Exports service unreachable: {e}'}), 503
+        return jsonify({'error': f'Backup service unreachable: {e}'}), 503
 
 
 # =============================================================================
