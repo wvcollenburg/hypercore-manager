@@ -392,10 +392,10 @@ services:
       - PROXY_API_TOKEN=${PROXY_API_TOKEN:-}
       - PROXY_NBD_SLOTS=${PROXY_NBD_SLOTS:-8}
       - PROXY_WRITERS=${PROXY_WRITERS:-4}
-      - PROXY_HOST_NET=/host/net
+      - PROXY_HOST_NET=/host/sys/class/net
     volumes:
       - /dev:/dev
-      - /sys/class/net:/host/net:ro
+      - /sys:/host/sys:ro     # host interfaces (MAC addresses) for proxy identity; sysfs symlinks need the whole tree
       - proxy-data:/var/lib/hcm-proxy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8083/health')"]
@@ -407,7 +407,7 @@ services:
       resources:
         limits:
           cpus: "2.0"
-          memory: 512M
+          memory: 1G        # bounds the page cache of qemu-nbd's writes; the copier itself uses O_DIRECT
     restart: unless-stopped
 
 volumes:

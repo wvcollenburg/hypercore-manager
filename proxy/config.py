@@ -32,7 +32,7 @@ class Config:
     data_dir:    str = field(default_factory=lambda: _str('PROXY_DATA_DIR', '/var/lib/hcm-proxy'))
     # /dev of the host (hot-added disks appear here) and the host's network interfaces (identity)
     dev_dir:     str = field(default_factory=lambda: _str('PROXY_DEV_DIR', '/dev'))
-    host_net:    str = field(default_factory=lambda: _str('PROXY_HOST_NET', '/host/net'))
+    host_net:    str = field(default_factory=lambda: _str('PROXY_HOST_NET', '/host/sys/class/net'))
     # how long to wait for a hot-added device to show up
     device_wait_seconds: int = field(default_factory=lambda: _int('PROXY_DEVICE_WAIT_SECONDS', 120))
     nbd_slots:   int = field(default_factory=lambda: _int('PROXY_NBD_SLOTS', 8))

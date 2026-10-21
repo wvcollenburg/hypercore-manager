@@ -269,3 +269,22 @@ def test_backup_fails_cleanly_when_device_never_appears(stack):
            'devices': [{'uuid': 'd' * 36, 'type': 'VIRTIO_DISK', 'clone_uuid': 'ffffffff-0000-0000-0000-000000000000', 'size': MiB, 'map': [{'lower': 0, 'upper': 0}]}]}
     j = _wait(stack, stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id'])
     assert j['state'] == 'failed' and 'did not appear' in j['error'] and stack.mounter.released == ['nfs://nas/export']
+
+
+def test_block_devices_are_written_with_o_direct(tmp_path, monkeypatch):
+    """The first live run OOM-killed the proxy VM through dirty nbd pages; block devices get O_DIRECT, files do not."""
+    import stat as _stat
+    f = tmp_path / 'plain'; f.write_bytes(b'x')
+    opened = []
+    real_open = os.open
+
+    def spy_open(path, flags, *a):
+        opened.append((path, flags)); return real_open(path, flags & ~getattr(os, 'O_DIRECT', 0), *a)
+    monkeypatch.setattr(P.copier.os, 'open', spy_open)
+    os.close(P.copier._open_write(str(f)))
+    assert not (opened[-1][1] & getattr(os, 'O_DIRECT', 0x4000))
+    monkeypatch.setattr(P.copier, '_is_block_device', lambda p: True)
+    if not hasattr(os, 'O_DIRECT'):
+        monkeypatch.setattr(P.copier.os, 'O_DIRECT', 0x4000, raising=False)
+    os.close(P.copier._open_write(str(f)))
+    assert opened[-1][1] & P.copier.os.O_DIRECT

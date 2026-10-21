@@ -8,13 +8,43 @@ offsets, so the function works on hot-added devices, nbd devices and plain files
 """
 from __future__ import annotations
 
+import mmap
 import os
+import stat
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Iterable
 
 MiB = 1 << 20
-_ZERO = bytes(MiB)
+
+
+def _is_block_device(path: str) -> bool:
+    try:
+        return stat.S_ISBLK(os.stat(path).st_mode)
+    except OSError:
+        return False
+
+
+def _open_write(path: str) -> int:
+    """Block devices are written with O_DIRECT (page-aligned 1 MiB buffers) so the guest's page
+    cache cannot fill up with dirty nbd pages; that is what OOM-killed the proxy VM on the first
+    live run. Regular files (tests, raw backend) are written normally."""
+    flags = os.O_WRONLY
+    if _is_block_device(path) and hasattr(os, 'O_DIRECT'):
+        flags |= os.O_DIRECT
+    return os.open(path, flags)
+
+
+class _Buf:
+    """A page-aligned 1 MiB buffer (mmap) usable for O_DIRECT reads and writes."""
+
+    def __init__(self):
+        self.m = mmap.mmap(-1, MiB)
+        self.zero = mmap.mmap(-1, MiB)
+
+    def close(self):
+        self.m.close()
+        self.zero.close()
 
 
 def blocks_in(intervals: Iterable[dict]) -> int:
@@ -49,7 +79,8 @@ def copy_intervals(src: str, dst: str, intervals: list[dict], *, writers: int = 
         nonlocal done
         first, n, hole = item
         sfd = os.open(src, os.O_RDONLY)
-        dfd = os.open(dst, os.O_WRONLY)
+        dfd = _open_write(dst)
+        buf = _Buf()
         try:
             for blk in range(first, first + n):
                 if stop.is_set() or (cancelled and cancelled()):
@@ -58,15 +89,25 @@ def copy_intervals(src: str, dst: str, intervals: list[dict], *, writers: int = 
                 off = blk * MiB
                 if off >= src_size and not hole:
                     break                       # map points past the end of a shorter device
-                data = _ZERO if hole else os.pread(sfd, MiB, off)
-                if not data:
+                if hole:
+                    nread = MiB
+                    view = buf.zero
+                else:
+                    nread = os.preadv(sfd, [buf.m], off)
+                    view = buf.m
+                if nread <= 0:
                     break
-                os.pwrite(dfd, data, off)
+                if nread < MiB:                 # tail of the device: O_DIRECT needs whole sectors
+                    padded = (nread + 511) // 512 * 512
+                    view[nread:padded] = bytes(padded - nread)
+                    nread = padded
+                os.pwritev(dfd, [memoryview(view)[:nread]], off)
                 with lock:
-                    done += len(data)
+                    done += nread
                     if progress:
                         progress(done, total)
         finally:
+            buf.close()
             os.close(dfd)
             os.close(sfd)
 

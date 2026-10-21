@@ -19,6 +19,7 @@ runs one worker per cluster inside its container.
 | `dashboard` | always-on | 5000 | Web UI |
 | `sentinel` | `sentinel` / `full` | 8081 (internal) | Foresight capacity analysis + REST API |
 | `backup` | `backup` / `full` | 8082 (internal) | VM backup/import scheduler + REST API |
+| `proxy` | `backup` / `full` | 8083 (internal) | Backup proxy: reads snapshot clones, writes backup chains (privileged) |
 | `grafana` | `tools` | 3000 | Optional metrics explorer |
 
 ---
@@ -125,6 +126,33 @@ mounted into the container (see the Backup variables below); SMB needs nothing e
 
 ---
 
+## The backup proxy
+
+The `proxy` container does the data work of incremental backups: HyperCore attaches a read-only
+clone of a VM snapshot to the VM the proxy runs on, the proxy reads only the changed blocks and
+writes qcow2 chains onto the backup target. For that it runs **privileged**, with the host's
+`/dev` (hot-added disks, `/dev/nbd*`) and a read-only view of `/sys` (its own MAC addresses, so
+the backup service can find the proxy's VM on the cluster). It never receives cluster
+credentials; target credentials arrive per job and are not stored.
+
+Requirements on the host that runs the proxy container:
+
+- It must be a VM **on the HyperCore cluster** it serves (the stack VM itself, or a small
+  dedicated proxy VM per remote cluster). Clones can only be attached within a cluster.
+- Linux with the `nbd` kernel module loaded without partition scanning:
+  `echo "options nbd max_part=0" > /etc/modprobe.d/nbd.conf && modprobe nbd`.
+- If the host boots from LVM, restrict LVM scanning to its own disk (clones of other VMs can
+  carry identical volume group names): in `/etc/lvm/lvm.conf`,
+  `devices { global_filter = [ "a|^/dev/vda|", "r|.*|" ] }`.
+- The proxy VM must **not** be on a HyperCore snapshot schedule: a VM with read-only clones
+  attached cannot be snapshotted, so scheduled snapshots would fail while a backup runs.
+- `PROXY_API_TOKEN` set in `.env`; the backup service presents it on every job.
+
+The HyperCore account registered for the cluster needs the rights Backup, Media Management,
+VM Create/Edit, VM Delete and VM Power Controls.
+
+---
+
 ## Starting Foresight (Sentinel)
 
 Sentinel is gated behind Docker Compose profiles to keep it optional.
@@ -203,6 +231,9 @@ Changing them in `.env` later does not alter clusters that already exist.
 | `BACKUP_POLL_INTERVAL_SECONDS` | Task progress polling interval (default 15) |
 | `BACKUP_DEFAULT_RETENTION` | Pre-filled copies-to-keep for new plans (default 7) |
 | `BACKUP_DEFAULT_RUN_TIME` | Pre-filled daily run time for new plans (default 03:00, in `TZ`) |
+| `PROXY_API_TOKEN` | Bearer token between the backup service and the proxy container(s). **Empty = auth disabled.** |
+| `PROXY_WRITERS` | Parallel writer threads per backup job in the proxy (default 4) |
+| `PROXY_NBD_SLOTS` | `/dev/nbd` devices the proxy may use at once (default 8) |
 
 The `EXPORTS_*` names used by the first release of the module are still read when the `BACKUP_*`
 name is not set.
@@ -249,6 +280,7 @@ Before exposing the stack to any network beyond localhost, complete every item:
 - [ ] InfluxDB (port 8086) not exposed beyond the host — internal Docker network only in production
 - [ ] Sentinel API (port 8081) not exposed beyond the host — accessed via dashboard proxy only
 - [ ] Backup API (port 8082) not exposed beyond the host; `BACKUP_API_TOKEN` set
+- [ ] Proxy API (port 8083) reachable from the backup service only; `PROXY_API_TOKEN` set
 - [ ] `.env` file is not committed to version control (`.gitignore` covers this)
 - [ ] PostgreSQL has no host port binding (removed from `docker-compose.yaml`)
 
