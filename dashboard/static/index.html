@@ -5452,7 +5452,7 @@ async function exLoadVms() {
   const admin = _exIsAdmin();
   if (!vms.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_vms')}</div>`; return; }
   el.innerHTML = `<div class="settings-group"><table class="um-table"><thead><tr>
-      <th>${t('ex.col_vm')}</th><th>${t('ex.col_state')}</th><th>vCPU</th><th>${t('ex.col_memory')}</th><th>${t('ex.col_export')}</th>
+      <th>${t('ex.col_vm')}</th><th>${t('ex.col_state')}</th><th>vCPU</th><th>${t('ex.col_memory')}</th><th title="${_exEsc(t('ex.col_churn_hint'))}">${t('ex.col_churn')}</th><th>${t('ex.col_export')}</th>
     </tr></thead><tbody>${vms.map((vm, i) => {
       const tags = (vm.tags || '').split(',').map(x => x.trim()).filter(Boolean);
       return `
@@ -5462,11 +5462,12 @@ async function exLoadVms() {
         <td><span class="ex-badge ${vm.state === 'RUNNING' ? 'ok' : 'off'}">${_exEsc((vm.state || '').toLowerCase())}</span></td>
         <td>${vm.numVCPU}</td>
         <td>${(vm.mem / 1024 ** 3).toFixed(0)} GiB</td>
+        <td style="font-size:11px;white-space:nowrap;">${vm.churn && vm.churn.mib != null ? `${_exMiB(vm.churn.mib)}<div style="font-size:10px;color:var(--text-muted);">${_exFmt(new Date(vm.churn.at * 1000).toISOString())}</div>` : '<span style="color:var(--text-muted)">—</span>'}</td>
         <td style="white-space:nowrap;">${vm.schedule
           ? `<span class="ex-badge run">${t('ex.daily_at', {time: vm.schedule.run_time})}</span>`
           : (admin ? `<button class="um-action-btn" onclick="exToggleForm(${i})">${t('ex.schedule_export')}</button>` : `<span style="color:var(--text-muted);font-size:11px;">—</span>`)}</td>
       </tr>
-      ${admin && !vm.schedule ? `<tr id="exform-${i}" hidden><td colspan="5" style="background:var(--bg-card);">${_exScheduleForm(i, vm)}</td></tr>` : ''}`;
+      ${admin && !vm.schedule ? `<tr id="exform-${i}" hidden><td colspan="6" style="background:var(--bg-card);">${_exScheduleForm(i, vm)}</td></tr>` : ''}`;
     }).join('')}</tbody></table></div>`;
 }
 function exToggleForm(i) { const r = document.getElementById(`exform-${i}`); if (r) { r.hidden = !r.hidden; if (!r.hidden) { _exModeChanged(i); r.querySelector('input')?.focus(); } } }

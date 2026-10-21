@@ -261,6 +261,15 @@ def _run(plan: dict, run_id: int) -> None:
             req_devices.append({'uuid': dev['uuid'], 'type': dev['type'], 'clone_uuid': clone_uuid, 'size': cap,
                                 'serial': serial, **entry})
         blocks = sum(jobs_blocks(d['map']) for d in req_devices)
+        disk_blocks = sum(jobs_blocks(d['map']) for d in req_devices if d['type'] in HyperCoreClient.DISK_TYPES)
+        if kind == 'delta' and disk_blocks == 0:
+            # nothing changed on any disk since the previous point: no new point, keep the old anchor
+            db.update_chain(chain['id'], active_clones=_delete_clones(hc, clones))
+            _safe_delete_snapshot(hc, snap_uuid, 'unneeded anchor')
+            db.update_run(run_id, status='COMPLETE', finished_at=_now(), blocks_changed=0, bytes_written=0,
+                          message='No blocks changed since the previous point; nothing written.')
+            log.info('[run %s] no changes, skipped', run_id)
+            return
         db.update_run(run_id, blocks_changed=blocks, message=f'{kind}: {blocks} MiB to copy, proxy {proxy["name"]}')
 
         # 4. proxy job
@@ -380,4 +389,35 @@ def sweep_cluster(cluster_id: str, max_age_days: int = 30) -> dict:
         _delete_clones(hc, list(ch.get('active_clones') or []))
         db.update_chain(ch['id'], active_clones=[])
         out['clones'] += len(ch.get('active_clones') or [])
+    return out
+
+
+def verify_active_chains(cluster_id: str) -> dict:
+    """Weekly: re-hash every active chain of a cluster through its proxy; records verified_at."""
+    out = {'verified': 0, 'failed': 0}
+    try:
+        proxy = pick_proxy(cluster_id)
+    except IncrementalError:
+        return out
+    pc = proxy_client_for(proxy)
+    for ch in db.get_chains(cluster_id):
+        if ch['status'] != 'active' or not ch.get('target_id'):
+            continue
+        share = db.get_share(ch['target_id'], with_secret=True)
+        if not share:
+            continue
+        try:
+            res = pc.wait(pc.submit('verify', {'target': {'uri': share['uri_base'], 'username': share.get('username'),
+                                                          'password': share.get('password')}, 'chain_dir': ch['chain_dir']}), timeout=6 * 3600)['result']
+        except ProxyError as e:
+            log.warning('verify of chain %s failed: %s', ch['id'], e)
+            out['failed'] += 1
+            continue
+        if res.get('ok'):
+            for pt in db.get_points(ch['id']):
+                db.update_point(pt['id'], verified_at=_now())
+            out['verified'] += 1
+        else:
+            log.error('chain %s (%s) has corrupt points: %s', ch['id'], ch['vm_name'], res.get('points'))
+            out['failed'] += 1
     return out

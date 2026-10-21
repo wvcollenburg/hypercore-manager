@@ -95,9 +95,20 @@ def vms():
     except HyperCoreError as e:
         return _err(str(e), 502)
     scheduled = {s['vm_uuid']: _ser(s) for s in db.get_schedules(cid)}
+    churn = {}
+    try:
+        # the newest snapshot of a VM carries blockCountDiff (1 MiB blocks) against the previous one:
+        # a free indication of how much a VM changes, from HyperCore's own schedules or our anchors
+        for snap in jobs.client_for(cid).list_snapshots():
+            u = snap.get('domainUUID')
+            if u and (u not in churn or (snap.get('timestamp') or 0) > churn[u]['at']):
+                churn[u] = {'mib': snap.get('blockCountDiff'), 'at': snap.get('timestamp') or 0, 'label': snap.get('label')}
+    except HyperCoreError:
+        pass
     for vm in vm_list:
         vm['schedule'] = scheduled.get(vm['uuid'])
         vm['safe_name'] = jobs.safe_name(vm['name'] or '')
+        vm['churn'] = churn.get(vm['uuid'])
     return jsonify(vm_list)
 
 

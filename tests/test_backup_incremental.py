@@ -232,3 +232,15 @@ def test_scheduled_full_starts_a_new_chain(world):
     kinds = [body['point']['kind'] for _, body in world.pc.jobs if _ == 'backup']
     assert kinds == ['full', 'delta', 'delta', 'full']
     assert [c['status'] for c in world.db.chains.values()] == ['retired', 'active']
+
+
+def test_delta_with_no_disk_changes_is_skipped(world, monkeypatch):
+    inc.run_incremental(4)
+    monkeypatch.setattr(world.hc, 'snap_diff', lambda dev, a, b: [{'lower': 0, 'upper': 3}] if a == 0 else [])
+    world.db.runs.clear(); world.db.start_run(4)
+    inc.run_incremental(4)
+    run = world.db.runs[1]
+    assert run['status'] == 'COMPLETE' and run['blocks_changed'] == 0 and 'nothing written' in run['message']
+    assert len([k for k, _ in world.pc.jobs if k == 'backup']) == 1, 'no proxy job for an unchanged VM'
+    assert list(world.hc.snaps) == ['snap-1'], 'the previous anchor is kept, the unneeded one removed'
+    assert not world.hc.devices and world.db.chains[1]['next_seq'] == 1

@@ -771,6 +771,9 @@ window.LANG = {
   'proxies.added_ok': "Proxy joignable, s'exécute dans la VM '{vm}'.",
   'proxies.confirm_remove': "Supprimer le proxy '{name}' ? Les plans incrémentaux de ce cluster ne pourront s'exécuter qu'après l'enregistrement d'un autre proxy.",
 
+  'ex.col_churn': "Modifié",
+  'ex.col_churn_hint': "Blocs modifiés entre les deux instantanés les plus récents de la VM (ceux de HyperCore ou les nôtres) : ce qu'une sauvegarde incrémentale copierait.",
+
   // community-support notice (shown once per user)
   'community.title':        'Logiciel soutenu par la communaut\u00e9',
   'community.body':         "HyperCore Manager est un logiciel open source maintenu sur une base communautaire. Il ne s'agit pas d'un produit officiel de Scale Computing et il est fourni sans support officiel ni SLA. Utilisez-le \u00e0 vos propres risques.",

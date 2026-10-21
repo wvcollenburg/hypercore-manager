@@ -86,10 +86,24 @@ def sweep_all() -> None:
             log.exception('sweep failed for %s', c.name)
 
 
+def verify_all() -> None:
+    """Weekly: checksum verification of every active chain."""
+    import cluster_registry
+    import incremental
+    for c in cluster_registry.list_enabled():
+        try:
+            out = incremental.verify_active_chains(c.cluster_id)
+            if out['verified'] or out['failed']:
+                log.info('verify %s: %s', c.name, out)
+        except Exception:        # noqa: BLE001
+            log.exception('verify failed for %s', c.name)
+
+
 def start(sync_interval_seconds: int = 60) -> None:
     _scheduler.start()
     _scheduler.add_job(sync_jobs, trigger='interval', seconds=sync_interval_seconds, id='sync', replace_existing=True)
     _scheduler.add_job(sweep_all, trigger='cron', hour=4, minute=30, id='sweep', replace_existing=True)
+    _scheduler.add_job(verify_all, trigger='cron', day_of_week='sun', hour=5, minute=0, id='verify', replace_existing=True)
     # first sweep a little after start: the dashboard applies new migrations at the same moment
     from datetime import datetime, timedelta
     _scheduler.add_job(sweep_all, trigger='date', run_date=datetime.now() + timedelta(seconds=120), id='sweep-start', replace_existing=True)

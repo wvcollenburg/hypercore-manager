@@ -772,6 +772,9 @@ window.LANG = {
   'proxies.added_ok': "Proxy reachable, runs as VM '{vm}'.",
   'proxies.confirm_remove': "Remove proxy '{name}'? Incremental plans on its cluster cannot run until another proxy is registered.",
 
+  'ex.col_churn': "Changed",
+  'ex.col_churn_hint': "Blocks changed between the VM's two newest snapshots (HyperCore's own or ours): what an incremental would copy.",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-supported software',
   'community.body':         "HyperCore Manager is open-source software maintained on a community-supported basis. It is not an official Scale Computing product and comes without official support or SLA. Use it at your own risk.",
