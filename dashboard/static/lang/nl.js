@@ -813,6 +813,21 @@ window.LANG = {
   'proxies.deploy_started': "Uitrol gestart; voortgang hieronder.",
   'proxies.deploy_go': "Uitrollen",
 
+  'clusters.api': "HyperCore-API",
+  'clusters.api_auto': "auto (v2 als het cluster het heeft)",
+  'clusters.api_v1': "alleen v1",
+  'clusters.api_v2': "v2 (forceren)",
+  'clusters.api_hint': "REST v2 (HyperCore 9.7.8+, experimenteel) voegt de taakfeed van het cluster toe: live activiteit, een migratielog van elke verplaatsing en de balancer wacht op bezette VM's. v1 blijft voor al het andere in gebruik.",
+  'clusters.api_v2_yes': "REST v2 beschikbaar",
+  'clusters.api_v2_no': "geen REST v2",
+
+  'iv.activity': "Clusteractiviteit",
+  'iv.activity_running': "{n} actief",
+  'iv.activity_idle': "rustig",
+  'iv.activity_recent': "onlangs afgerond",
+  'iv.activity_none': "Nog geen taken gezien.",
+  'iv.activity_failed': "mislukt",
+
   // community-support notice (shown once per user)
   'community.title':        'Community-ondersteunde software',
   'community.body':         "HyperCore Manager is open-sourcesoftware die op community-basis wordt onderhouden. Het is geen officieel product van Scale Computing en wordt geleverd zonder offici\u00eble ondersteuning of SLA. Gebruik is op eigen risico.",

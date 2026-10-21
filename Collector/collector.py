@@ -9,6 +9,7 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 import config_db
 import cluster_registry
 import hcm_crypto
+import hypercore_tasks
 
 # clusters are registered in the dashboard (config.clusters); nothing cluster-specific
 # comes from the environment any more. self-signed certificates are the norm on
@@ -268,6 +269,7 @@ def collect_slow(cid, session, base_url, node_info_map):
     for c in cluster:
         if isinstance(c, dict) and c.get('uuid'):
             node_info_map['__hc_cluster_uuid__'] = c['uuid']
+            node_info_map['__hc_version__'] = c.get('icosVersion') or None
         p = Point("cluster_metrics").tag("cluster_id", cid) \
             .tag("cluster_uuid", c.get('uuid', 'unknown')) \
             .tag("cluster_name", c.get('clusterName', 'unknown')) \
@@ -381,6 +383,8 @@ class ClusterWorker(threading.Thread):
         self.stop = stop_event
         self.session = requests.Session()
         self.session.verify = bool(cluster.verify_tls)
+        self._worker_started = time.time()
+        self._seen_moves: set[str] = set()
 
     def log(self, msg):
         print(f"[{_ts()}] [{self.cluster.name}] {msg}")
@@ -388,6 +392,35 @@ class ClusterWorker(threading.Thread):
     def _login(self):
         username, password = cluster_registry.credentials(self.cid)
         do_login(self.session, self.base_url, username, password)
+
+    def _poll_tasks(self, points):
+        """REST v2 task feed: keep the cluster's active and recent tasks in Postgres for the
+        dashboard and turn moves we did not make into 'external' migration-log events."""
+        try:
+            active = hypercore_tasks.fetch_tasks(self.session, self.base_url, active_only=True, limit=200)
+            recent = hypercore_tasks.fetch_tasks(self.session, self.base_url, limit=40)
+        except Exception as e:
+            self.log(f"REST v2 task feed unavailable: {e}")
+            return
+        rows = {}
+        for t in recent + active:
+            r = hypercore_tasks.normalise(t)
+            if r['task_tag']:
+                rows[r['task_tag']] = r
+        cid = self.cid
+        cluster_registry.record_tasks(cid, list(rows.values()))
+        cluster_registry.settle_stale_tasks(cid, {str(t.get('taskTag')) for t in active})
+        for t in recent:
+            ev = hypercore_tasks.move_event(t)
+            if not ev or ev['task_tag'] in self._seen_moves:
+                continue
+            self._seen_moves.add(ev['task_tag'])
+            if not ev['time'] or ev["time"].timestamp() < self._worker_started - 120:
+                continue                         # history from before this worker started
+            points.append(Point("migration_events").tag("cluster_id", cid).tag("engine", "external").tag("mode", "external")
+                          .tag("dry_run", "false").tag("vm_name", ev['vm_name']).tag("source_ip", ev['source_ip'])
+                          .tag("target_ip", ev['target_ip']).field("vm_uuid", ev['vm_uuid'])
+                          .field("reason", f"HyperCore task {ev['task_tag']}").field("task_tag", ev['task_tag']).time(ev['time']))
 
     def run(self):
         self.log(f"Worker started for {self.base_url}")
@@ -418,9 +451,19 @@ class ClusterWorker(threading.Thread):
                 if time.time() - last_slow_poll >= slow_poll_interval:
                     slow_points = collect_slow(self.cid, self.session, self.base_url, node_info_map)
                     last_slow_poll = time.time()
-                    cluster_registry.mark_seen(self.cid, node_info_map.get('__hc_cluster_uuid__'))
+                    # pick up a changed API switch and (unless v1 is forced) re-probe REST v2
+                    fresh = cluster_registry.get(self.cid)
+                    if fresh:
+                        self.cluster = fresh
+                    v2 = cluster_registry.probe_v2(self.session, self.base_url) if self.cluster.api_version != 'v1' else None
+                    cluster_registry.mark_seen(self.cid, node_info_map.get('__hc_cluster_uuid__'),
+                                               api_v2_available=v2, hc_version=node_info_map.get('__hc_version__'))
+                    if v2 is not None:
+                        self.cluster.api_v2_available = v2
 
                 all_points = fast_points + slow_points
+                if self.cluster.uses_v2:
+                    self._poll_tasks(all_points)
                 if write_with_retry(self.write_api, INFLUX_BUCKET, all_points, write_retries, retry_delay):
                     slow_note = f" + {len(slow_points)} slow" if slow_points else ""
                     self.log(f"Wrote {len(all_points)} datapoints ({len(fast_points)} fast{slow_note}).")

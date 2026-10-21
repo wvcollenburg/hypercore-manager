@@ -13,6 +13,7 @@ COPY HyperCore_balancer.py .
 COPY predictive_engine.py .
 COPY config_db.py .
 COPY cluster_registry.py .
+COPY hypercore_tasks.py .
 COPY hcm_crypto.py .
 
 # Run the balancer unbuffered so logs show up immediately in Docker

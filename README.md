@@ -242,7 +242,7 @@ The left-hand **cluster rail** lists folders and clusters (collapsible, colour-c
 | Area | Contents | Who |
 |------|----------|-----|
 | **Infraviewer** | Node CPU/RAM history, drive health and temperature, VM metrics, VSD read/write I/O | everyone (own folders) |
-| **Clusterbalancer** | Migration event log (last 7 days), reactive and predictive engine settings | everyone (own folders) |
+| **Clusterbalancer** | Migration event log (last 7 days, including moves made outside the balancer when REST v2 is in use), reactive and predictive engine settings | everyone (own folders) |
 | **Foresight** | Capacity forecasts, right-sizing recommendations, cluster health, reports, what-if modelling, live Sentinel tunables, data sharing | everyone (own folders) |
 | **Backup** | Backup plans, restore points, restores, file recovery and run history for the selected cluster | folder members |
 | **Modules** | Auto-discovered InfluxDB measurements for ad-hoc data exploration | admins |

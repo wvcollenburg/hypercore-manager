@@ -233,6 +233,11 @@
   .engine-tag { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; text-transform: uppercase; }
   .engine-reactive { background: rgba(59,130,246,0.15); color: var(--accent-blue); }
   .engine-predictive { background: rgba(139,92,246,0.15); color: var(--accent-purple); }
+  .engine-external { background: rgba(148,163,184,0.15); color: var(--text-secondary); }
+  .iv-task { display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; }
+  .iv-task:last-child { border-bottom:none; }
+  .iv-task-bar { flex:0 0 120px; height:6px; border-radius:3px; background:var(--bg-primary); overflow:hidden; }
+  .iv-task-bar > div { height:100%; background:var(--accent-amber); }
   .dry-run-tag { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 600; background: rgba(245,158,11,0.15); color: var(--accent-amber); }
   .arrow { color: var(--accent-cyan); margin: 0 4px; }
   .log-scroll { max-height: 500px; overflow-y: auto; }
@@ -1037,6 +1042,11 @@
     </div>
     <!-- nodes & drives panel -->
     <div class="iv-panel active" id="ivpanel-nodes">
+      <div class="chart-container" id="ivActivityCard" style="margin-bottom:12px;" hidden>
+        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-amber)"></div><span data-i18n="iv.activity">Cluster activity</span>
+          <span id="ivActivityNote" style="font-size:11px;color:var(--text-muted);margin-left:8px;font-weight:normal;"></span></div>
+        <div id="ivActivityBody"></div>
+      </div>
       <div class="time-range-bar">
         <span class="group-label" data-i18n="time.range">Range:</span>
         <button class="time-range-btn"        data-trpanel="nodes" data-hours="1"    onclick="setNodeTimeRange(1)">1hr</button>
@@ -2551,8 +2561,31 @@ function setStatus(c) {
   else{d.style.background='var(--accent-red)';s.textContent=t('header.disconnected');}
 }
 
+// ─── Cluster activity (REST v2 task feed) ───
+async function loadActivity() {
+  const card = document.getElementById('ivActivityCard'); if (!card) return;
+  const d = await apiFetch('/api/cluster/tasks');
+  if (!d || !d.v2) { card.hidden = true; return; }
+  card.hidden = false;
+  const tasks = d.tasks || [];
+  const active = tasks.filter(t => t.state === 'RUNNING' || t.state === 'QUEUED');
+  const done = tasks.filter(t => !(t.state === 'RUNNING' || t.state === 'QUEUED')).slice(0, 8);
+  document.getElementById('ivActivityNote').textContent = active.length ? t('iv.activity_running', {n: active.length}) : t('iv.activity_idle');
+  const fmt = iso => iso ? new Date(iso).toLocaleTimeString() : '';
+  const row = (x, live) => `<div class="iv-task">
+      <span class="engine-tag engine-external" style="min-width:64px;text-align:center;">${_clEsc(x.kind)}</span>
+      <span style="flex:1;">${_clEsc(x.description)}</span>
+      ${live ? `<div class="iv-task-bar"><div style="width:${Math.max(2, x.progress || 0)}%"></div></div><span style="font-family:'JetBrains Mono',monospace;font-size:11px;min-width:34px;text-align:right;">${x.progress || 0}%</span>`
+             : `<span style="font-size:11px;color:${x.state === 'ERROR' ? 'var(--accent-red)' : 'var(--text-muted)'};">${x.state === 'ERROR' ? t('iv.activity_failed') : fmt(x.completed_at || x.modified_at)}</span>`}
+    </div>`;
+  document.getElementById('ivActivityBody').innerHTML =
+    (active.map(x => row(x, true)).join('') || '') +
+    (done.length ? `<div style="font-size:10px;color:var(--text-muted);margin:8px 0 2px;text-transform:uppercase;letter-spacing:.04em;">${t('iv.activity_recent')}</div>` + done.map(x => row(x, false)).join('') : '') ||
+    `<div style="font-size:12px;color:var(--text-muted);">${t('iv.activity_none')}</div>`;
+}
+
 async function refreshAll() {
-  await Promise.all([loadNodes(), loadVMs(), loadMigrations(), loadForecastRuns(), loadPredictions(), loadModules()]);
+  await Promise.all([loadNodes(), loadVMs(), loadMigrations(), loadForecastRuns(), loadPredictions(), loadModules(), loadActivity()]);
 }
 
 // apply translations to static HTML before the first data fetch
@@ -5200,6 +5233,11 @@ function _clusterFormHtml(prefix, c) {
       <div><label>${t('clusters.password')}</label><input type="password" id="${prefix}-password" autocomplete="new-password" placeholder="${c.cluster_id ? _clEsc(t('clusters.password_keep')) : ''}"></div>
       <div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="${prefix}-verify" ${c.verify_tls ? 'checked' : ''}><label for="${prefix}-verify" style="margin:0;">${t('clusters.verify_tls')}</label></div>
       <div><label>${t('clusters.colour')}</label><input type="color" id="${prefix}-colour" value="${_clEsc(c.colour || '#3b82f6')}" style="width:48px;height:30px;border:none;background:none;"></div>
+      <div><label>${t('clusters.api')}</label><select id="${prefix}-api" style="width:100%;padding:7px 9px;border-radius:6px;font-size:12px;background:var(--bg-input, var(--bg-primary));border:1px solid var(--border);color:var(--text-primary);">
+        <option value="auto" ${(c.api_version || 'auto') === 'auto' ? 'selected' : ''}>${t('clusters.api_auto')}</option>
+        <option value="v1" ${c.api_version === 'v1' ? 'selected' : ''}>${t('clusters.api_v1')}</option>
+        <option value="v2" ${c.api_version === 'v2' ? 'selected' : ''}>${t('clusters.api_v2')}</option></select>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${t('clusters.api_hint')}</div></div>
       <div><label>${t('folders.folder')}</label><select id="${prefix}-folder" style="width:100%;padding:7px 9px;border-radius:6px;font-size:12px;background:var(--bg-input, var(--bg-primary));border:1px solid var(--border);color:var(--text-primary);">
         <option value="">${t('folders.unfiled')}</option>
         ${FOLDERS.map(f => `<option value="${f.folder_id}" ${c.folder_id === f.folder_id ? 'selected' : ''}>${_clEsc(f.name)}</option>`).join('')}
@@ -5213,10 +5251,17 @@ function _clusterFormHtml(prefix, c) {
     <div class="cl-msg" id="${prefix}-msg"></div>`;
 }
 
+function _clApiLabel(c) {
+  const v2 = c.api_version === 'v2' || (c.api_version !== 'v1' && c.api_v2_available);
+  const base = `API ${v2 ? 'v2' : 'v1'}` + (c.api_version === 'auto' || !c.api_version ? ' · auto' : '');
+  const probe = (c.api_v2_available === null || c.api_v2_available === undefined || c.api_v2_available) ? '' : ` · ${t('clusters.api_v2_no')}`;
+  return base + probe + (c.hc_version ? ` · HyperCore ${_clEsc(c.hc_version)}` : '');
+}
 function _clRead(prefix) {
   const g = id => document.getElementById(`${prefix}-${id}`);
   return { name: g('name').value, host: g('host').value, username: g('username').value,
            password: g('password').value, verify_tls: g('verify').checked, colour: g('colour').value,
+           api_version: g('api') ? g('api').value : undefined,
            folder_id: g('folder') ? (g('folder').value || null) : undefined };
 }
 function _clMsg(prefix, text, cls) { const el = document.getElementById(`${prefix}-msg`); if (el) { el.textContent = text; el.className = 'cl-msg ' + (cls || ''); } }
@@ -5225,7 +5270,7 @@ async function clTest(prefix) {
   _clMsg(prefix, t('clusters.testing'), '');
   const r = await fetch(`${API_BASE}/api/clusters/test`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(_clRead(prefix)) });
   const d = await r.json().catch(() => ({}));
-  if (d.ok) _clMsg(prefix, t('clusters.test_ok', {name: d.cluster_name || '?', nodes: d.node_count ?? '?', version: d.version || '?'}), 'ok');
+  if (d.ok) _clMsg(prefix, t('clusters.test_ok', {name: d.cluster_name || '?', nodes: d.node_count ?? '?', version: d.version || '?'}) + ' · ' + t(d.api_v2 ? 'clusters.api_v2_yes' : 'clusters.api_v2_no'), 'ok');
   else _clMsg(prefix, t('clusters.test_fail', {error: d.error || r.status}), 'err');
 }
 
@@ -5252,7 +5297,7 @@ async function clTestExisting(id) {
   _clMsg('cl-' + id, t('clusters.testing'), '');
   const r = await fetch(`${API_BASE}/api/clusters/${id}/test`, { method: 'POST' });
   const d = await r.json().catch(() => ({}));
-  if (d.ok) _clMsg('cl-' + id, t('clusters.test_ok', {name: d.cluster_name || '?', nodes: d.node_count ?? '?', version: d.version || '?'}), 'ok');
+  if (d.ok) _clMsg('cl-' + id, t('clusters.test_ok', {name: d.cluster_name || '?', nodes: d.node_count ?? '?', version: d.version || '?'}) + ' · ' + t(d.api_v2 ? 'clusters.api_v2_yes' : 'clusters.api_v2_no'), 'ok');
   else _clMsg('cl-' + id, t('clusters.test_fail', {error: d.error || r.status}), 'err');
   loadClusters();
 }
@@ -5278,7 +5323,8 @@ function _renderClustersCard(clusters, me) {
       <td><span class="cl-status-dot" style="background:${c.last_error ? 'var(--accent-red)' : (c.enabled ? _clColour(c, i) : 'var(--text-muted)')}"></span><strong>${_clEsc(c.name)}</strong>
           <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(c.host)}${c.hc_cluster_uuid ? ' · ' + _clEsc(c.hc_cluster_uuid.slice(0, 8)) : ''}</div></td>
       <td>${_clEsc(c.username)}<div style="font-size:10px;color:var(--text-muted);">${_clEsc((FOLDERS.find(f => f.folder_id === c.folder_id) || {}).name || t('folders.unfiled'))}</div></td>
-      <td><span class="um-badge ${c.enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${c.enabled ? t('clusters.enabled') : t('clusters.disabled')}</span></td>
+      <td><span class="um-badge ${c.enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${c.enabled ? t('clusters.enabled') : t('clusters.disabled')}</span>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:4px;font-family:'JetBrains Mono',monospace;" title="${_clEsc(t('clusters.api_hint'))}">${_clApiLabel(c)}</div></td>
       <td style="font-size:11px;color:${c.last_error ? 'var(--accent-red)' : 'var(--text-muted)'};">${c.last_error ? _clEsc(c.last_error) : _clAgo(c.last_seen_at)}</td>
       <td style="white-space:nowrap;">${isAdmin ? `
         <button class="um-action-btn" onclick="clTestExisting('${c.cluster_id}')">${t('clusters.test')}</button>

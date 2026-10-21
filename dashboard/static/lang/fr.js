@@ -813,6 +813,21 @@ window.LANG = {
   'proxies.deploy_started': "Déploiement démarré ; progression ci-dessous.",
   'proxies.deploy_go': "Déployer",
 
+  'clusters.api': "API HyperCore",
+  'clusters.api_auto': "auto (v2 si le cluster l'offre)",
+  'clusters.api_v1': "v1 seulement",
+  'clusters.api_v2': "v2 (forcer)",
+  'clusters.api_hint': "REST v2 (HyperCore 9.7.8+, expérimental) ajoute le flux des tâches du cluster : activité en direct, un journal de toutes les migrations et l'équilibreur attend les VM occupées. v1 reste utilisé pour tout le reste.",
+  'clusters.api_v2_yes': "REST v2 disponible",
+  'clusters.api_v2_no': "pas de REST v2",
+
+  'iv.activity': "Activité du cluster",
+  'iv.activity_running': "{n} en cours",
+  'iv.activity_idle': "au repos",
+  'iv.activity_recent': "terminées récemment",
+  'iv.activity_none': "Aucune tâche vue pour l'instant.",
+  'iv.activity_failed': "échouée",
+
   // community-support notice (shown once per user)
   'community.title':        'Logiciel soutenu par la communaut\u00e9',
   'community.body':         "HyperCore Manager est un logiciel open source maintenu sur une base communautaire. Il ne s'agit pas d'un produit officiel de Scale Computing et il est fourni sans support officiel ni SLA. Utilisez-le \u00e0 vos propres risques.",

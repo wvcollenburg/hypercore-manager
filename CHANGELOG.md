@@ -21,6 +21,12 @@ release is tagged.
 - Step-by-step instructions: DEPLOY.md, "Upgrading from 0.9.x".
 
 ### Added
+- **HyperCore REST v2 task feed** behind a per-cluster switch (auto / v1 only / v2; migration
+  `029`). The connection test and the collector probe `/rest/v2/TaskTag`; when in use the
+  collector records the cluster's tasks, Infraviewer shows a *Cluster activity* panel, the
+  migration log also lists moves made outside the balancer (engine `external`), and the balancer
+  holds a migration while a move runs on the cluster or the VM is busy with a snapshot, clone,
+  export, import or replication.
 - **Multi-cluster.** HyperCore clusters are registered in the dashboard (Settings → Clusters)
   instead of `.env`, with a connection test, enable/disable and remove (optionally purging
   history). The collector, balancer and Sentinel run one worker per enabled cluster, every

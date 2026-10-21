@@ -15,6 +15,7 @@ Canonical copy: shared/cluster_registry.py — run tools/sync_shared.py after ed
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -51,10 +52,18 @@ class Cluster:
     updated_at: Optional[datetime]
     folder_id: Optional[str] = None
     folder_name: Optional[str] = None
+    api_version: str = 'auto'                  # auto | v1 | v2 (the switch)
+    api_v2_available: Optional[bool] = None    # what the last probe found; None = never probed
+    hc_version: Optional[str] = None
 
     @property
     def base_url(self) -> str:
         return base_url(self.host)
+
+    @property
+    def uses_v2(self) -> bool:
+        """REST v2 calls are made for this cluster: forced on, or auto and found available."""
+        return self.api_version == 'v2' or (self.api_version == 'auto' and bool(self.api_v2_available))
 
     def to_dict(self) -> dict[str, Any]:
         d = self.__dict__.copy()
@@ -80,6 +89,18 @@ def normalize_host(raw: str) -> str:
     s = re.sub(r'^[a-zA-Z]+://', '', s)
     s = s.split('/', 1)[0]
     return s.strip().lower()
+
+
+API_VERSIONS = ('auto', 'v1', 'v2')
+
+
+def probe_v2(session, v1_base: str, timeout: float = 10) -> bool:
+    """True when the cluster answers on /rest/v2/TaskTag (HyperCore 9.8 and later; experimental)."""
+    try:
+        r = session.get(f"{v1_base.rstrip('/').rsplit('/rest/', 1)[0]}/rest/v2/TaskTag", params={'isActive': 'true', 'limitSize': 1}, timeout=timeout)
+        return r.status_code == 200 and isinstance(r.json(), list)
+    except Exception:       # noqa: BLE001
+        return False
 
 
 def base_url(host: str) -> str:
@@ -109,7 +130,8 @@ def _connect():
 
 _COLUMNS = '''c.cluster_id::text AS cluster_id, c.cluster_name, c.hc_host, c.hc_username, c.verify_tls,
               c.enabled, c.is_template, c.hc_cluster_uuid, c.colour, c.last_seen_at, c.last_error,
-              c.registered_at, c.updated_at, c.folder_id::text AS folder_id, f.name AS folder_name'''
+              c.registered_at, c.updated_at, c.folder_id::text AS folder_id, f.name AS folder_name,
+              c.api_version, c.api_v2_available, c.hc_version'''
 _FROM = 'FROM config.clusters c LEFT JOIN config.folders f ON f.folder_id = c.folder_id'
 
 
@@ -122,6 +144,7 @@ def _row_to_cluster(r: dict) -> Cluster:
         last_seen_at=r['last_seen_at'], last_error=r['last_error'],
         registered_at=r['registered_at'], updated_at=r['updated_at'],
         folder_id=r.get('folder_id'), folder_name=r.get('folder_name'),
+        api_version=r.get('api_version') or 'auto', api_v2_available=r.get('api_v2_available'), hc_version=r.get('hc_version'),
     )
 
 
@@ -181,7 +204,8 @@ def credentials(cluster_id: str) -> tuple[str, str]:
 
 def create(name: str, host: str, username: str, password: str,
            verify_tls: bool = False, colour: Optional[str] = None,
-           hc_cluster_uuid: Optional[str] = None) -> str:
+           hc_cluster_uuid: Optional[str] = None, api_version: str = 'auto',
+           api_v2_available: Optional[bool] = None, hc_version: Optional[str] = None) -> str:
     """Register a cluster. Copies the template's tunables and creates its sharing
     preferences row. Returns the new cluster_id."""
     name = (name or '').strip()
@@ -195,10 +219,11 @@ def create(name: str, host: str, username: str, password: str,
             cur.execute(
                 '''INSERT INTO config.clusters
                        (cluster_name, hc_host, hc_username, hc_password_enc, verify_tls, colour,
-                        hc_cluster_uuid, enabled, is_template, is_active)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, FALSE, TRUE)
+                        hc_cluster_uuid, enabled, is_template, is_active, api_version, api_v2_available, hc_version)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, FALSE, TRUE, %s, %s, %s)
                    RETURNING cluster_id::text AS cluster_id''',
-                (name, host, username, enc, bool(verify_tls), colour, hc_cluster_uuid),
+                (name, host, username, enc, bool(verify_tls), colour, hc_cluster_uuid,
+                 api_version if api_version in API_VERSIONS else 'auto', api_v2_available, hc_version),
             )
             cid = cur.fetchone()['cluster_id']
             # per-cluster tunables start as a copy of the defaults template
@@ -221,7 +246,7 @@ def create(name: str, host: str, username: str, password: str,
 def update(cluster_id: str, *, name: Optional[str] = None, host: Optional[str] = None,
            username: Optional[str] = None, password: Optional[str] = None,
            verify_tls: Optional[bool] = None, colour: Optional[str] = None,
-           enabled: Optional[bool] = None, folder_id: Optional[str] = ...) -> None:
+           enabled: Optional[bool] = None, folder_id: Optional[str] = ..., api_version: Optional[str] = None) -> None:
     """Update the given fields; password is re-encrypted only when provided (non-empty).
     folder_id: a folder uuid to move the cluster, None to unfile it, omitted to leave it."""
     sets, params = [], []
@@ -241,6 +266,10 @@ def update(cluster_id: str, *, name: Optional[str] = None, host: Optional[str] =
         sets.append('colour = %s'); params.append(colour or None)
     if enabled is not None:
         sets.append('enabled = %s'); params.append(bool(enabled))
+    if api_version is not None:
+        if api_version not in API_VERSIONS:
+            raise ValueError("api_version must be auto, v1 or v2")
+        sets.append('api_version = %s'); params.append(api_version)
     if not sets:
         return
     sets.append('updated_at = NOW()')
@@ -314,18 +343,22 @@ def duplicate_of(cluster: Cluster, clusters: Optional[list[Cluster]] = None) -> 
     return None
 
 
-def mark_seen(cluster_id: str, hc_cluster_uuid: Optional[str] = None) -> None:
-    """Record a successful contact. When the HyperCore uuid turns out to be shared with
-    another enabled cluster, the newer registration is flagged instead of cleared."""
+def mark_seen(cluster_id: str, hc_cluster_uuid: Optional[str] = None, *, api_v2_available: Optional[bool] = None,
+              hc_version: Optional[str] = None) -> None:
+    """Record a successful contact (and, when given, what the probe found about REST v2 and the
+    HyperCore version). When the HyperCore uuid turns out to be shared with another enabled
+    cluster, the newer registration is flagged instead of cleared."""
+    sets, params = ['last_seen_at = NOW()', 'last_error = NULL'], []
+    if hc_cluster_uuid:
+        sets.append('hc_cluster_uuid = %s'); params.append(hc_cluster_uuid)
+    if api_v2_available is not None:
+        sets.append('api_v2_available = %s'); params.append(bool(api_v2_available))
+    if hc_version:
+        sets.append('hc_version = %s'); params.append(str(hc_version)[:40])
     conn = _connect()
     try:
         with conn.cursor() as cur:
-            if hc_cluster_uuid:
-                cur.execute('''UPDATE config.clusters SET last_seen_at = NOW(), last_error = NULL,
-                               hc_cluster_uuid = %s WHERE cluster_id = %s''', (hc_cluster_uuid, cluster_id))
-            else:
-                cur.execute('''UPDATE config.clusters SET last_seen_at = NOW(), last_error = NULL
-                               WHERE cluster_id = %s''', (cluster_id,))
+            cur.execute(f'UPDATE config.clusters SET {", ".join(sets)} WHERE cluster_id = %s', params + [cluster_id])
         conn.commit()
     except Exception as exc:  # never let bookkeeping break a poll loop
         log.warning('cluster_registry.mark_seen(%s): %s', cluster_id, exc)
@@ -340,6 +373,74 @@ def mark_seen(cluster_id: str, hc_cluster_uuid: Optional[str] = None) -> None:
                                        f"registered twice? Balancing is suspended for this entry.")
         except Exception as exc:
             log.warning('cluster_registry duplicate check(%s): %s', cluster_id, exc)
+
+
+# ---------------------------------------------------------------------------
+# task feed (HyperCore REST v2), written by the collector, read by the dashboard
+# ---------------------------------------------------------------------------
+def record_tasks(cluster_id: str, rows: list[dict]) -> None:
+    """Upsert normalised task rows (see hypercore_tasks.normalise) for one cluster."""
+    if not rows:
+        return
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_batch(cur, '''
+                INSERT INTO config.cluster_tasks (cluster_id, task_tag, kind, description, vm_name, object_uuid, state, progress,
+                                                  node_uuids, params, created_at, modified_at, completed_at, seen_at)
+                VALUES (%(cluster_id)s, %(task_tag)s, %(kind)s, %(description)s, %(vm_name)s, %(object_uuid)s, %(state)s, %(progress)s,
+                        %(node_uuids)s, %(params)s, %(created_at)s, %(modified_at)s, %(completed_at)s, NOW())
+                ON CONFLICT (cluster_id, task_tag) DO UPDATE SET
+                    state = EXCLUDED.state, progress = EXCLUDED.progress, description = EXCLUDED.description,
+                    modified_at = EXCLUDED.modified_at, completed_at = EXCLUDED.completed_at, node_uuids = EXCLUDED.node_uuids,
+                    seen_at = NOW()''',
+                [dict(r, cluster_id=cluster_id, node_uuids=json.dumps(r.get('node_uuids') or []), params=json.dumps(r.get('params') or []))
+                 for r in rows if r.get('task_tag')])
+        conn.commit()
+    except Exception as exc:  # the feed is informational; never break a poll loop
+        log.warning('cluster_registry.record_tasks(%s): %s', cluster_id, exc)
+    finally:
+        conn.close()
+
+
+def settle_stale_tasks(cluster_id: str, active_tags: set[str], older_than_seconds: int = 180) -> None:
+    """A task that was active but is no longer listed as active and has not been seen for a while
+    is marked COMPLETE (the v2 feed drops finished tasks from the active list)."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''UPDATE config.cluster_tasks SET state = 'COMPLETE', progress = 100, completed_at = COALESCE(completed_at, NOW())
+                           WHERE cluster_id = %s AND state IN ('QUEUED', 'RUNNING') AND NOT (task_tag = ANY(%s))
+                             AND seen_at < NOW() - make_interval(secs => %s)''',
+                        (cluster_id, list(active_tags), older_than_seconds))
+            cur.execute("DELETE FROM config.cluster_tasks WHERE cluster_id = %s AND seen_at < NOW() - INTERVAL '7 days'", (cluster_id,))
+        conn.commit()
+    except Exception as exc:
+        log.warning('cluster_registry.settle_stale_tasks(%s): %s', cluster_id, exc)
+    finally:
+        conn.close()
+
+
+def list_tasks(cluster_id: str, limit: int = 40) -> list[dict[str, Any]]:
+    """Active tasks first (oldest first), then the most recently finished."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT task_tag, kind, description, vm_name, object_uuid, state, progress, node_uuids, params,
+                                  created_at, modified_at, completed_at, seen_at
+                           FROM config.cluster_tasks WHERE cluster_id = %s
+                           ORDER BY (state IN ('QUEUED', 'RUNNING')) DESC,
+                                    CASE WHEN state IN ('QUEUED', 'RUNNING') THEN created_at END ASC,
+                                    COALESCE(completed_at, modified_at, created_at) DESC
+                           LIMIT %s''', (cluster_id, limit))
+            rows = [dict(r) for r in cur.fetchall()]
+        for r in rows:
+            for k in ('created_at', 'modified_at', 'completed_at', 'seen_at'):
+                if r.get(k) is not None:
+                    r[k] = r[k].isoformat()
+        return rows
+    finally:
+        conn.close()
 
 
 def mark_error(cluster_id: str, message: str) -> None:
@@ -387,6 +488,7 @@ def test_connection(host: str, username: str, password: str, verify_tls: bool = 
             'hc_cluster_uuid': info.get('uuid') or '',
             'version': info.get('icosVersion') or info.get('version') or '',
             'node_count': len(node_list),
+            'api_v2': probe_v2(s, url, timeout),
         }
     except requests.exceptions.SSLError as exc:
         return {'ok': False, 'error': f'TLS error: {exc}'}

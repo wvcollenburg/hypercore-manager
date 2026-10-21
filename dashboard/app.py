@@ -56,6 +56,7 @@ from influxdb_client import InfluxDBClient
 import config_db
 import user_db
 import cluster_registry
+import hypercore_tasks
 import hcm_crypto
 from versioning import latest_semver_tag, is_newer
 
@@ -526,6 +527,20 @@ def get_vsds():
 # =============================================================================
 # API: migration events (last 7 days by default)
 # =============================================================================
+@app.route('/api/cluster/tasks')
+@require_auth
+def api_cluster_tasks():
+    """Live activity of the selected cluster from the REST v2 task feed the collector keeps."""
+    cid = _cluster_id()
+    c = cluster_registry.get(cid)
+    if not c or not c.uses_v2:
+        return jsonify({'v2': False, 'tasks': []})
+    try:
+        return jsonify({'v2': True, 'tasks': cluster_registry.list_tasks(cid, 40)})
+    except Exception as e:
+        return jsonify({'v2': True, 'tasks': [], 'error': str(e)}), 200
+
+
 @app.route('/api/migrations')
 @require_auth
 def get_migrations():
@@ -557,7 +572,7 @@ def get_migrations():
                 })
 
         events.sort(key=lambda e: e['time'], reverse=True)
-        return jsonify(events[:50])
+        return jsonify(hypercore_tasks.dedupe_external(events)[:50])
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -949,6 +964,7 @@ def _cluster_form(body: dict) -> dict:
         'password':   body.get('password') or '',
         'verify_tls': bool(body.get('verify_tls', False)),
         'colour':     (body.get('colour') or '').strip() or None,
+        'api_version': (body.get('api_version') or 'auto').strip() if (body.get('api_version') or 'auto').strip() in ('auto', 'v1', 'v2') else 'auto',
     }
 
 
@@ -972,7 +988,9 @@ def api_clusters_create():
             return jsonify({'error': f"this cluster is already registered as '{dup.name}'", 'duplicate_of': dup.cluster_id}), 409
     try:
         cid = cluster_registry.create(f['name'], f['host'], f['username'], f['password'],
-                                      verify_tls=f['verify_tls'], colour=f['colour'], hc_cluster_uuid=hc_uuid)
+                                      verify_tls=f['verify_tls'], colour=f['colour'], hc_cluster_uuid=hc_uuid,
+                                      api_version=f['api_version'], api_v2_available=probe.get('api_v2') if probe.get('ok') else None,
+                                      hc_version=probe.get('version') or None)
     except Exception as e:
         msg = str(e)
         if 'ux_clusters_name' in msg or 'duplicate key' in msg:
@@ -991,7 +1009,7 @@ def api_clusters_update(cluster_id):
         return jsonify({'error': 'cluster not found'}), 404
     body = request.get_json(force=True, silent=True) or {}
     fields = {}
-    for k in ('name', 'host', 'username', 'password', 'colour'):
+    for k in ('name', 'host', 'username', 'password', 'colour', 'api_version'):
         if k in body:
             fields[k] = body[k]
     for k in ('verify_tls', 'enabled'):
@@ -1050,7 +1068,8 @@ def api_clusters_test_existing(cluster_id):
         return jsonify({'ok': False, 'error': f'cannot decrypt stored password: {e}'}), 500
     result = cluster_registry.test_connection(c.host, username, password, c.verify_tls)
     if result.get('ok'):
-        cluster_registry.mark_seen(cluster_id, result.get('hc_cluster_uuid') or None)
+        cluster_registry.mark_seen(cluster_id, result.get('hc_cluster_uuid') or None,
+                                   api_v2_available=result.get('api_v2'), hc_version=result.get('version') or None)
     else:
         cluster_registry.mark_error(cluster_id, result.get('error', 'connection test failed'))
     _invalidate_registry_cache()

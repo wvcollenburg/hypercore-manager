@@ -30,6 +30,18 @@ contacted, seen *n* ago, error), whether they are enabled, and their folder.
 
 The first login on a fresh installation shows this form as an onboarding step.
 
+**HyperCore API.** Every cluster has a switch: *auto* (default), *v1 only* or *v2*. The
+connection test and the collector's regular contact probe whether the cluster answers on REST v2
+(`/rest/v2/TaskTag`, available from HyperCore 9.7.8 as an experimental API) and record the result
+next to the HyperCore version in the clusters table. With v2 in use the collector keeps the
+cluster's task feed, which unlocks three things: a **Cluster activity** panel at the top of
+Infraviewer (running tasks with progress, recently finished ones), a migration log that also
+shows moves the balancer did not make (engine *external*: another balancer, an administrator,
+Scale's own rebalancing), and an **interlock** that makes the balancer hold a migration while a
+move runs anywhere on the cluster or the VM is in a snapshot, clone, export, import or
+replication. Everything else keeps using v1. Choose *v1 only* to switch all of this off for a
+cluster; choose *v2* to force it on a cluster the probe did not recognise.
+
 Passwords are stored encrypted with `HCM_SECRET_KEY`. If the dashboard reports that the key is
 not set, add it to `.env` and restart the stack before registering anything.
 

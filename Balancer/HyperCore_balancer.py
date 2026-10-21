@@ -22,6 +22,7 @@ load_dotenv()
 import config_db
 import cluster_registry
 import hcm_crypto
+import hypercore_tasks
 from config_db import TEMPLATE_CLUSTER_ID
 
 # =============================================================================
@@ -57,6 +58,25 @@ INFLUX_BUCKET = get_config('INFLUX_BUCKET', "metrics")
 # =============================================================================
 # API client with automatic re-authentication on 401
 # =============================================================================
+
+class MigrationBlocked(Exception):
+    """Raised instead of sending a migration while the cluster or the VM is busy."""
+
+
+def _busy_reason(cluster_id: str, client, vm_uuid: str):
+    """The interlock: when the cluster uses REST v2, read the active tasks and refuse to move a
+    VM while a migration runs anywhere or the VM itself is in a snapshot, clone, export, import
+    or replication. On any error the move proceeds as before."""
+    try:
+        c = cluster_registry.get(cluster_id)
+        if not c or not c.uses_v2:
+            return None
+        tasks = hypercore_tasks.fetch_tasks(client.session, client.base_url, active_only=True, limit=100)
+        return hypercore_tasks.busy_reason(tasks, vm_uuid=vm_uuid)
+    except Exception as e:              # noqa: BLE001
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [INTERLOCK] task feed unavailable, proceeding: {e}")
+        return None
+
 
 class HyperCoreApiClient:
     def __init__(self, base_url: str, user: str, pw: str, verify: bool):
@@ -112,7 +132,13 @@ class HyperCoreApiClient:
         except:
             return "UNKNOWN"
 
+    interlock = None        # callable(vm_uuid) -> reason string when the move must wait (REST v2 task feed)
+
     def migrate(self, vm_uuid: str, target_node: str) -> Dict:
+        if self.interlock:
+            reason = self.interlock(vm_uuid)
+            if reason:
+                raise MigrationBlocked(reason)
         action = [{
             "virDomainUUID": vm_uuid, 
             "actionType": "LIVEMIGRATE", 
@@ -752,6 +778,7 @@ class ClusterBalancerThread(threading.Thread):
     def run(self):
         username, password = cluster_registry.credentials(self.cluster.cluster_id)
         client = HyperCoreApiClient(self.cluster.base_url, username, password, bool(self.cluster.verify_tls))
+        client.interlock = lambda vm_uuid, _cid=self.cluster.cluster_id, _c=client: _busy_reason(_cid, _c, vm_uuid)
         if not client.login():
             cluster_registry.mark_error(self.cluster.cluster_id, 'balancer login failed')
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{self.cluster.name}] Login failed — retrying on next registry sync.")
