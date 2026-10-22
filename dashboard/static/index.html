@@ -5404,7 +5404,7 @@ async function clForgetNode(id, uuid) {
 // metrics from 0.9.x carry no cluster tag: offer to adopt them into the (single) registered cluster
 async function _loadLegacyNotice() {
   const el = document.getElementById('legacyNotice'); if (!el) return;
-  let d; try { d = await apiFetch('/api/legacy-metrics'); } catch (e) { return; }
+  let d; try { d = await apiFetch('/api/legacy-metrics'); } catch (e) { el.innerHTML = `<div class="ex-hint" style="margin:8px 0;color:var(--accent-red);">${t('clusters.legacy_failed', {error: _clEsc(e.message)})}</div>`; return; }
   if (!d) return;
   const a = d.adoption || {};
   if (a.state === 'running') {
@@ -5413,7 +5413,9 @@ async function _loadLegacyNotice() {
   }
   if (a.state === 'done') { el.innerHTML = `<div class="ex-hint" style="margin:8px 0;color:var(--accent-green);">${t('clusters.legacy_done', {n: a.points || 0})}</div>`; return; }
   if (a.state === 'failed') { el.innerHTML = `<div class="ex-hint" style="margin:8px 0;color:var(--accent-red);">${t('clusters.legacy_failed', {error: a.error || ''})}</div>`; return; }
-  const summ = (d.summary || {}).data; if (!summ) { setTimeout(_loadLegacyNotice, 5000); return; }   // still scanning
+  const summ = (d.summary || {}).data;
+  if (!summ) { el.innerHTML = `<div class="ex-hint" style="margin:8px 0;">${t('clusters.legacy_scanning')}</div>`; setTimeout(_loadLegacyNotice, 5000); return; }
+  if (summ.error) { el.innerHTML = `<div class="ex-hint" style="margin:8px 0;color:var(--accent-red);">${t('clusters.legacy_failed', {error: _clEsc(summ.error)})}</div>`; return; }
   const total = summ.total || 0;
   if (!total) { el.innerHTML = ''; return; }
   const span = summ.first && summ.last ? `${_exFmt(summ.first)} – ${_exFmt(summ.last)}` : '';

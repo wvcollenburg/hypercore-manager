@@ -850,6 +850,7 @@ window.LANG = {
   'clusters.timezone_hint': "De zone waarin back-uptijden worden gelezen. Wordt bij de volgende verbindingstest van het cluster overgenomen; typ een IANA-naam (Europe/Amsterdam, US/Eastern) om te overschrijven.",
   'clusters.legacy_found': "{n} meetpunten van 0.9.x zonder clusterlabel gevonden ({span}). Overnemen voor {cluster}, zodat Foresight en de balancer hun geschiedenis houden?",
   'clusters.legacy_adopt': "Geschiedenis overnemen",
+  'clusters.legacy_scanning': "Meetwaarden worden doorzocht op punten van 0.9.x zonder clusterlabel… (maanden aan data duren enkele minuten)",
   'clusters.legacy_confirm': "De oude meetwaarden aan dit cluster koppelen? Dit draait op de achtergrond en kan even duren; er wordt niets gewist.",
   'clusters.legacy_running': "Geschiedenis overnemen: {measurement} ({done}/{total} metingen, tot nu toe {points} punten)…",
   'clusters.legacy_done': "Geschiedenis overgenomen: {n} punten horen nu bij het cluster.",
