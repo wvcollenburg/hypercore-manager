@@ -5301,7 +5301,7 @@ function _exZoneToLocal(hhmm, tz) {
       const zh = (+parts.find(p => p.type === 'hour').value) % 24, zm = +parts.find(p => p.type === 'minute').value;
       const diff = (h * 60 + m) - (zh * 60 + zm); if (diff === 0) break; guess += diff * 60000;
     }
-    return new Date(guess).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    return new Date(guess).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', hour12: false});
   } catch (e) { return hhmm; }
 }
 const _exViewerZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return ''; } };
