@@ -614,3 +614,51 @@ def test_backup_honours_the_chain_dir_named_by_the_service(stack):
     assert j2['state'] == 'done', j2                      # a second full of the same VM: its own directory, no 'already exists'
     j3 = _wait(stack, stack.client.post('/jobs/backup', json=dict(req, chain_dir='../escape.chain'), headers=H).get_json()['id'])
     assert j3['state'] == 'failed' and 'relative' in j3['error']
+
+
+# ----------------------------------------------------------------------------- SDK rules (2026-10-22 audit)
+def test_hole_is_recognised_in_both_wire_forms():
+    """v2 spec says the string enum; clusters up to 9.7 send the integer through a REST conversion bug."""
+    assert P.copier.is_hole({'differentHow': 'TO_IS_HOLE'}) and P.copier.is_hole({'differentHow': 1}) and P.copier.is_hole({'differentHow': '1'})
+    assert not P.copier.is_hole({'differentHow': 'ADDRESS_CHANGED'}) and not P.copier.is_hole({'differentHow': 0}) and not P.copier.is_hole({})
+    assert [c[2] for c in P.copier._chunks([{'lower': 0, 'upper': 0, 'differentHow': 0}, {'lower': 1, 'upper': 1, 'differentHow': 1}])] == [False, True]
+
+
+def test_resized_device_gets_a_full_inside_a_delta_point(stack):
+    """A device flagged `full` by the service (its capacity changed) is written without a backing
+    file even though the previous point has an image of it: the whole allocation map is copied and
+    nothing reads through to the old, differently sized image."""
+    H = {'Authorization': 'Bearer t0k'}
+    disk = 'd0dd5d2c-9c7a-44ec-b6bc-d4ce06bb204d'
+    src_a = stack.dev / 'virtio-aaaa1111'; _random_file(str(src_a), 4, 1)
+    req = {'target': {'uri': 'smb://nas/share/hcm', 'username': 'u', 'password': 'p'}, 'folder': 'Amsterdam', 'chain_dir': 'Amsterdam/r.chain',
+           'vm': {'uuid': '3cf115a9-8208-41b2-a67d-0ed5421441c2', 'name': 'exptest'}, 'point': {'kind': 'full', 'seq': 0}, 'plan_id': 4, 'run_id': 30,
+           'devices': [{'uuid': disk, 'type': 'VIRTIO_DISK', 'clone_uuid': 'aaaa1111-0000-0000-0000-000000000000', 'size': 4 * MiB, 'map': [{'lower': 0, 'upper': 3}]}],
+           'definition': {'name': 'exptest'}}
+    assert _wait(stack, stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id'])['state'] == 'done'
+    # the disk grew to 6 MiB; the service sends the allocation map (blocks 0 and 5 hold data) with full=True
+    src_b = stack.dev / 'virtio-cccc3333'; _random_file(str(src_b), 6, 2)
+    with open(str(src_b), 'r+b') as fh:
+        fh.seek(MiB); fh.write(bytes(4 * MiB))
+    amap = [{'lower': 0, 'upper': 0}, {'lower': 5, 'upper': 5}]
+    req2 = dict(req, point={'kind': 'delta', 'seq': 1, 'previous_seq': 0}, run_id=31,
+                devices=[{'uuid': disk, 'type': 'VIRTIO_DISK', 'clone_uuid': 'cccc3333-0000-0000-0000-000000000000', 'size': 6 * MiB, 'map': amap, 'full_map': amap, 'full': True}])
+    j = _wait(stack, stack.client.post('/jobs/backup', json=req2, headers=H).get_json()['id'])
+    assert j['state'] == 'done', j
+    chain = os.path.join(stack.mounter.root, P.targets.parse_uri(req['target']['uri']).key, 'hcm', 'Amsterdam', 'r.chain')
+    img = open(os.path.join(chain, 'delta-0001', f'{disk}.qcow2'), 'rb').read(); b = open(str(src_b), 'rb').read()
+    assert len(img) == 6 * MiB and img == b, 'the image is the resized device, not the old image with a patch on top'
+    pm = json.load(open(os.path.join(chain, 'delta-0001', 'manifest.json')))
+    assert pm['devices'][0]['full'] is True and j['result']['devices'][0]['full'] is True
+
+
+def test_backup_runs_the_self_check_first(stack, monkeypatch):
+    """A reader whose qemu cannot write a correct delta fails before any device is read."""
+    H = {'Authorization': 'Bearer t0k'}
+    monkeypatch.setattr(stack.engine.backend, 'selfcheck', lambda workdir: (_ for _ in ()).throw(RuntimeError('proxy self-check failed, this host cannot write a correct delta')))
+    req = {'target': {'uri': 'smb://nas/share/hcm', 'username': 'u', 'password': 'p'}, 'folder': 'Amsterdam', 'vm': {'uuid': 'x', 'name': 'exptest'},
+           'point': {'kind': 'full', 'seq': 0}, 'devices': [{'uuid': 'd', 'type': 'VIRTIO_DISK', 'clone_uuid': 'zzzz9999-0000-0000-0000-000000000000', 'size': MiB, 'map': [{'lower': 0, 'upper': 0}]}],
+           'definition': {}}
+    j = _wait(stack, stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id'])
+    assert j['state'] == 'failed' and 'self-check failed' in j['error']
+    assert P.identity.identity(stack.cfg, 'file', None)['capabilities']['full_flag'] is True

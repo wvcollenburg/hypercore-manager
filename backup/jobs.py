@@ -124,13 +124,98 @@ def client_for(cluster_id: str) -> HyperCoreClient:
     if c is None:
         raise HyperCoreError('cluster is no longer registered')
     username, password = cluster_registry.credentials(cluster_id)
-    return HyperCoreClient(host=c.host, username=username, password=password, verify_tls=bool(c.verify_tls))
+    return HyperCoreClient(host=c.host, username=username, password=password, verify_tls=bool(c.verify_tls),
+                           cluster_id=c.cluster_id)
 
 
 def derive_name(folder: str) -> str:
     """Strip a `_YYYYMMDD-HHMMSS` export suffix to guess the original VM name."""
     m = re.match(r'^(.*)_\d{8}-\d{6}$', folder or '')
     return m.group(1) if m else (folder or '')
+
+
+# -------------------------------------------------------------- pre-flight
+# Two cluster states fail every mutation for reasons unrelated to the request. A self-update makes
+# the REST API read-only for its whole duration; a missing node (failure group) stops HyperCore from
+# creating snapshots, and a snapshot is the first step of every export, backup, clone and restore.
+_UPDATE_IDLE = frozenset({'', 'COMPLETE', 'ERROR', 'FAILED', 'CANCELLED', 'CANCELED', 'NONE', 'IDLE'})
+
+
+def preflight_of(update_status: dict, nodes: list[dict]) -> dict:
+    """Pure: {'ok', 'kind': None|'update'|'node', 'detail', 'nodes': [...]} from the two API answers."""
+    us = (update_status or {}).get('updateStatus') or {}
+    stage = str(us.get('masterState') or (update_status or {}).get('updateStage') or '').upper()
+    if stage not in _UPDATE_IDLE:
+        pct = us.get('percent'); ver = us.get('toVersion')
+        detail = f'cluster self-update in progress' + (f' to {ver}' if ver else '') + (f', {pct}%' if pct not in (None, '') else '')
+        return {'ok': False, 'kind': 'update', 'detail': detail, 'nodes': []}
+    bad = [n for n in nodes or [] if (n.get('networkStatus') or 'UNKNOWN') != 'ONLINE']
+    if bad:
+        names = ', '.join(f"{n.get('lanIP') or n.get('uuid', '')[:8]} ({n.get('networkStatus') or 'UNKNOWN'})" for n in bad)
+        return {'ok': False, 'kind': 'node', 'detail': f'node not online: {names}',
+                'nodes': [{'lan_ip': n.get('lanIP'), 'status': n.get('networkStatus') or 'UNKNOWN', 'uuid': n.get('uuid')} for n in bad]}
+    return {'ok': True, 'kind': None, 'detail': '', 'nodes': []}
+
+
+_PREFLIGHT_CACHE: dict[str, tuple[float, dict]] = {}
+
+
+def preflight(hc: HyperCoreClient, cluster_id: str | None = None, max_age: float = 0) -> dict:
+    """Ask the cluster (or reuse an answer younger than max_age seconds, for the dashboard)."""
+    if cluster_id and max_age:
+        hit = _PREFLIGHT_CACHE.get(cluster_id)
+        if hit and time.monotonic() - hit[0] < max_age:
+            return hit[1]
+    try:
+        status = hc.update_status()
+    except HyperCoreError as e:              # the file is not part of the REST API; never block on it
+        log.debug('update_status unavailable: %s', e)
+        status = {}
+    result = preflight_of(status, hc.list_nodes())
+    if cluster_id:
+        _PREFLIGHT_CACHE[cluster_id] = (time.monotonic(), result)
+    return result
+
+
+def wait_until_clear(hc: HyperCoreClient, on_wait, max_hours: float | None = None, poll_seconds: int | None = None) -> dict:
+    """Pre-flight, repeated until the cluster is idle or the wait is used up. on_wait(detail) is
+    called whenever the reason changes. Returns the last pre-flight result (ok or not)."""
+    deadline = time.monotonic() + (CFG.preflight_wait_hours if max_hours is None else max_hours) * 3600
+    poll = CFG.preflight_poll_seconds if poll_seconds is None else poll_seconds
+    last = None
+    while True:
+        pf = preflight(hc)
+        if pf['ok']:
+            return pf
+        if pf['detail'] != last:
+            on_wait(pf['detail'])
+            last = pf['detail']
+        if time.monotonic() >= deadline:
+            return pf
+        time.sleep(poll)
+
+
+DEFERRED_HINT = {
+    'update': 'The cluster is updating itself; the REST API is read-only until it finishes.',
+    'node': 'HyperCore cannot create snapshots while a node is missing, so backups, exports and restores are '
+            'blocked until the node is back. Replace the node as soon as possible, or contact Scale Computing '
+            'support to have the missing node evicted from the cluster.',
+}
+
+
+def retry_transient(fn, what: str, attempts: int = 5, pause: float = 5.0):
+    """Call fn(); repeat it after a growing pause when HyperCore answers with a transient error
+    (HTTP 500: another task holds the VM or the node; the platform queues nothing and names
+    nothing). Reading latestTaskTag first would not close the window, so the retry is the rule."""
+    for i in range(attempts):
+        try:
+            return fn()
+        except HyperCoreError as e:
+            if not e.transient or i == attempts - 1:
+                raise
+            wait = pause * (i + 1)
+            log.warning('%s: %s; retry %d/%d in %.0fs', what, e, i + 1, attempts - 1, wait)
+            time.sleep(wait)
 
 
 # ------------------------------------------------------------------ task poll
@@ -201,12 +286,17 @@ def run_export(schedule_id: int) -> None:
     log.info('[run %s] Exporting %s to %s/%s', run_id, sched['vm_name'], tenant, folder)
 
     try:
+        hc = client_for(sched['cluster_id'])
+        pf = wait_until_clear(hc, lambda d: db.update_run(run_id, message=f'waiting for the cluster: {d}'))
+        if not pf['ok']:
+            db.update_run(run_id, status='SKIPPED', finished_at=_now(), message=f"Deferred: {pf['detail']}. {DEFERRED_HINT.get(pf['kind'], '')}".strip())
+            log.warning('[run %s] deferred: %s', run_id, pf['detail'])
+            return
         if base.lower().startswith('smb://') and loc['user']:
             ensure_smb_dir(base, loc['user'], loc['password'] or None)
         elif loc.get('prune_path'):
             Path(loc['prune_path']).mkdir(parents=True, exist_ok=True)
-        hc = client_for(sched['cluster_id'])
-        task_tag = hc.export_vm(sched['vm_uuid'], path_uri, compress=bool(sched['compress']))
+        task_tag = retry_transient(lambda: hc.export_vm(sched['vm_uuid'], path_uri, compress=bool(sched['compress'])), 'export')
         db.update_run(run_id, task_tag=task_tag)
         wait_for_task(hc, task_tag, lambda state, pct: db.update_run(run_id, message=f'{state} {pct}%'))
     except HyperCoreError as e:

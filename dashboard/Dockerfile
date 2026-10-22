@@ -20,6 +20,7 @@ COPY app.py .
 COPY config_db.py .
 COPY user_db.py .
 COPY versioning.py .
+COPY storage_summary.py .
 COPY cluster_registry.py .
 COPY hypercore_tasks.py .
 COPY hcm_crypto.py .

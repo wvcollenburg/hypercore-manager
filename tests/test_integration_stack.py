@@ -12,6 +12,10 @@ import urllib.request
 
 import pytest
 
+import os
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'dashboard'))
+
 BASE = 'http://localhost:5000'
 pytestmark = pytest.mark.integration
 
@@ -108,6 +112,22 @@ def test_core_data_endpoints_respond(session, path):
     status, body, _ = session(path)
     assert status == 200
     assert body is not None
+
+
+def test_storage_summary_is_per_vm_not_per_disk(session):
+    """The Infraviewer overview reads one series per VM plus cluster totals; per-disk history
+    only travels through /api/vsds?vm=<uuid>."""
+    status, body, _ = session('/api/storage/summary?hours=1')
+    assert status == 200 and set(body) >= {'vms', 'cluster', 'hours'}
+    for vm in body['vms']:
+        assert set(vm) == {'uuid', 'name', 'history', 'vsds'}
+        for p in vm['history']:
+            assert 'time' in p and not set(p) - {'time', *__import__('storage_summary').FIELDS}
+        for d in vm['vsds']:
+            assert 'history' not in d and {'uuid', 'name', 'type', 'time'} <= set(d)
+    if body['vms']:
+        status, disks, _ = session(f"/api/vsds?hours=1&vm={body['vms'][0]['uuid']}")
+        assert status == 200 and all(d['vm_uuid'] == body['vms'][0]['uuid'] for d in disks)
 
 
 def test_sentinel_proxy_status(session):

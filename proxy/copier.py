@@ -5,6 +5,11 @@ Intervals come from HyperCore's snapDiff: inclusive [lower, upper] in 1 MiB bloc
 marked TO_IS_HOLE became empty in the snapshot and is written as zeros so a delta image
 overrides whatever the backing image holds there. Reads and writes use pread/pwrite at the same
 offsets, so the function works on hot-added devices, nbd devices and plain files alike.
+
+differentHow is "ADDRESS_CHANGED" / "TO_IS_HOLE" by the v2 spec, but clusters up to at least 9.7
+send the enum as an integer (0 / 1) through a conversion bug in the REST layer; both forms are
+read. An unknown value is treated as changed, which is the safe direction: the block is read from
+the device (a hole reads as zeros) and written, so the delta is right either way.
 """
 from __future__ import annotations
 
@@ -51,11 +56,17 @@ def blocks_in(intervals: Iterable[dict]) -> int:
     return sum(int(iv['upper']) - int(iv['lower']) + 1 for iv in intervals)
 
 
+def is_hole(interval: dict) -> bool:
+    """TO_IS_HOLE in either wire form (string enum or the integer 1)."""
+    how = interval.get('differentHow')
+    return how == 'TO_IS_HOLE' or how == 1 or how == '1'
+
+
 def _chunks(intervals: list[dict], max_blocks: int = 64):
     """Split intervals into (first_block, n_blocks, is_hole) work items of bounded size."""
     for iv in intervals:
         lo, hi = int(iv['lower']), int(iv['upper'])
-        hole = iv.get('differentHow') == 'TO_IS_HOLE'
+        hole = is_hole(iv)
         while lo <= hi:
             n = min(max_blocks, hi - lo + 1)
             yield lo, n, hole

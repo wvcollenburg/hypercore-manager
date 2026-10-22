@@ -151,6 +151,9 @@ class Engine:
                 prev_dir = os.path.join(chain_dir, prev['dir'])
             total_blocks = sum(copier.blocks_in(d['map']) for d in req['devices'])
             job.progress = {'devices_total': len(req['devices']), 'devices_done': 0, 'blocks_total': total_blocks, 'blocks_done': 0}
+            # a second of self-check before the first clone is read: a reader whose qemu-nbd or qcow2
+            # semantics are off fails here, not after 40 GiB
+            self.backend.selfcheck(os.path.join(self.cfg.data_dir, f'selfcheck-{job.id}'))
             out_devices = []
             t0 = time.time()
             for dev in req['devices']:
@@ -162,8 +165,10 @@ class Engine:
                 fname = self._device_file(dev)
                 path = os.path.join(point_dir, fname)
                 backing = os.path.join(prev_dir, fname) if prev_dir else None
-                if backing and not os.path.exists(backing):
-                    # device added since the previous point: it gets a full within this delta point
+                if backing and (not os.path.exists(backing) or dev.get('full')):
+                    # device added or resized since the previous point: it gets a full within this
+                    # delta point, written without a backing file (snapDiff says nothing about a
+                    # grown region, and a backing file of another size would read through)
                     backing = None
                     dev_map = dev.get('full_map') or dev['map']
                 else:

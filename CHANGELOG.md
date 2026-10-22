@@ -21,6 +21,13 @@ release is tagged.
 - Step-by-step instructions: DEPLOY.md, "Upgrading from 0.9.x".
 
 ### Added
+- **Multi-node awareness** (migration `030`). The nodes of every registered cluster are discovered
+  through `GET /Node` and listed under the cluster in Settings → Clusters with their status and
+  the node in use. The collector, balancer, backup service and Sentinel share one session helper
+  that logs in again after a 401 and moves to another node of the cluster when the current one
+  stops answering; the switch is recorded per cluster so the services follow each other.
+  **Test connection** on a registered cluster tries every known node. Registering a second node
+  IP of a known cluster is refused with the node named.
 - **HyperCore REST v2 task feed** behind a per-cluster switch (auto / v1 only / v2; migration
   `029`). The connection test and the collector probe `/rest/v2/TaskTag`; when in use the
   collector records the cluster's tasks, Infraviewer shows a *Cluster activity* panel, the
@@ -58,6 +65,22 @@ release is tagged.
   retention by points and days with merge-forward pruning, a reference snapshot per plan, and
   restore points with verification. Proxies are registered per cluster and auto-detect their VM
   by MAC address. Deleting a plan retires its chain instead of deleting backups.
+- **Backup hardening against the HyperCore backup SDK rules** (migration `031`, audit of
+  2026-10-22). A disk whose capacity changed since the previous point is copied in full inside the
+  delta (snapDiff reports nothing for a grown region). Every snapshot and clone request is
+  repeated after a transient `500` (another task holds the VM) and runs are serialised per VM.
+  Reference snapshots carry a retention deadline (`BACKUP_ANCHOR_RETAIN_DAYS`, default 60) so an
+  installation that vanishes leaves nothing behind for good. A run first checks that the cluster
+  is not updating itself and that every node is online; otherwise it waits up to
+  `BACKUP_PREFLIGHT_WAIT_HOURS` (default 2), then is recorded as **deferred**. The Backup tab shows
+  a banner while a node is missing (HyperCore cannot snapshot, so nothing can be backed up until the
+  node is back or evicted by Scale Computing support). Each restore point records whether the guest
+  quiesced; the points list marks crash-consistent points. Restored disks go back on their original
+  bus (IDE as IDE, SCSI as SCSI) with their SSD tiering factor; a refused bus is an error, never a
+  silent switch to virtio. The proxy writes deltas with 1 MiB clusters (one snapDiff block each),
+  reads `differentHow` in both wire forms (string enum and the integer a 9.7 cluster sends), and
+  runs a one-second self-check of the delta semantics on its own qemu at start and before every
+  backup job; `tests/test_proxy_qcow2.py` proves the same semantics against real qemu in CI.
 - **Restore and file recovery from restore points** (migration 027). A VM is restored from any
   point as a new VM (`<name>-restored-<time>`, MAC addresses kept or regenerated, NIC
   disconnected on request); single files are browsed and downloaded through the dashboard, or
@@ -98,11 +121,20 @@ release is tagged.
 - **Compose profiles.** `docker compose up -d` starts everything (core, Sentinel, Backup and its
   proxy). Old `--profile sentinel|backup|full` commands still work and change nothing; a module
   you do not use is stopped with `docker compose stop <service>`.
-- Windows Deploy Wizard and the cloud-init provisioning path. Use Docker Compose or `install.py`.
+- Windows Deploy Wizard (`HyperCoreDeploy.exe`, still attached to the v0.9.2 release for history)
+  and the cloud-init provisioning path. Use Docker Compose or `install.py`.
 - Experimental LCARS dashboard theme (`/lcars`, `/lcars2`).
 - Cluster credentials in `.env`.
 
 ### Fixed
+- **Infraviewer storage graphs were slow and could kill dashboard workers.** The nodes and VMs
+  views each fetched every disk's full history (`/api/vsds`, 1 MB and several seconds at the
+  24-hour window) every 30 seconds, and the stale-data check opened a PostgreSQL connection per
+  disk. Under load that exceeded gunicorn's timeout. They now share one request to the new
+  `/api/storage/summary`: one series per VM (IOPS and throughput summed over its disks, latency of
+  the worst disk) plus a cluster total, aggregated by InfluxDB, with each disk's newest sample for
+  the VM cards. Per-disk history is only fetched for the VM a detail panel shows
+  (`/api/vsds?vm=<uuid>`), and the stale threshold is read once per request.
 - Apply Update failed on arm64 hosts because the dashboard image shipped an x86_64-only
   `docker-compose` binary. The binary is now fetched for the image's own architecture.
 - The running version is shown in the footer even when the update check cannot reach the

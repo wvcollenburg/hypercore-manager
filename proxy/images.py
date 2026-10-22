@@ -3,9 +3,16 @@ images.py — qcow2 images on the target, written through qemu-nbd.
 
 Two backends share one interface so the job engine can be tested without root, nbd or qemu:
 
-  NbdBackend   production: qemu-img create (2 MiB clusters, optional backing file), qemu-nbd
-               attach from a bounded pool of /dev/nbdN slots, intervals written at offsets,
-               flush + detach; flatten and check via qemu-img.
+  NbdBackend   production: qemu-img create (1 MiB clusters = one snapDiff block, optional backing
+               file), qemu-nbd attach from a bounded pool of /dev/nbdN slots, intervals written at
+               offsets, flush + detach; flatten and check via qemu-img.
+
+Why a delta is correct: the backing file is set when the delta is *created*, so a write that
+covers part of a cluster makes qemu copy the rest of that cluster from the backing file (COW)
+instead of leaving zeros, and a block written as zeros (a hole) allocates a zero cluster that
+masks the backing file. With 1 MiB clusters every snapDiff block is exactly one cluster, so the
+COW case only arises for the short tail of a disk whose size is not a whole number of MiB.
+selfcheck() proves these two properties on the qemu that is actually installed.
   FileBackend  tests: the "image" is a sparse raw file; a delta starts as a copy of its backing
                file so the resulting content equals what a qcow2 chain would present.
 
@@ -79,8 +86,10 @@ class NbdBackend:
     def __init__(self, pool: NbdPool):
         self.pool = pool
 
+    CLUSTER = '1M'          # one snapDiff block per qcow2 cluster (flatten keeps 2M, HyperCore's own size)
+
     def create(self, path: str, size: int, backing: str | None = None) -> None:
-        cmd = ['qemu-img', 'create', '-q', '-f', 'qcow2', '-o', 'cluster_size=2M']
+        cmd = ['qemu-img', 'create', '-q', '-f', 'qcow2', '-o', f'cluster_size={self.CLUSTER}']
         if backing:
             # relative backing name: the chain stays valid when the target is mounted elsewhere
             cmd += ['-F', 'qcow2', '-b', os.path.relpath(backing, os.path.dirname(path))]
@@ -203,6 +212,56 @@ class NbdBackend:
         extents = json.loads(_run(['qemu-img', 'map', '--output=json', '-f', 'qcow2', path]))
         return extents_to_intervals((e['start'], e['length']) for e in extents if e.get('data') and not e.get('zero'))
 
+    def selfcheck(self, workdir: str) -> dict:
+        """Prove the delta semantics on this host's qemu with a 4 MiB throwaway chain, through the
+        same create / nbd-write path a backup uses: a parent of 0xAA; a delta with the parent as
+        backing file into which block 1 is written with 0x5A, block 2 with zeros and the first
+        half of block 3 with 0x5A. Reading the delta must give AA | 5A | 00 | 5A+AA. Raises
+        RuntimeError with the failing read when it does not; returns timings when it does."""
+        os.makedirs(workdir, exist_ok=True)
+        parent, delta = os.path.join(workdir, 'parent.qcow2'), os.path.join(workdir, 'delta.qcow2')
+        t0 = time.time()
+        try:
+            self.create(parent, 4 * MiB)
+            with self._attached(parent, readonly=False) as dev:
+                _write_pattern(dev, 0, 4 * MiB, 0xAA)
+            self.create(delta, 4 * MiB, backing=parent)
+            with self._attached(delta, readonly=False) as dev:
+                _write_pattern(dev, 1 * MiB, MiB, 0x5A)
+                _write_pattern(dev, 2 * MiB, MiB, 0x00)
+                _write_pattern(dev, 3 * MiB, MiB // 2, 0x5A)
+            _run(['qemu-io', '-r', '-f', 'qcow2', '-c', 'read -P 0xaa 0 1M', '-c', 'read -P 0x5a 1M 1M',
+                  '-c', 'read -P 0 2M 1M', '-c', 'read -P 0x5a 3M 512k', '-c', 'read -P 0xaa 3584k 512k', delta], timeout=120)
+            if not self.check(delta):
+                raise RuntimeError('qemu-img check failed on the self-check delta')
+        except RuntimeError as e:
+            raise RuntimeError(f'proxy self-check failed, this host cannot write a correct delta: {e}') from e
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+        return {'ok': True, 'seconds': round(time.time() - t0, 2)}
+
+
+MiB = 1 << 20
+
+
+def _write_pattern(dev: str, offset: int, length: int, byte: int) -> None:
+    """Write `length` bytes of `byte` at `offset` with O_DIRECT in 1 MiB pieces (as the copier does)."""
+    import mmap
+    fd = os.open(dev, os.O_WRONLY | getattr(os, 'O_DIRECT', 0))
+    try:
+        buf = mmap.mmap(-1, MiB)
+        try:
+            buf[:] = bytes([byte]) * MiB
+            while length > 0:
+                n = min(MiB, length)
+                os.pwritev(fd, [memoryview(buf)[:n]], offset)
+                offset += n; length -= n
+        finally:
+            buf.close()
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
 
 def extents_to_intervals(extents, block: int = 1 << 20) -> list[dict]:
     """Byte extents -> merged inclusive 1 MiB block intervals [{lower, upper}]."""
@@ -263,6 +322,9 @@ class FileBackend:
     def shrink(self, path: str, size: int) -> None:
         with open(path, 'r+b') as fh:
             fh.truncate(size)
+
+    def selfcheck(self, workdir: str) -> dict:
+        return {'ok': True, 'seconds': 0.0}
 
     def allocation_map(self, path: str) -> list[dict]:
         """Non-zero 1 MiB blocks of a raw file."""

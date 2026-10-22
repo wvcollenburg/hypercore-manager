@@ -9,7 +9,7 @@ import shutil
 import socket
 import subprocess
 
-VERSION = '0.1.0'
+VERSION = '0.2.0'
 _SKIP_PREFIXES = ('lo', 'docker', 'veth', 'br-', 'virbr', 'cni', 'flannel', 'tun', 'tap', 'wg')
 
 
@@ -41,6 +41,9 @@ def _tool_version(cmd: list[str]) -> str | None:
         return None
 
 
+SELFCHECK: dict = {}        # result of the start-up self-check (images.NbdBackend.selfcheck)
+
+
 def identity(cfg, backend_name: str, nbd_free: int | None) -> dict:
     return {
         'service': 'hcm-proxy',
@@ -54,6 +57,9 @@ def identity(cfg, backend_name: str, nbd_free: int | None) -> dict:
             'mount_cifs': shutil.which('mount.cifs') is not None,
             'mount_nfs': shutil.which('mount.nfs') is not None or shutil.which('mount.nfs4') is not None,
             'jobs': ['backup', 'flatten', 'verify', 'sweep', 'prune', 'delete_chain', 'stage'],
+            # a resized disk arrives with `full: true` and is written without a backing file
+            'full_flag': True,
+            'selfcheck': SELFCHECK.get('ok'),
             'mounts': True,
             'filesystems': ['ext4', 'ext3', 'ext2', 'xfs', 'btrfs', 'vfat', 'ntfs', 'exfat', 'lvm'],
         },

@@ -13,6 +13,14 @@ One run of an incremental plan:
 A missing previous anchor (deleted by hand, VM re-created) turns the run into a full with a
 visible note instead of failing, as Veeam does. A new full starts a new chain; the old chain
 retires and its points expire through the same retention.
+
+Rules from the field that shape the sequence (see the HyperCore backup SDK notes):
+- a disk whose capacity changed since the previous point is copied in full inside the delta point:
+  snapDiff reports nothing for a grown region, so the diff alone would silently omit it
+- every mutation on a VM is serialised per VM (one task per object on HyperCore) and repeated after
+  a transient 500, which is how the platform says "something else holds this VM"
+- the anchor carries a retention deadline so it cannot squat forever if this installation vanishes
+- a run first checks that the cluster is not updating itself and no node is missing
 """
 from __future__ import annotations
 
@@ -48,6 +56,16 @@ def proxy_lock(proxy_id: int) -> threading.Lock:
     while read-only clones (backups) are attached to it."""
     with _LOCKS_GUARD:
         return _PROXY_LOCKS.setdefault(proxy_id, threading.Lock())
+
+
+_VM_LOCKS: dict[tuple[str, str], threading.Lock] = {}
+
+
+def vm_lock(cluster_id: str, vm_uuid: str) -> threading.Lock:
+    """One run at a time per VM: HyperCore allows one task per VM, so two plans on the same VM
+    (or a plan and a restore of it) must not snapshot or clone at the same moment."""
+    with _LOCKS_GUARD:
+        return _VM_LOCKS.setdefault((str(cluster_id), vm_uuid), threading.Lock())
 
 
 def _now() -> datetime:
@@ -143,11 +161,37 @@ def _safe_delete_snapshot(hc, snap_uuid, what='anchor'):
     if not snap_uuid:
         return
     try:
-        tag = hc.delete_snapshot(snap_uuid)
+        tag = jobs.retry_transient(lambda: hc.delete_snapshot(snap_uuid), f'delete {what} snapshot')
         if tag:
             wait_task(hc, tag, f'delete {what} snapshot', 300)
     except (HyperCoreError, IncrementalError) as e:
         log.warning('could not delete %s snapshot %s: %s', what, snap_uuid, e)
+
+
+def take_snapshot(hc: HyperCoreClient, vm_uuid: str, label: str, quiesce: bool, retain_days: float | None = None) -> dict:
+    """Create a snapshot, repeating the request after a transient 500 (another task on the VM),
+    wait for its task and for the object to be CREATED. Returns the snapshot record."""
+    tag, snap_uuid = jobs.retry_transient(lambda: hc.create_snapshot(vm_uuid, label, quiesce=quiesce, retain_days=retain_days), 'snapshot')
+    wait_task(hc, tag, 'snapshot', 600)
+    return wait_snapshot(hc, snap_uuid)
+
+
+def clone_onto(hc: HyperCoreClient, device_uuid: str, snap_uuid: str, target_vm: str, capacity: int, **kw) -> str:
+    """Clone a snapshot's device onto a VM with the same transient-500 retry; returns the new device uuid."""
+    tag, clone_uuid = jobs.retry_transient(lambda: hc.clone_device(device_uuid, snap_uuid, target_vm, capacity, **kw), 'clone')
+    wait_task(hc, tag, 'clone', 600)
+    return clone_uuid
+
+
+def resized_devices(devices: list[dict], prev_definition: dict | None) -> dict[str, tuple[int, int]]:
+    """Disks whose capacity differs from the previous point's definition: uuid -> (old, new).
+    snapDiff says nothing about a grown region, so such a disk gets a full inside the delta."""
+    prev = {b.get('uuid'): int(b.get('capacity') or 0) for b in (prev_definition or {}).get('blockDevs', []) if b.get('uuid')}
+    out = {}
+    for d in devices:
+        if d.get('type') in HyperCoreClient.DISK_TYPES and d['uuid'] in prev and prev[d['uuid']] != int(d.get('capacity') or 0):
+            out[d['uuid']] = (prev[d['uuid']], int(d.get('capacity') or 0))
+    return out
 
 
 def _delete_clones(hc, clone_uuids: list[str], attempts: int = 4) -> list[str]:
@@ -219,7 +263,15 @@ def run_incremental(plan_id: int) -> None:
     run_id = db.start_run(plan_id)
     db.update_run(run_id, mode='incremental')
     try:
-        _run(plan, run_id)
+        hc = jobs.client_for(plan['cluster_id'])
+        pf = jobs.wait_until_clear(hc, lambda d: db.update_run(run_id, message=f'waiting for the cluster: {d}'))
+        if not pf['ok']:
+            db.update_run(run_id, status='SKIPPED', finished_at=_now(),
+                          message=f"Deferred: {pf['detail']}. {jobs.DEFERRED_HINT.get(pf['kind'], '')}".strip())
+            log.warning('[run %s] deferred: %s', run_id, pf['detail'])
+            return
+        with vm_lock(plan['cluster_id'], plan['vm_uuid']):
+            _run(plan, run_id, hc)
     except (IncrementalError, HyperCoreError, ProxyError) as e:
         db.update_run(run_id, status='ERROR', message=str(e), finished_at=_now())
         log.error('[run %s] %s', run_id, e)
@@ -228,8 +280,8 @@ def run_incremental(plan_id: int) -> None:
         log.exception('[run %s] unexpected error', run_id)
 
 
-def _run(plan: dict, run_id: int) -> None:
-    hc = jobs.client_for(plan['cluster_id'])
+def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None) -> None:
+    hc = hc or jobs.client_for(plan['cluster_id'])
     proxy = pick_proxy(plan['cluster_id'])
     pc = proxy_client_for(proxy)
     db.update_run(run_id, proxy_id=proxy['id'])
@@ -265,13 +317,18 @@ def _run(plan: dict, run_id: int) -> None:
     if note:
         log.warning('[run %s] %s', run_id, note)
 
-    # 1. anchor snapshot
+    # 1. anchor snapshot (never replicated; a retention deadline so it cannot squat forever)
     label = f"{ANCHOR_PREFIX}-{plan['id']}-{run_id}"
-    tag, snap_uuid = hc.create_snapshot(vm['uuid'], label, quiesce=True)
-    wait_task(hc, tag, 'snapshot', 600)
-    snap = wait_snapshot(hc, snap_uuid)
+    snap = take_snapshot(hc, vm['uuid'], label, quiesce=True, retain_days=CFG.anchor_retain_days or None)
+    snap_uuid = snap['uuid']
+    quiesced = snap.get('quiesced')
     serials = hc.snapshot_serials(snap)
     prev_serials = (chain.get('last_serials') or {}) if kind == 'delta' else {}
+    resized = resized_devices(devices, (prev_point or {}).get('definition')) if kind == 'delta' else {}
+    for u, (old, new) in resized.items():
+        msg = f'disk {u[:8]} changed size ({old >> 20} -> {new >> 20} MiB): copied in full inside this point'
+        note = f'{note}; {msg}' if note else msg
+        log.warning('[run %s] %s', run_id, msg)
     clones: list[str] = []
     lock = proxy_lock(proxy['id'])
     lock.acquire()
@@ -280,19 +337,21 @@ def _run(plan: dict, run_id: int) -> None:
         req_devices = []
         for dev in devices:
             cap = device_capacity(dev)
-            ctag, clone_uuid = hc.clone_device(dev['uuid'], snap_uuid, proxy['vm_uuid'], cap, read_only=True)
-            wait_task(hc, ctag, 'clone', 600)
+            clone_uuid = clone_onto(hc, dev['uuid'], snap_uuid, proxy['vm_uuid'], cap, read_only=True)
             clones.append(clone_uuid)
             db.update_chain(chain['id'], active_clones=clones)
             serial = serials.get(dev['uuid'])
             if dev['type'] in HyperCoreClient.DISK_TYPES:
-                if kind == 'delta' and dev['uuid'] in prev_serials:
+                if kind == 'delta' and dev['uuid'] in prev_serials and dev['uuid'] not in resized:
                     dev_map = hc.snap_diff(dev['uuid'], prev_serials[dev['uuid']], serial)
                     entry = {'map': dev_map}
                 else:
                     entry = {'map': hc.snap_diff(dev['uuid'], 0, serial)}
                     if kind == 'delta':
-                        entry['full_map'] = entry['map']          # new disk inside a delta point
+                        # new or resized disk inside a delta point: the proxy writes it without a
+                        # backing file (`full`); `full_map` is what older proxies read
+                        entry['full_map'] = entry['map']
+                        entry['full'] = True
             else:
                 entry = {'map': [{'lower': 0, 'upper': 0}]}       # NVRAM / vTPM: 1 MiB, always re-copied
             req_devices.append({'uuid': dev['uuid'], 'type': dev['type'], 'clone_uuid': clone_uuid, 'size': cap,
@@ -332,11 +391,13 @@ def _run(plan: dict, run_id: int) -> None:
     leftover = _delete_clones(hc, clones)
     lock.release()
     point_id = db.add_point(chain['id'], seq, kind, result['point_dir'], serials, blocks, result.get('bytes_written', 0),
-                            result.get('duration_s', 0), result.get('devices', []), definition, run_id)
+                            result.get('duration_s', 0), result.get('devices', []), definition, run_id, quiesced=quiesced)
     db.update_chain(chain['id'], anchor_snapshot_uuid=snap_uuid, last_serials=serials, next_seq=seq + 1,
                     runs_since_full=0 if kind == 'full' else int(chain.get('runs_since_full') or 0) + 1, active_clones=leftover)
     _safe_delete_snapshot(hc, old_anchor, 'previous anchor')
     msg = f'{kind} point {result["point_dir"]}: {blocks} MiB changed, {result.get("bytes_written", 0) // MiB} MiB written in {result.get("duration_s", 0):.0f}s'
+    if quiesced is False:
+        msg += ' (crash-consistent: the guest did not quiesce)'
     if note:
         msg = f'{note}. {msg}'
     if leftover:

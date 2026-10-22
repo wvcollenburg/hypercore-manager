@@ -326,6 +326,10 @@ services:
       - BACKUP_POLL_INTERVAL_SECONDS=${BACKUP_POLL_INTERVAL_SECONDS:-${EXPORTS_POLL_INTERVAL_SECONDS:-15}}
       - BACKUP_DEFAULT_RETENTION=${BACKUP_DEFAULT_RETENTION:-${EXPORTS_DEFAULT_RETENTION:-7}}
       - BACKUP_DEFAULT_RUN_TIME=${BACKUP_DEFAULT_RUN_TIME:-${EXPORTS_DEFAULT_RUN_TIME:-03:00}}
+      # reference snapshots expire on the cluster after this many days (0 = never); a run waits up
+      # to this many hours for a cluster update or a missing node to clear before it is deferred
+      - BACKUP_ANCHOR_RETAIN_DAYS=${BACKUP_ANCHOR_RETAIN_DAYS:-60}
+      - BACKUP_PREFLIGHT_WAIT_HOURS=${BACKUP_PREFLIGHT_WAIT_HOURS:-2}
     # NFS pruning needs the share mounted here; SMB pruning works without a mount.
     # Add in docker-compose.override.yml:  volumes: ["/mnt/nas/hypercore:/mnt/nas/hypercore"]
     healthcheck:

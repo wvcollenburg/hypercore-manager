@@ -465,10 +465,12 @@ def chains_with_clones() -> list[dict]:
 
 # --------------------------------------------------------------------- points
 def add_point(chain_id: int, seq: int, kind: str, dir_: str, serials: dict, blocks: int, bytes_written: int,
-              duration_s: float, files: list, definition: dict, run_id: Optional[int]) -> int:
-    return _one('''INSERT INTO backup.points (chain_id, seq, kind, dir, serials, blocks, bytes_written, duration_s, files, definition, run_id)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
-                (chain_id, seq, kind, dir_, _json(serials), blocks, bytes_written, duration_s, _json(files), _json(definition), run_id))['id']
+              duration_s: float, files: list, definition: dict, run_id: Optional[int], quiesced: Optional[bool] = None) -> int:
+    """quiesced: what the anchor snapshot reported (True = the guest flushed, False = crash-consistent,
+    None = unknown); the restore UI shows it per point."""
+    return _one('''INSERT INTO backup.points (chain_id, seq, kind, dir, serials, blocks, bytes_written, duration_s, files, definition, run_id, quiesced)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
+                (chain_id, seq, kind, dir_, _json(serials), blocks, bytes_written, duration_s, _json(files), _json(definition), run_id, quiesced))['id']
 
 
 def get_points(chain_id: int, include_pruned: bool = False) -> list[dict]:

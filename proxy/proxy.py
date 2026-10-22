@@ -42,6 +42,14 @@ def main() -> None:
         logger.info('leftover mounts cleaned', extra=mounts.cleanup_leftovers())
     except Exception:                               # noqa: BLE001
         logger.exception('leftover cleanup failed')
+    try:
+        import identity
+        identity.SELFCHECK.update(backend.selfcheck(os.path.join(cfg.data_dir, 'selfcheck-start')))
+        logger.info('self-check passed', extra=identity.SELFCHECK)
+    except Exception as e:                          # noqa: BLE001 — reported through /identity, jobs re-check
+        import identity
+        identity.SELFCHECK.update({'ok': False, 'error': str(e)})
+        logger.error('self-check FAILED: %s', e)
     ssl_ctx, fp = tls.context_for(cfg)
     app = api.create_app(cfg, engine, mounts, tls_fingerprint=fp)
 

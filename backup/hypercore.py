@@ -1,8 +1,9 @@
-"""Minimal HyperCore REST API client for exports and imports.
+"""Minimal HyperCore REST API client for exports, imports and the incremental calls.
 
-Uses HTTP Basic auth (supported globally per the HyperCore OpenAPI spec), which
-keeps the client stateless: no session cookie bookkeeping across long-running
-export polls. Credentials come from the cluster registry.
+One login session per (cluster, account) is shared by every client instance in the process
+(see _Session). The session rides on the shared ClusterSession, so it re-logs in after a 401
+and moves to another node of the cluster when the current one stops answering. Credentials
+come from the cluster registry.
 """
 from __future__ import annotations
 
@@ -14,10 +15,20 @@ import requests
 import urllib3
 
 import cluster_registry
+import hypercore_session
 
 
 class HyperCoreError(Exception):
-    pass
+    """An API call failed. `status` is the HTTP status when the cluster answered (0 otherwise)."""
+    def __init__(self, message: str, status: int = 0):
+        super().__init__(message)
+        self.status = int(status or 0)
+
+    @property
+    def transient(self) -> bool:
+        """A 500 from HyperCore usually means another task holds the VM (one task per object,
+        one per node); the call is worth repeating after a pause."""
+        return self.status == 500 or 'impeding' in str(self).lower() or 'timed out waiting' in str(self).lower()
 
 
 def first_tag(tags: str) -> str:
@@ -42,34 +53,41 @@ SESSION_MAX_AGE = 6 * 3600
 
 
 class _Session:
-    def __init__(self, base: str, username: str, password: str, verify: bool):
-        self.base, self.username, self.password, self.verify = base, username, password, verify
-        self.http = requests.Session()
-        self.http.verify = verify
-        self.logged_in_at = 0.0
-        self.lock = threading.Lock()
+    """One ClusterSession plus the age-based renewal. With a cluster_id the session fails over
+    across the cluster's nodes; with a bare host it is pinned to that address."""
+    def __init__(self, host: str, username: str, password: str, verify: bool, cluster_id: str | None = None):
+        self.host, self.username, self.password, self.verify = host, username, password, verify
+        self.hc = hypercore_session.ClusterSession(
+            cluster_id, username, password, verify, service='backup', name=cluster_id or host,
+            host=None if cluster_id else host, seed=host, login_timeout=30,
+            http_factory=lambda: requests.Session(), base_url_of=lambda h: cluster_registry.base_url(h))
+        self.http = self.hc.session
+        self.lock = self.hc.lock
 
-    def login(self, timeout: float = 30) -> None:
-        self.http.cookies.clear()
+    @property
+    def base(self) -> str:              # REST base of the node in use (follows a switch)
+        return self.hc.base_url
+
+    @property
+    def logged_in_at(self) -> float:
+        return self.hc.logged_in_at
+
+    @logged_in_at.setter
+    def logged_in_at(self, value: float) -> None:
+        self.hc.logged_in_at = value
+
+    def login(self) -> None:
         try:
-            r = self.http.post(f'{self.base}/login', json={'username': self.username, 'password': self.password}, timeout=timeout)
+            self.hc.login()
+        except hypercore_session.AuthFailed as e:
+            raise HyperCoreError('Authentication failed (401): check the cluster credentials') from e
+        except hypercore_session.ClusterUnreachable as e:
+            raise HyperCoreError(f'Cannot reach the cluster: {e}') from e
         except requests.exceptions.RequestException as e:
             raise HyperCoreError(f'Cannot reach {self.base}: {e}') from e
-        if r.status_code == 401:
-            raise HyperCoreError('Authentication failed (401): check the cluster credentials')
-        if not r.ok:
-            raise HyperCoreError(f'HyperCore login failed ({r.status_code}): {r.text[:200]}')
-        self.logged_in_at = time.monotonic()
 
     def logout(self) -> None:
-        if not self.logged_in_at:
-            return
-        try:
-            self.http.post(f'{self.base}/logout', timeout=10)
-        except requests.exceptions.RequestException:
-            pass
-        self.http.cookies.clear()
-        self.logged_in_at = 0.0
+        self.hc.logout()
 
     def ensure(self) -> None:
         """Logged in, and not older than SESSION_MAX_AGE."""
@@ -84,15 +102,15 @@ _SESSIONS: dict[tuple[str, str], _Session] = {}
 _SESSIONS_LOCK = threading.Lock()
 
 
-def session_for(base: str, username: str, password: str, verify: bool) -> _Session:
-    key = (base, username)
+def session_for(host: str, username: str, password: str, verify: bool, cluster_id: str | None = None) -> _Session:
+    key = (cluster_id or host, username)
     with _SESSIONS_LOCK:
         sess = _SESSIONS.get(key)
-        if sess and (sess.password != password or sess.verify != verify):     # credentials changed: start over
+        if sess and (sess.password != password or sess.verify != verify or sess.host != host):   # changed: start over
             sess.logout()
             sess = None
         if sess is None:
-            sess = _SESSIONS[key] = _Session(base, username, password, verify)
+            sess = _SESSIONS[key] = _Session(host, username, password, verify, cluster_id)
     return sess
 
 
@@ -107,13 +125,18 @@ atexit.register(logout_all)
 
 
 class HyperCoreClient:
-    def __init__(self, host: str, username: str, password: str, verify_tls: bool = True, timeout: int = 30):
-        self.base = cluster_registry.base_url(host)
+    def __init__(self, host: str, username: str, password: str, verify_tls: bool = True, timeout: int = 30,
+                 cluster_id: str | None = None):
         self.verify = verify_tls
         self.timeout = timeout
-        self.session = session_for(self.base, username, password, verify_tls)
+        self.session = session_for(host, username, password, verify_tls, cluster_id)
         if not verify_tls:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    @property
+    def base(self) -> str:
+        """REST base of the node in use; read it at call time, it follows a failover."""
+        return self.session.base
 
     def http(self) -> requests.Session:
         """The logged-in requests session, for calls that stream a body (no retry possible)."""
@@ -121,32 +144,51 @@ class HyperCoreClient:
         return self.session.http
 
     def _request(self, method: str, path: str, **kwargs):
-        url = f'{self.base}{path}'
         timeout = kwargs.pop('timeout', self.timeout)
         try:
-            resp = self.http().request(method, url, timeout=timeout, **kwargs)
-            if resp.status_code == 401:                       # session expired or revoked: log in once more
-                with self.session.lock:
-                    self.session.logout()
-                    self.session.login()
-                resp = self.session.http.request(method, url, timeout=timeout, **kwargs)
+            self.session.ensure()                             # login, or renewal when the session is old
+            resp = self.session.hc.request(method, path, timeout=timeout, **kwargs)
+        except HyperCoreError:
+            raise
+        except hypercore_session.AuthFailed as e:
+            raise HyperCoreError('Authentication failed (401): check the cluster credentials') from e
+        except hypercore_session.ClusterUnreachable as e:
+            raise HyperCoreError(f'Cannot reach the cluster: {e}') from e
         except requests.exceptions.SSLError as e:
-            raise HyperCoreError(f'TLS error talking to {url}: {e}') from e
+            raise HyperCoreError(f'TLS error talking to {self.base}{path}: {e}') from e
         except requests.exceptions.ConnectionError as e:
-            raise HyperCoreError(f'Cannot reach {url}: {e}') from e
+            raise HyperCoreError(f'Cannot reach {self.base}{path}: {e}') from e
         except requests.exceptions.Timeout as e:
-            raise HyperCoreError(f'Timeout talking to {url}') from e
+            raise HyperCoreError(f'Timeout talking to {self.base}{path}') from e
         if resp.status_code == 401:
-            raise HyperCoreError('Authentication failed (401): check the cluster credentials')
+            raise HyperCoreError('Authentication failed (401): check the cluster credentials', 401)
         if resp.status_code == 403:
-            raise HyperCoreError('Permission denied (403): the cluster account lacks rights for this action')
+            raise HyperCoreError('Permission denied (403): the cluster account lacks rights for this action', 403)
         if not resp.ok:
             try:
                 detail = resp.json().get('error', '')
             except Exception:
                 detail = resp.text[:200]
-            raise HyperCoreError(f'HyperCore API {resp.status_code} on {path}: {detail}')
+            raise HyperCoreError(f'HyperCore API {resp.status_code} on {path}: {detail}', resp.status_code)
         return resp.json() if resp.text else None
+
+    def update_status(self) -> dict:
+        """The cluster's self-update state, from /update/update_status.json (outside /rest). While an
+        update runs the REST API is read-only cluster-wide. Returns {} when the file is unavailable."""
+        url = self.base.rsplit('/rest/', 1)[0] + '/update/update_status.json'
+        try:
+            resp = self.http().get(url, timeout=self.timeout)
+        except requests.exceptions.RequestException as e:
+            raise HyperCoreError(f'Cannot read {url}: {e}') from e
+        if not resp.ok or not resp.text:
+            return {}
+        try:
+            return resp.json() or {}
+        except ValueError:
+            return {}
+
+    def list_nodes(self) -> list[dict]:
+        return self._request('GET', '/Node') or []
 
     def ping(self) -> bool:
         self._request('GET', '/ping')
@@ -227,7 +269,7 @@ class HyperCoreIncrementalMixin:
             'mem': vm.get('mem'), 'numVCPU': vm.get('numVCPU'), 'machineType': vm.get('machineType'),
             'operatingSystem': vm.get('operatingSystem'), 'cpuType': vm.get('cpuType'), 'tags': vm.get('tags', ''),
             'bootDevices': vm.get('bootDevices', []), 'useUEFISecureBoot': vm.get('useUEFISecureBoot'),
-            'blockDevs': [{k: b.get(k) for k in ('uuid', 'type', 'capacity', 'slot', 'cacheMode', 'name')} for b in vm.get('blockDevs', [])],
+            'blockDevs': [{k: b.get(k) for k in ('uuid', 'type', 'capacity', 'slot', 'cacheMode', 'name', 'tieringPriorityFactor')} for b in vm.get('blockDevs', [])],
             'netDevs': [{k: n.get(k) for k in ('uuid', 'type', 'macAddress', 'vlan', 'connected')} for n in vm.get('netDevs', [])],
         }
 
@@ -236,9 +278,14 @@ class HyperCoreIncrementalMixin:
         return [b for b in vm.get('blockDevs', []) if b.get('type') in self.DISK_TYPES + self.UTILITY_TYPES]
 
     # -- snapshots
-    def create_snapshot(self, vm_uuid: str, label: str, quiesce: bool = True) -> tuple[str, str]:
-        r = self._request('POST', '/VirDomainSnapshot', json={'domainUUID': vm_uuid, 'label': label, 'attemptQuiesce': bool(quiesce),
-                                                               'replication': False, 'type': 'USER'}) or {}
+    def create_snapshot(self, vm_uuid: str, label: str, quiesce: bool = True, retain_days: float | None = None) -> tuple[str, str]:
+        """A USER snapshot that is never replicated. With retain_days the cluster removes it itself
+        after that many days (localRetainUntilTimestamp; it cannot be extended later, the resource
+        has no PATCH), so an anchor left behind by a vanished installation does not squat forever."""
+        body = {'domainUUID': vm_uuid, 'label': label, 'attemptQuiesce': bool(quiesce), 'replication': False, 'type': 'USER'}
+        if retain_days:
+            body['localRetainUntilTimestamp'] = int(time.time() + float(retain_days) * 86400)
+        r = self._request('POST', '/VirDomainSnapshot', json=body) or {}
         if not r.get('taskTag'):
             raise HyperCoreError(f'snapshot not accepted: {r}')
         return r['taskTag'], r.get('createdUUID', '')
@@ -262,18 +309,25 @@ class HyperCoreIncrementalMixin:
 
     # -- clones onto the proxy VM
     def clone_device(self, device_uuid: str, snap_uuid: str, target_vm_uuid: str, capacity: int,
-                     read_only: bool = True) -> tuple[str, str]:
-        """Attach a snapshot's block device to target_vm as a new (thin) device. Returns (taskTag, createdUUID)."""
-        body = {'snapUUID': snap_uuid,
-                'template': {'virDomainUUID': target_vm_uuid, 'type': 'VIRTIO_DISK', 'capacity': int(capacity)},
+                     read_only: bool = True, dev_type: str = 'VIRTIO_DISK', tiering: int | None = None) -> tuple[str, str]:
+        """Attach a snapshot's block device to target_vm as a new (thin) device. Returns (taskTag, createdUUID).
+        Backup clones onto the proxy are always VIRTIO_DISK (an IDE disk cannot be hot-added and breaks
+        snapshotting of the VM it lands on); a restore passes the disk's original type, the VM is off then."""
+        template = {'virDomainUUID': target_vm_uuid, 'type': dev_type, 'capacity': int(capacity)}
+        if tiering is not None:
+            template['tieringPriorityFactor'] = int(tiering)
+        body = {'snapUUID': snap_uuid, 'template': template,
                 'options': {'readOnly': bool(read_only), 'regenerateDiskID': False}}
         r = self._request('POST', f'/VirDomainBlockDevice/{device_uuid}/clone', json=body) or {}
         if not r.get('taskTag'):
             raise HyperCoreError(f'clone not accepted: {r}')
         return r['taskTag'], r.get('createdUUID', '')
 
-    def create_block_device(self, vm_uuid: str, capacity: int, dev_type: str = 'VIRTIO_DISK') -> tuple[str, str]:
-        r = self._request('POST', '/VirDomainBlockDevice', json={'virDomainUUID': vm_uuid, 'type': dev_type, 'capacity': int(capacity)}) or {}
+    def create_block_device(self, vm_uuid: str, capacity: int, dev_type: str = 'VIRTIO_DISK', tiering: int | None = None) -> tuple[str, str]:
+        body = {'virDomainUUID': vm_uuid, 'type': dev_type, 'capacity': int(capacity)}
+        if tiering is not None:
+            body['tieringPriorityFactor'] = int(tiering)      # 0 for scratch disks: keep heavy one-off writes off the SSD tier
+        r = self._request('POST', '/VirDomainBlockDevice', json=body) or {}
         if not r.get('taskTag'):
             raise HyperCoreError(f'block device not accepted: {r}')
         return r['taskTag'], r.get('createdUUID', '')
@@ -284,6 +338,12 @@ class HyperCoreIncrementalMixin:
 
     def delete_block_device(self, device_uuid: str) -> str:
         r = self._request('DELETE', f'/VirDomainBlockDevice/{device_uuid}') or {}
+        return r.get('taskTag', '')
+
+    def patch_block_device(self, device_uuid: str, **fields) -> str:
+        """PATCH a block device (tieringPriorityFactor, name, ...). A clone inherits these from its
+        source and ignores them in the clone template (verified on 9.8.4), so a restore sets them here."""
+        r = self._request('PATCH', f'/VirDomainBlockDevice/{device_uuid}', json=fields) or {}
         return r.get('taskTag', '')
 
     def snap_diff(self, device_uuid: str, serial_from: int, serial_to: int) -> list[dict]:

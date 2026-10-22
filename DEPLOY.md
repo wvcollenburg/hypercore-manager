@@ -277,6 +277,8 @@ Changing them in `.env` later does not alter clusters that already exist.
 | `BACKUP_POLL_INTERVAL_SECONDS` | Task progress polling interval (default 15) |
 | `BACKUP_DEFAULT_RETENTION` | Pre-filled copies-to-keep for new plans (default 7) |
 | `BACKUP_DEFAULT_RUN_TIME` | Pre-filled daily run time for new plans (default 03:00, in `TZ`) |
+| `BACKUP_ANCHOR_RETAIN_DAYS` | HyperCore removes a plan's reference snapshot itself after this many days, 0 = never (default 60) |
+| `BACKUP_PREFLIGHT_WAIT_HOURS` | How long a run waits for a cluster update or a missing node to clear before it is deferred (default 2) |
 | `PROXY_API_TOKEN` | Bearer token between the backup service and the proxy container(s). **Empty = auth disabled.** |
 | `PROXY_WRITERS` | Parallel writer threads per backup job in the proxy (default 4) |
 | `PROXY_NBD_SLOTS` | `/dev/nbd` devices the proxy may use at once (default 8) |

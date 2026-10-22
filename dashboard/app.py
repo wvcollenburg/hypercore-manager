@@ -58,6 +58,7 @@ import user_db
 import cluster_registry
 import hypercore_tasks
 import hcm_crypto
+import storage_summary
 from versioning import latest_semver_tag, is_newer
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
@@ -232,11 +233,18 @@ def _agg_window(hours: int) -> str:
     return '1d'
 
 
-def is_stale(history_list):
+def _stale_seconds() -> float:
+    """The STALE_SECONDS tunable, read once per request: a lookup opens a PostgreSQL connection,
+    and calling it per node, VM or disk inside a list comprehension cost ~0.7 s per request."""
+    return config_db.get('STALE_SECONDS') or STALE_SECONDS
+
+
+def is_stale(history_list, stale_secs=None):
     """Returns True if the most recent data point is older than STALE_SECONDS."""
     if not history_list:
         return True
-    stale_secs = config_db.get('STALE_SECONDS') or STALE_SECONDS
+    if stale_secs is None:
+        stale_secs = _stale_seconds()
     latest_time = max(h['time'] for h in history_list)
     latest_dt = datetime.fromisoformat(latest_time.replace('Z', '+00:00'))
     return (datetime.now(timezone.utc) - latest_dt).total_seconds() > stale_secs
@@ -328,7 +336,8 @@ def get_nodes():
                     nodes[nid]['current_cpu'] = record.get_value()
 
         # filter out nodes that haven't reported recently
-        active = [n for n in nodes.values() if not is_stale(n['history'])]
+        stale_secs = _stale_seconds()
+        active = [n for n in nodes.values() if not is_stale(n['history'], stale_secs)]
         return jsonify(active)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -401,7 +410,8 @@ def get_vms():
                     vms[vid]['current_cpu'] = record.get_value()
 
         # filter out VMs that haven't reported recently (deleted/stopped)
-        active = [v for v in vms.values() if not is_stale(v['history'])]
+        stale_secs = _stale_seconds()
+        active = [v for v in vms.values() if not is_stale(v['history'], stale_secs)]
         return jsonify(active)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -461,7 +471,8 @@ def get_drives():
         if include_stale:
             active = list(drives.values())
         else:
-            active = [d for d in drives.values() if not is_stale(d['history'])]
+            stale_secs = _stale_seconds()
+            active = [d for d in drives.values() if not is_stale(d['history'], stale_secs)]
         return jsonify(active)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -475,7 +486,11 @@ def get_drives():
 @app.route('/api/vsds')
 @require_auth
 def get_vsds():
+    """Per-disk history. With ?vm=<uuid> only that VM's disks (the VM detail panel); the overview
+    views use /api/storage/summary instead, which carries no per-disk history."""
     range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+    vm_filter = (request.args.get('vm') or '').strip()
+    vm_flux = f'|> filter(fn: (r) => r["vm_uuid"] == "{vm_filter}")' if re.fullmatch(r'[0-9a-fA-F-]{1,64}', vm_filter) else ''
     client = get_influx_client()
     try:
         query = f'''
@@ -483,6 +498,7 @@ def get_vsds():
           |> range(start: -{range_hours}h)
           {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "vsd_metrics")
+          {vm_flux}
           |> aggregateWindow(every: {_agg_window(range_hours)}, fn: mean, createEmpty: false)
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
         '''
@@ -516,8 +532,47 @@ def get_vsds():
                 })
         
         # filter out VSDs that haven't reported recently
-        active = [v for v in vsds.values() if not is_stale(v['history'])]
+        stale_secs = _stale_seconds()
+        active = [v for v in vsds.values() if not is_stale(v['history'], stale_secs)]
         return jsonify(active)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        client.close()
+
+
+# =============================================================================
+# API: storage overview — per-VM series + cluster totals, no per-disk history
+# =============================================================================
+@app.route('/api/storage/summary')
+@require_auth
+def get_storage_summary():
+    """What the Infraviewer overview needs from the disks: per VM one series (IOPS and
+    throughput summed over its disks, latency of the worst disk), a cluster total series, and
+    each disk's newest sample for the VM cards. InfluxDB does the aggregation per VM per window,
+    so the payload and the Python work scale with VMs x points, not disks x points."""
+    range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+    client = get_influx_client()
+    try:
+        stale_secs = _stale_seconds()
+        sum_q, max_q, latest_q = storage_summary.flux_queries(INFLUX_BUCKET, _flux_cluster(), range_hours, _agg_window(range_hours), stale_secs)
+        api = client.query_api()
+        rows = []
+        for q in (sum_q, max_q):
+            for table in api.query(org=INFLUX_ORG, query=q):
+                for r in table.records:
+                    rows.append((r.values.get('vm_uuid', 'unknown'), r.values.get('vm_name', 'Unknown'), r.get_field(),
+                                 r.get_time().isoformat(), r.get_value()))
+        latest = []
+        for table in api.query(org=INFLUX_ORG, query=latest_q):
+            for r in table.records:
+                latest.append({'uuid': r.values.get('vsd_uuid', 'unknown'), 'name': r.values.get('vsd_name', 'unknown'),
+                               'type': r.values.get('vsd_type', 'unknown'), 'vm_uuid': r.values.get('vm_uuid', 'unknown'),
+                               'vm_name': r.values.get('vm_name', 'Unknown'), 'node_uuid': r.values.get('node_uuid', 'unknown'),
+                               'time': r.get_time().isoformat(), **{f: r.values.get(f) for f in storage_summary.FIELDS}})
+        out = storage_summary.build(rows, latest, datetime.now(timezone.utc), stale_secs)
+        out['hours'] = range_hours
+        return jsonify(out)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -923,6 +978,11 @@ def _cluster_extras(clusters):
                     out[r['cluster_id']]['health_severity'] = r['severity']
     except Exception as exc:
         app.logger.warning('cluster extras unavailable: %s', exc)
+    try:
+        for cid, nodes in cluster_registry.nodes_for(ids).items():
+            out.setdefault(cid, {})['nodes'] = nodes
+    except Exception as exc:
+        app.logger.warning('cluster nodes unavailable: %s', exc)
     return out
 
 
@@ -982,10 +1042,17 @@ def api_clusters_create():
     if not probe.get('ok') and not body.get('force'):
         return jsonify({'error': probe.get('error', 'connection test failed'), 'probe': probe}), 400
     hc_uuid = probe.get('hc_cluster_uuid') or None
+    probe_nodes = probe.get('nodes') or []
     if hc_uuid:
         dup = next((c for c in cluster_registry.list_all() if c.hc_cluster_uuid == hc_uuid), None)
+        if dup is None:
+            # a cluster whose uuid we never learned (registered with force) still lists its nodes
+            owner = cluster_registry.node_owner([n.get('node_uuid') for n in probe_nodes])
+            dup = cluster_registry.get(owner['cluster_id']) if owner else None
         if dup and not body.get('force'):
-            return jsonify({'error': f"this cluster is already registered as '{dup.name}'", 'duplicate_of': dup.cluster_id}), 409
+            mine = next((n for n in probe_nodes if n.get('lan_ip') and n['lan_ip'] == f['host']), None)
+            which = f" (node {mine['peer_id']} of it)" if mine and mine.get('peer_id') is not None else ''
+            return jsonify({'error': f"this cluster is already registered as '{dup.name}'{which}", 'duplicate_of': dup.cluster_id}), 409
     try:
         cid = cluster_registry.create(f['name'], f['host'], f['username'], f['password'],
                                       verify_tls=f['verify_tls'], colour=f['colour'], hc_cluster_uuid=hc_uuid,
@@ -996,6 +1063,8 @@ def api_clusters_create():
         if 'ux_clusters_name' in msg or 'duplicate key' in msg:
             return jsonify({'error': 'a cluster with that name already exists'}), 409
         return jsonify({'error': msg}), 500
+    if probe_nodes:
+        cluster_registry.upsert_nodes(cid, probe_nodes, seed_host=f['host'])
     _invalidate_registry_cache()
     c = cluster_registry.get(cid)
     return jsonify({'ok': True, 'cluster': _cluster_payload(c), 'probe': probe}), 201
@@ -1066,14 +1135,65 @@ def api_clusters_test_existing(cluster_id):
         username, password = cluster_registry.credentials(cluster_id)
     except Exception as e:
         return jsonify({'ok': False, 'error': f'cannot decrypt stored password: {e}'}), 500
-    result = cluster_registry.test_connection(c.host, username, password, c.verify_tls)
+    result = _test_every_node(c, username, password)
     if result.get('ok'):
         cluster_registry.mark_seen(cluster_id, result.get('hc_cluster_uuid') or None,
-                                   api_v2_available=result.get('api_v2'), hc_version=result.get('version') or None)
+                                   api_v2_available=result.get('api_v2'), hc_version=result.get('version') or None,
+                                   active_host=result.get('via'))
+        if result.get('nodes'):
+            cluster_registry.upsert_nodes(cluster_id, result['nodes'], seed_host=c.host)
     else:
         cluster_registry.mark_error(cluster_id, result.get('error', 'connection test failed'))
     _invalidate_registry_cache()
     return jsonify(result)
+
+
+def _test_every_node(c, username, password) -> dict:
+    """Log in on the configured address and on every known present node, in parallel (one
+    login each). The first success supplies the cluster facts; per-node outcomes ride along."""
+    from concurrent.futures import ThreadPoolExecutor
+    addresses: list[tuple[str, object]] = []
+    known = {}
+    for n in cluster_registry.nodes(c.cluster_id):
+        if n.get('present') and (n.get('address') or n.get('lan_ip')):
+            known[cluster_registry.normalize_host(n.get('address') or n['lan_ip'])] = n.get('peer_id')
+    seed = cluster_registry.normalize_host(c.host)
+    if seed not in known:
+        addresses.append((seed, None))
+    addresses.extend(known.items())
+    def probe(item):
+        addr, peer = item
+        r = cluster_registry.test_connection(addr, username, password, c.verify_tls)
+        return addr, peer, r
+    with ThreadPoolExecutor(max_workers=min(8, len(addresses))) as pool:
+        probes = list(pool.map(probe, addresses))
+    per_node = [{'address': a, 'peer_id': p, 'ok': bool(r.get('ok')), 'error': r.get('error')} for a, p, r in probes]
+    first = next(((a, r) for a, p, r in probes if r.get('ok')), None)
+    if first:
+        out = dict(first[1]); out['via'] = first[0]
+    else:
+        out = {'ok': False, 'error': probes[0][2].get('error', 'connection test failed') if probes else 'no address to test'}
+    out['nodes_tested'] = per_node
+    out['nodes_ok'] = sum(1 for n in per_node if n['ok'])
+    out['nodes_total'] = len(per_node)
+    return out
+
+
+@app.route('/api/clusters/<cluster_id>/nodes/<node_uuid>', methods=['DELETE'])
+@require_auth
+@require_admin
+def api_clusters_forget_node(cluster_id, node_uuid):
+    """Drop a node row that is no longer part of the cluster (present nodes are kept)."""
+    if not cluster_registry.get(cluster_id):
+        return jsonify({'error': 'cluster not found'}), 404
+    try:
+        gone = cluster_registry.forget_node(cluster_id, node_uuid)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    if not gone:
+        return jsonify({'error': 'node is still present on the cluster or unknown'}), 409
+    _invalidate_registry_cache()
+    return jsonify({'ok': True})
 
 
 # folders: grouping in the rail plus access rights for non-admin users

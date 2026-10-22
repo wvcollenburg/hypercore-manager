@@ -333,6 +333,26 @@ def build_schema() -> list[Section]:
                     why_default="Night-time, outside most maintenance windows.",
                     when_change="Stagger schedules across clusters to spread NAS load.",
                 ),
+                Field(
+                    key="BACKUP_ANCHOR_RETAIN_DAYS",
+                    label="Reference snapshot lifetime (days)",
+                    default="60",
+                    profiles={PROFILE_BACKUP},
+                    description="HyperCore removes a plan's reference snapshot itself after this many days (0 = never). "
+                                "A VM backed up less often than this gets a full copy with a note.",
+                    why_default="Twice the daily sweep's 30-day age: an installation that disappears leaves nothing on the cluster for good.",
+                    when_change="Raise it for VMs that are backed up less than every two months.",
+                ),
+                Field(
+                    key="BACKUP_PREFLIGHT_WAIT_HOURS",
+                    label="Wait for a busy cluster (hours)",
+                    default="2",
+                    profiles={PROFILE_BACKUP},
+                    description="A run that finds the cluster updating itself or a node missing waits this long for it to clear, "
+                                "then is recorded as deferred and left to the next scheduled run.",
+                    why_default="Covers a rolling cluster update without burning the whole backup window.",
+                    when_change="Shorten it when plans run several times a day.",
+                ),
             ],
         ),
 

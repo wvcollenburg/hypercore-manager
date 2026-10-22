@@ -66,22 +66,28 @@ class _FakeHC:
         self.new_vm = None
     def list_vms_full(self): return list(self.vms)
     def task_status(self, tag): return {'state': 'COMPLETE'}
+    def update_status(self): return {}
+    def list_nodes(self): return [{'networkStatus': 'ONLINE'}]
     def import_vm(self, uri, name=None, description=None, tags=None, definition_file=None):
         self.calls.append(('import', definition_file, name, tags))
         self.new_vm = {'uuid': 'new-vm', 'name': name, 'blockDevs': [{'uuid': 'new-nv', 'type': 'NVRAM'}, {'uuid': 'new-tpm', 'type': 'VTPM'}, {'uuid': 'new-cd', 'type': 'IDE_CDROM'}],
                        'netDevs': [{'uuid': 'new-nic', 'macAddress': '7C:4C:58:AA:AA:AA', 'connected': True}]}
         self.vms.append(self.new_vm); return 'task', 'new-vm'
     def get_vm(self, u): return self.new_vm
-    def create_block_device(self, vm, cap, dev_type='VIRTIO_DISK'):
-        self.n += 1; u = f'stage-{self.n}'; self.proxy_devs.append(u); self.calls.append(('create_staging', vm, cap)); return 'task', u
-    def create_snapshot(self, vm, label, quiesce=True):
+    def create_block_device(self, vm, cap, dev_type='VIRTIO_DISK', tiering=None):
+        self.n += 1; u = f'stage-{self.n}'; self.proxy_devs.append(u); self.calls.append(('create_staging', vm, cap, tiering)); return 'task', u
+    def create_snapshot(self, vm, label, quiesce=True, retain_days=None):
         self.n += 1; u = f'psnap-{self.n}'; self.snaps[u] = {'uuid': u, 'state': 'CREATED', 'deviceSnapshots': []}; self.calls.append(('snapshot', vm, label)); return 'task', u
     def get_snapshot(self, u): return self.snaps.get(u)
     def delete_snapshot(self, u): self.snaps.pop(u, None); return 'task'
-    def clone_device(self, dev, snap, target, cap, read_only=True):
-        self.n += 1; u = f'restored-disk-{self.n}'; self.new_devs.append(u); self.new_vm['blockDevs'].append({'uuid': u, 'type': 'VIRTIO_DISK'})
-        self.calls.append(('clone', dev, snap, target, read_only)); return 'task', u
+    refuse_types = ()
+    def clone_device(self, dev, snap, target, cap, read_only=True, dev_type='VIRTIO_DISK', tiering=None):
+        if dev_type in self.refuse_types:
+            raise hcm.HyperCoreError(f'HyperCore API 400 on /VirDomainBlockDevice/{dev}/clone: type {dev_type} not allowed', 400)
+        self.n += 1; u = f'restored-disk-{self.n}'; self.new_devs.append(u); self.new_vm['blockDevs'].append({'uuid': u, 'type': dev_type})
+        self.calls.append(('clone', dev, snap, target, read_only, dev_type, tiering)); return 'task', u
     def delete_block_device(self, u): self.proxy_devs.remove(u) if u in self.proxy_devs else None; self.calls.append(('delete_dev', u)); return 'task'
+    def patch_block_device(self, u, **f): self.calls.append(('patch_dev', u, f)); return 'task'
     def patch_vm(self, u, **f): self.calls.append(('patch_vm', u, f)); return 'task'
     def patch_netdev(self, u, **f): self.calls.append(('patch_nic', u, f)); return 'task'
     def vm_action(self, u, a): self.calls.append(('action', u, a)); return 'task'
@@ -119,6 +125,8 @@ def world(monkeypatch):
     monkeypatch.setattr(rs.jobs, 'client_for', lambda cid: fhc)
     monkeypatch.setattr(rs, 'proxy_client_for', lambda p: fpc)
     monkeypatch.setattr(rs.time, 'sleep', lambda s: None); monkeypatch.setattr(inc.time, 'sleep', lambda s: None)
+    monkeypatch.setattr(rs.jobs.time, 'sleep', lambda s: None)
+    rs.jobs._PREFLIGHT_CACHE.clear()
     return types.SimpleNamespace(db=fdb, hc=fhc, pc=fpc)
 
 
@@ -137,11 +145,42 @@ def test_fast_restore_end_to_end(world):
     assert stage['devices'] == [{'uuid': 'disk-1', 'staging_clone_uuid': 'stage-1'}] and stage['seq'] == 1
     clone = [c for c in world.hc.calls if c[0] == 'clone'][0]
     assert clone[1] == 'stage-1' and clone[3] == 'new-vm' and clone[4] is False, 'staging disk cloned read-write onto the restored VM'
+    assert clone[5] == 'VIRTIO_DISK' and clone[6] == 8, 'original bus, SSD tiering explicit (the attach default would be 0)'
+    assert ('patch_dev', world.hc.new_devs[0], {'tieringPriorityFactor': 8}) in world.hc.calls, 'a clone inherits tiering from the staging disk: set it after'
+    assert [c for c in world.hc.calls if c[0] == 'create_staging'][0][3] == 0, 'staging disks stay off the SSD tier'
     assert world.hc.proxy_devs == [] and world.hc.snaps == {}, 'staging disk and proxy snapshot removed'
     assert ('patch_vm', 'new-vm', {'bootDevices': [world.hc.new_devs[0], 'new-cd']}) in world.hc.calls
     nic = [c for c in world.hc.calls if c[0] == 'patch_nic'][0]
     assert nic[2] == {'connected': False, 'vlan': 7, 'macAddress': '7C:4C:58:4B:5C:5E'}, 'original MAC on request'
     assert ('action', 'new-vm', 'START') in world.hc.calls and r['created_uuid'] == 'new-vm' and 'MAC original' in r['message']
+
+
+def test_disks_come_back_on_their_original_bus(world):
+    """An IDE disk is restored as IDE and a SCSI disk as SCSI (the VM is off, so even IDE may be
+    attached); the stored tiering factor is put back; a refusal is an error naming the bus, never a
+    silent switch to virtio."""
+    world.db.point['definition'] = dict(DEF, blockDevs=DEF['blockDevs'] + [{'uuid': 'disk-ide', 'type': 'IDE_DISK', 'capacity': 1 << 30, 'tieringPriorityFactor': 0},
+                                                                          {'uuid': 'disk-scsi', 'type': 'SCSI_DISK', 'capacity': 1 << 30}])
+    rs.run_restore(9)
+    assert world.db.restore['status'] == 'COMPLETE', world.db.restore
+    clones = [(c[1], c[5], c[6]) for c in world.hc.calls if c[0] == 'clone']
+    assert clones == [('stage-1', 'VIRTIO_DISK', 8), ('stage-2', 'IDE_DISK', 0), ('stage-3', 'SCSI_DISK', 8)]
+    assert [c[2]['tieringPriorityFactor'] for c in world.hc.calls if c[0] == 'patch_dev'] == [8, 0, 8]
+    world.hc.refuse_types = ('IDE_DISK',); world.hc.calls.clear(); world.hc.vms = [v for v in world.hc.vms if v['uuid'] != 'new-vm']
+    world.db.restore.update(status='RUNNING')
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'ERROR' and 'could not be attached as IDE_DISK' in r['message'], r
+    assert not [c for c in world.hc.calls if c[0] == 'clone' and c[5] != 'IDE_DISK' and c[1] == 'stage-5'], 'no fallback to another bus'
+    assert world.hc.proxy_devs == [] and world.hc.snaps == {}, 'staging disks and proxy snapshot cleaned up after the refusal'
+
+
+def test_restore_refuses_while_a_node_is_missing(world):
+    world.hc.list_nodes = lambda: [{'lanIP': '172.16.0.243', 'networkStatus': 'OFFLINE'}]
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'ERROR' and r['message'].startswith('node not online: 172.16.0.243') and 'evicted' in r['message']
+    assert not world.pc.jobs and not [c for c in world.hc.calls if c[0] == 'import'], 'nothing was created'
 
 
 def test_restore_keeps_new_mac_when_source_vm_still_exists(world, monkeypatch):

@@ -27,7 +27,8 @@ import incremental
 import jobs
 import vm_definition
 from hypercore import HyperCoreClient, HyperCoreError
-from incremental import IncrementalError, _delete_clones, _safe_delete_snapshot, pick_proxy, proxy_client_for, proxy_lock, wait_snapshot, wait_task
+from incremental import (IncrementalError, _delete_clones, _safe_delete_snapshot, clone_onto, pick_proxy, proxy_client_for, proxy_lock,
+                         take_snapshot, vm_lock, wait_task)
 from proxy_client import ProxyError
 
 log = logging.getLogger('backup.restore')
@@ -101,6 +102,9 @@ def _run(r: dict) -> None:
     if not disks:
         raise IncrementalError('the point has no data disk')
     hc = jobs.client_for(chain['cluster_id'])
+    pf = jobs.preflight(hc)
+    if not pf['ok']:
+        raise IncrementalError(f"{pf['detail']}. {jobs.DEFERRED_HINT.get(pf['kind'], '')}".strip())
     proxy = pick_proxy(chain['cluster_id'])
     pc = proxy_client_for(proxy)
     target = {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')}
@@ -135,13 +139,14 @@ def _run(r: dict) -> None:
 
     # 3.–4. staging disks on the proxy, filled from the point, cloned onto the restored VM
     disk_map: dict[str, str] = {}
-    with proxy_lock(proxy['id']):
+    with vm_lock(chain['cluster_id'], proxy['vm_uuid']), proxy_lock(proxy['id']):
         staging: list[tuple[dict, str]] = []
         snap_uuid = None
         try:
             for d in disks:
                 cap = int(d['capacity'])
-                stag, su = hc.create_block_device(proxy['vm_uuid'], cap)
+                # staging disks take heavy one-off writes: keep them off the SSD tier (factor 0)
+                stag, su = jobs.retry_transient(lambda: hc.create_block_device(proxy['vm_uuid'], cap, tiering=0), 'create staging disk')
                 wait_task(hc, stag, 'create staging disk', 600)
                 staging.append((d, su))
             db.update_restore(rid, message=f'writing {len(disks)} disk(s) to the proxy')
@@ -150,13 +155,25 @@ def _run(r: dict) -> None:
                           on_progress=lambda p: db.update_restore(rid, message=f"writing disks: {p.get('blocks_done', 0)}/{p.get('blocks_total', 0)} MiB"),
                           timeout=8 * 3600)['result']
             db.update_restore(rid, message='attaching disks to the restored VM')
-            stag, snap_uuid = hc.create_snapshot(proxy['vm_uuid'], f'hcm-restore-{rid}', quiesce=False)
-            wait_task(hc, stag, 'proxy snapshot', 600)
-            wait_snapshot(hc, snap_uuid)
+            snap_uuid = take_snapshot(hc, proxy['vm_uuid'], f'hcm-restore-{rid}', quiesce=False, retain_days=1)['uuid']
             for d, su in staging:
-                ctag, new_dev = hc.clone_device(su, snap_uuid, new_vm['uuid'], int(d['capacity']), read_only=False)
-                wait_task(hc, ctag, 'clone staging disk', 600)
+                # the disk goes back on the bus it had (IDE as IDE, SCSI as SCSI): the VM is off, so even
+                # IDE may be attached now. A refusal is an error, never a silent switch to another bus.
+                dev_type = d.get('type') if d.get('type') in HyperCoreClient.DISK_TYPES else 'VIRTIO_DISK'
+                tiering = int(d['tieringPriorityFactor']) if d.get('tieringPriorityFactor') is not None else 8
+                try:
+                    new_dev = clone_onto(hc, su, snap_uuid, new_vm['uuid'], int(d['capacity']), read_only=False, dev_type=dev_type, tiering=tiering)
+                except (HyperCoreError, IncrementalError) as e:
+                    raise IncrementalError(f"disk {d['uuid'][:8]} could not be attached as {dev_type}: {e}") from e
                 disk_map[d['uuid']] = new_dev
+                # the clone inherits the staging disk's tiering (0) whatever the template says: put the
+                # source's factor back, or the restored VM runs from an uncached disk
+                fields = {'tieringPriorityFactor': tiering}
+                if d.get('name'):
+                    fields['name'] = d['name']                 # an orchestrator's identity for the volume (CSI)
+                t = jobs.retry_transient(lambda: hc.patch_block_device(new_dev, **fields), 'disk settings')
+                if t:
+                    wait_task(hc, t, 'disk settings', 300)
         finally:
             _safe_delete_snapshot(hc, snap_uuid, 'restore staging')
             _delete_clones(hc, [su for _, su in staging])

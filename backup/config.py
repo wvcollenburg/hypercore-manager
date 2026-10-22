@@ -49,6 +49,14 @@ class Config:
     default_run_time:      str = field(default_factory=lambda: _str('BACKUP_DEFAULT_RUN_TIME', '03:00'))
     # how often the scheduler re-reads schedules and the registry
     sync_interval_seconds: int = field(default_factory=lambda: _int('BACKUP_SYNC_INTERVAL_SECONDS', 60))
+    # HyperCore removes a reference (anchor) snapshot itself after this many days, so an anchor left
+    # behind by an installation that vanished does not sit on the cluster forever. A VM backed up
+    # less often than this gets a full with a note. 0 disables the deadline.
+    anchor_retain_days:    int = field(default_factory=lambda: _int('BACKUP_ANCHOR_RETAIN_DAYS', 60))
+    # a run that finds the cluster self-updating or a node missing waits this long for it to clear,
+    # polling every preflight_poll_seconds, then records a deferred run and leaves it to the next schedule
+    preflight_wait_hours:  float = field(default_factory=lambda: float(_str('BACKUP_PREFLIGHT_WAIT_HOURS', '2')))
+    preflight_poll_seconds: int = field(default_factory=lambda: _int('BACKUP_PREFLIGHT_POLL_SECONDS', 300))
 
 
 def load() -> Config:

@@ -72,8 +72,18 @@ def status():
     cfg = cfg_module.load()
     cid = _cluster_arg()
     loc = jobs.location_for_cluster(cid) if cid else None
+    pf = None
+    if cid:
+        try:
+            pf = jobs.preflight(jobs.client_for(cid), cid, max_age=60)
+            if not pf['ok']:
+                pf = dict(pf, hint=jobs.DEFERRED_HINT.get(pf['kind'], ''))
+        except HyperCoreError as e:
+            pf = {'ok': True, 'kind': None, 'detail': '', 'nodes': [], 'unavailable': str(e)}
     return jsonify({
         'service': 'backup',
+        # update in progress / node missing: the dashboard shows a banner, runs are deferred
+        'preflight': pf,
         'default_retention': cfg.default_retention,
         'default_run_time': cfg.default_run_time,
         'task_timeout_hours': cfg.task_timeout_hours,

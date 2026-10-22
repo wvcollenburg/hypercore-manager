@@ -115,14 +115,17 @@ class _FakeHC:
     def definition_of(self, vm): return hcm.HyperCoreClient.definition_of(self, vm)
     def snapshot_serials(self, s): return hcm.HyperCoreClient.snapshot_serials(s)
     def task_status(self, tag): return {'state': 'COMPLETE'}
-    def create_snapshot(self, vm, label, quiesce=True):
-        self.n += 1; u = f'snap-{self.n}'; self.snaps[u] = {'uuid': u, 'state': 'CREATED', 'label': label,
+    def update_status(self): return {'updateStatus': {'masterState': 'COMPLETE'}}
+    def list_nodes(self): return [{'uuid': 'n1', 'lanIP': '172.16.0.241', 'networkStatus': 'ONLINE'}]
+    quiesced = True
+    def create_snapshot(self, vm, label, quiesce=True, retain_days=None):
+        self.n += 1; u = f'snap-{self.n}'; self.snaps[u] = {'uuid': u, 'state': 'CREATED', 'label': label, 'quiesced': self.quiesced, 'retain_days': retain_days,
                                                             'deviceSnapshots': [{'uuid': 'disk-1', 'serialNumber': 10 + self.n}, {'uuid': 'nv-1', 'serialNumber': 10 + self.n}]}
         self.calls.append(('snapshot', label)); return f'task-{u}', u
     def get_snapshot(self, u): return self.snaps.get(u)
     def delete_snapshot(self, u): self.snaps.pop(u, None); self.calls.append(('delete_snapshot', u)); return 'task'
-    def clone_device(self, dev, snap, target, cap, read_only=True):
-        self.n += 1; u = f'clone-{self.n}'; self.devices[u] = (dev, target, cap, read_only); self.calls.append(('clone', dev, target)); return 'task', u
+    def clone_device(self, dev, snap, target, cap, read_only=True, dev_type='VIRTIO_DISK', tiering=None):
+        self.n += 1; u = f'clone-{self.n}'; self.devices[u] = (dev, target, cap, read_only); self.calls.append(('clone', dev, target, dev_type)); return 'task', u
     def delete_block_device(self, u): self.devices.pop(u, None); self.calls.append(('delete_clone', u)); return 'task'
     def snap_diff(self, dev, a, b):
         self.calls.append(('snapdiff', dev, a, b)); return [{'lower': 0, 'upper': 3}] if a == 0 else [{'lower': 1, 'upper': 1}]
@@ -160,9 +163,9 @@ class _FakeDB:
         self.chains[cid] = {'id': cid, 'plan_id': plan['id'], 'cluster_id': plan['cluster_id'], 'status': 'active', 'chain_dir': chain_dir, 'next_seq': 0, 'runs_since_full': 0,
                             'anchor_snapshot_uuid': None, 'last_serials': None, 'target_id': target_id}; return cid
     def get_chain(self, cid): return self.chains[cid]
-    def add_point(self, chain_id, seq, kind, dir_, serials, blocks, bw, dur, files, definition, run_id):
+    def add_point(self, chain_id, seq, kind, dir_, serials, blocks, bw, dur, files, definition, run_id, quiesced=None):
         pid = 100 + len(self.points); self.points.append({'id': pid, 'chain_id': chain_id, 'seq': seq, 'kind': kind, 'dir': dir_, 'status': 'ok',
-                                                          'created_at': NOW, 'serials': serials, 'definition': definition}); return pid
+                                                          'created_at': NOW, 'serials': serials, 'definition': definition, 'quiesced': quiesced}); return pid
     def points_for_plan_retention(self, pid):
         return [dict(p, chain_dir=self.chains[p['chain_id']]['chain_dir'], target_id=9) for p in self.points if p['status'] == 'ok']
     def get_points(self, cid, include_pruned=False): return [p for p in self.points if p['chain_id'] == cid and (include_pruned or p['status'] == 'ok')]
@@ -180,6 +183,9 @@ def world(monkeypatch):
     monkeypatch.setattr(inc.jobs, 'location_for_cluster', lambda cid: {'tenant': 'Amsterdam', 'base': 'smb://nas/share/Amsterdam'})
     monkeypatch.setattr(inc, 'proxy_client_for', lambda p: fpc)
     monkeypatch.setattr(inc.time, 'sleep', lambda s: None)
+    monkeypatch.setattr(inc.jobs.time, 'sleep', lambda s: None)
+    monkeypatch.setattr(inc.jobs, 'CFG', types.SimpleNamespace(preflight_wait_hours=0, preflight_poll_seconds=0, task_timeout_hours=8, poll_interval_seconds=0))
+    inc.jobs._PREFLIGHT_CACHE.clear()
     return types.SimpleNamespace(db=fdb, hc=fhc, pc=fpc)
 
 
@@ -209,6 +215,81 @@ def test_first_run_is_a_full_and_second_a_delta(world):
     assert ('snapdiff', 'disk-1', 11, 14) in world.hc.calls and ('delete_snapshot', 'snap-1') in world.hc.calls
     assert list(world.hc.snaps) == ['snap-4'] and world.db.chains[1]['runs_since_full'] == 1
     assert world.db.chains[1]['active_clones'] == []
+
+
+def test_anchor_carries_a_retention_deadline_and_the_point_records_quiesce(world):
+    """The SDK rules: every snapshot we leave behind sets localRetainUntilTimestamp (it cannot be
+    extended later), and whether the point was quiesced is catalogued because the restore UI is asked."""
+    inc.run_incremental(4)
+    snap = world.hc.snaps['snap-1']
+    assert snap['retain_days'] == inc.CFG.anchor_retain_days == 60
+    assert world.db.points[0]['quiesced'] is True
+    world.hc.quiesced = False
+    world.db.runs.clear(); world.db.start_run(4); inc.run_incremental(4)
+    assert world.db.points[1]['quiesced'] is False and 'crash-consistent' in world.db.runs[1]['message']
+
+
+def test_resized_disk_is_copied_in_full_inside_the_delta(world):
+    """snapDiff reports nothing for a grown region, so a disk whose capacity changed since the
+    previous point gets the allocation map (from serial 0) and the `full` flag for the proxy."""
+    inc.run_incremental(4)
+    world.hc.vm['blockDevs'][0]['capacity'] = 8 << 20                       # grown from 4 to 8 MiB
+    world.db.runs.clear(); world.db.start_run(4); inc.run_incremental(4)
+    run = world.db.runs[1]
+    assert run['status'] == 'COMPLETE' and run['point_kind'] == 'delta', run
+    assert 'changed size (4 -> 8 MiB)' in run['message'] and 'copied in full' in run['message']
+    _, body = world.pc.jobs[1]
+    disk = body['devices'][0]
+    assert disk['full'] is True and disk['full_map'] == disk['map'] and disk['size'] == 8 << 20
+    assert ('snapdiff', 'disk-1', 0, 14) in world.hc.calls and ('snapdiff', 'disk-1', 11, 14) not in world.hc.calls
+    assert inc.resized_devices([{'uuid': 'a', 'type': 'VIRTIO_DISK', 'capacity': 5}], {'blockDevs': [{'uuid': 'a', 'capacity': 5}]}) == {}
+    assert inc.resized_devices([{'uuid': 'a', 'type': 'VIRTIO_DISK', 'capacity': 5}], None) == {}, 'no previous point: nothing to compare'
+
+
+def test_transient_500_is_retried_and_other_errors_are_not(world):
+    attempts = []
+
+    def flaky(*a, **kw):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise hcm.HyperCoreError('HyperCore API 500 on /VirDomainSnapshot: An internal error occurred', 500)
+        return world.hc.__class__.create_snapshot(world.hc, *a, **kw)
+    world.hc.create_snapshot = flaky
+    inc.run_incremental(4)
+    assert world.db.runs[1]['status'] == 'COMPLETE' and len(attempts) == 3
+    with pytest.raises(hcm.HyperCoreError, match='403'):
+        inc.jobs.retry_transient(lambda: (_ for _ in ()).throw(hcm.HyperCoreError('Permission denied (403)', 403)), 'x')
+    assert hcm.HyperCoreError('x', 500).transient and not hcm.HyperCoreError('x', 400).transient
+    assert hcm.HyperCoreError('timed out waiting for CV refresh').transient
+
+
+def test_preflight_rules_and_a_deferred_run():
+    pf = inc.jobs.preflight_of
+    assert pf({'updateStatus': {'masterState': 'COMPLETE'}}, [{'networkStatus': 'ONLINE'}])['ok']
+    assert pf({}, [])['ok'], 'a cluster that never updated has no status'
+    up = pf({'updateStatus': {'masterState': 'RUNNING', 'toVersion': '9.9.0', 'percent': '40'}}, [{'networkStatus': 'ONLINE'}])
+    assert not up['ok'] and up['kind'] == 'update' and '9.9.0' in up['detail'] and '40%' in up['detail']
+    node = pf({}, [{'lanIP': '172.16.0.242', 'networkStatus': 'OFFLINE', 'uuid': 'n2'}, {'lanIP': '172.16.0.241', 'networkStatus': 'ONLINE'}])
+    assert not node['ok'] and node['kind'] == 'node' and node['nodes'] == [{'lan_ip': '172.16.0.242', 'status': 'OFFLINE', 'uuid': 'n2'}]
+    assert 'Scale Computing support' in inc.jobs.DEFERRED_HINT['node']
+
+
+def test_run_is_deferred_while_a_node_is_missing(world):
+    world.hc.list_nodes = lambda: [{'uuid': 'n2', 'lanIP': '172.16.0.242', 'networkStatus': 'OFFLINE'}]
+    inc.run_incremental(4)
+    run = world.db.runs[1]
+    assert run['status'] == 'SKIPPED' and run['message'].startswith('Deferred: node not online: 172.16.0.242 (OFFLINE)')
+    assert 'evicted' in run['message'] and not world.hc.snaps and not world.pc.jobs, 'nothing touched the cluster'
+    # the wait loop reports the reason once and gives up at the deadline; a healthy cluster passes at once
+    seen = []
+    assert inc.jobs.wait_until_clear(world.hc, seen.append, max_hours=0, poll_seconds=0)['ok'] is False and len(seen) == 1
+    world.hc.list_nodes = lambda: [{'networkStatus': 'ONLINE'}]
+    assert inc.jobs.wait_until_clear(world.hc, seen.append, max_hours=0, poll_seconds=0)['ok'] and len(seen) == 1
+
+
+def test_vm_lock_is_one_object_per_vm():
+    a, b = inc.vm_lock('c1', 'vm-1'), inc.vm_lock('c1', 'vm-1')
+    assert a is b and inc.vm_lock('c1', 'vm-2') is not a and inc.vm_lock('c2', 'vm-1') is not a
 
 
 def test_missing_anchor_falls_back_to_full_with_a_note(world):

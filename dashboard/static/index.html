@@ -614,6 +614,14 @@
   .ex-badge.err { background: rgba(239,68,68,0.15); color: var(--accent-red); }
   .ex-badge.run { background: rgba(6,182,212,0.15); color: var(--accent-cyan); }
   .ex-badge.off { background: rgba(148,163,184,0.15); color: var(--text-muted); }
+  .ex-badge.warn { background: rgba(245,158,11,0.15); color: var(--accent-amber); }
+  .ex-preflight { display: none; margin: 0 0 12px 0; padding: 12px 16px; border-radius: 8px; font-size: 13px; line-height: 1.5; border: 1px solid; }
+  .ex-preflight.visible { display: block; }
+  .ex-preflight.update { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.5); color: var(--text-primary); }
+  .ex-preflight.node { background: rgba(239,68,68,0.14); border-color: rgba(239,68,68,0.6); color: var(--text-primary); font-size: 14px; }
+  .ex-preflight strong { display: block; margin-bottom: 4px; font-size: 15px; }
+  .ex-preflight.node strong { color: var(--accent-red); }
+  .ex-preflight.update strong { color: var(--accent-amber); }
   .ex-folder-list { max-height: 36vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px; margin-top: 8px; }
   .ex-folder-list label { display: flex; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
   .ex-folder-list label:hover { background: var(--bg-card); }
@@ -648,6 +656,10 @@
   .cl-msg { font-size: 12px; margin-top: 8px; min-height: 16px; }
   .cl-msg.ok { color: var(--accent-green); } .cl-msg.err { color: var(--accent-red); }
   .cl-status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .cl-nodes { display: flex; flex-wrap: wrap; gap: 3px 14px; margin-top: 5px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-secondary); }
+  .cl-node { white-space: nowrap; } .cl-node.gone { opacity: 0.5; }
+  .cl-node em { font-style: normal; font-size: 9px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; margin-left: 4px; }
+  .cl-node a { color: var(--text-muted); text-decoration: none; margin-left: 2px; } .cl-node a:hover { color: var(--accent-red); }
 
   /* community-support notice (shown once per user) */
   .community-notice-body { font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
@@ -1491,6 +1503,7 @@
       <div class="exports-sub-tab"        data-expanel="points"    data-i18n="ex.tab.points"    onclick="switchExportsPanel('points')">Restore points</div>
       <div class="exports-sub-tab"        data-expanel="runs"      data-i18n="ex.tab.runs"      onclick="switchExportsPanel('runs')">Runs</div>
     </div>
+    <div class="ex-preflight" id="exPreflightBanner" role="alert"></div>
     <div class="exports-panel active" id="expanel-schedules"></div>
     <div class="exports-panel" id="expanel-points"></div>
     <div class="exports-panel" id="expanel-vms"></div>
@@ -1702,7 +1715,16 @@ let clusterRamChart = null, clusterStorageChart = null;
 
 // ─── cached data stores ───
 let cachedDrives = [];
-let cachedVsds = [];
+let cachedStorage = { vms: [], cluster: { history: [] } };   // /api/storage/summary of the VMs view
+// One storage summary per refresh: the nodes view and the VMs view both need it and run in
+// parallel, so a request for the same window and cluster within 10 s is shared, not repeated.
+let _storageCache = { key: null, at: 0, promise: null };
+function fetchStorageSummary(h) {
+  const key = _withCluster(`/api/storage/summary?hours=${h}`);
+  if (_storageCache.promise && _storageCache.key === key && Date.now() - _storageCache.at < 10000) return _storageCache.promise;
+  _storageCache = { key, at: Date.now(), promise: apiFetch(`/api/storage/summary?hours=${h}`) };
+  return _storageCache.promise;
+}
 
 // ─── time range state ───
 let nodeHours = 24;
@@ -1857,18 +1879,18 @@ function renderDrivesForNode(nodeUuid) {
 
 // ─── render VSD sub-items for a given VM ───
 function renderVsdsForVm(vmUuid) {
-  const vsds = cachedVsds.filter(v => v.vm_uuid === vmUuid && v.type !== 'NVRAM' && v.type !== 'VTPM');
+  const vm = (cachedStorage.vms || []).find(v => v.uuid === vmUuid);
+  const vsds = (vm ? vm.vsds : []).filter(v => v.type !== 'NVRAM' && v.type !== 'VTPM');
   if (!vsds.length) return '';
 
   return `
     <div class="sub-section">
       <div class="sub-section-title">${t('vsd.devices')} (${vsds.length})</div>
       ${vsds.map(v => {
-        const latest = v.history.length ? v.history[v.history.length - 1] : {};
-        const readKbps = latest.read_kbps || 0;
-        const writeKbps = latest.write_kbps || 0;
-        const readLat = latest.read_latency_us || 0;
-        const writeLat = latest.write_latency_us || 0;
+        const readKbps = v.read_kbps || 0;          // newest sample per disk, no history here
+        const writeKbps = v.write_kbps || 0;
+        const readLat = v.read_latency_us || 0;
+        const writeLat = v.write_latency_us || 0;
 
         return `
           <div class="sub-item">
@@ -1906,7 +1928,7 @@ async function loadNodes() {
     apiFetch(`/api/nodes?hours=${h}`),
     apiFetch(`/api/drives?hours=${h}`),
     apiFetch(`/api/drives?hours=${h}&include_stale=true`),
-    apiFetch(`/api/vsds?hours=${h}`),
+    fetchStorageSummary(h),
     apiFetch('/api/config')
   ]);
   const maxVcpuRatio = configData ? (configData.find(c => c.key === 'MAX_VCPU_RATIO')?.value ?? 2.0) : 2.0;
@@ -1982,20 +2004,10 @@ async function loadNodes() {
     }
   });
 
-  // VSD aggregate IOPS chart
-  const vsds = vsdData || [];
-  const iopsMap = new Map(); // ISO timestamp -> total IOPS
-  for (const vsd of vsds) {
-    for (const h of vsd.history) {
-      if (h.read_iops == null && h.write_iops == null) continue;
-      const t = h.time;
-      const iops = (h.read_iops || 0) + (h.write_iops || 0);
-      iopsMap.set(t, (iopsMap.get(t) || 0) + iops);
-    }
-  }
-  const iopsPoints = Array.from(iopsMap.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([t, v]) => ({ x: new Date(t), y: Math.round(v * 10) / 10 }));
+  // cluster IOPS chart: the summary's cluster series (IOPS summed over every disk, server-side)
+  const iopsPoints = ((vsdData && vsdData.cluster && vsdData.cluster.history) || [])
+    .filter(p => p.read_iops != null || p.write_iops != null)
+    .map(p => ({ x: new Date(p.time), y: Math.round(((p.read_iops || 0) + (p.write_iops || 0)) * 10) / 10 }));
 
   // expected point count based on the aggregation window used by the backend
   const aggWindowHours = h <= 2 ? 1/60 : h <= 6 ? 2/60 : h <= 12 ? 5/60 : h <= 24 ? 10/60 : h <= 168 ? 1 : h <= 720 ? 4 : 24;
@@ -2242,13 +2254,13 @@ function renderVmCards() {
 // ─── load VMs + VSDs ───
 async function loadVMs() {
   const h = vmHours;
-  const [vmData, vsdData] = await Promise.all([
+  const [vmData, storageData] = await Promise.all([
     apiFetch(`/api/vms?hours=${h}`),
-    apiFetch(`/api/vsds?hours=${h}`)
+    fetchStorageSummary(h)
   ]);
   
   if (!vmData) { document.getElementById('vmCards').innerHTML = `<div class="empty-state">${t('empty.no_api')}</div>`; return; }
-  cachedVsds = vsdData || [];
+  cachedStorage = storageData || { vms: [], cluster: { history: [] } };
   cachedVmData = vmData;
 
   renderVmCards();
@@ -2283,9 +2295,9 @@ async function loadVMs() {
     }
   });
 
-  // VSD latency chart — top 10 by latest write latency
-  if (cachedVsds.length) {
-    const vsdSorted = [...cachedVsds]
+  // storage latency chart — top 5 VMs by latest write latency (each VM's series is its worst disk)
+  if ((cachedStorage.vms || []).length) {
+    const vsdSorted = [...cachedStorage.vms]
       .filter(v => v.history.length > 0)
       .sort((a,b) => {
         const al = a.history[a.history.length-1].write_latency_us||0;
@@ -2298,7 +2310,7 @@ async function loadVMs() {
     vsdLatencyChart = new Chart(ctx2, {
       type: 'line',
       data: { datasets: vsdSorted.map((v,i) => ({
-        label: `${v.vm_name}/${v.name}`,
+        label: v.name,
         data: buildChartData(v.history, 'write_latency_us', aggWindowSeconds),
         borderColor: CHART_COLORS[i%CHART_COLORS.length],
         borderWidth: 1.5, pointRadius: 0, tension: 0.3
@@ -2380,7 +2392,7 @@ async function renderVmDetailCharts() {
   const h = vmDetailHours;
   const [vmData, vsdData] = await Promise.all([
     apiFetch(`/api/vms?hours=${h}`),
-    apiFetch(`/api/vsds?hours=${h}`)
+    apiFetch(`/api/vsds?hours=${h}&vm=${encodeURIComponent(vmDetailActiveUuid)}`)   // this VM's disks only
   ]);
   if (!vmData) return;
 
@@ -5297,8 +5309,10 @@ async function clTestExisting(id) {
   _clMsg('cl-' + id, t('clusters.testing'), '');
   const r = await fetch(`${API_BASE}/api/clusters/${id}/test`, { method: 'POST' });
   const d = await r.json().catch(() => ({}));
-  if (d.ok) _clMsg('cl-' + id, t('clusters.test_ok', {name: d.cluster_name || '?', nodes: d.node_count ?? '?', version: d.version || '?'}) + ' · ' + t(d.api_v2 ? 'clusters.api_v2_yes' : 'clusters.api_v2_no'), 'ok');
-  else _clMsg('cl-' + id, t('clusters.test_fail', {error: d.error || r.status}), 'err');
+  const perNode = d.nodes_total ? ' · ' + t('clusters.test_nodes', {ok: d.nodes_ok, total: d.nodes_total}) : '';
+  const failed = (d.nodes_tested || []).filter(n => !n.ok).map(n => `${n.address}: ${n.error || '?'}`).join('; ');
+  if (d.ok) _clMsg('cl-' + id, t('clusters.test_ok', {name: d.cluster_name || '?', nodes: d.node_count ?? '?', version: d.version || '?'}) + perNode + ' · ' + t(d.api_v2 ? 'clusters.api_v2_yes' : 'clusters.api_v2_no') + (failed ? ' · ' + failed : ''), d.nodes_ok === d.nodes_total ? 'ok' : '');
+  else _clMsg('cl-' + id, t('clusters.test_fail', {error: failed || d.error || r.status}) + perNode, 'err');
   loadClusters();
 }
 async function clToggle(id, enabled) {
@@ -5316,12 +5330,41 @@ async function clRemove(id, name) {
 function clEdit(id) { const row = document.getElementById(`cl-edit-${id}`); if (row) row.hidden = !row.hidden; }
 function clCancelEdit(id) { const row = document.getElementById(`cl-edit-${id}`); if (row) row.hidden = true; }
 
+function _clAgoShort(iso) {
+  if (!iso) return '?';
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 90) return Math.round(s) + 's';
+  if (s < 5400) return Math.round(s / 60) + 'm';
+  if (s < 172800) return Math.round(s / 3600) + 'h';
+  return Math.round(s / 86400) + 'd';
+}
+// The nodes discovered through GET /Node: green = reachable (ONLINE, IN), amber = present but
+// offline or out, grey = no longer listed by the cluster (kept until an admin forgets it).
+function _clNodesHtml(c, isAdmin) {
+  const nodes = c.nodes || [];
+  if (!nodes.length) return '';
+  const active = (c.active_host || '').toLowerCase();
+  return `<div class="cl-nodes">${nodes.map(n => {
+    const addr = n.address || n.lan_ip || '?';
+    const inUse = !!active && (addr.toLowerCase() === active || (n.lan_ip || '').toLowerCase() === active);
+    const colour = !n.present ? 'var(--text-muted)' : (n.usable ? 'var(--accent-green)' : 'var(--accent-amber)');
+    const title = !n.present ? t('clusters.node_gone', {ago: _clAgoShort(n.last_seen_at)})
+                             : `${n.network_status || '?'} · ${n.disposition || '?'}${n.lan_ip && n.lan_ip !== addr ? ' · ' + n.lan_ip : ''}`;
+    return `<span class="cl-node${n.present ? '' : ' gone'}" title="${_clEsc(title)}"><span class="cl-status-dot" style="background:${colour}"></span>${n.peer_id != null ? '#' + n.peer_id + ' ' : ''}${_clEsc(addr)}${n.witness ? `<em>${t('clusters.node_witness')}</em>` : ''}${inUse ? `<em>${t('clusters.node_in_use')}</em>` : ''}${!n.present && isAdmin ? `<a href="#" onclick="clForgetNode('${c.cluster_id}', '${_clEsc(n.node_uuid)}'); return false;" title="${_clEsc(t('clusters.node_forget'))}">×</a>` : ''}</span>`;
+  }).join('')}</div>`;
+}
+async function clForgetNode(id, uuid) {
+  const r = await fetch(`${API_BASE}/api/clusters/${id}/nodes/${encodeURIComponent(uuid)}`, { method: 'DELETE' });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); _clMsg('cl-' + id, d.error || `HTTP ${r.status}`, 'err'); return; }
+  loadClusters();
+}
+
 function _renderClustersCard(clusters, me) {
   const isAdmin = me?.role === 'admin';
   const rows = clusters.map((c, i) => `
     <tr>
       <td><span class="cl-status-dot" style="background:${c.last_error ? 'var(--accent-red)' : (c.enabled ? _clColour(c, i) : 'var(--text-muted)')}"></span><strong>${_clEsc(c.name)}</strong>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(c.host)}${c.hc_cluster_uuid ? ' · ' + _clEsc(c.hc_cluster_uuid.slice(0, 8)) : ''}</div></td>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(c.host)}${c.hc_cluster_uuid ? ' · ' + _clEsc(c.hc_cluster_uuid.slice(0, 8)) : ''}</div>${_clNodesHtml(c, isAdmin)}</td>
       <td>${_clEsc(c.username)}<div style="font-size:10px;color:var(--text-muted);">${_clEsc((FOLDERS.find(f => f.folder_id === c.folder_id) || {}).name || t('folders.unfiled'))}</div></td>
       <td><span class="um-badge ${c.enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${c.enabled ? t('clusters.enabled') : t('clusters.disabled')}</span>
           <div style="font-size:10px;color:var(--text-muted);margin-top:4px;font-family:'JetBrains Mono',monospace;" title="${_clEsc(t('clusters.api_hint'))}">${_clApiLabel(c)}</div></td>
@@ -5415,7 +5458,21 @@ async function _exProbe() {
   if (d && d.available) { _exDefaults = d; _exLocation = d.location || null; }
   const tab = document.getElementById('navTabExports');
   if (tab) tab.hidden = !_exAvailable;
+  _exPreflightBanner(d && d.available ? d.preflight : null);
   return _exAvailable;
+}
+// cluster self-update or a node missing: HyperCore cannot snapshot, so every backup, export and
+// restore is deferred; the node case is the one an operator must act on
+function _exPreflightBanner(pf) {
+  const el = document.getElementById('exPreflightBanner');
+  if (!el) return;
+  el.classList.remove('visible', 'update', 'node');
+  if (!pf || pf.ok) { el.innerHTML = ''; return; }
+  const nodes = (pf.nodes || []).map(n => `${_exEsc(n.lan_ip || (n.uuid || '').slice(0, 8))} (${_exEsc(n.status)})`).join(', ');
+  const title = pf.kind === 'node' ? t('ex.preflight_node_title') : t('ex.preflight_update_title');
+  const body = pf.kind === 'node' ? t('ex.preflight_node', {nodes}) : t('ex.preflight_update', {detail: _exEsc(pf.detail || '')});
+  el.innerHTML = `<strong>${title}</strong>${body}`;
+  el.classList.add('visible', pf.kind === 'node' ? 'node' : 'update');
 }
 document.addEventListener('DOMContentLoaded', () => { setTimeout(_exProbe, 800); setInterval(_exProbe, 120000); });
 
@@ -5432,6 +5489,7 @@ const _exFmt = iso => iso ? new Date(iso).toLocaleString('en-GB', {day:'2-digit'
 function _exStatusBadge(status, message) {
   if (status === 'COMPLETE') return `<span class="ex-badge ok">${t('ex.status_ok')}</span>`;
   if (status === 'ERROR')    return `<span class="ex-badge err">${t('ex.status_failed')}</span>`;
+  if (status === 'SKIPPED')  return `<span class="ex-badge warn">${t('ex.status_deferred')}</span>`;
   return `<span class="ex-badge run">${_exEsc(message || t('ex.status_running'))}</span>`;
 }
 
@@ -5666,7 +5724,7 @@ async function exTogglePoints(id) {
   try {
     const pts = await _exCall('GET', `/api/backup/chains/${id}/points`);
     body.innerHTML = pts.length ? `<table class="um-table"><thead><tr><th>#</th><th>${t('ex.col_kind')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_changed')}</th><th>${t('ex.col_written')}</th><th>${t('ex.col_verified')}</th><th></th></tr></thead><tbody>${pts.map(p => `
-      <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted)">${_exEsc(p.dir)}</span></td>
+      <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted)">${_exEsc(p.dir)}</span>${p.quiesced === true ? ` <span class="ex-badge off" title="${_exEsc(t('ex.quiesced_hint'))}">${t('ex.quiesced')}</span>` : p.quiesced === false ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.crash_consistent_hint'))}">${t('ex.crash_consistent')}</span>` : ''}</td>
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
       <td style="font-size:11px;color:var(--text-muted)">${p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
       <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" onclick="exFilesOpen(${p.id})">${t('ex.files')}</button></td></tr>
