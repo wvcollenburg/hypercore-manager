@@ -22,7 +22,7 @@ class _Fake:
     """Untagged data per bucket/measurement as a [first, last] span; records every call.
     `fail_windows_over` makes copy queries wider than that many hours fail once (a server dying)."""
     def __init__(self, data, scratch_exists=False, fail_windows_over=None):
-        self.data = data; self.calls = []; self.buckets = {lm.SCRATCH_BUCKET} if scratch_exists else set()
+        self.data = data; self.calls = []; self.buckets = {lm.scratch_name('metrics')} if scratch_exists else set()
         self.fail_windows_over = fail_windows_over; self.failed = 0; self.waits = 0
     def rows(self, flux):
         self.calls.append(('rows', flux))
@@ -36,7 +36,7 @@ class _Fake:
             return []                                     # no tagged points around the registration
         if 'measurementTagKeys' in flux:
             return [{'_value': k} for k in ('_start', '_stop', '_measurement', '_field', 'node', 'vm_uuid')]
-        if bucket == lm.SCRATCH_BUCKET and 'limit(n: 1)' in flux and 'keep(columns: ["_time"])' in flux:
+        if bucket.startswith(lm.SCRATCH_PREFIX) and 'limit(n: 1)' in flux and 'keep(columns: ["_time"])' in flux:
             assert 'first()' not in flux, 'first() needs _value, which keep() dropped (the 400 seen on the lab)'
             return [{'_time': T0}, {'_time': T0 + timedelta(days=1)}]
         raise AssertionError(flux)
@@ -93,12 +93,12 @@ def test_adopt_copies_deletes_and_copies_back_in_windows():
     runs = [c[1] for c in fk.calls if c[0] == 'run']
     copies = [q for q in runs if 'set(key: "cluster_id"' in q and 'node_metrics' in q]
     assert len(copies) == 4, 'node_metrics: first untagged → registration in 30-day windows'
-    assert all('to(bucket: "hcm_adopt_scratch"' in q for q in copies)
-    backs = [q for q in runs if q.startswith('from(bucket: "hcm_adopt_scratch")') and 'node_metrics' in q]
+    assert all('to(bucket: "hcm_adopt_scratch__metrics"' in q for q in copies)
+    backs = [q for q in runs if q.startswith('from(bucket: "hcm_adopt_scratch__metrics")') and 'node_metrics' in q]
     assert len(backs) == 4 and all('to(bucket: "metrics"' in q and 'range(start: 2' in q for q in backs), 'the copy back is windowed as well'
     main_del = [c for c in fk.calls if c[0] == 'delete' and c[1] == 'metrics']
     assert len(main_del) == 2 and all(c[3] == reg for c in main_del), 'deleted up to the registration'
-    assert ('create', 'hcm_adopt_scratch') in fk.calls and ('drop', 'hcm_adopt_scratch') in fk.calls and not fk.buckets
+    assert ('create', 'hcm_adopt_scratch__metrics') in fk.calls and ('drop', 'hcm_adopt_scratch__metrics') in fk.calls and not fk.buckets
     assert [n for n in notes if 'done' in n][-1]['done'] == 2 and fk.waits == 0
 
 
@@ -113,7 +113,7 @@ def test_adopt_shrinks_the_window_and_waits_when_a_query_fails():
     wk = _Fake({'metrics': {'vm_metrics': (T0, T0 + timedelta(days=21))}})
     lm.adopt('cid-1', wk, ['metrics'], 'org', T0 + timedelta(days=22), now=NOW, wait=_wait)
     assert len([c for c in wk.calls if c[0] == 'run' and 'set(key' in c[1]]) == 4, 'the default window is a week (21 days → 4 copies)'
-    assert ('drop', 'hcm_adopt_scratch') in fk.calls
+    assert ('drop', 'hcm_adopt_scratch__metrics') in fk.calls
     fk2 = _Fake({'metrics': {'vm_metrics': (T0, T0 + timedelta(hours=3))}}, fail_windows_over=0)
     with pytest.raises(ConnectionError):
         lm.adopt('cid-1', fk2, ['metrics'], 'org', T0 + timedelta(days=1), now=NOW, chunk_hours=2, wait=_wait)
@@ -123,10 +123,12 @@ def test_adopt_shrinks_the_window_and_waits_when_a_query_fails():
 def test_adopt_recovers_scratch_and_is_idempotent():
     fk = _Fake({'metrics': {'vm_metrics': (T0, T0 + timedelta(days=1))}}, scratch_exists=True)
     notes = []
-    assert lm.adopt('cid-1', fk, ['metrics'], 'org', T0 + timedelta(days=5), progress=lambda **kw: notes.append(kw), now=NOW, wait=_wait) == 2
+    assert lm.adopt('cid-1', fk, ['metrics', 'metrics_longterm'], 'org', T0 + timedelta(days=5), progress=lambda **kw: notes.append(kw), now=NOW, wait=_wait) == 2
     first_runs = [c for c in fk.calls if c[0] == 'run'][:1]
-    assert first_runs and first_runs[0][1].startswith('from(bucket: "hcm_adopt_scratch")') and 'to(bucket: "metrics"' in first_runs[0][1]
-    assert any('interrupted' in (n.get('note') or '') for n in notes) and any('scratch bucket found' in (n.get('note') or '') for n in notes)
+    assert first_runs and first_runs[0][1].startswith('from(bucket: "hcm_adopt_scratch__metrics")') and 'to(bucket: "metrics"' in first_runs[0][1]
+    restores = [c[1] for c in fk.calls if c[0] == 'run' and 'hcm_adopt_scratch__metrics' in c[1] and 'to(bucket: "metrics_longterm"' in c[1]]
+    assert not restores, 'a scratch bucket is restored into the bucket it came from only'
+    assert any('interrupted' in (n.get('note') or '') for n in notes) and any('found: restoring' in (n.get('note') or '') for n in notes)
     assert lm.adopt('cid-1', _Fake({'metrics': {}}), ['metrics'], 'org', T0, now=NOW, wait=_wait) == 0, 'idempotent'
 
 

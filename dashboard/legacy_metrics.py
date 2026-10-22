@@ -28,7 +28,14 @@ from typing import Callable, Optional
 
 log = logging.getLogger('hcm.legacy_metrics')
 
-SCRATCH_BUCKET = 'hcm_adopt_scratch'
+SCRATCH_PREFIX = 'hcm_adopt_scratch'
+SCRATCH_BUCKET = SCRATCH_PREFIX          # the generic name an older build used; restored into the first bucket
+
+
+def scratch_name(bucket: str) -> str:
+    """One scratch bucket per source bucket, so a restore after an interruption knows where the
+    data belongs (a shared scratch would be copied back into every bucket)."""
+    return f'{SCRATCH_PREFIX}__{bucket}'
 SYSTEM_COLUMNS = ('_start', '_stop', '_time', '_value', '_measurement', '_field', 'result', 'table', 'cluster_id')
 
 
@@ -76,8 +83,8 @@ def copy_back_query(scratch: str, dst: str, org: str, measurement: Optional[str]
     return f'from(bucket: "{scratch}") |> {rng} {flt}|> to(bucket: "{dst}", org: "{org}")'
 
 
-def scratch_oldest_query() -> str:
-    return (f'from(bucket: "{SCRATCH_BUCKET}") |> range(start: 0) |> limit(n: 1) '
+def scratch_oldest_query(scratch: str = SCRATCH_BUCKET) -> str:
+    return (f'from(bucket: "{scratch}") |> range(start: 0) |> limit(n: 1) '
             '|> keep(columns: ["_time"]) |> group() |> limit(n: 100000)')
 
 
@@ -360,19 +367,20 @@ def adopt(cluster_id: str, adapter, buckets: list[str], org: str, registered_at:
     now = now or datetime.now(timezone.utc)
     era_end = min(registered_at + timedelta(days=2), now)
     # recovery: a previous run may have died between the delete and the copy back
-    if adapter.bucket_exists(SCRATCH_BUCKET):
-        progress(note='scratch bucket found: restoring what an interrupted run left there')
+    for scratch, target in [(scratch_name(b), b) for b in buckets] + [(SCRATCH_BUCKET, buckets[0])]:
+        if not adapter.bucket_exists(scratch):
+            continue
+        progress(note=f'scratch bucket {scratch} found: restoring what an interrupted run left there into {target}')
         try:
             # one row per series (limit before keep so storage stops early), oldest time in Python
-            rows = adapter.rows(scratch_oldest_query())
+            rows = adapter.rows(scratch_oldest_query(scratch))
         except Exception as e:  # noqa: BLE001
-            raise RuntimeError(f'reading the scratch bucket: {str(e)[:200]}') from e
+            raise RuntimeError(f'reading {scratch}: {str(e)[:200]}') from e
         if rows:
             first_t = min(r['_time'] for r in rows)
-            for b in buckets:
-                _run_windowed(adapter, first_t, now, chunk_hours, lambda w0, w1: copy_back_query(SCRATCH_BUCKET, b, org, None, w0, w1), wait, progress, 'restore')
-        adapter.delete_bucket(SCRATCH_BUCKET)
-        progress(note='restored data left in the scratch bucket by an interrupted run')
+            _run_windowed(adapter, first_t, now, chunk_hours, lambda w0, w1: copy_back_query(scratch, target, org, None, w0, w1), wait, progress, 'restore')
+        adapter.delete_bucket(scratch)
+        progress(note=f'restored data left in {scratch} by an interrupted run')
     adopted = 0
     for bucket in buckets:
         # the summary the panel showed (same scan) is reused when given; otherwise scan, keeping
@@ -387,7 +395,8 @@ def adopt(cluster_id: str, adapter, buckets: list[str], org: str, registered_at:
                 if isinstance(v.get(k), str):
                     v[k] = datetime.fromisoformat(v[k].replace(' ', 'T'))
         progress(bucket=bucket, total=len(per), done=0, scanning=None)
-        adapter.create_bucket(SCRATCH_BUCKET)
+        scratch = scratch_name(bucket)
+        adapter.create_bucket(scratch)
         try:
             for i, (m, info) in enumerate(sorted(per.items())):
                 start_t, last_t = info['first'], info['last']
@@ -398,13 +407,13 @@ def adopt(cluster_id: str, adapter, buckets: list[str], org: str, registered_at:
                 keys = [r.get('_value') for r in adapter.rows(tag_keys_query(bucket, m))]
                 cols = group_columns([k for k in keys if k])
                 _run_windowed(adapter, start_t, stop_t, chunk_hours,
-                              lambda w0, w1: copy_query(bucket, SCRATCH_BUCKET, org, m, cluster_id, w0, w1, cols), wait, progress, 'copy')
+                              lambda w0, w1: copy_query(bucket, scratch, org, m, cluster_id, w0, w1, cols), wait, progress, 'copy')
                 adapter.delete(bucket, start_t - timedelta(seconds=1), stop_t, f'_measurement="{m}"')
                 _run_windowed(adapter, start_t, stop_t, chunk_hours,
-                              lambda w0, w1: copy_back_query(SCRATCH_BUCKET, bucket, org, m, w0, w1), wait, progress, 'copy back')
-                adapter.delete(SCRATCH_BUCKET, datetime(1970, 1, 1, tzinfo=timezone.utc), now + timedelta(days=1), f'_measurement="{m}"')
+                              lambda w0, w1: copy_back_query(scratch, bucket, org, m, w0, w1), wait, progress, 'copy back')
+                adapter.delete(scratch, datetime(1970, 1, 1, tzinfo=timezone.utc), now + timedelta(days=1), f'_measurement="{m}"')
                 adopted += int(info['days'])
                 progress(done=i + 1, points=adopted, note=f'{bucket}/{m}: {info["days"]} day(s) of data')
         finally:
-            adapter.delete_bucket(SCRATCH_BUCKET)
+            adapter.delete_bucket(scratch)
     return adopted
