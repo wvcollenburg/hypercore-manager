@@ -49,8 +49,11 @@ def test_parse_smb_and_nfs_uris():
 def test_mount_commands():
     t = P.targets.parse_uri('smb://nas/share/sub')
     cmd = P.targets.build_mount_cmd(t, '/mnt/x', '/tmp/cred')
-    assert cmd[:4] == ['mount', '-t', 'cifs', '//nas/share'] and 'credentials=/tmp/cred' in cmd[-1] and 'vers=3.0' in cmd[-1]
-    assert 'guest' in P.targets.build_mount_cmd(t, '/mnt/x', None)[-1]
+    assert cmd[:4] == ['mount', '-t', 'cifs', '//nas/share'] and 'credentials=/tmp/cred' in cmd[-1]
+    assert 'vers=' not in cmd[-1], 'the dialect is negotiated, not pinned (an SMB 3.1.1-only Samba refuses vers=3.0)'
+    assert 'sec=none' not in cmd[-1]
+    g = P.targets.build_mount_cmd(t, '/mnt/x', None)[-1]
+    assert g.startswith('guest,sec=none,'), 'a guest share is a null session'
     n = P.targets.parse_uri('nfs://nas/export/hcm')
     assert P.targets.build_mount_cmd(n, '/mnt/y')[:5] == ['mount', '-t', 'nfs', 'nas:/export/hcm', '/mnt/y']
 

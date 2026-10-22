@@ -285,6 +285,14 @@ Changing them in `.env` later does not alter clusters that already exist.
 | `PROXY_NBD_CACHE` | qemu-nbd cache mode for backup writes: `unsafe` (default: no flushes until the image is closed; a finished point is synced to the share before its checksum is taken, an unfinished point is never valid), `writeback` (every flush honoured) or `none` (direct I/O). Lab measurement onto an SMB share: 55 MiB/s against 37, a plain file copy at 45 |
 | `PROXY_NBD_SLOTS` | `/dev/nbd` devices the proxy may use at once (default 8) |
 
+The deployment uploads the Ubuntu cloud image to the cluster once (about 600 MB, as a virtual
+disk named `hcm-ubuntu-noble-cloudimg.img`). When the backup service runs behind a VPN from a
+Docker Desktop host, that upload can stall and be closed by the node after about a minute
+while the API itself works fine; upload the image through the HyperCore UI from a browser
+instead, under that exact name, and the deployment finds and uses it. A Linux Docker host does
+not have this problem.
+
+
 The `EXPORTS_*` names used by the first release of the module are still read when the `BACKUP_*`
 name is not set.
 

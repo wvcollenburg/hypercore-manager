@@ -40,10 +40,10 @@ def _vm(machine_type, os_name, with_nvram=True, with_vtpm=True):
 FILES = {DISK: str(uuid.uuid4()), NVRAM: str(uuid.uuid4()), VTPM: str(uuid.uuid4())}
 
 
-def test_all_twelve_templates_are_shipped():
+def test_all_fourteen_templates_are_shipped():
     combos = vmdef.known_combinations()
     types = {mt for mt, _ in combos}
-    assert types == {'scale-7.2', 'scale-8.10', 'scale-bios-9.3', 'scale-uefi-9.3', 'scale-uefi-tpm-9.3', 'scale-uefi-tpm-9.5'}
+    assert types == {'scale-7.2', 'scale-8.10', 'scale-bios-9.3', 'scale-uefi-9.3', 'scale-uefi-tpm-9.3', 'scale-uefi-tpm-9.5', 'scale-uefi-9.5'}
     assert all((mt, 'windows') in combos and (mt, 'other') in combos for mt in types)
 
 

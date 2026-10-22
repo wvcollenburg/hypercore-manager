@@ -54,8 +54,11 @@ def smb_username(user: str | None) -> str | None:
 
 def build_mount_cmd(t: Target, mount_point: str, credentials_file: str | None = None) -> list[str]:
     if t.scheme == 'smb':
-        opts = ['vers=3.0', 'uid=0', 'gid=0', 'file_mode=0644', 'dir_mode=0755', 'noperm', 'actimeo=1']
-        opts.insert(0, f'credentials={credentials_file}' if credentials_file else 'guest')
+        # no dialect pin: the kernel negotiates the highest the server offers (a Samba with
+        # 'server min protocol = SMB3' only speaks 3.1.1 and refuses vers=3.0); a guest share is a
+        # null session, which needs sec=none next to guest
+        opts = ['uid=0', 'gid=0', 'file_mode=0644', 'dir_mode=0755', 'noperm', 'actimeo=1']
+        opts[:0] = [f'credentials={credentials_file}'] if credentials_file else ['guest', 'sec=none']
         return ['mount', '-t', 'cifs', f'//{t.host}/{t.share}', mount_point, '-o', ','.join(opts)]
     return ['mount', '-t', 'nfs', f'{t.host}:/{t.share}', mount_point, '-o', 'vers=4,hard,timeo=600']
 

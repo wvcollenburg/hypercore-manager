@@ -38,7 +38,8 @@ def load_template(machine_type: str, operating_system: str | None, override: str
         return override
     p = template_path(machine_type, operating_system)
     if not p.exists():
-        raise UnknownMachineType(f'{machine_type} / {os_profile(operating_system)}')
+        raise UnknownMachineType(f'no definition template for machine type {machine_type} (profile {os_profile(operating_system)}); '
+                                 f'see backup/vm_definitions/README.md for how to add one')
     return p.read_text()
 
 

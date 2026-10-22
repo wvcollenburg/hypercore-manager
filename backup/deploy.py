@@ -125,8 +125,11 @@ def upload_image(hc, name: str, url: str, on_progress=None) -> dict:
             if on_progress and sent['n'] % (64 << 20) < (1 << 20):
                 on_progress(sent['n'], size)
             yield chunk
+    # the body of a PUT is sent under the *connect* timeout (urllib3 applies the read timeout only
+    # once the response is awaited); a cluster that pauses while it swallows the image over a slow
+    # link must not abort the upload after 30 s
     r = hc.http().put(f'{hc.base}/VirtualDisk/upload', params={'filename': name, 'filesize': size}, data=LengthStream(gen(), size),
-                      timeout=(30, 7200), headers={'Content-Type': 'application/octet-stream'})
+                      timeout=(900, 7200), headers={'Content-Type': 'application/octet-stream'})
     if not r.ok:
         raise HyperCoreError(f'image upload failed ({r.status_code}): {r.text[:200]}')
     tag = (r.json() or {}).get('taskTag')
