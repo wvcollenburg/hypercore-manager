@@ -70,17 +70,20 @@ def tag_keys_query(bucket: str, measurement: str) -> str:
 
 def copy_query(src: str, dst: str, org: str, measurement: str, cluster_id: str, start: datetime, stop: datetime, group_columns: list[str]) -> str:
     cols = ', '.join(f'"{c}"' for c in group_columns)
+    # to() returns everything it wrote as the query result; without the trailing group() |> limit()
+    # the client downloads every copied point into the dashboard process (a week of raw points
+    # is millions of rows: the gunicorn worker was killed for memory on the first real run)
     return (f'from(bucket: "{src}") |> range(start: {_rfc(start)}, stop: {_rfc(stop)}) '
             f'|> filter(fn: (r) => r._measurement == "{measurement}" and not exists r.cluster_id) '
             f'|> set(key: "cluster_id", value: "{cluster_id}") |> group(columns: [{cols}]) '
-            f'|> to(bucket: "{dst}", org: "{org}")')
+            f'|> to(bucket: "{dst}", org: "{org}") |> group() |> limit(n: 1)')
 
 
 def copy_back_query(scratch: str, dst: str, org: str, measurement: Optional[str] = None,
                     start: Optional[datetime] = None, stop: Optional[datetime] = None) -> str:
     flt = f'|> filter(fn: (r) => r._measurement == "{measurement}") ' if measurement else ''
     rng = f'range(start: {_rfc(start)}, stop: {_rfc(stop)})' if start and stop else 'range(start: 0)'
-    return f'from(bucket: "{scratch}") |> {rng} {flt}|> to(bucket: "{dst}", org: "{org}")'
+    return f'from(bucket: "{scratch}") |> {rng} {flt}|> to(bucket: "{dst}", org: "{org}") |> group() |> limit(n: 1)'
 
 
 def scratch_oldest_query(scratch: str = SCRATCH_BUCKET) -> str:
