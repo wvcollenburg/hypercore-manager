@@ -336,24 +336,43 @@ def _progress(**kw) -> None:
 # ------------------------------------------------------------------ the work
 def _run_windowed(adapter, start: datetime, stop: datetime, hours: int, make_query: Callable, wait: Callable,
                   progress: Callable = lambda **kw: None, phase: str = 'copy') -> None:
-    """Run make_query(w0, w1) over [start, stop) in windows of `hours`. A failure (typically the
-    InfluxDB container restarting after exceeding its memory) waits for the server to answer
-    again, halves the window down to one hour and retries the same range. Every window reports
-    progress, which is what keeps the run's heartbeat alive during a long measurement."""
-    cur, size = start, timedelta(hours=hours)
+    """Run make_query(w0, w1) over [start, stop) in windows of `hours`. A failure waits for the
+    server to answer again and halves the window down to one hour before retrying the same
+    range. A query InfluxDB *refused* (an HTTP error, typically its per-query memory cap) that
+    still fails at one hour is given up. A *dropped connection* is the server dying under the
+    window, which on a small container also happens from compaction of everything written so
+    far rather than from the window itself: at one hour it is retried up to MAX_RESTARTS times
+    with a growing pause, so the database gets time to settle, before giving up with a message
+    that names the memory limit. Every window reports progress, which is what keeps the run's
+    heartbeat alive during a long measurement."""
+    cur, size, restarts = start, timedelta(hours=hours), 0
     while cur < stop:
         w1 = min(cur + size, stop)
         progress(window={'phase': phase, 'from': cur.isoformat(), 'to': w1.isoformat()})
         try:
             adapter.run(make_query(cur, w1))
         except Exception as e:  # noqa: BLE001
+            refused = getattr(e, 'status', None) is not None        # an HTTP error from InfluxDB
             log.warning('legacy window %s–%s failed (%s); waiting for InfluxDB, retrying smaller', cur, w1, str(e)[:120])
             wait(adapter)
             if size > timedelta(hours=1):
                 size = max(timedelta(hours=1), size / 2)
                 continue
-            raise
-        cur = w1
+            if refused:
+                raise
+            restarts += 1
+            if restarts > MAX_RESTARTS:
+                raise RuntimeError(f'InfluxDB closed the connection {restarts} times on the window from {cur:%Y-%m-%d %H:%M}; '
+                                   f'it keeps restarting, probably out of memory: raise its container limit and the INFLUXD_* '
+                                   f'variables in .env, then run the adoption again, it resumes here') from e
+            settle(SETTLE_SECONDS * restarts)
+            continue
+        cur, restarts = w1, 0
+
+
+MAX_RESTARTS = 5               # server deaths tolerated on one one-hour window before giving up
+SETTLE_SECONDS = 30            # pause after a server death, times the number of deaths so far
+settle = time.sleep            # replaced in tests
 
 
 def wait_for_server(adapter, timeout: float = 300) -> None:

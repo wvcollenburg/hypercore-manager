@@ -119,10 +119,47 @@ def test_adopt_shrinks_the_window_and_waits_when_a_query_fails():
     lm.adopt('cid-1', wk, ['metrics'], 'org', T0 + timedelta(days=22), now=NOW, wait=_wait)
     assert len([c for c in wk.calls if c[0] == 'run' and 'set(key' in c[1]]) == 4, 'the default window is a week (21 days → 4 copies)'
     assert ('drop', 'hcm_adopt_scratch__metrics') in fk.calls
-    fk2 = _Fake({'metrics': {'vm_metrics': (T0, T0 + timedelta(hours=3))}}, fail_windows_over=0)
-    with pytest.raises(ConnectionError):
+    class _Refusing(_Fake):
+        def run(self, flux):
+            self.calls.append(('run', flux))
+            if 'set(key' in flux:
+                self.failed += 1; raise _Refused()
+    fk2 = _Refusing({'metrics': {'vm_metrics': (T0, T0 + timedelta(hours=3))}})
+    with pytest.raises(_Refused):
         lm.adopt('cid-1', fk2, ['metrics'], 'org', T0 + timedelta(days=1), now=NOW, chunk_hours=2, wait=_wait)
+    assert fk2.failed == 2, 'a refused query is halved to one hour and then given up'
     assert not fk2.buckets, 'the scratch bucket is dropped even when giving up'
+
+
+class _Refused(Exception):
+    """What influxdb_client raises for an HTTP error: it carries a status."""
+    status = 500
+
+
+def test_a_dying_server_is_retried_on_the_hour_window_with_a_pause(monkeypatch):
+    """A dropped connection is InfluxDB dying; on the lab that happened on a one-hour window of a
+    small measurement, from compaction of everything written before, not from the window. The
+    same window is retried after a growing pause instead of failing the whole run."""
+    pauses = []; monkeypatch.setattr(lm, 'settle', lambda s: pauses.append(s))
+    class _Dying(_Fake):
+        deaths = 0
+        def run(self, flux):
+            self.calls.append(('run', flux))
+            if 'set(key' in flux and self.deaths < 3:
+                self.deaths += 1; raise ConnectionError('Remote end closed connection without response')
+    fk = _Dying({'metrics': {'vm_metrics': (T0, T0 + timedelta(hours=1))}})
+    assert lm.adopt('cid-1', fk, ['metrics'], 'org', T0 + timedelta(days=1), now=NOW, chunk_hours=1, wait=_wait) >= 1
+    assert fk.deaths == 3 and fk.waits == 3 and pauses == [30, 60, 90], 'waited for the server and paused longer each time'
+    copies = [c for c in fk.calls if c[0] == 'run' and 'set(key' in c[1]]
+    assert sum(1 for c in copies if c[1] == copies[0][1]) == 4, 'the first one-hour window was attempted four times'
+    class _Dead(_Fake):
+        def run(self, flux):
+            self.calls.append(('run', flux))
+            if 'set(key' in flux: raise ConnectionError('Remote end closed connection without response')
+    pauses.clear(); fk2 = _Dead({'metrics': {'vm_metrics': (T0, T0 + timedelta(hours=1))}})
+    with pytest.raises(RuntimeError, match='closed the connection 6 times.*resumes here'):
+        lm.adopt('cid-1', fk2, ['metrics'], 'org', T0 + timedelta(days=1), now=NOW, chunk_hours=1, wait=_wait)
+    assert pauses == [30, 60, 90, 120, 150] and not fk2.buckets
 
 
 def test_adopt_recovers_scratch_and_is_idempotent():
