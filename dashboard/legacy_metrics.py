@@ -66,9 +66,11 @@ def copy_query(src: str, dst: str, org: str, measurement: str, cluster_id: str, 
             f'|> to(bucket: "{dst}", org: "{org}")')
 
 
-def copy_back_query(scratch: str, dst: str, org: str, measurement: Optional[str] = None) -> str:
+def copy_back_query(scratch: str, dst: str, org: str, measurement: Optional[str] = None,
+                    start: Optional[datetime] = None, stop: Optional[datetime] = None) -> str:
     flt = f'|> filter(fn: (r) => r._measurement == "{measurement}") ' if measurement else ''
-    return f'from(bucket: "{scratch}") |> range(start: 0) {flt}|> to(bucket: "{dst}", org: "{org}")'
+    rng = f'range(start: {_rfc(start)}, stop: {_rfc(stop)})' if start and stop else 'range(start: 0)'
+    return f'from(bucket: "{scratch}") |> {rng} {flt}|> to(bucket: "{dst}", org: "{org}")'
 
 
 def group_columns(tag_keys: list[str]) -> list[str]:
@@ -121,55 +123,69 @@ class InfluxAdapter:
 
 
 # ------------------------------------------------------------------ summary + state
-SUMMARY_WINDOW_DAYS = 30
 SUMMARY_LOOKBACK_DAYS = 3 * 365
+SUMMARY_GAP_DAYS = 45         # days without untagged data after the last hit end the look-back
 
 
-def untagged_counts(adapter, bucket: str, stop: datetime, window_days: int = SUMMARY_WINDOW_DAYS,
-                    lookback_days: int = SUMMARY_LOOKBACK_DAYS) -> dict:
-    """{measurement: {count, first, last}} of untagged points before `stop`, scanned in windows
-    going back `lookback_days`. Raises on a failed query (a dead InfluxDB must not read as "no
-    legacy data")."""
+def presence_query(bucket: str, start: datetime, stop: datetime) -> str:
+    """One untagged row per measurement in [start, stop) — cheap: InfluxDB stops at the first hit
+    per series. Counting millions of points per window exceeded a 768 MB InfluxDB and got it
+    killed, which is why the summary only establishes which days hold legacy data."""
+    return (f'from(bucket: "{bucket}") |> range(start: {_rfc(start)}, stop: {_rfc(stop)}) '
+            '|> filter(fn: (r) => not exists r.cluster_id) |> keep(columns: ["_measurement", "_time"]) '
+            '|> group(columns: ["_measurement"]) |> limit(n: 1)')
+
+
+def untagged_days(adapter, bucket: str, stop: datetime, lookback_days: int = SUMMARY_LOOKBACK_DAYS,
+                  gap_days: int = SUMMARY_GAP_DAYS) -> dict:
+    """{measurement: {days, first, last}} of untagged data before `stop`, one query per day going
+    back until `gap_days` empty days follow the last hit. Raises on a failed query (a dead InfluxDB
+    must not read as "no legacy data")."""
     per: dict = {}
-    w_stop = stop
+    day_stop = stop.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     oldest = stop - timedelta(days=lookback_days)
-    while w_stop > oldest:
-        w_start = max(w_stop - timedelta(days=window_days), oldest)
-        for r in adapter.rows(untagged_summary_query(bucket, w_stop, w_start)):
-            n = int(r.get('count') or 0)
-            if n <= 0:
-                continue
-            m = per.setdefault(r['_measurement'], {'count': 0, 'first': None, 'last': None})
-            m['count'] += n
-            f, l = r.get('first'), r.get('last')
-            if f and (m['first'] is None or f < m['first']):
-                m['first'] = f
-            if l and (m['last'] is None or l > m['last']):
-                m['last'] = l
-        w_stop = w_start
+    empty_run, seen_any = 0, False
+    while day_stop > oldest:
+        day_start = day_stop - timedelta(days=1)
+        rows = adapter.rows(presence_query(bucket, day_start, day_stop))
+        if rows:
+            seen_any, empty_run = True, 0
+            for r in rows:
+                m = per.setdefault(r['_measurement'], {'days': 0, 'first': None, 'last': None})
+                m['days'] += 1
+                t = r.get('_time')
+                if t and (m['first'] is None or t < m['first']):
+                    m['first'] = t
+                if t and (m['last'] is None or t > m['last']):
+                    m['last'] = t
+        elif seen_any:
+            empty_run += 1
+            if empty_run >= gap_days:
+                break
+        day_stop = day_start
     return per
 
 
 def summary(adapter, buckets: list[str], stop: Optional[datetime] = None) -> dict:
-    """Untagged points per bucket and measurement: {bucket: {measurement: {count, first, last}}},
-    totals; `error` when a bucket could not be scanned."""
-    out, total, first, last, error = {}, 0, None, None, None
+    """Untagged data per bucket and measurement: {bucket: {measurement: {days, first, last}}},
+    the number of days with legacy data and the span; `error` when a bucket could not be scanned."""
+    out, days, first, last, error = {}, 0, None, None, None
     stop = stop or datetime.now(timezone.utc)
     for b in buckets:
         try:
-            per = untagged_counts(adapter, b, stop)
+            per = untagged_days(adapter, b, stop)
         except Exception as e:  # noqa: BLE001 — reported, never mistaken for "nothing there"
             log.warning('legacy summary of %s: %s', b, e)
             error = f'{b}: {str(e)[:160]}'
             per = {}
         for m in per.values():
-            total += m['count']
+            days = max(days, m['days'])
             if m['first'] and (first is None or m['first'] < first):
                 first = m['first']
             if m['last'] and (last is None or m['last'] > last):
                 last = m['last']
         out[b] = per
-    res = {'buckets': out, 'total': total, 'first': first.isoformat() if first else None, 'last': last.isoformat() if last else None}
+    res = {'buckets': out, 'days': days, 'total': days, 'first': first.isoformat() if first else None, 'last': last.isoformat() if last else None}
     if error:
         res['error'] = error
     return res
@@ -241,21 +257,58 @@ def _progress(**kw) -> None:
 
 
 # ------------------------------------------------------------------ the work
+def _run_windowed(adapter, start: datetime, stop: datetime, hours: int, make_query: Callable, wait: Callable) -> None:
+    """Run make_query(w0, w1) over [start, stop) in windows of `hours`. A failure (typically the
+    InfluxDB container restarting after exceeding its memory) waits for the server to answer
+    again, halves the window down to one hour and retries the same range."""
+    cur, size = start, timedelta(hours=hours)
+    while cur < stop:
+        w1 = min(cur + size, stop)
+        try:
+            adapter.run(make_query(cur, w1))
+        except Exception as e:  # noqa: BLE001
+            log.warning('legacy window %s–%s failed (%s); waiting for InfluxDB, retrying smaller', cur, w1, str(e)[:120])
+            wait(adapter)
+            if size > timedelta(hours=1):
+                size = max(timedelta(hours=1), size / 2)
+                continue
+            raise
+        cur = w1
+
+
+def wait_for_server(adapter, timeout: float = 300) -> None:
+    """Block until InfluxDB answers a trivial query again (it restarts within seconds after an
+    out-of-memory kill); raises after `timeout`."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            adapter.rows('from(bucket: "_monitoring") |> range(start: -1m) |> limit(n: 1)')
+            return
+        except Exception:  # noqa: BLE001
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(5)
+
+
 def adopt(cluster_id: str, adapter, buckets: list[str], org: str, registered_at: datetime, *, progress: Callable = lambda **kw: None,
-          chunk_days: int = 7, now: Optional[datetime] = None) -> int:
+          chunk_hours: int = 24, now: Optional[datetime] = None, wait: Callable = wait_for_server) -> int:
     """Re-tag every untagged point written before `registered_at` (the first cluster registration,
-    where tagging began) in `buckets` with cluster_id. Returns the number of points adopted."""
+    where tagging began) in `buckets` with cluster_id. Works in windows of `chunk_hours` that
+    shrink when a query fails. Returns the number of measurement-days adopted."""
     now = now or datetime.now(timezone.utc)
     era_end = min(registered_at + timedelta(days=2), now)
     # recovery: a previous run may have died between the delete and the copy back
     if adapter.bucket_exists(SCRATCH_BUCKET):
         for b in buckets:
-            adapter.run(copy_back_query(SCRATCH_BUCKET, b, org))
+            rows = adapter.rows(f'from(bucket: "{SCRATCH_BUCKET}") |> range(start: 0) |> keep(columns: ["_time"]) |> first()')
+            if rows:
+                first_t = min(r['_time'] for r in rows)
+                _run_windowed(adapter, first_t, now, chunk_hours, lambda w0, w1: copy_back_query(SCRATCH_BUCKET, b, org, None, w0, w1), wait)
         adapter.delete_bucket(SCRATCH_BUCKET)
         progress(note='restored data left in the scratch bucket by an interrupted run')
     adopted = 0
     for bucket in buckets:
-        per = untagged_counts(adapter, bucket, era_end)
+        per = untagged_days(adapter, bucket, era_end)
         if not per:
             continue
         tagged_first = {r['_measurement']: r['first'] for r in adapter.rows(first_tagged_query(bucket, registered_at))}
@@ -270,13 +323,14 @@ def adopt(cluster_id: str, adapter, buckets: list[str], org: str, registered_at:
                 progress(measurement=m, done=i)
                 keys = [r.get('_value') for r in adapter.rows(tag_keys_query(bucket, m))]
                 cols = group_columns([k for k in keys if k])
-                for w0, w1 in windows(start_t, stop_t, chunk_days):
-                    adapter.run(copy_query(bucket, SCRATCH_BUCKET, org, m, cluster_id, w0, w1, cols))
+                _run_windowed(adapter, start_t, stop_t, chunk_hours,
+                              lambda w0, w1: copy_query(bucket, SCRATCH_BUCKET, org, m, cluster_id, w0, w1, cols), wait)
                 adapter.delete(bucket, start_t - timedelta(seconds=1), stop_t, f'_measurement="{m}"')
-                adapter.run(copy_back_query(SCRATCH_BUCKET, bucket, org, m))
+                _run_windowed(adapter, start_t, stop_t, chunk_hours,
+                              lambda w0, w1: copy_back_query(SCRATCH_BUCKET, bucket, org, m, w0, w1), wait)
                 adapter.delete(SCRATCH_BUCKET, datetime(1970, 1, 1, tzinfo=timezone.utc), now + timedelta(days=1), f'_measurement="{m}"')
-                adopted += int(info['count'])
-                progress(done=i + 1, points=adopted, note=f'{bucket}/{m}: {info["count"]} points')
+                adopted += int(info['days'])
+                progress(done=i + 1, points=adopted, note=f'{bucket}/{m}: {info["days"]} day(s) of data')
         finally:
             adapter.delete_bucket(SCRATCH_BUCKET)
     return adopted

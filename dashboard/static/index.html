@@ -5416,7 +5416,7 @@ async function _loadLegacyNotice() {
   const summ = (d.summary || {}).data;
   if (!summ) { el.innerHTML = `<div class="ex-hint" style="margin:8px 0;">${t('clusters.legacy_scanning')}</div>`; setTimeout(_loadLegacyNotice, 5000); return; }
   if (summ.error) { el.innerHTML = `<div class="ex-hint" style="margin:8px 0;color:var(--accent-red);">${t('clusters.legacy_scan_failed', {error: _clEsc(summ.error)})}</div>`; setTimeout(_loadLegacyNotice, 15000); return; }
-  const total = summ.total || 0;
+  const total = summ.days || summ.total || 0;
   if (!total) { el.innerHTML = ''; return; }
   const span = summ.first && summ.last ? `${_exFmt(summ.first)} – ${_exFmt(summ.last)}` : '';
   if (d.candidate) {

@@ -435,8 +435,9 @@ clusters. Before you pull:
    from your `.env` values into that cluster's tunables.
 4. Metrics written by 0.9.x carry no cluster tag and are not shown until they are adopted:
    once the cluster is registered, Settings → Clusters offers **Adopt history** when such points
-   exist. It re-tags them for that cluster in the background (minutes to tens of minutes for
-   months of data) and Foresight and the balancer keep their history. Skip it and they start
+   exist. It re-tags them for that cluster in the background, in one-day windows so the InfluxDB
+   container stays within its memory limit; months of data take an hour or two, and the panel
+   shows the progress. Foresight and the balancer then keep their history. Skip it and they start
    from scratch; the old data then stays in InfluxDB until its retention expires.
    A fresh install instead of an in-place upgrade is fine too: the only things an upgrade keeps
    are user accounts, the tunables and, with the adoption, the metrics.
