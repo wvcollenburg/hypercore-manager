@@ -65,16 +65,16 @@ def test_flux_builders_and_windows():
     assert lm.windows(T0, T0 + timedelta(days=20), 7)[-1][1] == T0 + timedelta(days=20)
 
 
-def test_summary_counts_days_per_day_and_stops_after_a_gap():
+def test_summary_counts_days_per_day_over_the_whole_lookback():
     fk = _Fake({'metrics': {'vm_metrics': (T0, T0 + timedelta(days=9, hours=12)), 'node_metrics': (T0 + timedelta(days=5), T0 + timedelta(days=6))},
                 'metrics_longterm': {}})
     s = lm.summary(fk, ['metrics', 'metrics_longterm'], stop=T0 + timedelta(days=30))
     assert s['days'] in (10, 11) and s['buckets']['metrics']['vm_metrics']['days'] in (10, 11) and s['buckets']['metrics']['node_metrics']['days'] in (1, 2), 'day windows are hour-aligned, so a span may touch one extra window'
     assert s['first'] == T0.isoformat() and s['last'] >= (T0 + timedelta(days=9)).isoformat()
     scans = [c for c in fk.calls if c[0] == 'rows' and 'limit(n: 1)' in c[1] and 'from(bucket: "metrics")' in c[1]]
-    assert 30 + lm.SUMMARY_GAP_DAYS + 2 >= len(scans) >= 30 + lm.SUMMARY_GAP_DAYS - 2, 'one query per day, ending after the gap behind the oldest data'
-    empty = _Fake({'metrics': {}}); lm.summary(empty, ['metrics'], stop=T0)
-    assert len([c for c in empty.calls if c[0] == 'rows']) == lm.SUMMARY_GAP_DAYS, 'nothing there: the scan gives up after the gap, not after three years'
+    assert lm.SUMMARY_LOOKBACK_DAYS + 2 >= len(scans) >= lm.SUMMARY_LOOKBACK_DAYS - 1, 'one cheap query per day over the whole look-back'
+    far = _Fake({'metrics': {'vm_metrics': (T0 - timedelta(days=400), T0 - timedelta(days=399))}})
+    assert lm.summary(far, ['metrics'], stop=T0)['days'] >= 1, 'data long before the upgrade, with nothing in between, is still found'
     assert all('count()' not in c[1] for c in scans), 'presence only, never a count'
 
     class _Dead(_Fake):
@@ -158,5 +158,5 @@ def test_state_is_shared_through_the_file_and_stale_runs_are_reported(tmp_path, 
             break
         _t.sleep(0.01)
     _t.sleep(0.3)
-    assert len(calls) <= lm.SUMMARY_GAP_DAYS + 2, 'one scan ran (it stops after the gap), not one per caller'
+    assert len(calls) <= lm.SUMMARY_LOOKBACK_DAYS + 2, 'one scan ran, not one per caller'
     assert lm.summary_state(slow, ['metrics'], T0)['data']['days'] == 0

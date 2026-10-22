@@ -126,8 +126,7 @@ class InfluxAdapter:
 
 
 # ------------------------------------------------------------------ summary + state
-SUMMARY_LOOKBACK_DAYS = 3 * 365
-SUMMARY_GAP_DAYS = 120        # consecutive days without untagged data end the look-back (legacy data ends at the upgrade)
+SUMMARY_LOOKBACK_DAYS = 3 * 365   # the whole look-back is scanned: a gap before the upgrade must not hide older data
 
 
 def presence_query(bucket: str, start: datetime, stop: datetime) -> str:
@@ -140,20 +139,19 @@ def presence_query(bucket: str, start: datetime, stop: datetime) -> str:
 
 
 def untagged_days(adapter, bucket: str, stop: datetime, lookback_days: int = SUMMARY_LOOKBACK_DAYS,
-                  gap_days: int = SUMMARY_GAP_DAYS, progress: Callable = lambda **kw: None) -> dict:
-    """{measurement: {days, first, last}} of untagged data before `stop`, one query per day going
-    back until `gap_days` empty days follow the last hit. Raises on a failed query (a dead InfluxDB
-    must not read as "no legacy data")."""
+                  progress: Callable = lambda **kw: None) -> dict:
+    """{measurement: {days, first, last}} of untagged data before `stop`, one cheap query per day
+    over the whole look-back (the query stops at the first point per series, so an empty day
+    costs almost nothing). Raises on a failed query (a dead InfluxDB must not read as "no legacy
+    data")."""
     per: dict = {}
     day_stop = stop.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     oldest = stop - timedelta(days=lookback_days)
-    empty_run = 0
     while day_stop > oldest:
         day_start = day_stop - timedelta(days=1)
         progress(bucket=bucket, day=day_start.strftime('%Y-%m-%d'), found=max((m['days'] for m in per.values()), default=0))
         rows = adapter.rows(presence_query(bucket, day_start, day_stop))
         if rows:
-            empty_run = 0
             for r in rows:
                 m = per.setdefault(r['_measurement'], {'days': 0, 'first': None, 'last': None})
                 m['days'] += 1
@@ -162,10 +160,6 @@ def untagged_days(adapter, bucket: str, stop: datetime, lookback_days: int = SUM
                     m['first'] = t
                 if t and (m['last'] is None or t > m['last']):
                     m['last'] = t
-        else:
-            empty_run += 1
-            if empty_run >= gap_days:
-                break
         day_stop = day_start
     return per
 
