@@ -73,6 +73,8 @@ def test_summary_counts_days_per_day_and_stops_after_a_gap():
     assert s['first'] == T0.isoformat() and s['last'] >= (T0 + timedelta(days=9)).isoformat()
     scans = [c for c in fk.calls if c[0] == 'rows' and 'limit(n: 1)' in c[1] and 'from(bucket: "metrics")' in c[1]]
     assert 30 + lm.SUMMARY_GAP_DAYS + 2 >= len(scans) >= 30 + lm.SUMMARY_GAP_DAYS - 2, 'one query per day, ending after the gap behind the oldest data'
+    empty = _Fake({'metrics': {}}); lm.summary(empty, ['metrics'], stop=T0)
+    assert len([c for c in empty.calls if c[0] == 'rows']) == lm.SUMMARY_GAP_DAYS, 'nothing there: the scan gives up after the gap, not after three years'
     assert all('count()' not in c[1] for c in scans), 'presence only, never a count'
 
     class _Dead(_Fake):
@@ -122,3 +124,39 @@ def test_adopt_recovers_scratch_and_is_idempotent():
     assert first_runs and first_runs[0][1].startswith('from(bucket: "hcm_adopt_scratch")') and 'to(bucket: "metrics"' in first_runs[0][1]
     assert any('interrupted' in (n.get('note') or '') for n in notes)
     assert lm.adopt('cid-1', _Fake({'metrics': {}}), ['metrics'], 'org', T0, now=NOW, wait=_wait) == 0, 'idempotent'
+
+
+def test_state_is_shared_through_the_file_and_stale_runs_are_reported(tmp_path, monkeypatch):
+    """Several gunicorn workers serve the dashboard: the state a worker writes must be what every
+    other worker reads, a second start while one runs is refused, and a run whose worker died is
+    reported failed instead of running forever."""
+    import time as _t
+    monkeypatch.setattr(lm, 'STATE_FILE', str(tmp_path / 'state.json'))
+    fk = _Fake({'metrics': {'vm_metrics': (T0, T0 + timedelta(days=1))}})
+    monkeypatch.setattr(lm, 'wait_for_server', _wait)
+    st = lm.start('cid-1', fk, ['metrics'], 'org', T0 + timedelta(days=3))
+    assert st['state'] in ('running', 'done')
+    for _ in range(200):
+        if lm.state()['state'] == 'done':
+            break
+        _t.sleep(0.01)
+    seen = lm.state()                                   # read back through the file, as another worker would
+    assert seen['state'] == 'done' and seen['points'] == 2 and seen['cluster_id'] == 'cid-1'
+    # a run whose heartbeat stopped
+    lm._update(lambda d: d['adoption'].update({'state': 'running', 'heartbeat': _t.time() - lm.HEARTBEAT_STALE - 1}))
+    assert lm.state()['state'] == 'failed' and 'stopped' in lm.state()['error']
+    # the summary is claimed once; a second caller sees "computing" and does not start another scan
+    calls = []
+    class _Slow(_Fake):
+        def rows(self, flux):
+            calls.append(1); _t.sleep(0.005); return super().rows(flux)
+    slow = _Slow({'metrics': {}})
+    a = lm.summary_state(slow, ['metrics'], T0, max_age=300); b = lm.summary_state(slow, ['metrics'], T0, max_age=300)
+    assert a['state'] == 'computing' and b['state'] == 'computing'
+    for _ in range(1500):
+        if lm.summary_state(slow, ['metrics'], T0)['state'] == 'ready':
+            break
+        _t.sleep(0.01)
+    _t.sleep(0.3)
+    assert len(calls) <= lm.SUMMARY_GAP_DAYS + 2, 'one scan ran (it stops after the gap), not one per caller'
+    assert lm.summary_state(slow, ['metrics'], T0)['data']['days'] == 0

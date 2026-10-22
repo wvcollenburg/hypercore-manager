@@ -17,7 +17,10 @@ behind a small adapter so the orchestration is unit-testable with a fake.
 """
 from __future__ import annotations
 
+import fcntl
+import json
 import logging
+import os
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -124,7 +127,7 @@ class InfluxAdapter:
 
 # ------------------------------------------------------------------ summary + state
 SUMMARY_LOOKBACK_DAYS = 3 * 365
-SUMMARY_GAP_DAYS = 45         # days without untagged data after the last hit end the look-back
+SUMMARY_GAP_DAYS = 120        # consecutive days without untagged data end the look-back (legacy data ends at the upgrade)
 
 
 def presence_query(bucket: str, start: datetime, stop: datetime) -> str:
@@ -144,13 +147,13 @@ def untagged_days(adapter, bucket: str, stop: datetime, lookback_days: int = SUM
     per: dict = {}
     day_stop = stop.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     oldest = stop - timedelta(days=lookback_days)
-    empty_run, seen_any = 0, False
+    empty_run = 0
     while day_stop > oldest:
         day_start = day_stop - timedelta(days=1)
         progress(bucket=bucket, day=day_start.strftime('%Y-%m-%d'), found=max((m['days'] for m in per.values()), default=0))
         rows = adapter.rows(presence_query(bucket, day_start, day_stop))
         if rows:
-            seen_any, empty_run = True, 0
+            empty_run = 0
             for r in rows:
                 m = per.setdefault(r['_measurement'], {'days': 0, 'first': None, 'last': None})
                 m['days'] += 1
@@ -159,7 +162,7 @@ def untagged_days(adapter, bucket: str, stop: datetime, lookback_days: int = SUM
                     m['first'] = t
                 if t and (m['last'] is None or t > m['last']):
                     m['last'] = t
-        elif seen_any:
+        else:
             empty_run += 1
             if empty_run >= gap_days:
                 break
@@ -192,57 +195,101 @@ def summary(adapter, buckets: list[str], stop: Optional[datetime] = None, progre
     return res
 
 
-_STATE: dict = {'state': 'idle'}
+# ------------------------------------------------------------------ shared state
+# The dashboard runs several gunicorn workers; the scan and the adoption must be visible to all
+# of them and run once, so their state lives in a locked JSON file rather than in memory.
+STATE_FILE = os.environ.get('HCM_LEGACY_STATE_FILE', '/tmp/hcm-legacy-metrics.json')
+HEARTBEAT_STALE = 600          # seconds without a progress update: the worker running it died
+SUMMARY_STALE = 1800           # seconds a scan may take before another worker starts a new one
 _LOCK = threading.Lock()
-_SUMMARY: dict = {'state': 'idle', 'data': None, 'at': None}
+
+
+def _load() -> dict:
+    try:
+        with open(STATE_FILE) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def _update(fn: Callable[[dict], None]) -> dict:
+    """Read-modify-write under a file lock; fn mutates the dict in place."""
+    with _LOCK:
+        os.makedirs(os.path.dirname(STATE_FILE) or '.', exist_ok=True)
+        with open(STATE_FILE, 'a+') as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                fh.seek(0)
+                try:
+                    data = json.load(fh)
+                except ValueError:
+                    data = {}
+                fn(data)
+                fh.seek(0); fh.truncate(); json.dump(data, fh, default=str); fh.flush()
+            finally:
+                fcntl.flock(fh, fcntl.LOCK_UN)
+        return data
 
 
 def state() -> dict:
-    return dict(_STATE)
+    """The adoption's state as every worker sees it; a run whose heartbeat stopped is reported failed."""
+    st = _load().get('adoption') or {'state': 'idle'}
+    if st.get('state') == 'running' and time.time() - float(st.get('heartbeat') or 0) > HEARTBEAT_STALE:
+        st = dict(st, state='failed', error='the worker running the adoption stopped; run it again, it resumes where it was')
+    return st
 
 
 def summary_state(adapter, buckets: list[str], stop: Optional[datetime], max_age: float = 300) -> dict:
-    """The cached summary, refreshed in a background thread when older than max_age (a scan of
-    months of data takes longer than an HTTP request should)."""
-    with _LOCK:
-        fresh = _SUMMARY['at'] and time.time() - _SUMMARY['at'] < max_age
-        if _SUMMARY['state'] != 'computing' and not fresh:
-            _SUMMARY['state'] = 'computing'
-
-            def run():
-                try:
-                    data = summary(adapter, buckets, stop, progress=lambda **kw: _SUMMARY.__setitem__('progress', kw))
-                except Exception as e:  # noqa: BLE001
-                    log.warning('legacy summary failed: %s', e)
-                    data = {'buckets': {}, 'total': 0, 'first': None, 'last': None, 'error': str(e)[:200]}
-                with _LOCK:
-                    # a failed scan is not cached: the next request retries (InfluxDB may just be restarting)
-                    _SUMMARY.update({'state': 'ready', 'data': data, 'at': None if data.get('error') else time.time()})
-            threading.Thread(target=run, name='hcm-legacy-summary', daemon=True).start()
-        return {'state': _SUMMARY['state'], 'data': _SUMMARY['data'], 'progress': _SUMMARY.get('progress')}
+    """The cached summary shared by all workers; one worker refreshes it in a background thread
+    when it is older than max_age (a scan of months of data takes longer than an HTTP request)."""
+    def claim(d):
+        sm = d.setdefault('summary', {})
+        now = time.time()
+        fresh = sm.get('at') and now - sm['at'] < max_age
+        computing = sm.get('state') == 'computing' and now - float(sm.get('started') or 0) < SUMMARY_STALE
+        d['_claimed'] = not fresh and not computing
+        if d['_claimed']:
+            sm.update({'state': 'computing', 'started': now, 'progress': None})
+    data = _update(claim)
+    if data.pop('_claimed', False):
+        def run():
+            try:
+                res = summary(adapter, buckets, stop, progress=lambda **kw: _update(lambda d: d.setdefault('summary', {}).__setitem__('progress', kw)))
+            except Exception as e:  # noqa: BLE001
+                log.warning('legacy summary failed: %s', e)
+                res = {'buckets': {}, 'days': 0, 'total': 0, 'first': None, 'last': None, 'error': str(e)[:200]}
+            _update(lambda d: d.setdefault('summary', {}).update({'state': 'ready', 'data': res, 'at': None if res.get('error') else time.time()}))
+        threading.Thread(target=run, name='hcm-legacy-summary', daemon=True).start()
+        _update(lambda d: d.pop('_claimed', None))
+    sm = _load().get('summary') or {}
+    return {'state': sm.get('state', 'idle'), 'data': sm.get('data'), 'progress': sm.get('progress')}
 
 
 def invalidate_summary() -> None:
-    with _LOCK:
-        _SUMMARY.update({'at': None})
+    _update(lambda d: d.setdefault('summary', {}).update({'at': None}))
 
 
 def start(cluster_id: str, adapter, buckets: list[str], org: str, registered_at: datetime, on_done: Optional[Callable] = None) -> dict:
-    """Begin the adoption in a background thread; refuses while one runs."""
-    with _LOCK:
-        if _STATE.get('state') == 'running':
-            return state()
-        _STATE.clear()
-        _STATE.update({'state': 'running', 'cluster_id': cluster_id, 'started_at': datetime.now(timezone.utc).isoformat(),
-                       'bucket': None, 'measurement': None, 'done': 0, 'total': 0, 'points': 0, 'log': []})
+    """Begin the adoption in a background thread of this worker; refuses while one runs anywhere."""
+    def claim(d):
+        cur = d.get('adoption') or {}
+        running = cur.get('state') == 'running' and time.time() - float(cur.get('heartbeat') or 0) <= HEARTBEAT_STALE
+        d['_claimed'] = not running
+        if d['_claimed']:
+            d['adoption'] = {'state': 'running', 'cluster_id': cluster_id, 'started_at': datetime.now(timezone.utc).isoformat(),
+                             'heartbeat': time.time(), 'bucket': None, 'measurement': None, 'done': 0, 'total': 0, 'points': 0, 'log': []}
+    data = _update(claim)
+    if not data.pop('_claimed', False):
+        return state()
+    _update(lambda d: d.pop('_claimed', None))
 
     def run():
         try:
             points = adopt(cluster_id, adapter, buckets, org, registered_at, progress=_progress)
-            _STATE.update({'state': 'done', 'points': points, 'finished_at': datetime.now(timezone.utc).isoformat()})
+            _update(lambda d: d['adoption'].update({'state': 'done', 'points': points, 'finished_at': datetime.now(timezone.utc).isoformat()}))
         except Exception as e:  # noqa: BLE001 — the thread is the error boundary
             log.exception('legacy adoption failed')
-            _STATE.update({'state': 'failed', 'error': str(e)[:300], 'finished_at': datetime.now(timezone.utc).isoformat()})
+            _update(lambda d: d['adoption'].update({'state': 'failed', 'error': str(e)[:300], 'finished_at': datetime.now(timezone.utc).isoformat()}))
         finally:
             invalidate_summary()
             if on_done:
@@ -252,9 +299,12 @@ def start(cluster_id: str, adapter, buckets: list[str], org: str, registered_at:
 
 
 def _progress(**kw) -> None:
-    _STATE.update(kw)
-    if 'note' in kw:
-        _STATE.setdefault('log', []).append(kw['note'])
+    def upd(d):
+        a = d.setdefault('adoption', {})
+        a.update(kw); a['heartbeat'] = time.time()
+        if 'note' in kw:
+            a.setdefault('log', []).append(kw['note'])
+    _update(upd)
 
 
 # ------------------------------------------------------------------ the work
