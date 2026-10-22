@@ -205,6 +205,13 @@ the form follows the deployment; a finished one shows up in the proxies table wi
 detected. DEPLOY.md describes what the VM needs to reach and what to do when a deployment fails
 halfway.
 
+The cloud-init document carries the proxy's token, and HyperCore keeps it as a small ISO
+attached to the VM. Once the proxy has registered, the deployment removes that ISO from the VM
+(ejects it while the VM runs; the empty CD-ROM stays and is reused for ISO delivery). The daily
+sweep repeats this for every registered proxy VM, so proxies deployed by earlier versions are
+cleaned up too. A proxy VM built by hand that was given its token through cloud-init should get
+the same treatment: eject the cloud-init CD-ROM once the container runs.
+
 **Measure throughput** (per proxy) writes 512 MiB onto the cluster's backup target through each
 path a backup can use and reports MiB/s per mode: `plain` (a flat file, the share's ceiling),
 `nbd` (a qcow2 image through qemu-nbd with the proxy's current settings, what a backup does),

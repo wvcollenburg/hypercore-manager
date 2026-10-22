@@ -9,6 +9,7 @@ What the panel does for an administrator:
   3. attach the image as the VM's disk (grown to the requested size), set the boot order, start
   4. wait for the VM's IP address (static from the form, or reported by the guest agent)
   5. register the proxy (https://<ip>:8083) and probe it until the container answers
+  6. remove the cloud-init ISO from the VM (it carries the token; the daily sweep retries)
 
 Everything here is plain API calls; the cloud-init document is rendered by cloud_init_userdata()
 so it can be reviewed and tested without a cluster.
@@ -219,7 +220,16 @@ def run_deployment(dep_id: int) -> None:
             time.sleep(20)
         if not result.get('ok'):
             raise IncrementalError(f"proxy registered but not reachable yet at {url}: {result.get('error') or result.get('detail')}")
-        db.update_deployment(dep_id, status='COMPLETE', finished_at=_now(), message=f'proxy {name} running at {url} and registered')
+        # 6. the cloud-init ISO holds the token in clear: get it off the VM now that the proxy runs
+        db.update_deployment(dep_id, message='removing the cloud-init data from the VM')
+        try:
+            removed = incremental.remove_cloud_init_disk(hc, vm_uuid)
+        except (HyperCoreError, IncrementalError) as e:
+            removed = None
+            log.warning('[deploy %s] cloud-init disk not removed (%s); the daily sweep retries', dep_id, e)
+        db.update_deployment(dep_id, status='COMPLETE', finished_at=_now(),
+                             message=f'proxy {name} running at {url} and registered; cloud-init data '
+                                     + ({'deleted': 'removed from the VM', 'ejected': 'ejected from the VM'}.get(removed) or 'still attached, the daily sweep retries'))
         log.info('[deploy %s] done: %s at %s', dep_id, name, url)
     except (IncrementalError, HyperCoreError, KeyError, ValueError) as e:
         db.update_deployment(dep_id, status='ERROR', message=str(e), finished_at=_now())

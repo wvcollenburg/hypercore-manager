@@ -94,6 +94,11 @@ release is tagged.
   with the failing files, by the weekly verify, the manual **Verify** button and a restore alike.
   The manual Verify now runs in the background with progress, so chains larger than one HTTP
   request can be verified from the dashboard.
+- **Cloud-init data removed from deployed proxy VMs.** HyperCore keeps a deployed VM's cloud-init
+  document as an ISO attached to the VM, and that document carries the proxy's API token in
+  clear, readable by anyone who can clone or mount the VM's disks. A deployment now deletes the
+  ISO once the proxy has registered (ejects it while the VM runs), and the daily sweep does the
+  same for proxies deployed by earlier versions.
 - **Proxy write throughput onto SMB shares doubled.** The proxy writes qcow2 images with lazy
   refcounts and qemu-nbd's unsafe cache mode by default (`PROXY_QCOW2_LAZY_REFCOUNTS`,
   `PROXY_NBD_CACHE`), which removes the SMB flush qemu issued for every MiB written; a finished

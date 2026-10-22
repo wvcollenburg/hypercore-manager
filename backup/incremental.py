@@ -485,9 +485,10 @@ def apply_retention(plan: dict, pc: ProxyClient, share: dict) -> str:
 
 # ------------------------------------------------------------------ sweeps
 def sweep_cluster(cluster_id: str, max_age_days: int = 30) -> dict:
-    """Remove our stale anchor snapshots (not referenced by any chain, older than max_age_days) and
-    clones left on proxies by interrupted runs. Called daily and on service start."""
-    out = {'snapshots': 0, 'clones': 0}
+    """Remove our stale anchor snapshots (not referenced by any chain, older than max_age_days),
+    clones left on proxies by interrupted runs, and cloud-init ISOs still attached to proxy VMs.
+    Called daily and on service start."""
+    out = {'snapshots': 0, 'clones': 0, 'cloud_init': 0}
     try:
         hc = jobs.client_for(cluster_id)
     except HyperCoreError as e:
@@ -505,7 +506,39 @@ def sweep_cluster(cluster_id: str, max_age_days: int = 30) -> dict:
         _delete_clones(hc, list(ch.get('active_clones') or []))
         db.update_chain(ch['id'], active_clones=[])
         out['clones'] += len(ch.get('active_clones') or [])
+    for p in db.get_proxies(cluster_id):
+        if not p.get('vm_uuid'):
+            continue
+        try:
+            if remove_cloud_init_disk(hc, p['vm_uuid']):
+                out['cloud_init'] += 1
+                log.warning('cloud-init ISO removed from proxy VM %s (%s): it carried the proxy token', p.get('name'), p['vm_uuid'][:8])
+        except (HyperCoreError, IncrementalError) as e:
+            log.warning('cloud-init disk of proxy %s: %s', p.get('name'), e)
     return out
+
+
+def remove_cloud_init_disk(hc: HyperCoreClient, vm_uuid: str) -> str | None:
+    """HyperCore keeps the cloud-init document of a deployed proxy VM as a NoCloud ISO attached
+    to the VM, on a Scribe volume anyone with access to the VM can clone or mount; the document
+    carries the proxy's API token. Once the proxy is registered the ISO has done its job: delete
+    the device, or, while the VM runs and refuses that ('Still in use'), eject the ISO so the
+    volume is unreferenced. Returns 'deleted', 'ejected' or None (nothing attached)."""
+    vm = hc.get_vm(vm_uuid)
+    if not vm:
+        return None
+    outcome = None
+    for b in vm.get('blockDevs', []):
+        if b.get('type') != 'IDE_CDROM' or not (b.get('name') or '').startswith('cloud-init-') or not b.get('path'):
+            continue
+        try:
+            wait_task(hc, hc.delete_block_device(b['uuid']), 'remove cloud-init disk', 120)
+            outcome = 'deleted'
+        except (HyperCoreError, IncrementalError) as e:
+            log.info('cloud-init disk of %s not deletable while running (%s); ejecting', vm_uuid[:8], e)
+            wait_task(hc, hc.patch_block_device(b['uuid'], path=''), 'eject cloud-init disk', 120)
+            outcome = 'ejected'
+    return outcome
 
 
 # ------------------------------------------------------------------ verification

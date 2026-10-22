@@ -166,7 +166,7 @@ class _FakeDB:
         self.chains[cid] = {'id': cid, 'plan_id': plan['id'], 'cluster_id': plan['cluster_id'], 'status': 'active', 'chain_dir': chain_dir, 'next_seq': 0, 'runs_since_full': 0,
                             'anchor_snapshot_uuid': None, 'last_serials': None, 'target_id': target_id}; return cid
     def get_chain(self, cid): return self.chains.get(cid)
-    def get_chains(self, cid): return [c for c in self.chains.values() if c['cluster_id'] == cid]
+    def get_chains(self, cid, include_deleted=False): return [c for c in self.chains.values() if c['cluster_id'] == cid]
     def get_share(self, sid, with_secret=False): return {'id': 9, 'uri_base': 'smb://nas/share', 'username': 'u', 'password': 'p'}
     def add_point(self, chain_id, seq, kind, dir_, serials, blocks, bw, dur, files, definition, run_id, quiesced=None):
         pid = 100 + len(self.points); self.points.append({'id': pid, 'chain_id': chain_id, 'seq': seq, 'kind': kind, 'dir': dir_, 'status': 'ok',
@@ -401,3 +401,44 @@ def test_manual_verify_runs_in_the_background_and_the_weekly_counts(world):
     world.pc.verify_result = {'ok': False, 'points': {'base': {'ok': False, 'mismatches': ['disk.qcow2: checksum differs']}}}
     assert inc.verify_active_chains('c1') == {'verified': 0, 'failed': 1}
     assert db.points[0]['verify_error'] == 'disk.qcow2: checksum differs'
+
+
+class _CdHC:
+    """A proxy VM with its cloud-init ISO still attached; delete is refused while it runs."""
+    def __init__(self, running=True):
+        self.running = running; self.calls = []
+        self.vm = {'uuid': 'proxy-vm', 'state': 'RUNNING' if running else 'SHUTOFF',
+                   'blockDevs': [{'uuid': 'nv', 'type': 'NVRAM', 'path': 'scribe/nv'},
+                                 {'uuid': 'cd', 'type': 'IDE_CDROM', 'name': 'cloud-init-30115aab.iso', 'path': 'scribe/iso'},
+                                 {'uuid': 'cd2', 'type': 'IDE_CDROM', 'name': '', 'path': ''},
+                                 {'uuid': 'disk', 'type': 'VIRTIO_DISK', 'path': 'scribe/disk'}]}
+    def get_vm(self, u): return self.vm if u == 'proxy-vm' else None
+    def task_status(self, tag): return {'state': 'COMPLETE'}
+    def delete_block_device(self, u):
+        self.calls.append(('delete', u))
+        if self.running:
+            raise hcm.HyperCoreError("HyperCore API 500 on /VirDomainBlockDevice/cd: Unable to delete block device from VM '%@': Still in use", 500)
+        self.vm['blockDevs'] = [b for b in self.vm['blockDevs'] if b['uuid'] != u]; return 'task'
+    def patch_block_device(self, u, **f):
+        self.calls.append(('patch', u, f)); [b.update(f, name='') for b in self.vm['blockDevs'] if b['uuid'] == u]; return 'task'
+    def list_snapshots(self): return []
+
+
+def test_cloud_init_iso_is_ejected_while_running_and_deleted_when_off(monkeypatch):
+    monkeypatch.setattr(inc.time, 'sleep', lambda s: None)
+    hc = _CdHC(running=True)
+    assert inc.remove_cloud_init_disk(hc, 'proxy-vm') == 'ejected'
+    assert hc.calls == [('delete', 'cd'), ('patch', 'cd', {'path': ''})], 'only the cloud-init CD-ROM is touched, the empty one is left alone'
+    assert inc.remove_cloud_init_disk(hc, 'proxy-vm') is None, 'nothing left to do once ejected'
+    hc = _CdHC(running=False)
+    assert inc.remove_cloud_init_disk(hc, 'proxy-vm') == 'deleted' and [b['uuid'] for b in hc.vm['blockDevs']] == ['nv', 'cd2', 'disk']
+    assert inc.remove_cloud_init_disk(hc, 'missing') is None
+
+
+def test_daily_sweep_removes_cloud_init_isos_of_registered_proxies(world, monkeypatch):
+    hc = _CdHC(running=True)
+    monkeypatch.setattr(inc.jobs, 'client_for', lambda cid: hc)
+    monkeypatch.setattr(world.db, 'chains_with_clones', lambda: [], raising=False)
+    out = inc.sweep_cluster('c1')
+    assert out == {'snapshots': 0, 'clones': 0, 'cloud_init': 1} and ('patch', 'cd', {'path': ''}) in hc.calls
+    assert inc.sweep_cluster('c1')['cloud_init'] == 0, 'idempotent'
