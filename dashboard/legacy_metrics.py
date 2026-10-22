@@ -132,12 +132,12 @@ def presence_query(bucket: str, start: datetime, stop: datetime) -> str:
     per series. Counting millions of points per window exceeded a 768 MB InfluxDB and got it
     killed, which is why the summary only establishes which days hold legacy data."""
     return (f'from(bucket: "{bucket}") |> range(start: {_rfc(start)}, stop: {_rfc(stop)}) '
-            '|> filter(fn: (r) => not exists r.cluster_id) |> keep(columns: ["_measurement", "_time"]) '
-            '|> limit(n: 1) |> group(columns: ["_measurement"]) |> limit(n: 1)')      # one row per series before regrouping
+            '|> filter(fn: (r) => not exists r.cluster_id) |> limit(n: 1) '          # pushed into storage: one point per series
+            '|> keep(columns: ["_measurement", "_time"]) |> group(columns: ["_measurement"]) |> limit(n: 1)')
 
 
 def untagged_days(adapter, bucket: str, stop: datetime, lookback_days: int = SUMMARY_LOOKBACK_DAYS,
-                  gap_days: int = SUMMARY_GAP_DAYS) -> dict:
+                  gap_days: int = SUMMARY_GAP_DAYS, progress: Callable = lambda **kw: None) -> dict:
     """{measurement: {days, first, last}} of untagged data before `stop`, one query per day going
     back until `gap_days` empty days follow the last hit. Raises on a failed query (a dead InfluxDB
     must not read as "no legacy data")."""
@@ -147,6 +147,7 @@ def untagged_days(adapter, bucket: str, stop: datetime, lookback_days: int = SUM
     empty_run, seen_any = 0, False
     while day_stop > oldest:
         day_start = day_stop - timedelta(days=1)
+        progress(bucket=bucket, day=day_start.strftime('%Y-%m-%d'), found=sum(m['days'] for m in per.values()))
         rows = adapter.rows(presence_query(bucket, day_start, day_stop))
         if rows:
             seen_any, empty_run = True, 0
@@ -166,14 +167,14 @@ def untagged_days(adapter, bucket: str, stop: datetime, lookback_days: int = SUM
     return per
 
 
-def summary(adapter, buckets: list[str], stop: Optional[datetime] = None) -> dict:
+def summary(adapter, buckets: list[str], stop: Optional[datetime] = None, progress: Callable = lambda **kw: None) -> dict:
     """Untagged data per bucket and measurement: {bucket: {measurement: {days, first, last}}},
     the number of days with legacy data and the span; `error` when a bucket could not be scanned."""
     out, days, first, last, error = {}, 0, None, None, None
     stop = stop or datetime.now(timezone.utc)
     for b in buckets:
         try:
-            per = untagged_days(adapter, b, stop)
+            per = untagged_days(adapter, b, stop, progress=progress)
         except Exception as e:  # noqa: BLE001 — reported, never mistaken for "nothing there"
             log.warning('legacy summary of %s: %s', b, e)
             error = f'{b}: {str(e)[:160]}'
@@ -210,7 +211,7 @@ def summary_state(adapter, buckets: list[str], stop: Optional[datetime], max_age
 
             def run():
                 try:
-                    data = summary(adapter, buckets, stop)
+                    data = summary(adapter, buckets, stop, progress=lambda **kw: _SUMMARY.__setitem__('progress', kw))
                 except Exception as e:  # noqa: BLE001
                     log.warning('legacy summary failed: %s', e)
                     data = {'buckets': {}, 'total': 0, 'first': None, 'last': None, 'error': str(e)[:200]}
@@ -218,7 +219,7 @@ def summary_state(adapter, buckets: list[str], stop: Optional[datetime], max_age
                     # a failed scan is not cached: the next request retries (InfluxDB may just be restarting)
                     _SUMMARY.update({'state': 'ready', 'data': data, 'at': None if data.get('error') else time.time()})
             threading.Thread(target=run, name='hcm-legacy-summary', daemon=True).start()
-        return {'state': _SUMMARY['state'], 'data': _SUMMARY['data']}
+        return {'state': _SUMMARY['state'], 'data': _SUMMARY['data'], 'progress': _SUMMARY.get('progress')}
 
 
 def invalidate_summary() -> None:

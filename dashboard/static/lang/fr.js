@@ -851,6 +851,7 @@ window.LANG = {
   'clusters.legacy_found': "Mesures de 0.9.x sans étiquette de cluster trouvées : {n} jour(s) de données ({span}). Les attribuer à {cluster} pour que Foresight et l'équilibreur gardent leur historique ?",
   'clusters.legacy_adopt': "Reprendre l'historique",
   'clusters.legacy_scanning': "Recherche de points de mesure de 0.9.x sans étiquette de cluster… (des mois de données prennent quelques minutes)",
+  'clusters.legacy_days_found': "jour(s) avec des données jusqu'ici",
   'clusters.legacy_scan_failed': "La recherche de mesures 0.9.x a échoué : {error}. Nouvel essai dans un instant (InfluxDB redémarre peut-être).",
   'clusters.legacy_confirm': "Réétiqueter les anciennes mesures pour ce cluster ? L'opération tourne en arrière-plan et peut prendre du temps ; rien n'est supprimé.",
   'clusters.legacy_running': "Reprise de l'historique : {measurement} ({done}/{total} mesures, {points} jours-mesure jusqu'ici)…",
