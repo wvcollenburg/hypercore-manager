@@ -509,6 +509,14 @@ def build_schema() -> list[Section]:
                     description=(
                         "Retention for the downsampled bucket (5 years by default)."
                     ),
+                    why_default=(
+                        "1825 = 5 years, enough for capacity-planning year-over-year "
+                        "comparisons."
+                    ),
+                    when_change=(
+                        "Reduce on small disks; raise if you need a longer baseline."
+                    ),
+                ),
                 Field(
                     key="INFLUXD_QUERY_MAX_MEMORY_BYTES",
                     label="InfluxDB query memory, all queries (bytes)",
@@ -544,14 +552,6 @@ def build_schema() -> list[Section]:
                     description="Size of the in-memory write cache before it is flushed to disk.",
                     why_default="192 MB instead of InfluxDB's 1 GiB default, which alone exceeds the container limit.",
                     when_change="Raise together with the InfluxDB container's memory limit in docker-compose.yaml.",
-                ),
-                    why_default=(
-                        "1825 = 5 years, enough for capacity-planning year-over-year "
-                        "comparisons."
-                    ),
-                    when_change=(
-                        "Reduce on small disks; raise if you need a longer baseline."
-                    ),
                 ),
             ],
         ),
