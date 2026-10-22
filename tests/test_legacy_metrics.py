@@ -98,7 +98,7 @@ def test_adopt_copies_deletes_and_copies_back_in_windows():
     main_del = [c for c in fk.calls if c[0] == 'delete' and c[1] == 'metrics']
     assert len(main_del) == 2 and all(c[3] == reg for c in main_del), 'deleted up to the registration'
     assert ('create', 'hcm_adopt_scratch') in fk.calls and ('drop', 'hcm_adopt_scratch') in fk.calls and not fk.buckets
-    assert notes[-1]['done'] == 2 and fk.waits == 0
+    assert [n for n in notes if 'done' in n][-1]['done'] == 2 and fk.waits == 0
 
 
 def test_adopt_shrinks_the_window_and_waits_when_a_query_fails():
@@ -160,3 +160,14 @@ def test_state_is_shared_through_the_file_and_stale_runs_are_reported(tmp_path, 
     _t.sleep(0.3)
     assert len(calls) <= lm.SUMMARY_LOOKBACK_DAYS + 2, 'one scan ran, not one per caller'
     assert lm.summary_state(slow, ['metrics'], T0)['data']['days'] == 0
+
+
+def test_adopt_reuses_a_known_summary_and_heartbeats_while_scanning():
+    fk = _Fake({'metrics': {'vm_metrics': (T0, T0 + timedelta(days=1))}})
+    known = {'metrics': {'vm_metrics': {'days': 2, 'first': T0.isoformat(), 'last': (T0 + timedelta(days=1)).isoformat()}}}
+    notes = []
+    n = lm.adopt('cid-1', fk, ['metrics'], 'org', T0 + timedelta(days=3), progress=lambda **kw: notes.append(kw), now=NOW, wait=_wait, known=known)
+    assert n == 2 and not any('limit(n: 1)' in c[1] and 'not exists' in c[1] for c in fk.calls if c[0] == 'rows'), 'no rescan when the summary is known'
+    fk2 = _Fake({'metrics': {'vm_metrics': (T0, T0 + timedelta(days=1))}}); notes2 = []
+    lm.adopt('cid-1', fk2, ['metrics'], 'org', T0 + timedelta(days=3), progress=lambda **kw: notes2.append(kw), now=NOW, wait=_wait)
+    assert any(n.get('scanning') for n in notes2), 'without a known summary the scan reports progress (which refreshes the heartbeat)'

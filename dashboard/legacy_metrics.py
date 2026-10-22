@@ -265,7 +265,10 @@ def invalidate_summary() -> None:
 
 
 def start(cluster_id: str, adapter, buckets: list[str], org: str, registered_at: datetime, on_done: Optional[Callable] = None) -> dict:
-    """Begin the adoption in a background thread of this worker; refuses while one runs anywhere."""
+    """Begin the adoption in a background thread of this worker; refuses while one runs anywhere.
+    The cached summary, if ready, tells it what to copy without a second scan."""
+    known = (_load().get('summary') or {}).get('data') or {}
+    known = known.get('buckets') if known.get('state', 'ready') and not known.get('error') else None
     def claim(d):
         cur = d.get('adoption') or {}
         running = cur.get('state') == 'running' and time.time() - float(cur.get('heartbeat') or 0) <= HEARTBEAT_STALE
@@ -280,7 +283,7 @@ def start(cluster_id: str, adapter, buckets: list[str], org: str, registered_at:
 
     def run():
         try:
-            points = adopt(cluster_id, adapter, buckets, org, registered_at, progress=_progress)
+            points = adopt(cluster_id, adapter, buckets, org, registered_at, progress=_progress, known=known)
             _update(lambda d: d['adoption'].update({'state': 'done', 'points': points, 'finished_at': datetime.now(timezone.utc).isoformat()}))
         except Exception as e:  # noqa: BLE001 — the thread is the error boundary
             log.exception('legacy adoption failed')
@@ -337,7 +340,7 @@ def wait_for_server(adapter, timeout: float = 300) -> None:
 
 
 def adopt(cluster_id: str, adapter, buckets: list[str], org: str, registered_at: datetime, *, progress: Callable = lambda **kw: None,
-          chunk_hours: int = 24, now: Optional[datetime] = None, wait: Callable = wait_for_server) -> int:
+          chunk_hours: int = 24, now: Optional[datetime] = None, wait: Callable = wait_for_server, known: Optional[dict] = None) -> int:
     """Re-tag every untagged point written before `registered_at` (the first cluster registration,
     where tagging began) in `buckets` with cluster_id. Works in windows of `chunk_hours` that
     shrink when a query fails. Returns the number of measurement-days adopted."""
@@ -354,11 +357,18 @@ def adopt(cluster_id: str, adapter, buckets: list[str], org: str, registered_at:
         progress(note='restored data left in the scratch bucket by an interrupted run')
     adopted = 0
     for bucket in buckets:
-        per = untagged_days(adapter, bucket, era_end)
+        # the summary the panel showed (same scan) is reused when given; otherwise scan, keeping
+        # the heartbeat alive so a long scan is not mistaken for a dead worker
+        per = (known or {}).get(bucket) or untagged_days(adapter, bucket, era_end, progress=lambda **kw: progress(scanning=kw))
+        per = {m: v for m, v in per.items() if v.get('first') and v.get('last')}
         if not per:
             continue
         tagged_first = {r['_measurement']: r['first'] for r in adapter.rows(first_tagged_query(bucket, registered_at))}
-        progress(bucket=bucket, total=len(per), done=0)
+        for v in per.values():                      # from the state file they are ISO strings
+            for k in ('first', 'last'):
+                if isinstance(v.get(k), str):
+                    v[k] = datetime.fromisoformat(v[k].replace(' ', 'T'))
+        progress(bucket=bucket, total=len(per), done=0, scanning=None)
         adapter.create_bucket(SCRATCH_BUCKET)
         try:
             for i, (m, info) in enumerate(sorted(per.items())):
