@@ -86,6 +86,22 @@ release is tagged.
   disconnected on request); single files are browsed and downloaded through the dashboard, or
   delivered as an ISO inserted into a running VM's CD-ROM and ejected afterwards. Nothing is
   written into a guest through the hypervisor.
+- **Chain integrity check before a restore** (migration `032`). A restore first re-hashes every
+  file of the chain up to the chosen point against the checksums written at backup time and stops
+  before anything is created on the cluster when a file does not match; the Runs panel shows the
+  check's progress. The form has a checkbox to skip it (on by default) with the point's last
+  verified time next to it. A point that failed a check is marked **corrupt** in the points list
+  with the failing files, by the weekly verify, the manual **Verify** button and a restore alike.
+  The manual Verify now runs in the background with progress, so chains larger than one HTTP
+  request can be verified from the dashboard.
+- **Proxy write throughput onto SMB shares doubled.** The proxy writes qcow2 images with lazy
+  refcounts and qemu-nbd's unsafe cache mode by default (`PROXY_QCOW2_LAZY_REFCOUNTS`,
+  `PROXY_NBD_CACHE`), which removes the SMB flush qemu issued for every MiB written; a finished
+  point is synced to the share before its checksum is taken. Lab measurement onto a CIFS share:
+  55 MiB/s against 37 before, with a plain file copy at 45. **Measure throughput** on
+  a registered proxy (Settings → Backup proxies) writes 512 MiB per mode onto the cluster's target
+  and reports MiB/s for a flat file, today's path, the alternatives and the restore read path, so
+  the setting can be chosen per site.
 - **Remote proxies** for clusters that do not host the stack: the same proxy container in a small
   VM, reached over HTTPS with a pinned self-signed certificate (or a customer certificate),
   several proxies per cluster with rotation and one job per proxy. An administrator can deploy

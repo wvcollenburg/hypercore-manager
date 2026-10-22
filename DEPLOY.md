@@ -281,6 +281,8 @@ Changing them in `.env` later does not alter clusters that already exist.
 | `BACKUP_PREFLIGHT_WAIT_HOURS` | How long a run waits for a cluster update or a missing node to clear before it is deferred (default 2) |
 | `PROXY_API_TOKEN` | Bearer token between the backup service and the proxy container(s). **Empty = auth disabled.** |
 | `PROXY_WRITERS` | Parallel writer threads per backup job in the proxy (default 4) |
+| `PROXY_QCOW2_LAZY_REFCOUNTS` | `true` (default) skips the flush qemu issues per allocated qcow2 cluster when the proxy writes a point; see "Measure throughput" in the administration guide |
+| `PROXY_NBD_CACHE` | qemu-nbd cache mode for backup writes: `unsafe` (default: no flushes until the image is closed; a finished point is synced to the share before its checksum is taken, an unfinished point is never valid), `writeback` (every flush honoured) or `none` (direct I/O). Lab measurement onto an SMB share: 55 MiB/s against 37, a plain file copy at 45 |
 | `PROXY_NBD_SLOTS` | `/dev/nbd` devices the proxy may use at once (default 8) |
 
 The `EXPORTS_*` names used by the first release of the module are still read when the `BACKUP_*`

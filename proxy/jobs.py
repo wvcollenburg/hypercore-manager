@@ -3,8 +3,9 @@ jobs.py — the proxy's job engine: a small registry plus the four job kinds.
 
 backup   write one point (full or delta) of a chain from hot-added devices onto the target
 flatten  materialise one point as flat qcow2 files + the supplied definition (restore directory)
-verify   re-hash a point against its manifest
+verify   re-hash the points of a chain (one, all, or everything up to a seq) against their manifests
 sweep    remove stale restore directories under a folder on the target
+bench    measure write/read throughput onto a target through the paths a backup and a restore use
 
 Every job request carries the target (uri, username, password); the proxy mounts it for the
 job and never stores the credentials. Progress and results are kept in memory and mirrored as
@@ -20,6 +21,7 @@ import time
 import uuid as uuidlib
 from concurrent.futures import ThreadPoolExecutor
 
+import bench
 import copier
 import devices
 import manifest
@@ -67,7 +69,7 @@ class Engine:
     # ---------------------------------------------------------------- registry
     def submit(self, kind: str, request: dict) -> Job:
         runner = {'backup': self.run_backup, 'flatten': self.run_flatten, 'verify': self.run_verify, 'sweep': self.run_sweep,
-                  'prune': self.run_prune, 'delete_chain': self.run_delete_chain, 'stage': self.run_stage}[kind]
+                  'prune': self.run_prune, 'delete_chain': self.run_delete_chain, 'stage': self.run_stage, 'bench': self.run_bench}[kind]
         job = Job(kind, request)
         with self._lock:
             self.jobs[job.id] = job
@@ -100,6 +102,7 @@ class Engine:
             job.error = str(e)
         finally:
             job.progress.pop('current_device', None)
+            job.progress.pop('current', None)
             self._persist(job)
 
     # ---------------------------------------------------------------- helpers
@@ -246,14 +249,37 @@ class Engine:
 
     # ---------------------------------------------------------------- verify
     def run_verify(self, job: Job) -> dict:
+        """
+        request: {target, chain_dir, seq?: one point only, upto_seq?: every point with seq <= upto_seq
+                  (the backing chain of a restore point)}
+        Re-hashes every file of the selected points against their manifests. Progress carries
+        points and bytes so a restore can show how far the check is.
+        """
         req = job.request
         root = self._with_target(req)
         try:
             chain_dir = os.path.join(root, req['chain_dir'])
             chain = manifest.load_chain(chain_dir)
-            points = [p for p in chain['points'] if req.get('seq') is None or p['seq'] == int(req['seq'])]
-            results = {p['dir']: manifest.verify_point(os.path.join(chain_dir, p['dir'])) for p in points}
-            return {'ok': all(r['ok'] for r in results.values()), 'points': results}
+            seq, upto = req.get('seq'), req.get('upto_seq')
+            points = [p for p in chain['points'] if (seq is None or p['seq'] == int(seq)) and (upto is None or p['seq'] <= int(upto))]
+            job.progress = {'points_total': len(points), 'points_done': 0, 'bytes_done': 0,
+                            'bytes_total': sum(manifest.point_bytes(os.path.join(chain_dir, p['dir'])) for p in points)}
+            t0 = time.time()
+            results, done = {}, 0
+            for p in points:
+                job.progress['current'] = p['dir']
+
+                def prog(n, _b=done):
+                    job.progress['bytes_done'] = _b + n
+
+                r = manifest.verify_point(os.path.join(chain_dir, p['dir']), progress=prog, cancelled=job.cancelled)
+                results[p['dir']] = r
+                done += r.get('bytes', 0)
+                job.progress['bytes_done'] = done
+                job.progress['points_done'] += 1
+                self._persist(job)
+            return {'ok': bool(points) and all(r['ok'] for r in results.values()), 'points': results,
+                    'bytes': done, 'duration_s': round(time.time() - t0, 1)}
         finally:
             self._release_target(req)
 
@@ -382,5 +408,31 @@ class Engine:
                 job.progress['devices_done'] += 1
                 self._persist(job)
             return {'devices': out, 'bytes_written': sum(x['bytes_written'] for x in out)}
+        finally:
+            self._release_target(req)
+
+    # ---------------------------------------------------------------- bench
+    def run_bench(self, job: Job) -> dict:
+        """
+        request: {target, size_mib (default 512, 16..8192), modes (default bench.DEFAULT_MODES)}
+        Writes size_mib per mode into <target>/_bench/<job id>/ and removes it again.
+        """
+        req = job.request
+        root = self._with_target(req)
+        try:
+            size_mib = max(16, min(int(req.get('size_mib') or 512), 8192))
+            modes = [m for m in (req.get('modes') or bench.DEFAULT_MODES) if m in bench.ALL_MODES]
+            if not modes:
+                raise ValueError(f'no known modes in {req.get("modes")!r}; known: {bench.ALL_MODES}')
+            last_mode = [None]
+
+            def prog(p):
+                job.progress = p
+                if p.get('current') != last_mode[0]:
+                    last_mode[0] = p.get('current')
+                    self._persist(job)
+
+            return bench.run(self.backend, root, self.cfg.data_dir, size_mib, modes, self.cfg.writers,
+                             progress=prog, cancelled=job.cancelled, job_id=job.id)
         finally:
             self._release_target(req)

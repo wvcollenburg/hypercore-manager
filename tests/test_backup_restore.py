@@ -94,25 +94,36 @@ class _FakeHC:
 
 
 class _FakePC:
-    def __init__(self): self.jobs = []
+    def __init__(self):
+        self.jobs = []
+        self.verify_result = {'ok': True, 'points': {'base': {'ok': True, 'mismatches': []}, 'delta-0001': {'ok': True, 'mismatches': []}}, 'bytes': 8 << 20, 'duration_s': 0.2}
     def submit(self, kind, body): self.jobs.append((kind, body)); return f'j{len(self.jobs)}'
     def wait(self, jid, on_progress=None, timeout=0, poll=0):
         kind, body = self.jobs[int(jid[1:]) - 1]
         if kind == 'stage' and on_progress: on_progress({'blocks_done': 3, 'blocks_total': 3})
+        if kind == 'verify':
+            if on_progress: on_progress({'points_total': 2, 'points_done': 1, 'bytes_total': 8 << 20, 'bytes_done': 5 << 20})
+            return {'state': 'done', 'result': dict(self.verify_result)}
         return {'state': 'done', 'result': {'bytes_written': 3 << 20, 'devices': []} if kind == 'stage' else {'files': [], 'removed': []}}
 
 
 class _FakeDB:
     def __init__(self):
         self.restore = {'id': 9, 'point_id': 100, 'target_name': 'exptest-copy', 'params': {'mac_policy': 'original', 'start': True, 'nic_connected': False}}
-        self.point = {'id': 100, 'chain_id': 1, 'seq': 1, 'status': 'ok', 'definition': DEF}
+        self.point = {'id': 100, 'chain_id': 1, 'seq': 1, 'dir': 'delta-0001', 'status': 'ok', 'definition': DEF}
+        self.points = [{'id': 99, 'chain_id': 1, 'seq': 0, 'dir': 'base', 'status': 'ok'}, self.point]
+        self.messages = []
         self.chain = {'id': 1, 'cluster_id': 'c1', 'vm_name': 'exptest', 'target_id': 9, 'chain_dir': 'Amsterdam/exptest_src-vm.chain', 'folder_slug': 'Amsterdam', 'status': 'active'}
     def get_restore(self, rid): return dict(self.restore)
     def get_point(self, pid): return self.point
     def get_chain(self, cid): return self.chain
     def get_share(self, sid, with_secret=False): return {'id': 9, 'uri_base': 'smb://nas/share', 'username': 'u', 'password': 'p'}
     def get_os_template(self, mt, prof): return None
-    def update_restore(self, rid, **f): self.restore.update(f)
+    def update_restore(self, rid, **f):
+        self.restore.update(f)
+        if 'message' in f: self.messages.append(f['message'])
+    def get_points(self, cid, include_pruned=False): return list(self.points)
+    def update_point(self, pid, **f): [p.update(f) for p in self.points if p['id'] == pid]
     def update_proxy(self, pid, **f): pass
     def get_proxies(self, cid, enabled_only=False): return [{'id': 7, 'vm_uuid': 'proxy-vm', 'last_seen_at': None}]
     def get_proxy(self, pid, with_secret=False): return {'id': 7, 'name': 'px', 'url': 'http://px', 'token': 't', 'vm_uuid': 'proxy-vm', 'tls_fingerprint': None, 'tls_verify': False}
@@ -135,7 +146,13 @@ def test_fast_restore_end_to_end(world):
     r = world.db.restore
     assert r['status'] == 'COMPLETE', r
     kinds = [k for k, _ in world.pc.jobs]
-    assert kinds == ['flatten', 'stage', 'sweep']
+    assert kinds == ['verify', 'flatten', 'stage', 'sweep'], 'the backing chain is re-hashed before anything is created'
+    ver = world.pc.jobs[0][1]
+    assert ver['upto_seq'] == 1 and ver['chain_dir'] == 'Amsterdam/exptest_src-vm.chain'
+    assert all(p['verified_at'] and p.get('verify_error') is None for p in world.db.points), 'passing points are stamped'
+    assert any(m.startswith('verifying chain: point 2/2, 5/8 MiB') for m in world.db.messages)
+    assert 'chain verified' in r['message']
+    world.pc.jobs.pop(0)
     flat = world.pc.jobs[0][1]
     assert set(flat['only_uuids']) == {'nv-1', 'tpm-1'} and flat['definition_xml'].startswith('<domain') and flat['out_dir'].startswith('Amsterdam/_restore/')
     assert ET.fromstring(flat['definition_xml']).find('.//disk[@device="disk"]') is None
@@ -201,7 +218,7 @@ def test_restore_refuses_existing_name_and_cleans_up_on_failure(world, monkeypat
         kind, _ = world.pc.jobs[int(jid[1:]) - 1]
         if kind == 'stage':
             raise rs.ProxyError('target unreachable')
-        return {'state': 'done', 'result': {'files': []}}
+        return {'state': 'done', 'result': dict(world.pc.verify_result) if kind == 'verify' else {'files': []}}
     monkeypatch.setattr(world.pc, 'wait', boom)
     world.db.restore.update(status='RUNNING')
     rs.run_restore(9)
@@ -247,3 +264,23 @@ def test_refused_start_leaves_the_restore_complete(world, monkeypatch):
     rs.run_restore(9)
     r = world.db.restore
     assert r['status'] == 'COMPLETE' and 'Not started' in r['message'] and 'already in use' in r['message'] and r['created_uuid'] == 'new-vm'
+
+
+def test_restore_stops_before_import_when_the_chain_is_corrupt(world):
+    world.pc.verify_result = {'ok': False, 'points': {'base': {'ok': True, 'mismatches': []},
+                                                     'delta-0001': {'ok': False, 'mismatches': ['disk-1.qcow2: checksum differs']}}, 'bytes': 8 << 20}
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'ERROR' and 'chain integrity check failed' in r['message'] and 'delta-0001: disk-1.qcow2: checksum differs' in r['message']
+    assert [k for k, _ in world.pc.jobs] == ['verify'], 'nothing flattened or staged'
+    assert not any(c[0] == 'import' for c in world.hc.calls), 'no VM created on the cluster'
+    bad = next(p for p in world.db.points if p['dir'] == 'delta-0001'); good = next(p for p in world.db.points if p['dir'] == 'base')
+    assert bad['verify_error'] == 'disk-1.qcow2: checksum differs' and good.get('verify_error') is None and good['verified_at']
+
+
+def test_restore_can_skip_the_verify_and_says_so(world):
+    world.db.restore['params'] = {'mac_policy': 'new', 'start': False, 'nic_connected': False, 'verify': False}
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'COMPLETE' and [k for k, _ in world.pc.jobs] == ['flatten', 'stage', 'sweep']
+    assert 'chain not verified (skipped)' in r['message']

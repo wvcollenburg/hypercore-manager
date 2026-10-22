@@ -364,6 +364,8 @@ services:
       - PROXY_API_TOKEN=${PROXY_API_TOKEN:-}
       - PROXY_NBD_SLOTS=${PROXY_NBD_SLOTS:-8}
       - PROXY_WRITERS=${PROXY_WRITERS:-4}
+      - PROXY_QCOW2_LAZY_REFCOUNTS=${PROXY_QCOW2_LAZY_REFCOUNTS:-true}
+      - PROXY_NBD_CACHE=${PROXY_NBD_CACHE:-unsafe}
       - PROXY_HOST_NET=/host/sys/class/net
       - PROXY_TLS=off          # inside the compose network; a remote proxy VM uses PROXY_TLS=auto (self-signed, pinned)
     volumes:

@@ -30,7 +30,7 @@ def main() -> None:
     os.makedirs(cfg.data_dir, exist_ok=True)
     if not cfg.api_token:
         logger.warning('PROXY_API_TOKEN is not set; REST API authentication is disabled')
-    backend = images.make_backend(cfg.backend, cfg.nbd_slots, cfg.dev_dir)
+    backend = images.make_backend(cfg.backend, cfg.nbd_slots, cfg.dev_dir, lazy_refcounts=cfg.qcow2_lazy_refcounts, cache=cfg.nbd_cache)
     mounter = targets.Mounter(cfg.data_dir)
     engine = jobs.Engine(cfg, backend, mounter)
     mounts = mounts_mod.MountManager(cfg, backend, mounter)
@@ -61,7 +61,7 @@ def main() -> None:
             except Exception:                       # noqa: BLE001
                 logging.getLogger('proxy.mounts').exception('idle sweep failed')
     threading.Thread(target=_idle_sweeper, name='flr-idle', daemon=True).start()
-    logger.info('Proxy starting', extra={'api_port': cfg.api_port, 'backend': backend.name, 'nbd_slots': cfg.nbd_slots,
+    logger.info('Proxy starting', extra={'api_port': cfg.api_port, 'backend': backend.name, 'nbd_slots': cfg.nbd_slots, 'options': getattr(backend, 'options', {}),
                                          'data_dir': cfg.data_dir, 'tls': cfg.tls, 'tls_fingerprint': fp})
     api.start(app, cfg.api_port, ssl_ctx)
 

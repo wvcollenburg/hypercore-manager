@@ -85,3 +85,23 @@ def test_flatten_and_commit_keep_the_content(tmp_path):
     be.commit(d1); be.rebase(d2, base)
     _qemu_io(d2, 'read -P 0xaa 0 1M', 'read -P 0 1M 1M', 'read -P 0xcc 2M 1M', readonly=True)
     _qemu_io(base, 'read -P 0xbb 1M 1M', readonly=True)
+
+
+def test_lazy_refcount_image_is_clean_after_a_normal_close(tmp_path):
+    """With lazy_refcounts=on qemu skips the flush per allocated cluster; an image closed normally
+    carries no dirty flag and passes qemu-img check, and the delta semantics are unchanged."""
+    images = _images()
+    be = images.NbdBackend.__new__(images.NbdBackend)
+    be.lazy_refcounts = True; be.cache = 'writeback'
+    parent, delta = str(tmp_path / 'p.qcow2'), str(tmp_path / 'd.qcow2')
+    be.create(parent, 4 * MiB)
+    info = json.loads(subprocess.run(['qemu-img', 'info', '--output=json', parent], capture_output=True, text=True, check=True).stdout)
+    assert info['format-specific']['data']['lazy-refcounts'] is True and info['cluster-size'] == MiB
+    _qemu_io(parent, 'write -P 0xaa 0 4M')
+    be.create(delta, 4 * MiB, backing=parent)
+    _qemu_io(delta, 'write -P 0x5a 1M 1M', 'write -z 2M 1M', 'write -P 0x5a 3M 512k')
+    _qemu_io(delta, 'read -P 0xaa 0 1M', 'read -P 0x5a 1M 1M', 'read -P 0 2M 1M', 'read -P 0x5a 3M 512k', 'read -P 0xaa 3584k 512k', readonly=True)
+    assert be.check(parent) and be.check(delta)
+    be.create(str(tmp_path / 'strict.qcow2'), 4 * MiB, lazy_refcounts=False)
+    info = json.loads(subprocess.run(['qemu-img', 'info', '--output=json', str(tmp_path / 'strict.qcow2')], capture_output=True, text=True, check=True).stdout)
+    assert info['format-specific']['data']['lazy-refcounts'] is False

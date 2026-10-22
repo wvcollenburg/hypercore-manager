@@ -144,7 +144,7 @@ def test_manifest_names_and_verify(tmp_path):
     pd = tmp_path / 'base'; pd.mkdir()
     (pd / 'x.qcow2').write_bytes(b'abc')
     P.manifest.write_json(str(pd / 'manifest.json'), {'devices': [{'file': 'x.qcow2', 'sha256': P.manifest.sha256_file(str(pd / 'x.qcow2'))}]})
-    assert P.manifest.verify_point(str(pd)) == {'ok': True, 'checked': 1, 'mismatches': []}
+    assert P.manifest.verify_point(str(pd)) == {'ok': True, 'checked': 1, 'mismatches': [], 'bytes': 3}
     (pd / 'x.qcow2').write_bytes(b'abd')
     assert P.manifest.verify_point(str(pd))['mismatches'] == ['x.qcow2: checksum differs']
 
@@ -546,7 +546,7 @@ def test_nbd_backend_retires_a_slot_that_refuses_io(tmp_path, monkeypatch):
     pool = P.images.NbdPool(3, dev_dir=str(tmp_path))
     be = P.images.NbdBackend(pool)
     calls = []
-    monkeypatch.setattr(be, '_connect', lambda slot, path, ro: calls.append(('connect', slot)))
+    monkeypatch.setattr(be, '_connect', lambda slot, path, ro, cache=None: calls.append(('connect', slot)))
     monkeypatch.setattr(be, '_disconnect', lambda slot, strict: calls.append(('disconnect', slot, strict)))
     bad = {f'{tmp_path}/nbd0', f'{tmp_path}/nbd1'}
 
@@ -570,7 +570,7 @@ def test_nbd_backend_releases_slot_when_connect_fails(tmp_path, monkeypatch):
     pool = P.images.NbdPool(1, dev_dir=str(tmp_path))
     be = P.images.NbdBackend(pool)
 
-    def boom(slot, path, ro):
+    def boom(slot, path, ro, cache=None):
         raise RuntimeError('qemu-nbd failed')
     monkeypatch.setattr(be, '_connect', boom)
     with pytest.raises(RuntimeError, match='qemu-nbd'):
@@ -662,3 +662,107 @@ def test_backup_runs_the_self_check_first(stack, monkeypatch):
     j = _wait(stack, stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id'])
     assert j['state'] == 'failed' and 'self-check failed' in j['error']
     assert P.identity.identity(stack.cfg, 'file', None)['capabilities']['full_flag'] is True
+
+
+def _hand_made_chain(stack, target_uri, rel_chain, point_files):
+    """chain.json + one point dir per entry of point_files ({dir: {file: bytes}}) with manifests."""
+    root = stack.mounter.acquire(target_uri, None, None)
+    chain_dir = os.path.join(root, rel_chain)
+    points = []
+    for seq, (d, files) in enumerate(point_files.items()):
+        pd = os.path.join(chain_dir, d); os.makedirs(pd, exist_ok=True)
+        devs = []
+        for name, data in files.items():
+            with open(os.path.join(pd, name), 'wb') as fh:
+                fh.write(data)
+            # size is the device's virtual size in a real manifest, not the file's: 100 MiB here
+            devs.append({'uuid': name.split('.')[0], 'type': 'VIRTIO_DISK', 'file': name, 'size': 100 * MiB, 'sha256': P.manifest.sha256_file(os.path.join(pd, name))})
+        P.manifest.write_json(os.path.join(pd, 'manifest.json'), {'kind': 'full' if seq == 0 else 'delta', 'seq': seq, 'dir': d, 'devices': devs})
+        points.append({'kind': 'full' if seq == 0 else 'delta', 'seq': seq, 'dir': d, 'previous_seq': seq - 1 if seq else None})
+    P.manifest.save_chain(chain_dir, {'vm': {'uuid': 'v', 'name': 'vm'}, 'points': points})
+    return chain_dir
+
+
+def test_verify_upto_seq_reports_progress_and_names_the_corrupt_file(stack):
+    H = {'Authorization': 'Bearer t0k'}
+    target = {'uri': 'smb://nas/share/hcm'}
+    chain_dir = _hand_made_chain(stack, target['uri'], 'Amsterdam/vm_v.chain',
+                                 {'base': {'disk.qcow2': os.urandom(2 * MiB), 'nvram-n.qcow2': b'N' * 4096},
+                                  'delta-0001': {'disk.qcow2': os.urandom(MiB)},
+                                  'delta-0002': {'disk.qcow2': os.urandom(MiB)}})
+    # damage the newest delta after the fact
+    with open(os.path.join(chain_dir, 'delta-0002', 'disk.qcow2'), 'r+b') as fh:
+        fh.seek(1000); fh.write(b'XXXX')
+    # a restore of seq 1 checks base + delta-0001 only and passes
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': target, 'chain_dir': 'Amsterdam/vm_v.chain', 'upto_seq': 1}, headers=H).get_json()['id'])
+    assert v['state'] == 'done' and v['result']['ok'] and set(v['result']['points']) == {'base', 'delta-0001'}
+    assert v['result']['bytes'] == 3 * MiB + 4096 and v['progress'] == {'points_total': 2, 'points_done': 2, 'bytes_total': 3 * MiB + 4096, 'bytes_done': 3 * MiB + 4096}
+    assert v['result']['points']['base']['bytes'] == 2 * MiB + 4096
+    # the whole chain fails on the damaged file, which is named
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': target, 'chain_dir': 'Amsterdam/vm_v.chain'}, headers=H).get_json()['id'])
+    assert v['state'] == 'done' and not v['result']['ok']
+    assert v['result']['points']['delta-0002'] == {'ok': False, 'checked': 1, 'mismatches': ['disk.qcow2: checksum differs'], 'bytes': MiB}
+    assert v['result']['points']['delta-0001']['ok'] and v['progress']['points_done'] == 3
+    # a single point by seq still works; a missing file is reported as such
+    os.unlink(os.path.join(chain_dir, 'base', 'nvram-n.qcow2'))
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': target, 'chain_dir': 'Amsterdam/vm_v.chain', 'seq': 0}, headers=H).get_json()['id'])
+    assert list(v['result']['points']) == ['base'] and v['result']['points']['base']['mismatches'] == ['nvram-n.qcow2: missing']
+    # an empty selection is not "ok"
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': target, 'chain_dir': 'Amsterdam/vm_v.chain', 'seq': 7}, headers=H).get_json()['id'])
+    assert v['state'] == 'done' and v['result'] == {'ok': False, 'points': {}, 'bytes': 0, 'duration_s': v['result']['duration_s']}
+
+
+def test_sha256_file_progress_and_cancel(tmp_path):
+    f = tmp_path / 'f'; f.write_bytes(b'a' * 5000)
+    seen = []
+    assert P.manifest.sha256_file(str(f), chunk=2048, progress=seen.append) == __import__('hashlib').sha256(b'a' * 5000).hexdigest()
+    assert seen == [2048, 4096, 5000]
+    with pytest.raises(RuntimeError):
+        P.manifest.sha256_file(str(f), chunk=2048, cancelled=lambda: True)
+
+
+def test_nbd_backend_options_reach_qemu(tmp_path, monkeypatch):
+    """lazy refcounts go into qemu-img create, the cache mode into qemu-nbd -c; per-call overrides
+    (the bench job) win over the backend's settings; read-only attaches stay writeback."""
+    calls = []
+    monkeypatch.setattr(P.images, '_run', lambda cmd, timeout=3600: calls.append(cmd) or '')
+    be = P.images.NbdBackend(P.images.NbdPool(1, str(tmp_path)), lazy_refcounts=True, cache='unsafe')
+    assert be.options == {'lazy_refcounts': True, 'cache': 'unsafe'}
+    be.create(str(tmp_path / 'a.qcow2'), 4 * MiB)
+    assert calls[-1][:7] == ['qemu-img', 'create', '-q', '-f', 'qcow2', '-o', 'cluster_size=1M,lazy_refcounts=on']
+    be.create(str(tmp_path / 'b.qcow2'), 4 * MiB, lazy_refcounts=False)
+    assert calls[-1][6] == 'cluster_size=1M'
+    monkeypatch.setattr(be, '_probe', lambda slot: None)
+    monkeypatch.setattr(be, 'sys_block', str(tmp_path / 'sys'))
+    (tmp_path / 'sys' / 'nbd0').mkdir(parents=True); (tmp_path / 'sys' / 'nbd0' / 'size').write_text('8192')
+    be._connect(f'{tmp_path}/nbd0', 'x.qcow2', readonly=False)
+    assert '--cache=unsafe' in calls[-1]
+    be._connect(f'{tmp_path}/nbd0', 'x.qcow2', readonly=False, cache='none')
+    assert '--cache=none' in calls[-1]
+    be._connect(f'{tmp_path}/nbd0', 'x.qcow2', readonly=True)
+    assert '--cache=writeback' in calls[-1] and '-r' in calls[-1]
+    assert P.images.NbdBackend(P.images.NbdPool(1, str(tmp_path)), cache='bogus').cache == 'writeback'
+    assert P.images.make_backend('nbd', 2, str(tmp_path), lazy_refcounts=True, cache='none').options == {'lazy_refcounts': True, 'cache': 'none'}
+    cfg = P.config.Config(api_token='', data_dir=str(tmp_path), host_net=str(tmp_path))
+    assert cfg.qcow2_lazy_refcounts is True and cfg.nbd_cache == 'unsafe', 'measured defaults (Lab 241 → CIFS: 75 vs 38 MiB/s)'
+
+
+def test_bench_job_measures_plain_on_the_file_backend_and_cleans_up(stack):
+    H = {'Authorization': 'Bearer t0k'}
+    target = {'uri': 'smb://nas/share/hcm'}
+    assert stack.client.post('/jobs/bench', json={}, headers=H).status_code == 400
+    j = _wait(stack, stack.client.post('/jobs/bench', json={'target': target, 'size_mib': 4, 'modes': ['plain', 'nbd', 'nbd_read', 'bogus']}, headers=H).get_json()['id'], timeout=60)
+    assert j['state'] == 'done', j
+    r = j['result']
+    assert r['size_mib'] == 16 and r['writers'] == 2 and r['backend'] == 'file', 'size is clamped to 16 MiB at least'
+    assert r['modes']['plain']['bytes'] == 16 * MiB and r['modes']['plain']['mib_s'] > 0 and r['modes']['plain']['seconds'] > 0
+    assert r['modes']['nbd'] == {'skipped': 'needs the nbd backend'} and r['modes']['nbd_read'] == {'skipped': 'needs the nbd backend'}
+    assert 'bogus' not in r['modes']
+    assert j['progress']['modes_done'] == 3 and j['progress']['bytes_done'] == j['progress']['bytes_total'] == 3 * 16 * MiB
+    root = stack.mounter.acquire(target['uri'], None, None)
+    assert not os.path.exists(os.path.join(root, '_bench')), 'the bench directory is removed from the target'
+    assert not [f for f in os.listdir(stack.cfg.data_dir) if f.startswith('bench-')], 'source and scratch files removed'
+    j = _wait(stack, stack.client.post('/jobs/bench', json={'target': target, 'modes': ['bogus']}, headers=H).get_json()['id'])
+    assert j['state'] == 'failed' and 'no known modes' in j['error']
+    ident = stack.client.get('/identity', headers=H).get_json()
+    assert 'bench' in ident['capabilities']['jobs'] and ident['options'] == {'lazy_refcounts': True, 'nbd_cache': 'unsafe', 'writers': 2}

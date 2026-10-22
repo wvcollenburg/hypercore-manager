@@ -508,8 +508,94 @@ def sweep_cluster(cluster_id: str, max_age_days: int = 30) -> dict:
     return out
 
 
+# ------------------------------------------------------------------ verification
+def record_verify_result(chain_id: int, res: dict) -> tuple[bool, dict]:
+    """Apply a proxy verify result to the chain's points: a checked point that passed gets
+    verified_at and loses any earlier error, a failing one gets the mismatch text in
+    verify_error. Returns (ok, {point dir: error text})."""
+    results = res.get('points') or {}
+    now = _now()
+    failed: dict[str, str] = {}
+    for pt in db.get_points(chain_id):
+        r = results.get(pt['dir'])
+        if r is None:
+            continue
+        if r.get('ok'):
+            db.update_point(pt['id'], verified_at=now, verify_error=None)
+        else:
+            text = '; '.join(r.get('mismatches') or ['checksum differs'])[:500]
+            db.update_point(pt['id'], verify_error=text)
+            failed[pt['dir']] = text
+    return bool(res.get('ok')) and not failed, failed
+
+
+def verify_chain(chain: dict, share: dict, pc: ProxyClient, upto_seq: int | None = None, on_progress=None,
+                 timeout: float = 6 * 3600) -> dict:
+    """Re-hash a chain (or its points up to `upto_seq`, the backing chain of a restore point) on
+    the proxy and record the outcome per point. Returns the proxy result plus `failed`."""
+    body = {'target': {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')},
+            'chain_dir': chain['chain_dir']}
+    if upto_seq is not None:
+        body['upto_seq'] = int(upto_seq)
+    res = pc.wait(pc.submit('verify', body), on_progress=on_progress, timeout=timeout)['result'] or {}
+    ok, failed = record_verify_result(chain['id'], res)
+    res['ok'] = ok
+    res['failed'] = failed
+    return res
+
+
+def verify_progress_text(p: dict) -> str:
+    """One line for a run/restore message from the proxy's verify progress."""
+    total = p.get('points_total') or 0
+    if not total:
+        return 'verifying chain'
+    cur = min((p.get('points_done') or 0) + 1, total)
+    return f"verifying chain: point {cur}/{total}, {(p.get('bytes_done') or 0) >> 20}/{(p.get('bytes_total') or 0) >> 20} MiB"
+
+
+_VERIFY_RUNS: dict[int, dict] = {}        # chain id -> {state, progress, result, error, started_at}
+
+
+def verify_status(chain_id: int) -> dict | None:
+    return _VERIFY_RUNS.get(chain_id)
+
+
+def start_verify(chain_id: int) -> dict:
+    """Begin a background verify of a chain (the manual Verify button; a whole chain takes longer
+    than one HTTP request). verify_status() follows it. Refuses while one is running."""
+    cur = _VERIFY_RUNS.get(chain_id)
+    if cur and cur['state'] == 'running':
+        return cur
+    ch = db.get_chain(chain_id)
+    if not ch:
+        raise IncrementalError('chain not found')
+    share = db.get_share(ch['target_id'], with_secret=True) if ch.get('target_id') else None
+    if not share:
+        raise IncrementalError('the chain has no target any more')
+    proxy = pick_proxy(ch['cluster_id'])
+    pc = proxy_client_for(proxy)
+    entry = {'state': 'running', 'progress': {}, 'result': None, 'error': None, 'started_at': _now().isoformat()}
+    _VERIFY_RUNS[chain_id] = entry
+
+    def run():
+        try:
+            entry['result'] = verify_chain(ch, share, pc, on_progress=lambda p: entry.__setitem__('progress', dict(p)))
+            entry['state'] = 'done'
+        except (ProxyError, IncrementalError) as e:
+            entry['error'] = str(e)
+            entry['state'] = 'failed'
+        except Exception as e:                                     # noqa: BLE001
+            log.exception('verify of chain %s failed', chain_id)
+            entry['error'] = f'unexpected error: {e}'
+            entry['state'] = 'failed'
+
+    threading.Thread(target=run, name=f'verify-{chain_id}', daemon=True).start()
+    return entry
+
+
 def verify_active_chains(cluster_id: str) -> dict:
-    """Weekly: re-hash every active chain of a cluster through its proxy; records verified_at."""
+    """Weekly: re-hash every active chain of a cluster through its proxy; records the outcome per
+    point (verified_at, verify_error)."""
     out = {'verified': 0, 'failed': 0}
     try:
         proxy = pick_proxy(cluster_id)
@@ -523,17 +609,14 @@ def verify_active_chains(cluster_id: str) -> dict:
         if not share:
             continue
         try:
-            res = pc.wait(pc.submit('verify', {'target': {'uri': share['uri_base'], 'username': share.get('username'),
-                                                          'password': share.get('password')}, 'chain_dir': ch['chain_dir']}), timeout=6 * 3600)['result']
+            res = verify_chain(ch, share, pc)
         except ProxyError as e:
             log.warning('verify of chain %s failed: %s', ch['id'], e)
             out['failed'] += 1
             continue
-        if res.get('ok'):
-            for pt in db.get_points(ch['id']):
-                db.update_point(pt['id'], verified_at=_now())
+        if res['ok']:
             out['verified'] += 1
         else:
-            log.error('chain %s (%s) has corrupt points: %s', ch['id'], ch['vm_name'], res.get('points'))
+            log.error('chain %s (%s) has corrupt points: %s', ch['id'], ch.get('vm_name'), res['failed'] or res.get('points'))
             out['failed'] += 1
     return out

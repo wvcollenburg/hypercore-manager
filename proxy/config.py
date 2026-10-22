@@ -40,6 +40,11 @@ class Config:
     concurrency: int = field(default_factory=lambda: _int('PROXY_JOB_CONCURRENCY', 2))
     # 'nbd' writes qcow2 through qemu-nbd (production); 'file' writes raw sparse files (tests)
     backend:     str = field(default_factory=lambda: _str('PROXY_BACKEND', 'nbd'))
+    # qcow2 lazy refcounts (no flush per allocated cluster) and qemu-nbd's cache mode for backup
+    # writes; the 'bench' job measures the alternatives on a target (see images.NbdBackend).
+    # Lab 241 → CIFS share, source read from Scribe, 2026-10-22: writeback 37 MiB/s, unsafe 55, plain file 45
+    qcow2_lazy_refcounts: bool = field(default_factory=lambda: _str('PROXY_QCOW2_LAZY_REFCOUNTS', 'true').lower() in ('on', 'true', '1', 'yes'))
+    nbd_cache:   str = field(default_factory=lambda: _str('PROXY_NBD_CACHE', 'unsafe'))
     # off (compose network), auto (self-signed, pinned by the service) or cert (own certificate)
     tls:         str = field(default_factory=lambda: _str('PROXY_TLS', 'auto'))
     tls_cert:    str = field(default_factory=lambda: _str('PROXY_TLS_CERT', ''))

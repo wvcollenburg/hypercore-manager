@@ -148,6 +148,11 @@ never see a URI or a credential.
 | Username, password | For SMB. `user`, `DOMAIN\user` and `user@domain` are all accepted |
 | Prune path | NFS only: where the share is mounted inside the `backup` container, so retention can delete old copies |
 
+A target must live outside the cluster it protects. A share served by a VM on the same cluster
+is stored in the same Scribe pool as the VMs being backed up: it is a copy, not a backup, and
+every MiB written to it is written twice more as that VM's replicas. Use a NAS, a file server
+on other hardware or a share on another site; a share on another HyperCore cluster is fine.
+
 **Probe** (in the add/edit form) connects with the values typed so far and lists the directories
 it finds, before anything is saved. **Test** (on a saved target) does the same with the stored
 credentials. Both run from the backup container, so they prove what the scheduler will see.
@@ -200,6 +205,20 @@ the form follows the deployment; a finished one shows up in the proxies table wi
 detected. DEPLOY.md describes what the VM needs to reach and what to do when a deployment fails
 halfway.
 
+**Measure throughput** (per proxy) writes 512 MiB onto the cluster's backup target through each
+path a backup can use and reports MiB/s per mode: `plain` (a flat file, the share's ceiling),
+`nbd` (a qcow2 image through qemu-nbd with the proxy's current settings, what a backup does),
+`nbd_writeback` (strict qcow2, every flush honoured), `nbd_lazy` (qcow2 lazy refcounts),
+`nbd_unsafe` (no flushes until the image is closed), `nbd_lazy_unsafe` (both) and `nbd_read`
+(the restore staging path). The source data is read from the proxy VM's own disk, evicted from
+its cache first, so on HyperCore the figures include the Scribe read. It takes a few minutes and
+leaves nothing behind. The defaults (`PROXY_QCOW2_LAZY_REFCOUNTS=true`, `PROXY_NBD_CACHE=unsafe`)
+are the `nbd_lazy_unsafe` mode: on our lab's SMB share it wrote 55 MiB/s where the strict mode
+wrote 37 and a plain file 45, because qemu no longer waits for an SMB flush per MiB. A finished
+point is still synced to the share before its checksum is taken, and a point without its
+manifest is never used. Set the variables to `false` / `writeback` in `.env` (or the proxy VM's
+container environment) to let qemu honour every flush; DEPLOY.md lists the variables.
+
 Without a registered proxy, plans on that cluster use HyperCore's native export.
 
 ### Plan modes and retention
@@ -216,9 +235,12 @@ A plan has a **mode**:
   count, as in the first release. Required when no proxy exists; fine for small VMs.
 
 **Restore points** (Backup tab) lists every chain of the cluster's VMs with its points. **Verify**
-re-reads every file of a chain against the checksums written at backup time. **Delete data**
-removes a chain from the target; this is the only action that deletes backups. Deleting a plan
-*retires* its chain: no new points, retention keeps applying, restores stay possible.
+re-reads every file of a chain against the checksums written at backup time; it runs in the
+background and the row shows how far it is. The same check runs every Sunday at 05:00 for every
+active chain. A point whose files do not match is marked **corrupt** in the points list, with the
+failing files in the tooltip, until a later check passes. **Delete data** removes a chain from
+the target; this is the only action that deletes backups. Deleting a plan *retires* its chain:
+no new points, retention keeps applying, restores stay possible.
 
 ### Restoring a VM
 
@@ -228,6 +250,15 @@ want. The form asks for the name of the restored VM, whether to keep the origina
 HyperCore refuses to start a VM whose MAC address is in use by a running VM), whether to
 connect the network interfaces, and whether to start the VM. A restore whose start was refused
 is still complete: the VM exists and the entry under **Runs** says why it was not started.
+
+**Verify the chain before restoring** is on by default: the proxy re-reads every file of the
+chain up to the chosen point and compares it with the checksums written at backup time, before
+anything is created on the cluster. A mismatch stops the restore with the failing files named
+and marks the point corrupt; no VM is created. The check reads the chain once at the share's
+read speed (a 50 GB chain takes about 15–20 minutes on a gigabit share), which is why it can be
+skipped: the form shows when the point was last verified, and skipping is reasonable right after
+a clean weekly check when time matters. The entry under **Runs** records whether the chain was
+verified or the check was skipped.
 
 The vTPM travels with the backup: its state is captured with every point and imported with the
 restored VM, so keys sealed in it (BitLocker with a TPM protector, LUKS with systemd-cryptenroll)

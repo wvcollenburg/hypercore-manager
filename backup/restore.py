@@ -11,6 +11,7 @@ Fast path (verified as E9b):
   4. the proxy VM is snapshotted (no clones may be attached at that moment) and the staging
      disks are cloned onto the restored VM; staging disks and snapshot are removed
   5. boot order, MAC/VLAN policy, optional start
+Step 0, on by default: the backing chain of the point is re-hashed on the proxy first.
 
 Only one restore or backup runs per proxy at a time (the proxy VM cannot be snapshotted while
 read-only clones hang off it).
@@ -114,6 +115,17 @@ def _run(r: dict) -> None:
         raise IncrementalError(f"a VM named '{name}' already exists on the cluster; choose another name")
     source_exists = any(v.get('uuid') == definition.get('uuid') for v in existing.values())
 
+    # 0. integrity of the backing chain, before anything is created on the cluster. The weekly
+    #    verify may be days old; a delta damaged since then would restore silently corrupt.
+    verify = bool(params.get('verify', True))
+    if verify:
+        db.update_restore(rid, message='verifying chain')
+        res_v = incremental.verify_chain(chain, share, pc, upto_seq=point['seq'],
+                                         on_progress=lambda p: db.update_restore(rid, message=incremental.verify_progress_text(p)))
+        if not res_v['ok']:
+            detail = '; '.join(f'{d}: {m}' for d, m in res_v['failed'].items()) or 'the proxy reported a mismatch'
+            raise IncrementalError(f'chain integrity check failed, nothing restored: {detail}')
+
     # 1. diskless import directory: NVRAM/vTPM with fresh file names + generated XML
     db.update_restore(rid, message='preparing definition')
     new_uuid = str(uuidlib.uuid4())
@@ -213,7 +225,8 @@ def _run(r: dict) -> None:
         log.warning('[restore %s] restore directory cleanup failed: %s', rid, e)
     bytes_written = res.get('bytes_written', 0)
     db.update_restore(rid, status='COMPLETE', finished_at=_now(),
-                      message=f"restored as '{name}' ({len(disks)} disk(s), {bytes_written >> 20} MiB written); MAC "
+                      message=f"restored as '{name}' ({len(disks)} disk(s), {bytes_written >> 20} MiB written); chain "
+                              f"{'verified' if verify else 'not verified (skipped)'}; MAC "
                               f"{'original' if use_original_mac else 'new'}, NICs {'connected' if connected else 'disconnected'}"
                               + (f'. Not started: {not_started} Give it a new MAC address or stop the source VM, then start it.' if not_started
                                  else (', started' if params.get('start') else '')))

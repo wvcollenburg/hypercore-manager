@@ -80,16 +80,30 @@ def _run(cmd: list[str], timeout: int = 3600) -> str:
     return r.stdout
 
 
+CACHE_MODES = ('writeback', 'unsafe', 'none', 'writethrough', 'directsync')
+
+
 class NbdBackend:
     name = 'nbd'
 
-    def __init__(self, pool: NbdPool):
+    def __init__(self, pool: NbdPool, lazy_refcounts: bool = True, cache: str = 'unsafe'):
         self.pool = pool
+        # lazy_refcounts=on: the qcow2 driver no longer flushes between the refcount and the L2
+        # update of every allocated cluster (a real SMB FLUSH per MiB on a CIFS share); an image
+        # that was not closed cleanly is repaired on the next open, and `check` after each image
+        # still sees a dirty one. cache: qemu-nbd's cache mode for writable attaches.
+        self.lazy_refcounts = bool(lazy_refcounts)
+        self.cache = cache if cache in CACHE_MODES else 'writeback'
 
     CLUSTER = '1M'          # one snapDiff block per qcow2 cluster (flatten keeps 2M, HyperCore's own size)
 
-    def create(self, path: str, size: int, backing: str | None = None) -> None:
-        cmd = ['qemu-img', 'create', '-q', '-f', 'qcow2', '-o', f'cluster_size={self.CLUSTER}']
+    @property
+    def options(self) -> dict:
+        return {'lazy_refcounts': self.lazy_refcounts, 'cache': self.cache}
+
+    def create(self, path: str, size: int, backing: str | None = None, lazy_refcounts: bool | None = None) -> None:
+        lazy = self.lazy_refcounts if lazy_refcounts is None else bool(lazy_refcounts)
+        cmd = ['qemu-img', 'create', '-q', '-f', 'qcow2', '-o', f'cluster_size={self.CLUSTER}' + (',lazy_refcounts=on' if lazy else '')]
         if backing:
             # relative backing name: the chain stays valid when the target is mounted elsewhere
             cmd += ['-F', 'qcow2', '-b', os.path.relpath(backing, os.path.dirname(path))]
@@ -106,8 +120,9 @@ class NbdBackend:
             n += (getattr(r, 'returncode', 1) == 0)
         return n
 
-    def _connect(self, slot: str, path: str, readonly: bool) -> None:
-        cmd = ['qemu-nbd', '-c', slot, '--cache=writeback', '-f', 'qcow2']
+    def _connect(self, slot: str, path: str, readonly: bool, cache: str | None = None) -> None:
+        mode = cache if cache in CACHE_MODES else ('writeback' if readonly else self.cache)
+        cmd = ['qemu-nbd', '-c', slot, f'--cache={mode}', '-f', 'qcow2']
         if readonly:
             cmd.append('-r')
         _run(cmd + [path], timeout=120)
@@ -130,6 +145,9 @@ class NbdBackend:
             _run(['qemu-nbd', '-d', slot], timeout=120)
         else:
             subprocess.run(['qemu-nbd', '-d', slot], check=False, capture_output=True, timeout=120)
+        # qemu writes its qcow2 metadata caches when it closes the image; with --cache=unsafe
+        # nothing flushed them to the share yet, so push the page cache out now
+        subprocess.run(['sync'], check=False)
 
     def _probe(self, slot: str) -> None:
         """Read the first 4 KiB with O_DIRECT. A slot whose previous connection died without a clean
@@ -146,12 +164,12 @@ class NbdBackend:
         finally:
             os.close(fd)
 
-    def _connect_usable(self, path: str, readonly: bool) -> str:
+    def _connect_usable(self, path: str, readonly: bool, cache: str | None = None) -> str:
         """A connected slot that passed the probe; poisoned slots are retired and the next one tried."""
         while True:
             slot = self.pool.acquire()
             try:
-                self._connect(slot, path, readonly)
+                self._connect(slot, path, readonly, cache)
                 self._probe(slot)
                 return slot
             except OSError as e:
@@ -165,8 +183,8 @@ class NbdBackend:
                 raise
 
     @contextlib.contextmanager
-    def _attached(self, path: str, readonly: bool):
-        slot = self._connect_usable(path, readonly)
+    def _attached(self, path: str, readonly: bool, cache: str | None = None):
+        slot = self._connect_usable(path, readonly, cache)
         try:
             yield slot
         finally:
@@ -176,14 +194,15 @@ class NbdBackend:
                 self.pool.release(slot)
 
     @contextlib.contextmanager
-    def prepare(self, path: str, size: int, backing: str | None = None):
-        self.create(path, size, backing)
-        with self._attached(path, readonly=False) as dev:
+    def prepare(self, path: str, size: int, backing: str | None = None, *, lazy_refcounts: bool | None = None, cache: str | None = None):
+        """A writable device for a new image; the keyword overrides exist for the bench job."""
+        self.create(path, size, backing, lazy_refcounts=lazy_refcounts)
+        with self._attached(path, readonly=False, cache=cache) as dev:
             yield dev
 
     @contextlib.contextmanager
-    def open_readonly(self, path: str):
-        with self._attached(path, readonly=True) as dev:
+    def open_readonly(self, path: str, cache: str | None = None):
+        with self._attached(path, readonly=True, cache=cache) as dev:
             yield dev
 
     def flatten(self, src: str, dst: str) -> None:
@@ -295,13 +314,15 @@ class FileBackend:
         with open(path, 'ab') as fh:
             fh.truncate(size)
 
+    options: dict = {}
+
     @contextlib.contextmanager
-    def prepare(self, path: str, size: int, backing: str | None = None):
+    def prepare(self, path: str, size: int, backing: str | None = None, **_options):
         self.create(path, size, backing)
         yield path
 
     @contextlib.contextmanager
-    def open_readonly(self, path: str):
+    def open_readonly(self, path: str, cache: str | None = None):
         yield path
 
     def flatten(self, src: str, dst: str) -> None:
@@ -341,5 +362,5 @@ class FileBackend:
         return extents_to_intervals(ext)
 
 
-def make_backend(kind: str, nbd_slots: int, dev_dir: str = '/dev'):
-    return FileBackend() if kind == 'file' else NbdBackend(NbdPool(nbd_slots, dev_dir))
+def make_backend(kind: str, nbd_slots: int, dev_dir: str = '/dev', lazy_refcounts: bool = True, cache: str = 'unsafe'):
+    return FileBackend() if kind == 'file' else NbdBackend(NbdPool(nbd_slots, dev_dir), lazy_refcounts=lazy_refcounts, cache=cache)

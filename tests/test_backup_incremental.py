@@ -140,7 +140,10 @@ class _FakePC:
         if kind == 'backup':
             return {'state': 'done', 'result': {'point_dir': 'base' if body['point']['kind'] == 'full' else f"delta-{body['point']['seq']:04d}",
                                                 'bytes_written': 4 << 20, 'duration_s': 1.5, 'devices': [], 'chain_dir': 'x'}}
+        if kind == 'verify':
+            return {'state': 'done', 'result': dict(self.verify_result)}
         return {'state': 'done', 'result': {'dirs': {}}}
+    verify_result = {'ok': True, 'points': {'base': {'ok': True, 'mismatches': []}}, 'bytes': 4 << 20, 'duration_s': 0.1}
 
 
 class _FakeDB:
@@ -162,7 +165,9 @@ class _FakeDB:
         cid = self.next; self.next += 1
         self.chains[cid] = {'id': cid, 'plan_id': plan['id'], 'cluster_id': plan['cluster_id'], 'status': 'active', 'chain_dir': chain_dir, 'next_seq': 0, 'runs_since_full': 0,
                             'anchor_snapshot_uuid': None, 'last_serials': None, 'target_id': target_id}; return cid
-    def get_chain(self, cid): return self.chains[cid]
+    def get_chain(self, cid): return self.chains.get(cid)
+    def get_chains(self, cid): return [c for c in self.chains.values() if c['cluster_id'] == cid]
+    def get_share(self, sid, with_secret=False): return {'id': 9, 'uri_base': 'smb://nas/share', 'username': 'u', 'password': 'p'}
     def add_point(self, chain_id, seq, kind, dir_, serials, blocks, bw, dur, files, definition, run_id, quiesced=None):
         pid = 100 + len(self.points); self.points.append({'id': pid, 'chain_id': chain_id, 'seq': seq, 'kind': kind, 'dir': dir_, 'status': 'ok',
                                                           'created_at': NOW, 'serials': serials, 'definition': definition, 'quiesced': quiesced}); return pid
@@ -352,3 +357,47 @@ def test_deleting_a_chain_releases_its_anchor_snapshot(world):
     assert world.db.chains[1]['anchor_snapshot_uuid'] is None
     inc.release_anchor(world.db.chains[1])                        # idempotent
     assert world.hc.calls.count(('delete_snapshot', 'snap-1')) == 1
+
+
+def test_verify_results_stamp_passing_points_and_flag_corrupt_ones(world):
+    db = world.db
+    cid = db.add_chain(db.plan, 9, 'Amsterdam', 'Amsterdam/exptest_vm-1.chain')
+    db.add_point(cid, 0, 'full', 'base', {}, 4, 4 << 20, 1.0, [], {}, 1)
+    db.add_point(cid, 1, 'delta', 'delta-0001', {}, 1, 1 << 20, 0.5, [], {}, 2)
+    db.add_point(cid, 2, 'delta', 'delta-0002', {}, 1, 1 << 20, 0.5, [], {}, 3)
+    base, d1, d2 = db.points
+    # a restore of seq 1 verifies base + delta-0001 only; delta-0002 is not touched
+    world.pc.verify_result = {'ok': False, 'points': {'base': {'ok': True, 'mismatches': []},
+                                                     'delta-0001': {'ok': False, 'mismatches': ['disk.qcow2: checksum differs', 'nvram-x.qcow2: missing']}}}
+    res = inc.verify_chain(db.get_chain(cid), db.get_share(9), world.pc, upto_seq=1)
+    assert world.pc.jobs[-1] == ('verify', {'target': {'uri': 'smb://nas/share', 'username': 'u', 'password': 'p'}, 'chain_dir': 'Amsterdam/exptest_vm-1.chain', 'upto_seq': 1})
+    assert res['ok'] is False and res['failed'] == {'delta-0001': 'disk.qcow2: checksum differs; nvram-x.qcow2: missing'}
+    assert base['verified_at'] and base.get('verify_error') is None
+    assert d1['verify_error'] == 'disk.qcow2: checksum differs; nvram-x.qcow2: missing' and 'verified_at' not in d1
+    assert 'verified_at' not in d2 and 'verify_error' not in d2
+    # a later clean verify of the whole chain clears the error
+    world.pc.verify_result = {'ok': True, 'points': {d: {'ok': True, 'mismatches': []} for d in ('base', 'delta-0001', 'delta-0002')}}
+    res = inc.verify_chain(db.get_chain(cid), db.get_share(9), world.pc)
+    assert res['ok'] and res['failed'] == {} and 'upto_seq' not in world.pc.jobs[-1][1]
+    assert all(p['verified_at'] and p['verify_error'] is None for p in db.points)
+    assert inc.verify_progress_text({'points_total': 3, 'points_done': 1, 'bytes_total': 6 << 20, 'bytes_done': 3 << 20}) == 'verifying chain: point 2/3, 3/6 MiB'
+    assert inc.verify_progress_text({}) == 'verifying chain'
+
+
+def test_manual_verify_runs_in_the_background_and_the_weekly_counts(world):
+    import time as _t
+    db = world.db
+    cid = db.add_chain(db.plan, 9, 'Amsterdam', 'Amsterdam/exptest_vm-1.chain')
+    db.add_point(cid, 0, 'full', 'base', {}, 4, 4 << 20, 1.0, [], {}, 1)
+    entry = inc.start_verify(cid)
+    for _ in range(200):
+        if entry['state'] != 'running':
+            break
+        _t.sleep(0.01)
+    assert entry['state'] == 'done' and entry['result']['ok'] and inc.verify_status(cid) is entry
+    assert db.points[0]['verified_at']
+    with pytest.raises(inc.IncrementalError):
+        inc.start_verify(999)
+    world.pc.verify_result = {'ok': False, 'points': {'base': {'ok': False, 'mismatches': ['disk.qcow2: checksum differs']}}}
+    assert inc.verify_active_chains('c1') == {'verified': 0, 'failed': 1}
+    assert db.points[0]['verify_error'] == 'disk.qcow2: checksum differs'

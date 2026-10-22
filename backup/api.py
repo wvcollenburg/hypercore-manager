@@ -526,6 +526,49 @@ def proxies_test(pid):
         return jsonify({'ok': False, 'error': str(e)})
 
 
+_BENCH: dict[int, dict] = {}          # proxy id -> {job_id, started_at, target}
+
+
+@app.post('/api/v1/proxies/<int:pid>/bench')
+@_require_token
+def proxies_bench(pid):
+    """Measure the proxy's throughput onto a target (the one assigned to its cluster, or
+    body.target_id). body: {target_id?, size_mib? (default 512)}. Returns the proxy job id;
+    GET the same path follows it."""
+    p = db.get_proxy(pid, with_secret=True)
+    if not p:
+        return _err('proxy not found', 404)
+    b = request.get_json(silent=True) or {}
+    share = db.get_share(int(b['target_id']), with_secret=True) if str(b.get('target_id') or '').isdigit() else db.share_for_cluster(p['cluster_id'])
+    if not share:
+        return _err("no backup target is assigned to this proxy's cluster; assign one to its folder first")
+    try:
+        jid = incremental.proxy_client_for(p).submit('bench', {'target': {'uri': share['uri_base'], 'username': share.get('username'),
+                                                                        'password': share.get('password')},
+                                                              'size_mib': max(16, min(int(b.get('size_mib') or 512), 8192))})
+    except (ProxyError, ValueError) as e:
+        return _err(str(e), 502)
+    _BENCH[pid] = {'job_id': jid, 'started_at': db.now_utc().isoformat(), 'target': share.get('name')}
+    return jsonify({'ok': True, 'job_id': jid, 'target': share.get('name')}), 202
+
+
+@app.get('/api/v1/proxies/<int:pid>/bench')
+@_require_token
+def proxies_bench_status(pid):
+    e = _BENCH.get(pid)
+    if not e:
+        return jsonify({'state': 'idle'})
+    p = db.get_proxy(pid, with_secret=True)
+    if not p:
+        return _err('proxy not found', 404)
+    try:
+        j = incremental.proxy_client_for(p).job(e['job_id'])
+    except ProxyError as ex:
+        return _err(str(ex), 502)
+    return jsonify({'state': j.get('state'), 'progress': j.get('progress') or {}, 'result': j.get('result'), 'error': j.get('error'),
+                    'target': e['target'], 'started_at': e['started_at']})
+
+
 # ------------------------------------------------------------ chains/points
 @app.get('/api/v1/chains')
 @_require_token
@@ -571,26 +614,36 @@ def chain_delete(chain_id):
     return jsonify({'ok': True})
 
 
+def _verify_view(chain_id, entry):
+    out = {'chain_id': chain_id, 'state': entry['state'], 'progress': entry.get('progress') or {}, 'error': entry.get('error'),
+           'started_at': entry.get('started_at')}
+    if entry.get('result') is not None:
+        r = entry['result']
+        out['ok'] = r.get('ok'); out['failed'] = r.get('failed') or {}; out['bytes'] = r.get('bytes'); out['duration_s'] = r.get('duration_s')
+    return out
+
+
 @app.post('/api/v1/chains/<int:chain_id>/verify')
 @_require_token
 def chain_verify(chain_id):
-    ch = db.get_chain(chain_id)
-    if not ch:
+    """Start a background re-hash of every point of the chain; GET the same path follows it.
+    A chain of several tens of GB takes longer than one HTTP request."""
+    if not db.get_chain(chain_id):
         return _err('chain not found', 404)
-    share = db.get_share(ch['target_id'], with_secret=True) if ch.get('target_id') else None
-    if not share:
-        return _err('the chain has no target any more')
     try:
-        proxy = incremental.pick_proxy(ch['cluster_id'])
-        pc = incremental.proxy_client_for(proxy)
-        res = pc.wait(pc.submit('verify', {'target': {'uri': share['uri_base'], 'username': share.get('username'),
-                                                      'password': share.get('password')}, 'chain_dir': ch['chain_dir']}), timeout=6 * 3600)['result']
+        entry = incremental.start_verify(chain_id)
     except (incremental.IncrementalError, ProxyError) as e:
         return _err(str(e), 502)
-    if res.get('ok'):
-        for p in db.get_points(chain_id):
-            db.update_point(p['id'], verified_at=db.now_utc())
-    return jsonify(res)
+    return jsonify(_verify_view(chain_id, entry)), 202
+
+
+@app.get('/api/v1/chains/<int:chain_id>/verify')
+@_require_token
+def chain_verify_status(chain_id):
+    entry = incremental.verify_status(chain_id)
+    if entry is None:
+        return jsonify({'chain_id': chain_id, 'state': 'idle'})
+    return jsonify(_verify_view(chain_id, entry))
 
 
 # ----------------------------------------------------------------- restores
@@ -605,7 +658,7 @@ def restores_list():
 @_require_token
 def restores_start():
     """Restore a point as a new VM on its cluster. body: {point_id, target_name, mac_policy: auto|original|new,
-    nic_connected: bool, start: bool}"""
+    nic_connected: bool, start: bool, verify: bool (default true: re-hash the backing chain first)}"""
     b = request.get_json(silent=True) or {}
     point = db.get_point(int(b.get('point_id') or 0)) if str(b.get('point_id') or '').isdigit() else None
     chain = db.get_chain(point['chain_id']) if point else None
@@ -625,7 +678,8 @@ def restores_start():
         return _err(f'could not verify VM names on the cluster ({e}); restore not started', 502)
     if name.lower() in existing:
         return _err(f"a VM named '{name}' already exists on the cluster; choose another name", 409)
-    params = {'mac_policy': policy, 'nic_connected': bool(b.get('nic_connected', False)), 'start': bool(b.get('start', False))}
+    params = {'mac_policy': policy, 'nic_connected': bool(b.get('nic_connected', False)), 'start': bool(b.get('start', False)),
+              'verify': bool(b.get('verify', True))}
     rid = db.add_restore(point, chain, name, params, b.get('requested_by'))
     scheduler.run_restore(rid)
     return jsonify({'ok': True, 'id': rid}), 201

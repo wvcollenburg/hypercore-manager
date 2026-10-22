@@ -3832,6 +3832,7 @@ async function _loadProxiesPanel() {
       <td style="white-space:nowrap;">
         <button class="um-action-btn" onclick="pxTest(${p.id})">${t('clusters.test')}</button>
         <button class="um-action-btn" onclick="pxToggle(${p.id}, ${p.enabled ? 'false' : 'true'})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
+        <button class="um-action-btn" onclick="pxBench(${p.id})" title="${_clEsc(t('proxies.bench_hint'))}">${t('proxies.bench')}</button>
         <button class="um-action-btn danger" onclick="pxRemove(${p.id}, '${_clEsc(p.name)}')">${t('clusters.remove')}</button>
         <div class="cl-msg" id="px-${p.id}-msg"></div>
       </td>
@@ -3903,6 +3904,24 @@ async function pxTest(id) {
   _shMsg(`px-${id}-msg`, t('clusters.testing'), '');
   try { const d = await _exCall('POST', `/api/backup/proxies/${id}/test`); _shMsg(`px-${id}-msg`, d.ok ? t('proxies.added_ok', {vm: d.vm ? d.vm.name : '?'}) : (d.detail || d.error || ''), d.ok ? 'ok' : 'err'); await _loadProxiesPanel(); }
   catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
+}
+async function pxBench(id) {
+  // the proxy writes a few hundred MiB per mode onto the cluster's target; this follows the job
+  _shMsg(`px-${id}-msg`, t('proxies.bench_starting'), '');
+  try {
+    const s = await _exCall('POST', `/api/backup/proxies/${id}/bench`, {});
+    let d = {state: 'running'};
+    while (d.state === 'running' || d.state === 'queued') {
+      await new Promise(r => setTimeout(r, 3000));
+      d = await _exCall('GET', `/api/backup/proxies/${id}/bench`);
+      const p = d.progress || {};
+      if (p.current) _shMsg(`px-${id}-msg`, t('proxies.bench_running', {mode: p.current, done: Math.round((p.bytes_done || 0) / 1048576), total: Math.round((p.bytes_total || 0) / 1048576)}), '');
+    }
+    if (d.state !== 'done') throw new Error(d.error || d.state);
+    const modes = (d.result && d.result.modes) || {};
+    const detail = Object.entries(modes).map(([k, v]) => `${k} ${v.mib_s != null ? v.mib_s : (v.skipped ? '–' : 'error')}`).join(' · ');
+    _shMsg(`px-${id}-msg`, t('proxies.bench_result', {target: s.target || '?', size: d.result.size_mib, detail}), 'ok');
+  } catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
 }
 async function pxToggle(id, enabled) { try { await _exCall('PUT', `/api/backup/proxies/${id}`, {enabled}); await _loadProxiesPanel(); } catch (e) { showToast(e.message, 'err'); } }
 async function pxRemove(id, name) {
@@ -5726,7 +5745,7 @@ async function exTogglePoints(id) {
     body.innerHTML = pts.length ? `<table class="um-table"><thead><tr><th>#</th><th>${t('ex.col_kind')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_changed')}</th><th>${t('ex.col_written')}</th><th>${t('ex.col_verified')}</th><th></th></tr></thead><tbody>${pts.map(p => `
       <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted)">${_exEsc(p.dir)}</span>${p.quiesced === true ? ` <span class="ex-badge off" title="${_exEsc(t('ex.quiesced_hint'))}">${t('ex.quiesced')}</span>` : p.quiesced === false ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.crash_consistent_hint'))}">${t('ex.crash_consistent')}</span>` : ''}</td>
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
-      <td style="font-size:11px;color:var(--text-muted)">${p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
+      <td style="font-size:11px;color:var(--text-muted)">${p.verify_error ? `<span class="ex-badge err" title="${_exEsc(p.verify_error)}">${t('ex.point_corrupt')}</span>` : p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
       <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" onclick="exFilesOpen(${p.id})">${t('ex.files')}</button></td></tr>
       <tr id="rs-form-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);">${_exRestoreFormHtml(p, id)}</td></tr>
       <tr id="flr-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);" id="flr-${p.id}-body"></td></tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.no_points')}</div>`;
@@ -5742,7 +5761,9 @@ function _exRestoreFormHtml(p, chainId) {
         <div class="ex-hint">${t('ex.r_mac_hint')}</div></div>
       <div style="display:flex;flex-direction:column;gap:6px;padding-top:18px;">
         <label style="margin:0;"><input type="checkbox" id="rs-${p.id}-nic"> ${t('ex.r_nic_connected')}</label>
-        <label style="margin:0;"><input type="checkbox" id="rs-${p.id}-start"> ${t('ex.r_start')}</label></div>
+        <label style="margin:0;"><input type="checkbox" id="rs-${p.id}-start"> ${t('ex.r_start')}</label>
+        <label style="margin:0;"><input type="checkbox" id="rs-${p.id}-verify" checked> ${t('ex.r_verify')}</label>
+        <div class="ex-hint">${t('ex.r_verify_hint', {when: p.verified_at ? _exFmt(p.verified_at) : t('ex.never')})}</div></div>
     </div>
     <div class="cl-actions"><button class="update-apply-btn" onclick="exRestoreStart(${p.id})">${t('ex.restore')}</button>
       <button class="refresh-btn" onclick="exRestoreForm(${chainId}, ${p.id})">${t('clusters.cancel')}</button><span class="cl-msg" id="rs-${p.id}-msg"></span></div>`;
@@ -5750,7 +5771,7 @@ function _exRestoreFormHtml(p, chainId) {
 function exRestoreForm(chainId, pointId) { const r = document.getElementById(`rs-form-${pointId}`); if (r) r.hidden = !r.hidden; }
 async function exRestoreStart(pointId) {
   const g = id => document.getElementById(`rs-${pointId}-${id}`);
-  const body = { point_id: pointId, target_name: g('name').value.trim(), mac_policy: g('mac').value, nic_connected: g('nic').checked, start: g('start').checked };
+  const body = { point_id: pointId, target_name: g('name').value.trim(), mac_policy: g('mac').value, nic_connected: g('nic').checked, start: g('start').checked, verify: g('verify').checked };
   if (!confirm(t('ex.r_confirm', {name: body.target_name}))) return;
   _shMsg(`rs-${pointId}-msg`, t('ex.i_starting'), '');
   try { await _exCall('POST', '/api/backup/restores', body); showToast(t('ex.r_started'), 'ok'); switchExportsPanel('runs'); }
@@ -5828,9 +5849,22 @@ async function exFilesClose(pointId) {
   const row = document.getElementById(`flr-${pointId}`); if (row) row.hidden = true;
 }
 async function exVerifyChain(id) {
+  // the service re-hashes the chain in the background; this follows it until it is done
   _shMsg(`ch-${id}-msg`, t('ex.verifying'), '');
-  try { const d = await _exCall('POST', `/api/backup/chains/${id}/verify`); _shMsg(`ch-${id}-msg`, d.ok ? t('ex.verify_ok') : t('ex.verify_fail', {detail: JSON.stringify(d.points)}), d.ok ? 'ok' : 'err'); }
-  catch (e) { _shMsg(`ch-${id}-msg`, e.message, 'err'); }
+  try {
+    let d = await _exCall('POST', `/api/backup/chains/${id}/verify`);
+    while (d.state === 'running') {
+      const p = d.progress || {};
+      if (p.points_total) _shMsg(`ch-${id}-msg`, t('ex.verify_progress', {point: Math.min((p.points_done || 0) + 1, p.points_total), points: p.points_total, done: Math.round((p.bytes_done || 0) / 1048576), total: Math.round((p.bytes_total || 0) / 1048576)}), '');
+      await new Promise(r => setTimeout(r, 3000));
+      d = await _exCall('GET', `/api/backup/chains/${id}/verify`);
+    }
+    if (d.state === 'failed') throw new Error(d.error || 'verify failed');
+    const detail = Object.entries(d.failed || {}).map(([k, v]) => `${k}: ${v}`).join('; ');
+    _shMsg(`ch-${id}-msg`, d.ok ? t('ex.verify_ok') : t('ex.verify_fail', {detail}), d.ok ? 'ok' : 'err');
+    const row = document.getElementById(`ch-points-${id}`);
+    if (row && !row.hidden) { row.hidden = true; exTogglePoints(id); }   // refresh the Verified column
+  } catch (e) { _shMsg(`ch-${id}-msg`, e.message, 'err'); }
 }
 async function exDeleteChain(id, name) {
   if (!confirm(t('ex.confirm_delete_data', {name}))) return;

@@ -489,7 +489,7 @@ def last_point(chain_id: int) -> Optional[dict]:
 
 
 def update_point(point_id: int, **fields) -> None:
-    allowed = {'status', 'verified_at', 'files'}
+    allowed = {'status', 'verified_at', 'verify_error', 'files'}
     items = [(k, _json(v) if k == 'files' else v) for k, v in fields.items() if k in allowed]
     if not items:
         return
