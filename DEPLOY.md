@@ -154,7 +154,7 @@ VM Create/Edit, VM Delete and VM Power Controls.
 ### A proxy VM for a remote cluster
 
 For a cluster that does not host the stack VM (the MSP case), run the same container in a small
-VM on that cluster: Ubuntu 24.04 or later, 1 vCPU, 2 GB RAM, 20 GB disk, Docker, and the two
+VM on that cluster: Ubuntu 24.04 or later, 2 vCPU, 2 GB RAM, 20 GB disk, Docker, and the two
 host settings above (`nbd max_part=0`, LVM filter). Then:
 
 ```bash
@@ -183,7 +183,7 @@ the VM reports an address (static from the form or via the guest agent) the prox
 probed until the container answers, and its certificate fingerprint pinned. Progress is shown in
 the panel; the whole thing takes five to ten minutes.
 
-What the form asks for: cluster, VM name, VLAN, sizes (1 vCPU, 2 GiB, 20 GiB by default), DHCP
+What the form asks for: cluster, VM name, VLAN, sizes (2 vCPU, 2 GiB, 20 GiB by default; the second core keeps the SMB client and the data path off one core), DHCP
 or a static address, and optionally an SSH public key for the VM. The VM needs to reach the
 Docker registry that holds the proxy image; on a site without registry access, point *Proxy
 image tarball URL* at a `docker save` archive on a web server the VM can reach (the image name

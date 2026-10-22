@@ -782,7 +782,7 @@ def deployments_start():
     if ip.get('mode') == 'static' and not ip.get('address'):
         return _err('a static address needs ip.address')
     try:
-        params = {'name': name, 'vcpu': max(1, int(b.get('vcpu') or 1)), 'mem_gb': max(1, int(b.get('mem_gb') or 2)),
+        params = {'name': name, 'vcpu': max(1, int(b.get('vcpu') or 2)), 'mem_gb': max(1, int(b.get('mem_gb') or 2)),
                   'disk_gb': max(10, int(b.get('disk_gb') or 20)), 'vlan': int(b.get('vlan') or 0), 'ip': ip,
                   'image_url': (b.get('image_url') or deploy.DEFAULT_IMAGE_URL).strip(), 'image_name': (b.get('image_name') or deploy.DEFAULT_IMAGE_NAME).strip(),
                   'proxy_image': (b.get('proxy_image') or deploy.DEFAULT_PROXY_IMAGE).strip(), 'proxy_image_tar_url': (b.get('proxy_image_tar_url') or '').strip(),

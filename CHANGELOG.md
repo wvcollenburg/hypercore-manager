@@ -94,6 +94,8 @@ release is tagged.
   with the failing files, by the weekly verify, the manual **Verify** button and a restore alike.
   The manual Verify now runs in the background with progress, so chains larger than one HTTP
   request can be verified from the dashboard.
+- Proxy VM deployments default to 2 vCPU (measured: the single core sat at 0 % idle between the
+  SMB client and the data path; a second core removes that without changing throughput).
 - **Cloud-init data removed from deployed proxy VMs.** HyperCore keeps a deployed VM's cloud-init
   document as an ISO attached to the VM, and that document carries the proxy's API token in
   clear, readable by anyone who can clone or mount the VM's disks. A deployment now deletes the
