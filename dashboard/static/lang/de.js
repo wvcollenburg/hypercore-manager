@@ -848,6 +848,13 @@ window.LANG = {
   'clusters.timezone_unknown': "noch nicht vom Cluster gelesen",
   'clusters.timezone_detected': "Vom Cluster gelesen: {tz}. Sicherungszeiten auf diesem Cluster gelten in dieser Zone. Einen anderen IANA-Namen eingeben, um sie zu überschreiben; leer lassen, um dem Cluster zu folgen.",
   'clusters.timezone_hint': "Die Zone, in der Sicherungszeiten gelesen werden. Wird beim nächsten Verbindungstest vom Cluster übernommen; einen IANA-Namen (Europe/Berlin, US/Eastern) eingeben, um sie zu überschreiben.",
+  'clusters.legacy_found': "{n} Messpunkte aus 0.9.x ohne Cluster-Tag gefunden ({span}). Für {cluster} übernehmen, damit Foresight und der Balancer ihre Historie behalten?",
+  'clusters.legacy_adopt': "Historie übernehmen",
+  'clusters.legacy_confirm': "Die alten Messwerte diesem Cluster zuordnen? Läuft im Hintergrund und kann dauern; nichts wird gelöscht.",
+  'clusters.legacy_running': "Historie wird übernommen: {measurement} ({done}/{total} Messungen, bisher {points} Punkte)…",
+  'clusters.legacy_done': "Historie übernommen: {n} Punkte gehören jetzt zum Cluster.",
+  'clusters.legacy_failed': "Übernahme fehlgeschlagen: {error}. Erneut starten; ein abgebrochener Lauf setzt dort an, wo er stand.",
+  'clusters.legacy_multi': "{n} Messpunkte aus 0.9.x ohne Cluster-Tag gefunden ({span}); die Übernahme braucht genau einen registrierten Cluster.",
   'clusters.api_v2_yes': "REST v2 verfügbar",
   'clusters.api_v2_no': "kein REST v2",
 

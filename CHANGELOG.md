@@ -94,6 +94,11 @@ release is tagged.
   with the failing files, by the weekly verify, the manual **Verify** button and a restore alike.
   The manual Verify now runs in the background with progress, so chains larger than one HTTP
   request can be verified from the dashboard.
+- **Adopt 0.9.x history.** Metrics written before the multi-cluster release carry no cluster tag
+  and were invisible after an upgrade. Settings → Clusters now offers to adopt them for the
+  registered cluster: a background job re-tags them per measurement and bucket (scratch copy,
+  delete, copy back; idempotent, resumes after an interruption), so Foresight and the balancer
+  keep their history across the upgrade.
 - **Plan times are local to the cluster** (migration `033`). The cluster's time zone is read from
   HyperCore on every connection test and shown under Settings → Clusters, with an override; a
   plan's daily time is scheduled in that zone, and every place a plan time appears adds the

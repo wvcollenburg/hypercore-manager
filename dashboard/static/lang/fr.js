@@ -848,6 +848,13 @@ window.LANG = {
   'clusters.timezone_unknown': "pas encore lu sur le cluster",
   'clusters.timezone_detected': "Lu sur le cluster : {tz}. Les heures des plans de sauvegarde de ce cluster sont dans ce fuseau. Saisissez un autre nom IANA pour le remplacer ; laissez vide pour suivre le cluster.",
   'clusters.timezone_hint': "Le fuseau dans lequel les heures des plans sont lues. Repris du cluster au prochain test de connexion ; saisissez un nom IANA (Europe/Paris, US/Eastern) pour le remplacer.",
+  'clusters.legacy_found': "{n} points de mesure de 0.9.x sans étiquette de cluster trouvés ({span}). Les attribuer à {cluster} pour que Foresight et l'équilibreur gardent leur historique ?",
+  'clusters.legacy_adopt': "Reprendre l'historique",
+  'clusters.legacy_confirm': "Réétiqueter les anciennes mesures pour ce cluster ? L'opération tourne en arrière-plan et peut prendre du temps ; rien n'est supprimé.",
+  'clusters.legacy_running': "Reprise de l'historique : {measurement} ({done}/{total} mesures, {points} points jusqu'ici)…",
+  'clusters.legacy_done': "Historique repris : {n} points appartiennent désormais au cluster.",
+  'clusters.legacy_failed': "Reprise échouée : {error}. Relancez-la ; une exécution interrompue reprend où elle en était.",
+  'clusters.legacy_multi': "{n} points de mesure de 0.9.x sans étiquette de cluster trouvés ({span}) ; la reprise exige exactement un cluster enregistré.",
   'clusters.api_v2_yes': "REST v2 disponible",
   'clusters.api_v2_no': "pas de REST v2",
 

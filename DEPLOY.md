@@ -433,9 +433,13 @@ clusters. Before you pull:
    were in `.env`. The collector, balancer and Sentinel pick it up within a minute, the balancer
    **in dry-run**; switch it back to live once you have checked the settings, which were copied
    from your `.env` values into that cluster's tunables.
-4. Metrics written by 0.9.x carry no cluster tag and are no longer shown. Forecasts and the
-   balancer's averages therefore start from scratch; Foresight needs its usual 14 days of history
-   again. The old data stays in InfluxDB until its retention expires.
+4. Metrics written by 0.9.x carry no cluster tag and are not shown until they are adopted:
+   once the cluster is registered, Settings → Clusters offers **Adopt history** when such points
+   exist. It re-tags them for that cluster in the background (minutes to tens of minutes for
+   months of data) and Foresight and the balancer keep their history. Skip it and they start
+   from scratch; the old data then stays in InfluxDB until its retention expires.
+   A fresh install instead of an in-place upgrade is fine too: the only things an upgrade keeps
+   are user accounts, the tunables and, with the adoption, the metrics.
 5. If you ran the former standalone export manager, its schedules are not migrated: create a
    target, assign it, and re-create the plans from the Backup tab.
 

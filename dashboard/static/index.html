@@ -3777,7 +3777,7 @@ async function loadSettings() {
     return;
   }
   const cl = me ? await apiFetch('/api/clusters') : null;
-  document.getElementById('setpanel-clusters').innerHTML = _renderClustersCard((cl && cl.clusters) || [], me || {});
+  document.getElementById('setpanel-clusters').innerHTML = _renderClustersCard((cl && cl.clusters) || [], me || {}) + '<div id="legacyNotice"></div>';
   document.getElementById('setpanel-tunables').innerHTML = _settingsTargetBar(isAdmin) + _renderGroups(groups, vals, isAdmin);
   if (me && (me.role === 'admin' || me.dev_mode)) { await _loadUsersPanel(me); await _loadSharesPanel(); }
   else { document.getElementById('setpanel-users').innerHTML = ''; document.getElementById('setpanel-shares').innerHTML = ''; }
@@ -5401,8 +5401,37 @@ async function clForgetNode(id, uuid) {
   loadClusters();
 }
 
+// metrics from 0.9.x carry no cluster tag: offer to adopt them into the (single) registered cluster
+async function _loadLegacyNotice() {
+  const el = document.getElementById('legacyNotice'); if (!el) return;
+  let d; try { d = await apiFetch('/api/legacy-metrics'); } catch (e) { return; }
+  if (!d) return;
+  const a = d.adoption || {};
+  if (a.state === 'running') {
+    el.innerHTML = `<div class="ex-hint" style="margin:8px 0;">${t('clusters.legacy_running', {measurement: a.measurement || '…', done: a.done || 0, total: a.total || 0, points: a.points || 0})}</div>`;
+    setTimeout(_loadLegacyNotice, 4000); return;
+  }
+  if (a.state === 'done') { el.innerHTML = `<div class="ex-hint" style="margin:8px 0;color:var(--accent-green);">${t('clusters.legacy_done', {n: a.points || 0})}</div>`; return; }
+  if (a.state === 'failed') { el.innerHTML = `<div class="ex-hint" style="margin:8px 0;color:var(--accent-red);">${t('clusters.legacy_failed', {error: a.error || ''})}</div>`; return; }
+  const summ = (d.summary || {}).data; if (!summ) { setTimeout(_loadLegacyNotice, 5000); return; }   // still scanning
+  const total = summ.total || 0;
+  if (!total) { el.innerHTML = ''; return; }
+  const span = summ.first && summ.last ? `${_exFmt(summ.first)} – ${_exFmt(summ.last)}` : '';
+  if (d.candidate) {
+    el.innerHTML = `<div class="ex-hint" style="margin:8px 0;">${t('clusters.legacy_found', {n: total.toLocaleString(), span, cluster: _clEsc(d.candidate.name)})}
+      <button class="um-action-btn" style="margin-left:8px;" onclick="clAdoptLegacy('${d.candidate.cluster_id}')">${t('clusters.legacy_adopt')}</button></div>`;
+  } else {
+    el.innerHTML = `<div class="ex-hint" style="margin:8px 0;">${t('clusters.legacy_multi', {n: total.toLocaleString(), span})}</div>`;
+  }
+}
+async function clAdoptLegacy(cid) {
+  if (!confirm(t('clusters.legacy_confirm'))) return;
+  try { await apiFetch('/api/legacy-metrics/adopt', {method: 'POST', body: JSON.stringify({cluster_id: cid})}); } catch (e) { showToast(e.message, 'err'); return; }
+  _loadLegacyNotice();
+}
 function _renderClustersCard(clusters, me) {
   const isAdmin = me?.role === 'admin';
+  setTimeout(_loadLegacyNotice, 0);
   const rows = clusters.map((c, i) => `
     <tr>
       <td><span class="cl-status-dot" style="background:${c.last_error ? 'var(--accent-red)' : (c.enabled ? _clColour(c, i) : 'var(--text-muted)')}"></span><strong>${_clEsc(c.name)}</strong>

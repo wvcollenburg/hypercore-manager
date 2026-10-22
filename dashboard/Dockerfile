@@ -21,6 +21,7 @@ COPY config_db.py .
 COPY user_db.py .
 COPY versioning.py .
 COPY storage_summary.py .
+COPY legacy_metrics.py .
 COPY cluster_registry.py .
 COPY hypercore_tasks.py .
 COPY hcm_crypto.py .

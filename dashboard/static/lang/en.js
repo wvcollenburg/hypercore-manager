@@ -849,6 +849,13 @@ window.LANG = {
   'clusters.timezone_unknown': "not read from the cluster yet",
   'clusters.timezone_detected': "Read from the cluster: {tz}. Backup plan times on this cluster are in this zone. Type another IANA name to override it; leave empty to follow the cluster.",
   'clusters.timezone_hint': "The zone backup plan times are read in. Filled from the cluster on the next connection test; type an IANA name (Europe/Amsterdam, US/Eastern) to override.",
+  'clusters.legacy_found': "{n} metric points from 0.9.x without a cluster tag found ({span}). Adopt them for {cluster} so Foresight and the balancer keep their history?",
+  'clusters.legacy_adopt': "Adopt history",
+  'clusters.legacy_confirm': "Re-tag the old metrics for this cluster? This runs in the background and can take a while; nothing is deleted.",
+  'clusters.legacy_running': "Adopting history: {measurement} ({done}/{total} measurements, {points} points so far)…",
+  'clusters.legacy_done': "History adopted: {n} points now belong to the cluster.",
+  'clusters.legacy_failed': "History adoption failed: {error}. Run it again; a run that stopped halfway is picked up where it was.",
+  'clusters.legacy_multi': "{n} metric points from 0.9.x without a cluster tag found ({span}); adopting them needs exactly one registered cluster.",
   'clusters.api_v2_yes': "REST v2 available",
   'clusters.api_v2_no': "no REST v2",
 

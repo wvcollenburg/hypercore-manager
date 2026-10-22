@@ -1183,6 +1183,54 @@ def _test_every_node(c, username, password) -> dict:
     return out
 
 
+@app.route('/api/legacy-metrics', methods=['GET'])
+@require_auth
+@require_admin
+def api_legacy_metrics():
+    """Metrics written by 0.9.x without a cluster tag: how many, when, and the state of an adoption."""
+    import legacy_metrics as lm
+    buckets, real, registered = _legacy_context()
+    st = lm.state()
+    if not real:
+        return jsonify({'summary': {'state': 'ready', 'data': {'total': 0}}, 'adoption': st, 'buckets': buckets, 'candidate': None, 'clusters': 0})
+    summ = lm.summary_state(_legacy_adapter(), buckets, registered) if st.get('state') != 'running' else {'state': 'ready', 'data': {'total': None}}
+    return jsonify({'summary': summ, 'adoption': st, 'buckets': buckets, 'registered_at': registered.isoformat(),
+                    'candidate': {'cluster_id': real[0].cluster_id, 'name': real[0].name} if len(real) == 1 else None,
+                    'clusters': len(real)})
+
+
+def _legacy_context():
+    """Buckets to scan, the real clusters, and the first registration (where tagging began)."""
+    lt = os.getenv('INFLUX_LONGTERM_BUCKET', 'metrics_longterm')
+    buckets = [INFLUX_BUCKET] + ([lt] if lt != INFLUX_BUCKET else [])
+    real = [c for c in cluster_registry.list_all() if not c.is_template and c.registered_at]
+    registered = min((c.registered_at for c in real), default=None)
+    return buckets, real, registered
+
+
+def _legacy_adapter():
+    import legacy_metrics as lm
+    # scans and copies of months of points take minutes: a client with its own long timeout
+    return lm.InfluxAdapter(InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG, timeout=1_800_000), INFLUX_ORG)
+
+
+@app.route('/api/legacy-metrics/adopt', methods=['POST'])
+@require_auth
+@require_admin
+def api_legacy_metrics_adopt():
+    import legacy_metrics as lm
+    body = request.get_json(force=True, silent=True) or {}
+    cid = (body.get('cluster_id') or '').strip()
+    c = cluster_registry.get(cid) if cluster_registry.is_uuid(cid) else None
+    if not c or c.is_template:
+        return jsonify({'error': 'cluster_id must be a registered cluster'}), 400
+    buckets, real, registered = _legacy_context()
+    if not registered:
+        return jsonify({'error': 'no registered cluster'}), 400
+    st = lm.start(cid, _legacy_adapter(), buckets, INFLUX_ORG, registered)
+    return jsonify(st), 202
+
+
 @app.route('/api/clusters/<cluster_id>/nodes/<node_uuid>', methods=['DELETE'])
 @require_auth
 @require_admin
