@@ -61,8 +61,10 @@ def test_flux_builders_and_windows():
     q = lm.copy_query('metrics', lm.SCRATCH_BUCKET, 'org', 'vm_metrics', 'cid-1', T0, T0 + timedelta(days=1), ['_measurement', '_field', 'cluster_id', 'vm_uuid'])
     assert 'set(key: "cluster_id", value: "cid-1")' in q and 'group(columns: ["_measurement", "_field", "cluster_id", "vm_uuid"])' in q
     assert 'range(start: 2026-05-01T00:00:00.000000Z, stop: 2026-05-02T00:00:00.000000Z)' in q and f'to(bucket: "{lm.SCRATCH_BUCKET}", org: "org")' in q
-    assert q.endswith('|> to(bucket: "hcm_adopt_scratch", org: "org") |> group() |> limit(n: 1)'), 'the copy returns one row, not every point it wrote'
-    assert lm.copy_back_query('s', 'metrics', 'org', 'vm_metrics', T0, T0 + timedelta(days=1)).endswith('|> group() |> limit(n: 1)')
+    assert q.endswith('|> to(bucket: "hcm_adopt_scratch", org: "org") ' + lm.ONE_ROW), 'the copy returns one row, not every point it wrote'
+    assert lm.copy_back_query('s', 'metrics', 'org', 'vm_metrics', T0, T0 + timedelta(days=1)).endswith(lm.ONE_ROW)
+    # group()/keep()/drop()/count() straight after to() fail on mixed string+float fields; map() rebuilds the row first
+    assert lm.ONE_ROW.index('map(') < lm.ONE_ROW.index('group()')
     assert lm.group_columns(['_start', 'node', '_field', 'vm_uuid', 'cluster_id']) == ['_measurement', '_field', 'cluster_id', 'node', 'vm_uuid']
     assert 'limit(n: 1)' in lm.presence_query('metrics', T0, T0 + timedelta(days=1)) and 'not exists r.cluster_id' in lm.presence_query('metrics', T0, T0 + timedelta(days=1))
     assert 'range(start: 2026-05-01T00:00:00.000000Z, stop: 2026-05-02T00:00:00.000000Z)' in lm.copy_back_query('s', 'metrics', 'org', 'vm_metrics', T0, T0 + timedelta(days=1))

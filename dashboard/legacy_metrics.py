@@ -28,6 +28,10 @@ from typing import Callable, Optional
 
 log = logging.getLogger('hcm.legacy_metrics')
 
+# to() returns everything it wrote as the query result; this tail makes the server return one row
+# instead. The row is rebuilt with map() because group(), keep(), drop() and count() all refuse a
+# measurement whose fields mix strings and floats (condition_metrics): "schema collision".
+ONE_ROW = '|> limit(n: 1) |> map(fn: (r) => ({_time: r._time})) |> group() |> limit(n: 1)'
 SCRATCH_PREFIX = 'hcm_adopt_scratch'
 SCRATCH_BUCKET = SCRATCH_PREFIX          # the generic name an older build used; restored into the first bucket
 
@@ -70,20 +74,19 @@ def tag_keys_query(bucket: str, measurement: str) -> str:
 
 def copy_query(src: str, dst: str, org: str, measurement: str, cluster_id: str, start: datetime, stop: datetime, group_columns: list[str]) -> str:
     cols = ', '.join(f'"{c}"' for c in group_columns)
-    # to() returns everything it wrote as the query result; without the trailing group() |> limit()
-    # the client downloads every copied point into the dashboard process (a week of raw points
-    # is millions of rows: the gunicorn worker was killed for memory on the first real run)
+    # without ONE_ROW the client downloads every copied point into the dashboard process (a week
+    # of raw points is millions of rows: the gunicorn worker was killed for memory on a real run)
     return (f'from(bucket: "{src}") |> range(start: {_rfc(start)}, stop: {_rfc(stop)}) '
             f'|> filter(fn: (r) => r._measurement == "{measurement}" and not exists r.cluster_id) '
             f'|> set(key: "cluster_id", value: "{cluster_id}") |> group(columns: [{cols}]) '
-            f'|> to(bucket: "{dst}", org: "{org}") |> group() |> limit(n: 1)')
+            f'|> to(bucket: "{dst}", org: "{org}") {ONE_ROW}')
 
 
 def copy_back_query(scratch: str, dst: str, org: str, measurement: Optional[str] = None,
                     start: Optional[datetime] = None, stop: Optional[datetime] = None) -> str:
     flt = f'|> filter(fn: (r) => r._measurement == "{measurement}") ' if measurement else ''
     rng = f'range(start: {_rfc(start)}, stop: {_rfc(stop)})' if start and stop else 'range(start: 0)'
-    return f'from(bucket: "{scratch}") |> {rng} {flt}|> to(bucket: "{dst}", org: "{org}") |> group() |> limit(n: 1)'
+    return f'from(bucket: "{scratch}") |> {rng} {flt}|> to(bucket: "{dst}", org: "{org}") {ONE_ROW}'
 
 
 def scratch_oldest_query(scratch: str = SCRATCH_BUCKET) -> str:
