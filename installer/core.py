@@ -509,6 +509,42 @@ def build_schema() -> list[Section]:
                     description=(
                         "Retention for the downsampled bucket (5 years by default)."
                     ),
+                Field(
+                    key="INFLUXD_QUERY_MAX_MEMORY_BYTES",
+                    label="InfluxDB query memory, all queries (bytes)",
+                    type="int",
+                    default="402653184",
+                    description="Memory InfluxDB may use for all running queries together.",
+                    why_default="384 MB: half of the container's 768 MB limit, so a heavy query fails with an error instead of Docker killing the database.",
+                    when_change="Raise together with the InfluxDB container's memory limit in docker-compose.yaml.",
+                ),
+                Field(
+                    key="INFLUXD_QUERY_MEMORY_BYTES",
+                    label="InfluxDB query memory, per query (bytes)",
+                    type="int",
+                    default="268435456",
+                    description="Memory one query may use.",
+                    why_default="256 MB leaves room for the collector's writes next to one big dashboard query.",
+                    when_change="Raise together with the InfluxDB container's memory limit in docker-compose.yaml.",
+                ),
+                Field(
+                    key="INFLUXD_QUERY_INITIAL_MEMORY_BYTES",
+                    label="InfluxDB initial query memory (bytes)",
+                    type="int",
+                    default="16777216",
+                    description="Memory a query starts with before asking for more.",
+                    why_default="16 MB is InfluxDB's own guidance for small deployments.",
+                    when_change="Raise together with the InfluxDB container's memory limit in docker-compose.yaml.",
+                ),
+                Field(
+                    key="INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE",
+                    label="InfluxDB write cache (bytes)",
+                    type="int",
+                    default="201326592",
+                    description="Size of the in-memory write cache before it is flushed to disk.",
+                    why_default="192 MB instead of InfluxDB's 1 GiB default, which alone exceeds the container limit.",
+                    when_change="Raise together with the InfluxDB container's memory limit in docker-compose.yaml.",
+                ),
                     why_default=(
                         "1825 = 5 years, enough for capacity-planning year-over-year "
                         "comparisons."
