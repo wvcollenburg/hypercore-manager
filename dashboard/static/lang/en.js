@@ -591,6 +591,7 @@ window.LANG = {
   'nav.settings_short': "Settings",
 
   'nav.account': "Account",
+  'nav.manual': "Manual",
 
   'settings.admin_only': "Settings are available to administrators only.",
 

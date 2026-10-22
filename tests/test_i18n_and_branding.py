@@ -124,7 +124,8 @@ def test_dockerfile_fetches_compose_for_image_arch(repo):
     assert 'docker-compose-linux-${ARCH}' in df
     assert 'docker-compose-linux-x86_64' not in df
     assert 'docker-compose version' in df, 'build must fail fast if the binary cannot run'
-    assert 'COPY versioning.py' in df
+    assert 'COPY dashboard/versioning.py' in df
+    assert 'COPY docs/manual/ manual/' in df, 'the image serves the manual at /manual'
 
 
 def test_tests_dir_not_gitignored(repo):

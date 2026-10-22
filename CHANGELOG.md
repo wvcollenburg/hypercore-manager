@@ -98,6 +98,9 @@ release is tagged.
   friends in compose): a query that needs more than the container has now fails with an error
   instead of Docker killing the database, which on a 768 MB container happened on any
   whole-range scan.
+- **The user manual is in the dashboard.** `docs/manual` (one chapter per module, with screenshots)
+  is rendered by the dashboard at `/manual` behind the login, reachable from the rail under
+  Account; it works on dark sites. The administration and deployment guides are served with it.
 - **Adopt 0.9.x history.** Metrics written before the multi-cluster release carry no cluster tag
   and were invisible after an upgrade. Settings → Clusters now offers to adopt them for the
   registered cluster: a background job re-tags them per measurement and bucket (scratch copy,

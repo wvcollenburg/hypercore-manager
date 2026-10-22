@@ -14,21 +14,25 @@ RUN apt-get update && apt-get install -y curl git docker.io && rm -rf /var/lib/a
     docker-compose version && \
     git config --global --add safe.directory /repo
 
-COPY requirements.txt .
+COPY dashboard/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py .
-COPY config_db.py .
-COPY user_db.py .
-COPY versioning.py .
-COPY storage_summary.py .
-COPY legacy_metrics.py .
-COPY cluster_registry.py .
-COPY hypercore_tasks.py .
-COPY hcm_crypto.py .
-COPY migrations.py .
-COPY reports/ reports/
-COPY static/ static/
-COPY templates/ templates/
+COPY dashboard/app.py .
+COPY dashboard/config_db.py .
+COPY dashboard/user_db.py .
+COPY dashboard/versioning.py .
+COPY dashboard/storage_summary.py .
+COPY dashboard/legacy_metrics.py .
+COPY dashboard/manual.py .
+COPY dashboard/cluster_registry.py .
+COPY dashboard/hypercore_tasks.py .
+COPY dashboard/hcm_crypto.py .
+COPY dashboard/migrations.py .
+COPY dashboard/reports/ reports/
+COPY dashboard/static/ static/
+COPY dashboard/templates/ templates/
+# the user manual and the guides it links, served by the dashboard at /manual
+COPY docs/manual/ manual/
+COPY docs/administration.md docs/phase4-data-sharing.md DEPLOY.md manual/extra/
 
 # Download external dependencies for offline/dark-site support
 RUN mkdir -p static/vendor && \

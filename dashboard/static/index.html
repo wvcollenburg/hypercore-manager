@@ -5501,7 +5501,8 @@ function _renderRailFooter(isAdmin) {
   const el = document.getElementById('railFooter');
   if (!el) return;
   // admins navigate to Modules and the full Settings; everyone else only reaches their own account
-  const account = `<div class="rail-nav" data-tab="account" onclick="switchTab('account')"><span class="rail-nav-icon">👤</span><span>${t('nav.account')}</span></div>`;
+  const account = `<div class="rail-nav" data-tab="account" onclick="switchTab('account')"><span class="rail-nav-icon">👤</span><span>${t('nav.account')}</span></div>
+    <a class="rail-nav" href="/manual/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;"><span class="rail-nav-icon">📖</span><span>${t('nav.manual')}</span></a>`;
   el.innerHTML = (isAdmin ? `
     <div class="rail-nav" data-tab="modules" onclick="switchTab('modules')"><span class="rail-nav-icon">▦</span><span>${t('nav.modules')}</span></div>
     <div class="rail-nav" data-tab="settings" onclick="switchTab('settings')"><span class="rail-nav-icon">⚙</span><span>${t('nav.settings_short')}</span></div>` : '') + account;

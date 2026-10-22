@@ -262,6 +262,7 @@ The left-hand **cluster rail** lists folders and clusters (collapsible, colour-c
 | **Modules** | Auto-discovered InfluxDB measurements for ad-hoc data exploration | admins |
 | **Settings** | Clusters, Tunables (per cluster / Defaults / all), Users, Targets | admins |
 | **Account** | Own password and TOTP two-factor | everyone |
+| **Manual** | This user manual, served by the dashboard at `/manual` (opens in a new tab; works offline) | everyone |
 
 Users have one of two roles. **Administrators** see every cluster and manage clusters, folders,
 users and shares. **Users** see the clusters in the folders they are members of and can operate

@@ -10,3 +10,4 @@ qrcode==8.2
 cryptography==42.0.8
 requests==2.34.2
 tzdata==2025.2
+markdown==3.8.2

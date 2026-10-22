@@ -24,3 +24,6 @@ Where a chapter says "administrators only", a user does not see that panel or bu
 The breadcrumb in the header tells you which folder, cluster and tab you are looking at.
 
 Screenshots in this manual were taken on a three-node lab cluster; your numbers will differ.
+
+The manual is also served by the dashboard itself: **Manual** in the rail under Account opens
+it at `/manual`, so it is at hand on a site without internet access.

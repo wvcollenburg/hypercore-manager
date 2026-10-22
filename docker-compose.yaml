@@ -160,7 +160,9 @@ services:
     restart: unless-stopped
 
   dashboard:
-    build: ./dashboard
+    build:
+      context: .                      # the image also carries docs/manual (served at /manual)
+      dockerfile: dashboard/Dockerfile
     container_name: sc_dashboard
     ports:
       - "5000:5000"

@@ -590,6 +590,7 @@ window.LANG = {
   'nav.settings_short': "Instellingen",
 
   'nav.account': "Account",
+  'nav.manual': "Handleiding",
 
   'settings.admin_only': "Instellingen zijn alleen beschikbaar voor beheerders.",
 

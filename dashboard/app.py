@@ -1183,6 +1183,31 @@ def _test_every_node(c, username, password) -> dict:
     return out
 
 
+MANUAL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'manual')
+
+
+@app.route('/manual/')
+@app.route('/manual/<slug>')
+@require_auth
+def manual_page(slug=''):
+    """The user manual, rendered from docs/manual (behind the login: it shows this installation's
+    screenshots and names)."""
+    import manual
+    path = manual.resolve(MANUAL_DIR, slug)
+    if path is None:
+        return Response('<h1>Not found</h1>', status=404, mimetype='text/html')
+    body = manual.render(path.read_text(encoding='utf-8'))
+    nav = manual.chapters(MANUAL_DIR)
+    title = next((c['title'] for c in nav if c['slug'] == slug), path.stem)
+    return Response(manual.page(title, body, nav, slug, _read_version_file()), mimetype='text/html')
+
+
+@app.route('/manual/img/<path:filename>')
+@require_auth
+def manual_image(filename):
+    return send_from_directory(os.path.join(MANUAL_DIR, 'img'), filename)
+
+
 @app.route('/api/legacy-metrics', methods=['GET'])
 @require_auth
 @require_admin

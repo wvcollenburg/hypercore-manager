@@ -590,6 +590,7 @@ window.LANG = {
   'nav.settings_short': "Param\u00e8tres",
 
   'nav.account': "Compte",
+  'nav.manual': "Manuel",
 
   'settings.admin_only': "Les param\u00e8tres sont r\u00e9serv\u00e9s aux administrateurs.",
 

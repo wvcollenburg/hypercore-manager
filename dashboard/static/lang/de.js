@@ -590,6 +590,7 @@ window.LANG = {
   'nav.settings_short': "Einstellungen",
 
   'nav.account': "Konto",
+  'nav.manual': "Handbuch",
 
   'settings.admin_only': "Einstellungen stehen nur Administratoren zur Verf\u00fcgung.",
 

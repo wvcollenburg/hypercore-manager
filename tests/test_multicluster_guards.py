@@ -67,7 +67,8 @@ def test_all_services_ship_shared_modules(repo):
         for mod in ('cluster_registry.py', 'hcm_crypto.py'):
             assert (repo / d / mod).exists(), f'{d}/{mod} missing (run tools/sync_shared.py)'
     df = (repo / 'dashboard' / 'Dockerfile').read_text()
-    assert 'COPY cluster_registry.py' in df and 'COPY hcm_crypto.py' in df
+    # the dashboard builds from the repository root (it carries docs/manual), so paths are prefixed
+    assert 'COPY dashboard/cluster_registry.py' in df and 'COPY dashboard/hcm_crypto.py' in df
 
 
 def test_compose_passes_secret_key_to_every_service(repo):
