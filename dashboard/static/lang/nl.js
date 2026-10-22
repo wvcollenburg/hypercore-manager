@@ -851,7 +851,7 @@ window.LANG = {
   'clusters.legacy_found': "Meetwaarden van 0.9.x zonder clusterlabel gevonden: {n} dag(en) aan data ({span}). Overnemen voor {cluster}, zodat Foresight en de balancer hun geschiedenis houden?",
   'clusters.legacy_adopt': "Geschiedenis overnemen",
   'clusters.legacy_scanning': "Meetwaarden worden doorzocht op punten van 0.9.x zonder clusterlabel… (maanden aan data duren enkele minuten)",
-  'clusters.legacy_days_found': "dag(en) met data tot nu toe",
+  'clusters.legacy_days_found': "dag(en) met data in deze bucket tot nu toe",
   'clusters.legacy_scan_failed': "Het doorzoeken van de 0.9.x-meetwaarden is mislukt: {error}. Over een ogenblik opnieuw (InfluxDB start mogelijk opnieuw op).",
   'clusters.legacy_confirm': "De oude meetwaarden aan dit cluster koppelen? Dit draait op de achtergrond en kan even duren; er wordt niets gewist.",
   'clusters.legacy_running': "Geschiedenis overnemen: {measurement} ({done}/{total} metingen, tot nu toe {points} metingsdagen)…",

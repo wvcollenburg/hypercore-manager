@@ -147,7 +147,7 @@ def untagged_days(adapter, bucket: str, stop: datetime, lookback_days: int = SUM
     empty_run, seen_any = 0, False
     while day_stop > oldest:
         day_start = day_stop - timedelta(days=1)
-        progress(bucket=bucket, day=day_start.strftime('%Y-%m-%d'), found=sum(m['days'] for m in per.values()))
+        progress(bucket=bucket, day=day_start.strftime('%Y-%m-%d'), found=max((m['days'] for m in per.values()), default=0))
         rows = adapter.rows(presence_query(bucket, day_start, day_stop))
         if rows:
             seen_any, empty_run = True, 0
