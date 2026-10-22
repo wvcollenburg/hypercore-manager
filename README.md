@@ -206,7 +206,7 @@ cluster (or for the template, or for all clusters at once) under Settings → Tu
 | `SC_PREDICTIVE_MAX_WORKERS` | `8` | Parallel threads for VM forecasting |
 | `SC_EXCLUDE_NODE_IPS` | *(empty)* | Comma-separated node IPs to exclude from all balancing |
 
-See [DEPLOY.md](DEPLOY.md) for the full configuration reference.
+See [the installing chapter of the manual](docs/manual/08-installing-and-updating.md#settings-in-env) for the full configuration reference.
 
 ### Foresight Tunables
 
@@ -409,7 +409,7 @@ Sentinel queries InfluxDB on demand and frees all data after each analysis cycle
 
 Sentinel's memory limit in `docker-compose.yaml` should be sized to cover the peak for your VM count. Between analysis cycles, idle memory returns to ~100 MB.
 
-> **Note on CPU throttling:** The CPU limits in `docker-compose.yaml` are tuned for a 2-core shared host. On a dedicated VM with 4+ CPUs, remove the `cpus:` limits from all services. InfluxDB in particular suffers badly from CPU quota throttling — Flux queries are bursty and multi-threaded, and hitting the quota causes repeated pause/resume cycles that can turn sub-second queries into 10+ second waits. See [DEPLOY.md](DEPLOY.md) for per-environment guidance.
+> **Note on CPU throttling:** The CPU limits in `docker-compose.yaml` are tuned for a 2-core shared host. On a dedicated VM with 4+ CPUs, remove the `cpus:` limits from all services. InfluxDB in particular suffers badly from CPU quota throttling — Flux queries are bursty and multi-threaded, and hitting the quota causes repeated pause/resume cycles that can turn sub-second queries into 10+ second waits. See [the installing chapter of the manual](docs/manual/08-installing-and-updating.md#what-you-need).
 
 ---
 
@@ -433,7 +433,6 @@ carries a `cluster_id` tag.
 ├── LICENSE                          # Apache License 2.0
 ├── NOTICE
 ├── README.md
-├── DEPLOY.md                        # Full operational guide
 ├── CONTRIBUTING.md                  # How issues and contributions are handled
 ├── SECURITY.md                      # How to report a vulnerability
 ├── CHANGELOG.md
@@ -507,7 +506,7 @@ carries a `cluster_id` tag.
 | Document | Contents |
 |----------|----------|
 | [docs/manual/README.md](docs/manual/README.md) | User manual: one chapter per module (Infraviewer, Clusterbalancer, Foresight, Backup, Settings, Modules and Account) with screenshots |
-| [DEPLOY.md](DEPLOY.md) | Prerequisites, environment variables, security hardening, backup/restore, upgrade procedure (including from 0.9.x), health checks, troubleshooting |
+| [docs/manual/08-installing-and-updating.md](docs/manual/08-installing-and-updating.md) | Installing and updating: prerequisites, the installer, every `.env` variable, the backup proxy's host, hardening, backing up the installation, upgrading (including from 0.9.x), health checks, troubleshooting |
 | [docs/administration.md](docs/administration.md) | Day-to-day administration: registering clusters, folders and members, users and roles, backup targets and layout |
 | [docs/phase4-data-sharing.md](docs/phase4-data-sharing.md) | Data sharing setup: enrollment, anonymisation, `.hcb` file format, troubleshooting |
 | [docs/hypercore-openapi-v1.json](docs/hypercore-openapi-v1.json) | Scale Computing HyperCore REST API v1 OpenAPI spec (the API every service uses); `tests/test_hypercore_spec_contract.py` checks our calls against it |

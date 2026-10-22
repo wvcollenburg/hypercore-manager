@@ -13,7 +13,6 @@ installer
 influxdb
 docs/*.json
 *.md
-!DEPLOY.md
 !docs/administration.md
 !docs/phase4-data-sharing.md
 !docs/manual/**

@@ -187,8 +187,8 @@ Incremental backups read only the blocks that changed since the previous run. Th
 by a **backup proxy**: a container that runs on a VM inside the cluster (the HyperCore Manager
 VM itself when the stack runs there, or a small dedicated VM per remote cluster). HyperCore
 attaches a read-only clone of the VM's snapshot to the proxy's VM; the proxy reads the changed
-blocks and writes them as a qcow2 chain onto the target. See DEPLOY.md for what the proxy
-container needs on its host.
+blocks and writes them as a qcow2 chain onto the target. The [installing chapter](manual/08-installing-and-updating.md#the-backup-proxy)
+says what the proxy container needs on its host.
 
 **Settings → Targets → Backup proxies → Register proxy**: pick the cluster, give the proxy a
 name, its URL (`http://proxy:8083` for the container in this stack, `https://<ip>:8083` for a
@@ -202,8 +202,8 @@ sizes and DHCP or a static address, and the backup service uploads an Ubuntu clo
 cluster once, creates the VM with a cloud-init document that installs Docker and the proxy
 container, waits for its address and registers it with a freshly generated token. The list below
 the form follows the deployment; a finished one shows up in the proxies table with its VM
-detected. DEPLOY.md describes what the VM needs to reach and what to do when a deployment fails
-halfway.
+detected. The installing chapter describes what the VM needs to reach and what to do when a deployment
+fails halfway.
 
 The cloud-init document carries the proxy's token, and HyperCore keeps it as a small ISO
 attached to the VM. Once the proxy has registered, the deployment removes that ISO from the VM
@@ -224,7 +224,7 @@ are the `nbd_lazy_unsafe` mode: on our lab's SMB share it wrote 55 MiB/s where t
 wrote 37 and a plain file 45, because qemu no longer waits for an SMB flush per MiB. A finished
 point is still synced to the share before its checksum is taken, and a point without its
 manifest is never used. Set the variables to `false` / `writeback` in `.env` (or the proxy VM's
-container environment) to let qemu honour every flush; DEPLOY.md lists the variables.
+container environment) to let qemu honour every flush; the installing chapter lists the variables.
 
 Without a registered proxy, plans on that cluster use HyperCore's native export.
 

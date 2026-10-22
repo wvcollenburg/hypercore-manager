@@ -2,11 +2,12 @@
 manual.py — the user manual served by the dashboard at /manual.
 
 The chapters are the Markdown files under docs/manual (copied into the image as /app/manual);
-the guides they link (administration, data sharing, DEPLOY) sit under manual/extra. They are
+the guides they link (administration, data sharing) sit under manual/extra. They are
 rendered server-side with the markdown package so a dark-site installation needs nothing from
 the internet, and wrapped in a page that follows the dashboard's dark theme with a chapter list.
 Links between chapters keep working: `01-getting-around.md` becomes `/manual/01-getting-around`,
-`../administration.md` becomes `/manual/administration`, and images stay under /manual/img/.
+`../administration.md` becomes `/manual/administration`, a guide's `manual/08-installing-and-updating.md`
+becomes that chapter, and images stay under /manual/img/.
 """
 from __future__ import annotations
 
@@ -15,9 +16,8 @@ import os
 import re
 from pathlib import Path
 
-EXTRA = {'administration': 'administration.md', 'data-sharing': 'phase4-data-sharing.md', 'deploy': 'DEPLOY.md'}
-_LINK_MAP = {'../administration.md': '/manual/administration', '../phase4-data-sharing.md': '/manual/data-sharing',
-             '../../DEPLOY.md': '/manual/deploy', 'README.md': '/manual/'}
+EXTRA = {'administration': 'administration.md', 'data-sharing': 'phase4-data-sharing.md'}
+_GUIDES = {'README.md': '', 'administration.md': 'administration', 'phase4-data-sharing.md': 'data-sharing'}
 
 
 def chapters(root: str | os.PathLike) -> list[dict]:
@@ -41,11 +41,12 @@ def rewrite_links(body: str) -> str:
     """Chapter and guide links in rendered HTML point at the dashboard's routes."""
     def fix(m):
         href = m.group(1)
-        if href in _LINK_MAP:
-            return f'href="{_LINK_MAP[href]}"'
-        if re.fullmatch(r'[0-9A-Za-z_-]+\.md(#.*)?', href):
-            name, _, frag = href.partition('#')
-            return f'href="/manual/{name[:-3]}{"#" + frag if frag else ""}"'
+        # a chapter or guide, wherever the linking file sits (docs/manual, docs or the repository root)
+        if re.fullmatch(r'(\.\./|manual/|docs/manual/|docs/)*[0-9A-Za-z_-]+\.md(#.*)?', href):
+            path, _, frag = href.partition('#')
+            name = path.rsplit('/', 1)[-1]
+            slug = _GUIDES.get(name, name[:-3])
+            return f'href="/manual/{slug}{"#" + frag if frag else ""}"'
         return m.group(0)
     body = re.sub(r'href="([^"]+)"', fix, body)
     return body.replace('src="img/', 'src="/manual/img/')
@@ -104,5 +105,5 @@ main blockquote {{ border-left: 3px solid var(--accent); margin: 0; padding: 4px
 @media (max-width: 860px) {{ .wrap {{ grid-template-columns: 1fr; }} nav {{ position: static; flex-direction: row; flex-wrap: wrap; }} }}
 </style></head>
 <body><header><div class="brand">HyperCore <span>Manager</span> · manual</div><a href="/">← back to the dashboard</a>{f'<a style="margin-left:auto">{html.escape(version)}</a>' if version else ''}</header>
-<div class="wrap"><nav>{items}<a href="/manual/administration">Administration guide</a><a href="/manual/deploy">Deployment guide</a></nav><main>{body_html}</main></div>
+<div class="wrap"><nav>{items}<a href="/manual/administration">Administration guide</a></nav><main>{body_html}</main></div>
 </body></html>'''

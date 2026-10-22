@@ -22,19 +22,21 @@ def test_chapters_are_discovered_in_order_with_the_index_first():
 
 def test_links_point_at_dashboard_routes_and_images_at_the_image_route():
     html = ('<a href="01-getting-around.md">x</a> <a href="05-backup.md#plans">y</a> <a href="../administration.md">z</a> '
-            '<a href="../../DEPLOY.md">d</a> <a href="https://example.com/a.md">ext</a> <img src="img/login.png">')
+            '<a href="manual/08-installing-and-updating.md#updating">d</a> <a href="https://example.com/a.md">ext</a> <img src="img/login.png">')
     out = manual.rewrite_links(html)
     assert 'href="/manual/01-getting-around"' in out and 'href="/manual/05-backup#plans"' in out
-    assert 'href="/manual/administration"' in out and 'href="/manual/deploy"' in out
+    assert 'href="/manual/administration"' in out
+    assert 'href="/manual/08-installing-and-updating#updating"' in out, 'a guide links a chapter by its docs/ relative path'
     assert 'href="https://example.com/a.md"' in out, 'external links are left alone'
     assert 'src="/manual/img/login.png"' in out
 
 
 def test_resolve_accepts_chapters_index_and_guides_only(tmp_path):
     (tmp_path / 'README.md').write_text('# idx'); (tmp_path / '01-a.md').write_text('# a')
-    (tmp_path / 'extra').mkdir(); (tmp_path / 'extra' / 'DEPLOY.md').write_text('# d')
+    (tmp_path / 'extra').mkdir(); (tmp_path / 'extra' / 'administration.md').write_text('# d')
     assert manual.resolve(tmp_path, '').name == 'README.md' and manual.resolve(tmp_path, '01-a').name == '01-a.md'
-    assert manual.resolve(tmp_path, 'deploy').name == 'DEPLOY.md' and manual.resolve(tmp_path, 'administration') is None
+    assert manual.resolve(tmp_path, 'administration').name == 'administration.md' and manual.resolve(tmp_path, 'data-sharing') is None
+    assert manual.resolve(tmp_path, 'deploy') is None, 'the deployment guide was folded into the installing chapter'
     assert manual.resolve(tmp_path, '../etc/passwd') is None and manual.resolve(tmp_path, 'nope') is None
 
 

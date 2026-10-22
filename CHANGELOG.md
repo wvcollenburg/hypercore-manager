@@ -100,7 +100,9 @@ release is tagged.
   whole-range scan.
 - **The user manual is in the dashboard.** `docs/manual` (one chapter per module, with screenshots)
   is rendered by the dashboard at `/manual` behind the login, reachable from the rail under
-  Account; it works on dark sites. The administration and deployment guides are served with it.
+  Account; it works on dark sites. The administration guide is served with it. The former
+  `DEPLOY.md` is folded into the manual's installing chapter, which now holds everything about
+  the installation itself, without repeating the administration guide.
 - **Adopt 0.9.x history.** Metrics written before the multi-cluster release carry no cluster tag
   and were invisible after an upgrade. Settings → Clusters now offers to adopt them for the
   registered cluster: a background job re-tags them per measurement and bucket (scratch copy,

@@ -17,6 +17,6 @@ how to contact you; a maintainer will follow up privately for the details.
 ## Hardening
 
 Before exposing the stack to any network beyond localhost, work through the Security Hardening
-Checklist in [DEPLOY.md](DEPLOY.md): strong secrets, TLS in front of the dashboard, no host
+Checklist in [the installing chapter of the manual](docs/manual/08-installing-and-updating.md#securing-the-installation): strong secrets, TLS in front of the dashboard, no host
 port bindings for InfluxDB and Sentinel, and an extended dry-run observation period before
 enabling live migrations.
