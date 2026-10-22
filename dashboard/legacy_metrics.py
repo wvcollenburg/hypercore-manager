@@ -343,10 +343,11 @@ def wait_for_server(adapter, timeout: float = 300) -> None:
 
 
 def adopt(cluster_id: str, adapter, buckets: list[str], org: str, registered_at: datetime, *, progress: Callable = lambda **kw: None,
-          chunk_hours: int = 24, now: Optional[datetime] = None, wait: Callable = wait_for_server, known: Optional[dict] = None) -> int:
+          chunk_hours: int = 7 * 24, now: Optional[datetime] = None, wait: Callable = wait_for_server, known: Optional[dict] = None) -> int:
     """Re-tag every untagged point written before `registered_at` (the first cluster registration,
-    where tagging began) in `buckets` with cluster_id. Works in windows of `chunk_hours` that
-    shrink when a query fails. Returns the number of measurement-days adopted."""
+    where tagging began) in `buckets` with cluster_id. Works in windows of `chunk_hours` (a week
+    by default: InfluxDB now refuses an oversized query with an error instead of dying, and the
+    window halves on a failure down to one hour). Returns the number of measurement-days adopted."""
     now = now or datetime.now(timezone.utc)
     era_end = min(registered_at + timedelta(days=2), now)
     # recovery: a previous run may have died between the delete and the copy back

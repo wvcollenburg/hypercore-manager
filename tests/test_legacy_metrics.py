@@ -109,6 +109,9 @@ def test_adopt_shrinks_the_window_and_waits_when_a_query_fails():
     sizes = {(_window(q)[1] - _window(q)[0]) for q in copies}
     assert max(sizes) == timedelta(hours=24) and timedelta(hours=6) in sizes and min(sizes) >= timedelta(hours=1)
     assert fk.failed == 2 and fk.waits == 2, '24 h failed, 12 h failed, 6 h windows went through; each failure waited for the server'
+    wk = _Fake({'metrics': {'vm_metrics': (T0, T0 + timedelta(days=21))}})
+    lm.adopt('cid-1', wk, ['metrics'], 'org', T0 + timedelta(days=22), now=NOW, wait=_wait)
+    assert len([c for c in wk.calls if c[0] == 'run' and 'set(key' in c[1]]) == 4, 'the default window is a week (21 days → 4 copies)'
     assert ('drop', 'hcm_adopt_scratch') in fk.calls
     fk2 = _Fake({'metrics': {'vm_metrics': (T0, T0 + timedelta(hours=3))}}, fail_windows_over=0)
     with pytest.raises(ConnectionError):
