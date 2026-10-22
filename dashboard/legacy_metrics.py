@@ -233,9 +233,10 @@ def state() -> dict:
     return st
 
 
-def summary_state(adapter, buckets: list[str], stop: Optional[datetime], max_age: float = 300) -> dict:
+def summary_state(adapter, buckets: list[str], stop: Optional[datetime], max_age: float = 6 * 3600) -> dict:
     """The cached summary shared by all workers; one worker refreshes it in a background thread
-    when it is older than max_age (a scan of months of data takes longer than an HTTP request)."""
+    when it is older than max_age. Legacy data does not change, so the cache lives for hours and
+    is invalidated after an adoption; a full three-year pass takes minutes on a large install."""
     def claim(d):
         sm = d.setdefault('summary', {})
         now = time.time()
