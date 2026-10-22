@@ -545,6 +545,15 @@ def build_schema() -> list[Section]:
                     when_change="Raise together with the InfluxDB container's memory limit in docker-compose.yaml.",
                 ),
                 Field(
+                    key="INFLUXD_QUERY_CONCURRENCY",
+                    label="InfluxDB concurrent queries",
+                    type="int",
+                    default="16",
+                    description="How many queries InfluxDB runs at once; the rest queue.",
+                    why_default="16 × the initial query memory stays under the cap for all queries, which InfluxDB requires at start-up (its default of 1024 would need 16 GB).",
+                    when_change="Raise together with the memory caps on big installations.",
+                ),
+                Field(
                     key="INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE",
                     label="InfluxDB write cache (bytes)",
                     type="int",
