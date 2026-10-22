@@ -533,7 +533,8 @@ _BENCH: dict[int, dict] = {}          # proxy id -> {job_id, started_at, target}
 @_require_token
 def proxies_bench(pid):
     """Measure the proxy's throughput onto a target (the one assigned to its cluster, or
-    body.target_id). body: {target_id?, size_mib? (default 512)}. Returns the proxy job id;
+    body.target_id). body: {target_id?, size_mib? (default 512), profile?: write|restore, modes?: [...]}.
+    Returns the proxy job id;
     GET the same path follows it."""
     p = db.get_proxy(pid, with_secret=True)
     if not p:
@@ -543,9 +544,11 @@ def proxies_bench(pid):
     if not share:
         return _err("no backup target is assigned to this proxy's cluster; assign one to its folder first")
     try:
-        jid = incremental.proxy_client_for(p).submit('bench', {'target': {'uri': share['uri_base'], 'username': share.get('username'),
-                                                                        'password': share.get('password')},
-                                                              'size_mib': max(16, min(int(b.get('size_mib') or 512), 8192))})
+        body = {'target': {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')},
+                'size_mib': max(16, min(int(b.get('size_mib') or 512), 8192)), 'profile': b.get('profile') or 'write'}
+        if isinstance(b.get('modes'), list):
+            body['modes'] = [str(m) for m in b['modes']]
+        jid = incremental.proxy_client_for(p).submit('bench', body)
     except (ProxyError, ValueError) as e:
         return _err(str(e), 502)
     _BENCH[pid] = {'job_id': jid, 'started_at': db.now_utc().isoformat(), 'target': share.get('name')}

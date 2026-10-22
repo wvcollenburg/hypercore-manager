@@ -414,14 +414,15 @@ class Engine:
     # ---------------------------------------------------------------- bench
     def run_bench(self, job: Job) -> dict:
         """
-        request: {target, size_mib (default 512, 16..8192), modes (default bench.DEFAULT_MODES)}
+        request: {target, size_mib (default 512, 16..8192), profile: write|restore, or modes: [...]}
         Writes size_mib per mode into <target>/_bench/<job id>/ and removes it again.
         """
         req = job.request
         root = self._with_target(req)
         try:
             size_mib = max(16, min(int(req.get('size_mib') or 512), 8192))
-            modes = [m for m in (req.get('modes') or bench.DEFAULT_MODES) if m in bench.ALL_MODES]
+            wanted = req.get('modes') or bench.PROFILES.get(req.get('profile') or 'write') or bench.DEFAULT_MODES
+            modes = [m for m in wanted if m in bench.ALL_MODES]
             if not modes:
                 raise ValueError(f'no known modes in {req.get("modes")!r}; known: {bench.ALL_MODES}')
             last_mode = [None]

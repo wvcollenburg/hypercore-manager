@@ -43,8 +43,23 @@ WRITE_MODES = {
     'nbd_lazy_unsafe': {'lazy_refcounts': True, 'cache': 'unsafe'},
     'nbd_none': {'lazy_refcounts': True, 'cache': 'none'},
 }
-ALL_MODES = list(WRITE_MODES) + ['nbd_read']
+# restore profile: a two-point chain on the share (base + delta with every other MiB rewritten),
+# read back the way a restore stages a delta point, in each candidate way
+READ_MODES = {
+    'read_plain': 'sequential read of the chain files (the verify path): the ceiling',
+    'read_nbd': 'the stage job today: read-only nbd attach, the copier with the configured readers',
+    'read_nbd_r1': 'same with 1 reader',
+    'read_nbd_r8': 'same with 8 readers',
+    'read_nbd_r16': 'same with 16 readers',
+    'read_nbd_ra': 'configured readers, 8 MiB read-ahead set on the nbd device',
+    'read_nbd_direct': 'configured readers, qemu-nbd --cache=none (direct I/O on the share)',
+    'read_convert': 'qemu-img convert of the chain to a raw file, no nbd (8 coroutines)',
+    'read_convert_w': 'qemu-img convert with out-of-order writes and 16 coroutines',
+}
+ALL_MODES = list(WRITE_MODES) + ['nbd_read'] + list(READ_MODES)
 DEFAULT_MODES = ['plain', 'nbd', 'nbd_writeback', 'nbd_lazy', 'nbd_unsafe', 'nbd_lazy_unsafe', 'nbd_read']
+RESTORE_MODES = list(READ_MODES)
+PROFILES = {'write': DEFAULT_MODES, 'restore': RESTORE_MODES}
 
 
 def drop_cached_pages(path: str) -> None:
@@ -127,7 +142,66 @@ def _timed(size_mib: int, t0: float) -> dict:
     return {'seconds': round(sec, 2), 'mib_s': round(size_mib / sec, 1), 'bytes': size_mib * MiB}
 
 
+def _chain_for_reads(backend, src, work, size, size_mib, writers, cancelled) -> str:
+    """base.qcow2 (all blocks) + delta.qcow2 (every other MiB rewritten) on the share; returns the
+    delta's path. Built once per bench, untimed."""
+    base, delta = os.path.join(work, 'chain-base.qcow2'), os.path.join(work, 'chain-delta.qcow2')
+    if os.path.exists(delta):
+        return delta
+    with backend.prepare(base, size) as dev:
+        copier.copy_intervals(src, dev, [{'lower': 0, 'upper': size_mib - 1}], writers=writers, cancelled=cancelled)
+    with backend.prepare(delta, size, backing=base) as dev:
+        copier.copy_intervals(src, dev, [{'lower': i, 'upper': i} for i in range(0, size_mib, 2)], writers=writers, cancelled=cancelled)
+    return delta
+
+
+def _drop_chain(work):
+    for f in ('chain-base.qcow2', 'chain-delta.qcow2'):
+        drop_cached_pages(os.path.join(work, f))
+
+
+def _run_read_mode(backend, mode, src, scratch, work, size, size_mib, intervals, writers, report, cancelled) -> dict:
+    import subprocess
+    if backend.name != 'nbd':
+        return {'skipped': 'needs the nbd backend'}
+    delta = _chain_for_reads(backend, src, work, size, size_mib, writers, cancelled)
+    base = os.path.join(work, 'chain-base.qcow2')
+    _drop_chain(work)
+    if mode == 'read_plain':
+        t0 = time.time(); done = 0
+        for f in (base, delta):
+            with open(f, 'rb') as fh:
+                while True:
+                    b = fh.read(MiB)
+                    if not b:
+                        break
+                    done += len(b); report(min(done, size))
+        out = _timed(size_mib, t0); out['bytes'] = done; out['mib_s'] = round(done / MiB / out['seconds'], 1)
+        return out
+    if mode.startswith('read_convert'):
+        _sparse(scratch, 0)
+        cmd = ['qemu-img', 'convert', '-q', '-f', 'qcow2', '-O', 'raw'] + (['-W', '-m', '16'] if mode.endswith('_w') else []) + [delta, scratch]
+        t0 = time.time()
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        if r.returncode:
+            raise RuntimeError(f'qemu-img convert failed: {r.stderr.strip()[:200]}')
+        report(size)
+        return _timed(size_mib, t0)
+    readers = {'read_nbd_r1': 1, 'read_nbd_r8': 8, 'read_nbd_r16': 16}.get(mode, writers)
+    cache = 'none' if mode == 'read_nbd_direct' else None
+    _sparse(scratch, size)
+    t0 = time.time()
+    with backend.open_readonly(delta, cache=cache) as dev:
+        if mode == 'read_nbd_ra':
+            subprocess.run(['blockdev', '--setra', '16384', dev], check=False, capture_output=True)
+        copier.copy_intervals(dev, scratch, intervals, writers=readers, progress=lambda d, t: report(d), cancelled=cancelled)
+    out = _timed(size_mib, t0); out['readers'] = readers
+    return out
+
+
 def _run_mode(backend, mode, src, scratch, work, size, size_mib, intervals, writers, report, cancelled) -> dict:
+    if mode in READ_MODES:
+        return _run_read_mode(backend, mode, src, scratch, work, size, size_mib, intervals, writers, report, cancelled)
     if mode == 'plain':
         dst = os.path.join(work, 'plain.bin')
         _sparse(dst, size)

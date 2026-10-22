@@ -14,7 +14,7 @@ import types
 import pytest
 
 _PROXY = os.path.join(os.path.dirname(__file__), '..', 'proxy')
-_CLASH = ('config', 'devices', 'copier', 'images', 'targets', 'manifest', 'identity', 'jobs', 'api', 'mounts', 'log')
+_CLASH = ('config', 'devices', 'copier', 'images', 'targets', 'manifest', 'identity', 'jobs', 'api', 'mounts', 'bench', 'log')
 
 
 def _import():
@@ -766,3 +766,11 @@ def test_bench_job_measures_plain_on_the_file_backend_and_cleans_up(stack):
     assert j['state'] == 'failed' and 'no known modes' in j['error']
     ident = stack.client.get('/identity', headers=H).get_json()
     assert 'bench' in ident['capabilities']['jobs'] and ident['options'] == {'lazy_refcounts': True, 'nbd_cache': 'unsafe', 'writers': 2}
+
+
+def test_bench_restore_profile_is_selected_and_skips_without_nbd(stack):
+    H = {'Authorization': 'Bearer t0k'}
+    j = _wait(stack, stack.client.post('/jobs/bench', json={'target': {'uri': 'smb://nas/share/hcm'}, 'size_mib': 16, 'profile': 'restore'}, headers=H).get_json()['id'], timeout=60)
+    assert j['state'] == 'done', j
+    assert set(j['result']['modes']) == set(P.bench.RESTORE_MODES) == set(P.bench.READ_MODES)   # json sorts keys
+    assert all(v == {'skipped': 'needs the nbd backend'} for v in j['result']['modes'].values())
