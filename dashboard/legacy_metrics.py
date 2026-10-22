@@ -214,9 +214,15 @@ _LOCK = threading.Lock()
 
 
 def _load() -> dict:
+    """Read under a shared lock: a writer truncates and rewrites the file, and a read that
+    landed in that gap saw an empty file and reported a running adoption as idle."""
     try:
         with open(STATE_FILE) as fh:
-            return json.load(fh)
+            fcntl.flock(fh, fcntl.LOCK_SH)
+            try:
+                return json.load(fh)
+            finally:
+                fcntl.flock(fh, fcntl.LOCK_UN)
     except (OSError, ValueError):
         return {}
 

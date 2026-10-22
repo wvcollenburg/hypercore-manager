@@ -1,6 +1,7 @@
 """dashboard/legacy_metrics.py — adopting 0.9.x metrics without a cluster tag, with a fake InfluxDB."""
 import os
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -186,3 +187,22 @@ def test_every_window_reports_progress_so_the_heartbeat_moves():
     lm.adopt('cid-1', fk, ['metrics'], 'org', T0 + timedelta(days=5), progress=lambda **kw: notes.append(kw), now=NOW, chunk_hours=24, wait=_wait)
     windows = [n['window'] for n in notes if n.get('window')]
     assert len(windows) >= 10 and {w['phase'] for w in windows} == {'copy', 'copy back'}, 'copy and copy back report every window'
+
+
+def test_state_read_never_sees_a_half_written_file(tmp_path, monkeypatch):
+    """Writers truncate and rewrite the file; a reader must never land in that gap and report
+    a running adoption as idle (the page then offered the Adopt button mid-run)."""
+    import threading
+    monkeypatch.setattr(lm, 'STATE_FILE', str(tmp_path / 'state.json'))
+    big = {'log': ['x' * 200] * 2000}        # a write large enough to take a moment
+    lm._update(lambda d: d.update({'adoption': {'state': 'running', 'heartbeat': time.time(), **big}}))
+    stop = threading.Event(); seen = []
+    def writer():
+        while not stop.is_set():
+            lm._update(lambda d: d['adoption'].update({'heartbeat': time.time()}))
+    def reader():
+        for _ in range(3000):
+            seen.append(lm.state().get('state'))
+    w = threading.Thread(target=writer); w.start()
+    reader(); stop.set(); w.join()
+    assert set(seen) == {'running'}, f'reads saw {set(seen)}'
