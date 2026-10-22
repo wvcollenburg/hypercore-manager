@@ -179,3 +179,17 @@ def test_order_candidates_no_preferred_node():
     # offline / out / gone nodes are skipped; the current one is kept even when flagged (one failure moves on)
     nodes[1]['network_status'] = 'OFFLINE'; nodes[2]['present'] = False
     assert cr.order_candidates('10.0.0.1', '10.0.0.2', nodes) == ['10.0.0.2', '10.0.0.1']
+
+
+def test_timezone_helpers():
+    import cluster_registry as cr
+    assert cr.zone_is_valid('US/Eastern') and cr.zone_is_valid('Europe/Amsterdam') and not cr.zone_is_valid('Mars/Olympus')
+    assert cr.timezone_from_api([{'uuid': 'timezone_guid', 'timeZone': 'US/Eastern'}]) == 'US/Eastern'
+    assert cr.timezone_from_api({'timeZone': 'Nowhere/Land'}) is None and cr.timezone_from_api([]) is None
+    c = cr.Cluster(cluster_id='x', name='n', host='h', username='u', verify_tls=False, enabled=True, is_template=False,
+                   hc_cluster_uuid=None, colour=None, last_seen_at=None, last_error=None, registered_at=None, updated_at=None)
+    import os
+    os.environ['TZ'] = 'Europe/Amsterdam'
+    assert c.effective_timezone == 'Europe/Amsterdam'
+    c.timezone = 'US/Eastern'
+    assert c.effective_timezone == 'US/Eastern'

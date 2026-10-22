@@ -1065,6 +1065,8 @@ def api_clusters_create():
         return jsonify({'error': msg}), 500
     if probe_nodes:
         cluster_registry.upsert_nodes(cid, probe_nodes, seed_host=f['host'])
+    if probe.get('timezone'):
+        cluster_registry.mark_seen(cid, timezone=probe['timezone'])
     _invalidate_registry_cache()
     c = cluster_registry.get(cid)
     return jsonify({'ok': True, 'cluster': _cluster_payload(c), 'probe': probe}), 201
@@ -1078,7 +1080,7 @@ def api_clusters_update(cluster_id):
         return jsonify({'error': 'cluster not found'}), 404
     body = request.get_json(force=True, silent=True) or {}
     fields = {}
-    for k in ('name', 'host', 'username', 'password', 'colour', 'api_version'):
+    for k in ('name', 'host', 'username', 'password', 'colour', 'api_version', 'timezone'):
         if k in body:
             fields[k] = body[k]
     for k in ('verify_tls', 'enabled'):
@@ -1088,6 +1090,8 @@ def api_clusters_update(cluster_id):
         fields['folder_id'] = body['folder_id'] or None   # null unfiles the cluster
     try:
         cluster_registry.update(cluster_id, **fields)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         msg = str(e)
         if 'ux_clusters_name' in msg or 'duplicate key' in msg:
@@ -1139,7 +1143,7 @@ def api_clusters_test_existing(cluster_id):
     if result.get('ok'):
         cluster_registry.mark_seen(cluster_id, result.get('hc_cluster_uuid') or None,
                                    api_v2_available=result.get('api_v2'), hc_version=result.get('version') or None,
-                                   active_host=result.get('via'))
+                                   active_host=result.get('via'), timezone=result.get('timezone'))
         if result.get('nodes'):
             cluster_registry.upsert_nodes(cluster_id, result['nodes'], seed_host=c.host)
     else:

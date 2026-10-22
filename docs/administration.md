@@ -241,6 +241,13 @@ A plan has a **mode**:
 - **export**: HyperCore's native export every run into a timestamped directory, retention by
   count, as in the first release. Required when no proxy exists; fine for small VMs.
 
+**Plan times are local to the cluster.** Every cluster reports its time zone (HyperCore's own
+setting) and HyperCore Manager reads it on each connection test; Settings → Clusters shows it
+next to the API version, and an administrator can type another IANA name there to override it.
+A plan's *Daily at* is read in that zone, so 03:00 on a cluster in Indianapolis runs at 03:00
+US/Eastern. Wherever a plan time is shown, the dashboard adds what that is in your own time
+("03:00 US/Eastern · 09:00 your time"), and the plan form says so while you type.
+
 **Restore points** (Backup tab) lists every chain of the cluster's VMs with its points. **Verify**
 re-reads every file of a chain against the checksums written at backup time; it runs in the
 background and the row shows how far it is. The same check runs every Sunday at 05:00 for every

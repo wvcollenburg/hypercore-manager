@@ -81,7 +81,7 @@ def decrypt_password(token: str) -> str:
 
 # ------------------------------------------------------------------ schedules
 _SCHED_SELECT = '''SELECT s.*, s.cluster_id::text AS cluster_id, c.cluster_name, c.hc_host AS cluster_host,
-                          c.enabled AS cluster_enabled
+                          c.enabled AS cluster_enabled, c.timezone AS cluster_timezone
                      FROM backup.plans s JOIN config.clusters c ON c.cluster_id = s.cluster_id'''
 
 

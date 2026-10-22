@@ -5269,6 +5269,8 @@ function _clusterFormHtml(prefix, c) {
         <option value="v1" ${c.api_version === 'v1' ? 'selected' : ''}>${t('clusters.api_v1')}</option>
         <option value="v2" ${c.api_version === 'v2' ? 'selected' : ''}>${t('clusters.api_v2')}</option></select>
         <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${t('clusters.api_hint')}</div></div>
+      <div><label>${t('clusters.timezone')}</label><input type="text" id="${prefix}-timezone" value="${c.timezone_override ? _clEsc(c.timezone || '') : ''}" placeholder="${_clEsc(c.timezone || t('clusters.timezone_unknown'))}" list="tz-list" autocomplete="off">
+        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${c.timezone && !c.timezone_override ? t('clusters.timezone_detected', {tz: c.timezone}) : t('clusters.timezone_hint')}</div></div>
       <div><label>${t('folders.folder')}</label><select id="${prefix}-folder" style="width:100%;padding:7px 9px;border-radius:6px;font-size:12px;background:var(--bg-input, var(--bg-primary));border:1px solid var(--border);color:var(--text-primary);">
         <option value="">${t('folders.unfiled')}</option>
         ${FOLDERS.map(f => `<option value="${f.folder_id}" ${c.folder_id === f.folder_id ? 'selected' : ''}>${_clEsc(f.name)}</option>`).join('')}
@@ -5286,13 +5288,34 @@ function _clApiLabel(c) {
   const v2 = c.api_version === 'v2' || (c.api_version !== 'v1' && c.api_v2_available);
   const base = `API ${v2 ? 'v2' : 'v1'}` + (c.api_version === 'auto' || !c.api_version ? ' · auto' : '');
   const probe = (c.api_v2_available === null || c.api_v2_available === undefined || c.api_v2_available) ? '' : ` · ${t('clusters.api_v2_no')}`;
-  return base + probe + (c.hc_version ? ` · HyperCore ${_clEsc(c.hc_version)}` : '');
+  return base + probe + (c.hc_version ? ` · HyperCore ${_clEsc(c.hc_version)}` : '') + (c.timezone ? ` · ${_clEsc(c.timezone)}${c.timezone_override ? ' *' : ''}` : '');
+}
+// a wall-clock time in a cluster's zone shown as the viewer's local time, e.g. "03:00 US/Eastern" → "09:00"
+function _exZoneToLocal(hhmm, tz) {
+  try {
+    const [h, m] = (hhmm || '00:00').split(':').map(Number); const now = new Date();
+    let guess = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, m);
+    const fmt = new Intl.DateTimeFormat('en-GB', {timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false});
+    for (let i = 0; i < 3; i++) {
+      const parts = fmt.formatToParts(new Date(guess));
+      const zh = (+parts.find(p => p.type === 'hour').value) % 24, zm = +parts.find(p => p.type === 'minute').value;
+      const diff = (h * 60 + m) - (zh * 60 + zm); if (diff === 0) break; guess += diff * 60000;
+    }
+    return new Date(guess).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+  } catch (e) { return hhmm; }
+}
+const _exViewerZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return ''; } };
+// "03:00 US/Eastern (09:00 your time)" — omitted when the cluster's zone is the viewer's
+function _exTimeLabel(hhmm, tz) {
+  if (!tz || tz === _exViewerZone()) return _exEsc(hhmm);
+  return `${_exEsc(hhmm)} <span style="color:var(--text-muted);font-size:10px;">${_exEsc(tz)} · ${t('ex.your_time', {time: _exZoneToLocal(hhmm, tz)})}</span>`;
 }
 function _clRead(prefix) {
   const g = id => document.getElementById(`${prefix}-${id}`);
   return { name: g('name').value, host: g('host').value, username: g('username').value,
            password: g('password').value, verify_tls: g('verify').checked, colour: g('colour').value,
            api_version: g('api') ? g('api').value : undefined,
+           timezone: g('timezone') ? g('timezone').value.trim() : undefined,
            folder_id: g('folder') ? (g('folder').value || null) : undefined };
 }
 function _clMsg(prefix, text, cls) { const el = document.getElementById(`${prefix}-msg`); if (el) { el.textContent = text; el.className = 'cl-msg ' + (cls || ''); } }
@@ -5468,13 +5491,21 @@ document.addEventListener('DOMContentLoaded', () => {
 // =============================================================================
 let _exAvailable = false;
 let _exDefaults = { default_retention: 7, default_run_time: '03:00' };
+let _exClusterZone = '';   // the selected cluster's time zone, from /api/backup/status
+function _exTimeHint(i) {
+  const el = document.getElementById(`exf-${i}-tzhint`); const inp = document.getElementById(`exf-${i}-time`);
+  if (!el || !inp) return;
+  const tz = _exClusterZone;
+  if (!tz) { el.textContent = ''; return; }
+  el.textContent = tz === _exViewerZone() ? t('ex.zone_note_same', {tz}) : t('ex.zone_note', {tz, local: _exZoneToLocal(inp.value || '00:00', tz), yours: _exViewerZone()});
+}
 let _exPollTimer = null;
 let _exImport = { known: [], folders: [], chosen: '' };
 
 async function _exProbe() {
   const d = await apiFetch('/api/backup/status');
   _exAvailable = !!(d && d.available);
-  if (d && d.available) { _exDefaults = d; _exLocation = d.location || null; }
+  if (d && d.available) { _exDefaults = d; _exLocation = d.location || null; _exClusterZone = d.cluster_timezone || ''; }
   const tab = document.getElementById('navTabExports');
   if (tab) tab.hidden = !_exAvailable;
   _exPreflightBanner(d && d.available ? d.preflight : null);
@@ -5550,7 +5581,7 @@ async function exLoadSchedules() {
         <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="qcow2 compression">zip</span>` : ''}<div><span class="ex-badge ${s.mode === 'incremental' ? 'run' : 'off'}" title="${_exEsc(t('ex.f_mode'))}">${t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')}</span></div></td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_exLocation ? `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/` : _exEsc(s.effective_base || s.path_uri_base || '—')}</td>
         <td><span class="ex-slots">${'<i></i>'.repeat(Math.min(s.retention, 14))}</span><span style="font-size:11px;color:var(--text-muted)">×${s.retention}${s.retention_days ? ` / ${s.retention_days}d` : ''}${s.mode === 'incremental' ? ` · ${t('ex.full_every', {n: s.full_every_n})}` : ''}</span></td>
-        <td style="font-family:'JetBrains Mono',monospace;">${_exEsc(s.run_time)}</td>
+        <td style="font-family:'JetBrains Mono',monospace;">${_exTimeLabel(s.run_time, s.timezone)}</td>
         <td>${s.last_run ? `${_exStatusBadge(s.last_run.status, s.last_run.message)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(s.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted)">${_exFmt(s.next_run)}</td>
         <td style="white-space:nowrap;">${admin ? `
@@ -5590,13 +5621,13 @@ async function exLoadVms() {
         <td>${(vm.mem / 1024 ** 3).toFixed(0)} GiB</td>
         <td style="font-size:11px;white-space:nowrap;">${vm.churn && vm.churn.mib != null ? `${_exMiB(vm.churn.mib)}<div style="font-size:10px;color:var(--text-muted);">${_exFmt(new Date(vm.churn.at * 1000).toISOString())}</div>` : '<span style="color:var(--text-muted)">—</span>'}</td>
         <td style="white-space:nowrap;">${vm.schedule
-          ? `<span class="ex-badge run">${t('ex.daily_at', {time: vm.schedule.run_time})}</span>`
+          ? `<span class="ex-badge run" title="${_exEsc(vm.schedule.timezone || '')}">${t('ex.daily_at', {time: vm.schedule.run_time + (vm.schedule.timezone && vm.schedule.timezone !== _exViewerZone() ? ' ' + vm.schedule.timezone : '')})}</span>`
           : (admin ? `<button class="um-action-btn" onclick="exToggleForm(${i})">${t('ex.schedule_export')}</button>` : `<span style="color:var(--text-muted);font-size:11px;">—</span>`)}</td>
       </tr>
       ${admin && !vm.schedule ? `<tr id="exform-${i}" hidden><td colspan="6" style="background:var(--bg-card);">${_exScheduleForm(i, vm)}</td></tr>` : ''}`;
     }).join('')}</tbody></table></div>`;
 }
-function exToggleForm(i) { const r = document.getElementById(`exform-${i}`); if (r) { r.hidden = !r.hidden; if (!r.hidden) { _exModeChanged(i); r.querySelector('input')?.focus(); } } }
+function exToggleForm(i) { const r = document.getElementById(`exform-${i}`); if (r) { r.hidden = !r.hidden; if (!r.hidden) { _exModeChanged(i); _exTimeHint(i); r.querySelector('input')?.focus(); } } }
 function _exLocationLine(vm) {
   if (!_exLocation) return `<div class="ex-hint" style="color:var(--accent-amber);margin-bottom:8px;">${t('ex.no_share')}</div>`;
   const path = `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/${vm ? _exEsc(vm.safe_name) + '_YYYYMMDD-HHMMSS' : ''}`;
@@ -5612,7 +5643,8 @@ function _exScheduleForm(i, vm) {
           <option value="export" ${_exDefaults.default_mode !== 'incremental' ? 'selected' : ''}>${t('ex.mode_export')}</option></select>
         <div class="ex-hint">${t(_exDefaults.proxies ? 'ex.mode_hint' : 'ex.mode_hint_no_proxy')}</div></div>
       <div><label>${t('ex.f_retention')}</label><input type="number" id="exf-${i}-retention" min="1" max="365" value="${_exDefaults.default_mode === 'incremental' ? 14 : (_exDefaults.default_retention || 7)}"></div>
-      <div><label>${t('ex.f_run_time')}</label><input type="time" id="exf-${i}-time" value="${_exEsc(_exDefaults.default_run_time || '03:00')}"></div>
+      <div><label>${t('ex.f_run_time')}</label><input type="time" id="exf-${i}-time" value="${_exEsc(_exDefaults.default_run_time || '03:00')}" oninput="_exTimeHint(${i})">
+        <div class="ex-hint" id="exf-${i}-tzhint"></div></div>
       <div class="exf-incr-${i}"><label>${t('ex.f_full_every')}</label><input type="number" id="exf-${i}-full_every" min="1" max="365" value="14"></div>
       <div class="exf-incr-${i}"><label>${t('ex.f_retention_days')}</label><input type="number" id="exf-${i}-retention_days" min="0" max="3650" value="" placeholder="—"></div>
       <div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="exf-${i}-compress"><label for="exf-${i}-compress" style="margin:0;">${t('ex.f_compress')}</label></div>
@@ -6162,5 +6194,11 @@ document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality,
 
 <div class="app-footer"><span id="appVersion">—</span></div>
 
+<datalist id="tz-list">
+  <option value="UTC"><option value="Europe/Amsterdam"><option value="Europe/London"><option value="Europe/Berlin"><option value="Europe/Paris">
+  <option value="US/Eastern"><option value="US/Central"><option value="US/Mountain"><option value="US/Pacific"><option value="America/New_York">
+  <option value="America/Chicago"><option value="America/Denver"><option value="America/Los_Angeles"><option value="Asia/Tokyo"><option value="Asia/Singapore">
+  <option value="Australia/Sydney">
+</datalist>
 </body>
 </html>

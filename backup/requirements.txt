@@ -7,3 +7,4 @@ smbprotocol==1.15.0
 psycopg2-binary==2.9.13
 python-json-logger==4.1.0
 urllib3==2.8.0
+tzdata==2025.2

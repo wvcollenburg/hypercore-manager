@@ -3,6 +3,7 @@ for 'Run now', imports and post-restart recovery. Single process by design."""
 from __future__ import annotations
 
 import logging
+import os
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -35,9 +36,23 @@ def sync_jobs() -> int:
             log.info('Removed job %s', job.id)
     for job_id, s in wanted.items():
         hour, minute = s['run_time'].split(':')
-        _scheduler.add_job(jobs.run_plan, trigger='cron', hour=int(hour), minute=int(minute),
+        _scheduler.add_job(jobs.run_plan, trigger='cron', hour=int(hour), minute=int(minute), timezone=plan_timezone(s),
                            id=job_id, args=[s['id']], replace_existing=True)
     return len(wanted)
+
+
+def plan_timezone(plan: dict) -> str:
+    """A plan's run time is local to its cluster: the zone HyperCore reports (or an admin typed),
+    else the stack's TZ, else UTC. An unknown name falls back the same way rather than failing."""
+    from zoneinfo import ZoneInfo
+    for cand in (plan.get('cluster_timezone'), os.environ.get('TZ'), 'UTC'):
+        if cand:
+            try:
+                ZoneInfo(cand)
+                return cand
+            except Exception:  # noqa: BLE001
+                continue
+    return 'UTC'
 
 
 def run_now(schedule_id: int) -> None:

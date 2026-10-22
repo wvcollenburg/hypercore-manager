@@ -56,10 +56,17 @@ class Cluster:
     api_v2_available: Optional[bool] = None    # what the last probe found; None = never probed
     hc_version: Optional[str] = None
     active_host: Optional[str] = None          # node the services currently reach the cluster on
+    timezone: Optional[str] = None             # IANA zone from HyperCore's /TimeZone (or typed by an admin)
+    timezone_override: bool = False            # True = keep the typed zone, ignore what the cluster reports
 
     @property
     def base_url(self) -> str:
         return base_url(self.host)
+
+    @property
+    def effective_timezone(self) -> str:
+        """The zone plan run times are read in: the cluster's, else the stack's TZ, else UTC."""
+        return self.timezone or os.environ.get('TZ') or 'UTC'
 
     @property
     def uses_v2(self) -> bool:
@@ -132,7 +139,7 @@ def _connect():
 _COLUMNS = '''c.cluster_id::text AS cluster_id, c.cluster_name, c.hc_host, c.hc_username, c.verify_tls,
               c.enabled, c.is_template, c.hc_cluster_uuid, c.colour, c.last_seen_at, c.last_error,
               c.registered_at, c.updated_at, c.folder_id::text AS folder_id, f.name AS folder_name,
-              c.api_version, c.api_v2_available, c.hc_version, c.active_host'''
+              c.api_version, c.api_v2_available, c.hc_version, c.active_host, c.timezone, c.timezone_override'''
 _FROM = 'FROM config.clusters c LEFT JOIN config.folders f ON f.folder_id = c.folder_id'
 
 
@@ -146,7 +153,7 @@ def _row_to_cluster(r: dict) -> Cluster:
         registered_at=r['registered_at'], updated_at=r['updated_at'],
         folder_id=r.get('folder_id'), folder_name=r.get('folder_name'),
         api_version=r.get('api_version') or 'auto', api_v2_available=r.get('api_v2_available'), hc_version=r.get('hc_version'),
-        active_host=r.get('active_host'),
+        active_host=r.get('active_host'), timezone=r.get('timezone'), timezone_override=bool(r.get('timezone_override')),
     )
 
 
@@ -248,10 +255,21 @@ def create(name: str, host: str, username: str, password: str,
 def update(cluster_id: str, *, name: Optional[str] = None, host: Optional[str] = None,
            username: Optional[str] = None, password: Optional[str] = None,
            verify_tls: Optional[bool] = None, colour: Optional[str] = None,
-           enabled: Optional[bool] = None, folder_id: Optional[str] = ..., api_version: Optional[str] = None) -> None:
+           enabled: Optional[bool] = None, folder_id: Optional[str] = ..., api_version: Optional[str] = None,
+           timezone: Optional[str] = None) -> None:
     """Update the given fields; password is re-encrypted only when provided (non-empty).
-    folder_id: a folder uuid to move the cluster, None to unfile it, omitted to leave it."""
+    folder_id: a folder uuid to move the cluster, None to unfile it, omitted to leave it.
+    timezone: an IANA name to override what the cluster reports, '' to follow the cluster again."""
     sets, params = [], []
+    if timezone is not None:
+        tz = timezone.strip()
+        if tz:
+            if not zone_is_valid(tz):
+                raise ValueError(f'unknown time zone {tz!r}; use an IANA name such as Europe/Amsterdam or US/Eastern')
+            sets.append('timezone = %s'); params.append(tz)
+            sets.append('timezone_override = TRUE')
+        else:
+            sets.append('timezone_override = FALSE')
     if folder_id is not ...:
         sets.append('folder_id = %s'); params.append(folder_id if folder_id and is_uuid(folder_id) else None)
     if name is not None:
@@ -345,8 +363,27 @@ def duplicate_of(cluster: Cluster, clusters: Optional[list[Cluster]] = None) -> 
     return None
 
 
+def zone_is_valid(name: str) -> bool:
+    try:
+        from zoneinfo import ZoneInfo
+        ZoneInfo(name)
+        return True
+    except Exception:  # noqa: BLE001 — unknown key or no tzdata
+        return False
+
+
+def timezone_from_api(payload) -> Optional[str]:
+    """The IANA name out of HyperCore's GET /TimeZone answer (a one-element list)."""
+    items = payload if isinstance(payload, list) else [payload]
+    for it in items:
+        tz = (it or {}).get('timeZone') if isinstance(it, dict) else None
+        if tz and zone_is_valid(tz):
+            return tz
+    return None
+
+
 def mark_seen(cluster_id: str, hc_cluster_uuid: Optional[str] = None, *, api_v2_available: Optional[bool] = None,
-              hc_version: Optional[str] = None, active_host: Optional[str] = None) -> None:
+              hc_version: Optional[str] = None, active_host: Optional[str] = None, timezone: Optional[str] = None) -> None:
     """Record a successful contact (and, when given, what the probe found about REST v2 and the
     HyperCore version, and the node address the contact went through). When the HyperCore uuid
     turns out to be shared with another enabled cluster, the newer registration is flagged
@@ -360,6 +397,9 @@ def mark_seen(cluster_id: str, hc_cluster_uuid: Optional[str] = None, *, api_v2_
         sets.append('api_v2_available = %s'); params.append(bool(api_v2_available))
     if hc_version:
         sets.append('hc_version = %s'); params.append(str(hc_version)[:40])
+    if timezone and zone_is_valid(timezone):
+        # what the cluster reports, unless an admin typed a zone (timezone_override)
+        sets.append('timezone = CASE WHEN timezone_override THEN timezone ELSE %s END'); params.append(timezone)
     conn = _connect()
     try:
         with conn.cursor() as cur:
@@ -717,6 +757,10 @@ def test_connection(host: str, username: str, password: str, verify_tls: bool = 
         nodes = s.get(f'{url}/Node', timeout=timeout)
         nodes.raise_for_status()
         node_list = nodes.json() or []
+        try:
+            tz = timezone_from_api(s.get(f'{url}/TimeZone', timeout=timeout).json())
+        except Exception:  # noqa: BLE001 — an old release without the endpoint
+            tz = None
         return {
             'ok': True,
             'cluster_name': info.get('clusterName') or info.get('name') or '',
@@ -725,6 +769,7 @@ def test_connection(host: str, username: str, password: str, verify_tls: bool = 
             'node_count': len(node_list),
             'nodes': [node_from_api(n) for n in node_list if isinstance(n, dict)],
             'api_v2': probe_v2(s, url, timeout),
+            'timezone': tz,
         }
     except requests.exceptions.SSLError as exc:
         return {'ok': False, 'error': f'TLS error: {exc}'}

@@ -94,6 +94,10 @@ release is tagged.
   with the failing files, by the weekly verify, the manual **Verify** button and a restore alike.
   The manual Verify now runs in the background with progress, so chains larger than one HTTP
   request can be verified from the dashboard.
+- **Plan times are local to the cluster** (migration `033`). The cluster's time zone is read from
+  HyperCore on every connection test and shown under Settings → Clusters, with an override; a
+  plan's daily time is scheduled in that zone, and every place a plan time appears adds the
+  viewer's local equivalent ("03:00 US/Eastern · 09:00 your time").
 - Proxy VM deployments default to 2 vCPU (measured: the single core sat at 0 % idle between the
   SMB client and the data path; a second core removes that without changing throughput).
 - **Cloud-init data removed from deployed proxy VMs.** HyperCore keeps a deployed VM's cloud-init

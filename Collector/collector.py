@@ -462,9 +462,13 @@ class ClusterWorker(threading.Thread):
                     if fresh:
                         self.cluster = fresh
                     v2 = cluster_registry.probe_v2(self.hc.session, self.hc.base_url) if self.cluster.api_version != 'v1' else None
+                    try:
+                        tz = cluster_registry.timezone_from_api(fetch_data(self.hc, '/TimeZone'))
+                    except Exception:  # noqa: BLE001 — not worth a log line every slow poll
+                        tz = None
                     cluster_registry.mark_seen(self.cid, node_info_map.get('__hc_cluster_uuid__'),
                                                api_v2_available=v2, hc_version=node_info_map.get('__hc_version__'),
-                                               active_host=self.hc.host)
+                                               active_host=self.hc.host, timezone=tz)
                     if v2 is not None:
                         self.cluster.api_v2_available = v2
 

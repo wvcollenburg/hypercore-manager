@@ -163,3 +163,27 @@ def test_location_missing_everywhere_is_a_clear_error(monkeypatch):
     with pytest.raises(jobs.HyperCoreError):
         jobs.location_for_schedule({'cluster_id': 'x', 'path_uri_base': None})
     assert jobs.effective_base({'cluster_id': 'x', 'path_uri_base': None}) == ''
+
+
+def test_plan_runs_in_the_cluster_zone(monkeypatch):
+    """03:00 on a US/Eastern cluster fires at 07:00 UTC in October (EDT), 08:00 UTC in winter."""
+    import importlib, os, sys
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    from apscheduler.triggers.cron import CronTrigger
+    sys.path.insert(0, _BACKUP)
+    try:
+        saved = sys.modules.pop('scheduler', None)
+        sch = importlib.import_module('scheduler')
+    finally:
+        sys.path.remove(_BACKUP); sys.modules.pop('scheduler', None)
+        if saved: sys.modules['scheduler'] = saved
+    monkeypatch.setenv('TZ', 'Europe/Amsterdam')
+    assert sch.plan_timezone({'cluster_timezone': 'US/Eastern'}) == 'US/Eastern'
+    assert sch.plan_timezone({'cluster_timezone': None}) == 'Europe/Amsterdam'
+    assert sch.plan_timezone({'cluster_timezone': 'Mars/Olympus'}) == 'Europe/Amsterdam', 'an unknown name falls back, never fails'
+    trig = CronTrigger(hour=3, minute=0, timezone=ZoneInfo('US/Eastern'))
+    nxt = trig.get_next_fire_time(None, datetime(2026, 10, 22, 12, 0, tzinfo=timezone.utc))
+    assert nxt.astimezone(timezone.utc) == datetime(2026, 10, 23, 7, 0, tzinfo=timezone.utc)
+    nxt = trig.get_next_fire_time(None, datetime(2026, 12, 1, 12, 0, tzinfo=timezone.utc))
+    assert nxt.astimezone(timezone.utc) == datetime(2026, 12, 2, 8, 0, tzinfo=timezone.utc)

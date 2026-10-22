@@ -86,6 +86,8 @@ def status():
         'preflight': pf,
         'default_retention': cfg.default_retention,
         'default_run_time': cfg.default_run_time,
+        # plan run times are read in the cluster's zone (HyperCore's /TimeZone, or the stack's TZ)
+        'cluster_timezone': (lambda c: c.effective_timezone if c else None)(cluster_registry.get(cid)) if cid else None,
         'task_timeout_hours': cfg.task_timeout_hours,
         'plans': len(db.get_schedules(cid)),
         'proxies': len([p for p in db.get_proxies(cid, enabled_only=True) if p.get('vm_uuid')]) if cid else 0,
@@ -106,7 +108,7 @@ def vms():
         vm_list = jobs.client_for(cid).list_vms()
     except HyperCoreError as e:
         return _err(str(e), 502)
-    scheduled = {s['vm_uuid']: _ser(s) for s in db.get_schedules(cid)}
+    scheduled = {s['vm_uuid']: dict(_ser(s), timezone=scheduler.plan_timezone(s)) for s in db.get_schedules(cid)}
     churn = {}
     try:
         # the newest snapshot of a VM carries blockCountDiff (1 MiB blocks) against the previous one:
@@ -133,6 +135,7 @@ def schedules():
         d = _ser(s)
         d['effective_base'] = jobs.effective_base(s)
         d['last_run'] = _ser(db.last_run_for(s['id']))
+        d['timezone'] = scheduler.plan_timezone(s)           # the zone run_time is read in
         nxt = scheduler.next_run_time(s['id'])
         d['next_run'] = nxt.isoformat() if nxt else None
         rows.append(d)
