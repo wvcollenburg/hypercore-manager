@@ -30,10 +30,11 @@ SYSTEM_COLUMNS = ('_start', '_stop', '_time', '_value', '_measurement', '_field'
 
 
 # ------------------------------------------------------------------ Flux
-def untagged_summary_query(bucket: str, stop: Optional[datetime] = None) -> str:
-    """Untagged points per measurement with count, first and last time. `stop` bounds the scan to
-    the legacy era (nothing written after the first registration can be legacy)."""
-    rng = f'range(start: 0, stop: {_rfc(stop)})' if stop else 'range(start: 0)'
+def untagged_summary_query(bucket: str, stop: Optional[datetime] = None, start: Optional[datetime] = None) -> str:
+    """Untagged points per measurement with count, first and last time, within [start, stop).
+    Callers scan in windows: a whole-bucket scan over months of points exceeds the memory an
+    InfluxDB container is given and gets it killed (seen on a 768 MB limit)."""
+    rng = f'range(start: {_rfc(start) if start else "0"}' + (f', stop: {_rfc(stop)})' if stop else ')')
     return (f'from(bucket: "{bucket}") |> {rng} |> filter(fn: (r) => not exists r.cluster_id) '
             '|> keep(columns: ["_measurement", "_time"]) |> group(columns: ["_measurement"]) '
             '|> reduce(fn: (r, accumulator) => ({count: accumulator.count + 1, '
@@ -120,29 +121,58 @@ class InfluxAdapter:
 
 
 # ------------------------------------------------------------------ summary + state
-def summary(adapter, buckets: list[str], stop: Optional[datetime] = None) -> dict:
-    """Untagged points per bucket and measurement: {bucket: {measurement: {count, first, last}}}, totals."""
-    out, total, first, last = {}, 0, None, None
-    for b in buckets:
-        per = {}
-        try:
-            rows = adapter.rows(untagged_summary_query(b, stop))
-        except Exception as e:  # noqa: BLE001 — a missing bucket is not an error for the UI
-            log.warning('legacy summary of %s: %s', b, e)
-            rows = []
-        for r in rows:
+SUMMARY_WINDOW_DAYS = 30
+SUMMARY_LOOKBACK_DAYS = 3 * 365
+
+
+def untagged_counts(adapter, bucket: str, stop: datetime, window_days: int = SUMMARY_WINDOW_DAYS,
+                    lookback_days: int = SUMMARY_LOOKBACK_DAYS) -> dict:
+    """{measurement: {count, first, last}} of untagged points before `stop`, scanned in windows
+    going back `lookback_days`. Raises on a failed query (a dead InfluxDB must not read as "no
+    legacy data")."""
+    per: dict = {}
+    w_stop = stop
+    oldest = stop - timedelta(days=lookback_days)
+    while w_stop > oldest:
+        w_start = max(w_stop - timedelta(days=window_days), oldest)
+        for r in adapter.rows(untagged_summary_query(bucket, w_stop, w_start)):
             n = int(r.get('count') or 0)
             if n <= 0:
                 continue
-            per[r['_measurement']] = {'count': n, 'first': r.get('first'), 'last': r.get('last')}
-            total += n
+            m = per.setdefault(r['_measurement'], {'count': 0, 'first': None, 'last': None})
+            m['count'] += n
             f, l = r.get('first'), r.get('last')
-            if f and (first is None or f < first):
-                first = f
-            if l and (last is None or l > last):
-                last = l
+            if f and (m['first'] is None or f < m['first']):
+                m['first'] = f
+            if l and (m['last'] is None or l > m['last']):
+                m['last'] = l
+        w_stop = w_start
+    return per
+
+
+def summary(adapter, buckets: list[str], stop: Optional[datetime] = None) -> dict:
+    """Untagged points per bucket and measurement: {bucket: {measurement: {count, first, last}}},
+    totals; `error` when a bucket could not be scanned."""
+    out, total, first, last, error = {}, 0, None, None, None
+    stop = stop or datetime.now(timezone.utc)
+    for b in buckets:
+        try:
+            per = untagged_counts(adapter, b, stop)
+        except Exception as e:  # noqa: BLE001 — reported, never mistaken for "nothing there"
+            log.warning('legacy summary of %s: %s', b, e)
+            error = f'{b}: {str(e)[:160]}'
+            per = {}
+        for m in per.values():
+            total += m['count']
+            if m['first'] and (first is None or m['first'] < first):
+                first = m['first']
+            if m['last'] and (last is None or m['last'] > last):
+                last = m['last']
         out[b] = per
-    return {'buckets': out, 'total': total, 'first': first.isoformat() if first else None, 'last': last.isoformat() if last else None}
+    res = {'buckets': out, 'total': total, 'first': first.isoformat() if first else None, 'last': last.isoformat() if last else None}
+    if error:
+        res['error'] = error
+    return res
 
 
 _STATE: dict = {'state': 'idle'}
@@ -224,8 +254,7 @@ def adopt(cluster_id: str, adapter, buckets: list[str], org: str, registered_at:
         progress(note='restored data left in the scratch bucket by an interrupted run')
     adopted = 0
     for bucket in buckets:
-        rows = adapter.rows(untagged_summary_query(bucket, era_end))
-        per = {r['_measurement']: r for r in rows if int(r.get('count') or 0) > 0}
+        per = untagged_counts(adapter, bucket, era_end)
         if not per:
             continue
         tagged_first = {r['_measurement']: r['first'] for r in adapter.rows(first_tagged_query(bucket, registered_at))}

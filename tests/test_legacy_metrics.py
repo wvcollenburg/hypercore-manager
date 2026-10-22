@@ -18,8 +18,19 @@ class _Fake:
         self.calls.append(('rows', flux))
         bucket = flux.split('from(bucket: "')[1].split('"')[0] if 'from(bucket' in flux else flux.split('bucket: "')[1].split('"')[0]
         if 'not exists r.cluster_id' in flux and 'reduce' in flux:
-            assert 'stop: ' in flux, 'the legacy scan is bounded by the registration era'
-            return [{'_measurement': m, 'count': v['count'], 'first': v['first'], 'last': v['last']} for m, v in self.data.get(bucket, {}).items()]
+            assert 'stop: ' in flux and 'start: 2' in flux, 'the legacy scan runs in bounded windows'
+            w0 = datetime.strptime(flux.split('range(start: ')[1].split(',')[0], '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
+            w1 = datetime.strptime(flux.split('stop: ')[1].split(')')[0], '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
+            self.windows_seen = getattr(self, 'windows_seen', 0) + 1
+            out = []
+            for m, v in self.data.get(bucket, {}).items():     # the fake's points lie evenly between first and last
+                if v['first'] is None or v['last'] < w0 or v['first'] >= w1:
+                    continue
+                lo, hi = max(v['first'], w0), min(v['last'], w1 - timedelta(microseconds=1))
+                span = (v['last'] - v['first']).total_seconds() or 1
+                frac = (hi - lo).total_seconds() / span if v['last'] > v['first'] else 1
+                out.append({'_measurement': m, 'count': max(1, round(v['count'] * frac)) if v['count'] else 0, 'first': lo, 'last': hi})
+            return out
         if 'exists r.cluster_id' in flux and 'reduce' in flux:
             return [{'_measurement': m, 'first': t} for m, t in self.tagged_first.get(bucket, {}).items()]
         if 'measurementTagKeys' in flux:
@@ -53,7 +64,7 @@ def test_adopt_copies_deletes_and_copies_back_per_measurement():
     fk = _Fake(data, tagged)
     notes = []
     n = lm.adopt('cid-1', fk, ['metrics', 'metrics_longterm'], 'org', T0 + timedelta(days=119), progress=lambda **kw: notes.append(kw), now=NOW, chunk_days=30)
-    assert n == 1050
+    assert 1040 <= n <= 1060, 'the fake splits counts across windows with rounding'
     runs = [c[1] for c in fk.calls if c[0] == 'run']
     copies = [q for q in runs if 'set(key: "cluster_id"' in q and 'node_metrics' in q]
     assert len(copies) == 4, '117 days of node_metrics (first untagged → first tagged) in 30-day windows'
@@ -70,7 +81,7 @@ def test_adopt_copies_deletes_and_copies_back_per_measurement():
     assert [k for k in first_m] == [('run', 'copy')] * 4 + [('delete', 'metrics'), ('run', 'back'), ('delete', 'hcm_adopt_scratch')]
     assert ('create', 'hcm_adopt_scratch') in fk.calls and ('drop', 'hcm_adopt_scratch') in fk.calls
     assert not fk.buckets, 'scratch bucket dropped at the end'
-    assert notes[-1]['points'] == 1050 and notes[-1]['done'] == 2
+    assert 1040 <= notes[-1]['points'] <= 1060 and notes[-1]['done'] == 2
 
 
 def test_adopt_without_tagged_points_uses_now_and_recovers_scratch():
@@ -90,3 +101,9 @@ def test_summary_totals_and_span():
                 'metrics_longterm': {'vm_metrics': {'count': 3, 'first': T0 - timedelta(days=1), 'last': T0 + timedelta(days=1)}}})
     s = lm.summary(fk, ['metrics', 'metrics_longterm'], stop=T0 + timedelta(days=10))
     assert s['total'] == 10 and 'x' not in s['buckets']['metrics'] and s['first'] == (T0 - timedelta(days=1)).isoformat() and s['last'] == (T0 + timedelta(days=2)).isoformat()
+    assert fk.windows_seen >= 2 * (lm.SUMMARY_LOOKBACK_DAYS // lm.SUMMARY_WINDOW_DAYS), 'every window of the look-back is scanned, per bucket'
+
+    class _Dead(_Fake):
+        def rows(self, flux): raise ConnectionError('Remote end closed connection without response')
+    s = lm.summary(_Dead({}), ['metrics'], stop=T0)
+    assert s['total'] == 0 and 'Remote end closed' in s['error'], 'a dead InfluxDB is reported, not read as no legacy data'
