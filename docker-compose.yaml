@@ -47,6 +47,14 @@ services:
       - INFLUX_LONGTERM_BUCKET=${INFLUX_LONGTERM_BUCKET}
       - INFLUX_PRIMARY_RETENTION=${INFLUX_PRIMARY_RETENTION}
       - INFLUX_LONGTERM_RETENTION=${INFLUX_LONGTERM_RETENTION}
+      # Keep InfluxDB's own memory below the container limit (768M below): by default queries
+      # may use unlimited memory and the write cache 1 GiB, so a heavy query gets the whole
+      # server killed by Docker instead of being refused. With these caps a too-large query
+      # fails with an error and the database stays up. Raise them together with the limit.
+      - INFLUXD_QUERY_MEMORY_BYTES=${INFLUXD_QUERY_MEMORY_BYTES:-268435456}
+      - INFLUXD_QUERY_MAX_MEMORY_BYTES=${INFLUXD_QUERY_MAX_MEMORY_BYTES:-402653184}
+      - INFLUXD_QUERY_INITIAL_MEMORY_BYTES=${INFLUXD_QUERY_INITIAL_MEMORY_BYTES:-16777216}
+      - INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE=${INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE:-201326592}
     volumes:
       - influxdb-data:/var/lib/influxdb2
     healthcheck:

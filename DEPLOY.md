@@ -281,6 +281,7 @@ Changing them in `.env` later does not alter clusters that already exist.
 | `BACKUP_PREFLIGHT_WAIT_HOURS` | How long a run waits for a cluster update or a missing node to clear before it is deferred (default 2) |
 | `PROXY_API_TOKEN` | Bearer token between the backup service and the proxy container(s). **Empty = auth disabled.** |
 | `PROXY_WRITERS` | Parallel writer threads per backup job in the proxy (default 4) |
+| `INFLUXD_QUERY_MAX_MEMORY_BYTES`, `INFLUXD_QUERY_MEMORY_BYTES`, `INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE` | InfluxDB's own memory caps (defaults 384 MB for all queries together, 256 MB per query, 192 MB write cache), set below the container's 768 MB so a heavy query is refused with an error instead of Docker killing the database. Raise them together with the container limit on big installations |
 | `PROXY_QCOW2_LAZY_REFCOUNTS` | `true` (default) skips the flush qemu issues per allocated qcow2 cluster when the proxy writes a point; see "Measure throughput" in the administration guide |
 | `PROXY_NBD_CACHE` | qemu-nbd cache mode for backup writes: `unsafe` (default: no flushes until the image is closed; a finished point is synced to the share before its checksum is taken, an unfinished point is never valid), `writeback` (every flush honoured) or `none` (direct I/O). Lab measurement onto an SMB share: 55 MiB/s against 37, a plain file copy at 45 |
 | `PROXY_NBD_SLOTS` | `/dev/nbd` devices the proxy may use at once (default 8) |

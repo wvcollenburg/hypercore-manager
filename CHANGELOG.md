@@ -94,6 +94,10 @@ release is tagged.
   with the failing files, by the weekly verify, the manual **Verify** button and a restore alike.
   The manual Verify now runs in the background with progress, so chains larger than one HTTP
   request can be verified from the dashboard.
+- InfluxDB runs with memory caps below its container limit (`INFLUXD_QUERY_MAX_MEMORY_BYTES` and
+  friends in compose): a query that needs more than the container has now fails with an error
+  instead of Docker killing the database, which on a 768 MB container happened on any
+  whole-range scan.
 - **Adopt 0.9.x history.** Metrics written before the multi-cluster release carry no cluster tag
   and were invisible after an upgrade. Settings → Clusters now offers to adopt them for the
   registered cluster: a background job re-tags them per measurement and bucket (scratch copy,

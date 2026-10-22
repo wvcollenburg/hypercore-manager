@@ -133,7 +133,7 @@ def presence_query(bucket: str, start: datetime, stop: datetime) -> str:
     killed, which is why the summary only establishes which days hold legacy data."""
     return (f'from(bucket: "{bucket}") |> range(start: {_rfc(start)}, stop: {_rfc(stop)}) '
             '|> filter(fn: (r) => not exists r.cluster_id) |> keep(columns: ["_measurement", "_time"]) '
-            '|> group(columns: ["_measurement"]) |> limit(n: 1)')
+            '|> limit(n: 1) |> group(columns: ["_measurement"]) |> limit(n: 1)')      # one row per series before regrouping
 
 
 def untagged_days(adapter, bucket: str, stop: datetime, lookback_days: int = SUMMARY_LOOKBACK_DAYS,
