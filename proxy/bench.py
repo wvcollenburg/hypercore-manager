@@ -55,6 +55,7 @@ READ_MODES = {
     'read_nbd_direct': 'configured readers, qemu-nbd --cache=none (direct I/O on the share)',
     'read_convert': 'qemu-img convert of the chain to a raw file, no nbd (8 coroutines)',
     'read_convert_w': 'qemu-img convert with out-of-order writes and 16 coroutines',
+    'read_convert_direct': 'same, target written with direct I/O (-t none): what a staging disk needs',
 }
 ALL_MODES = list(WRITE_MODES) + ['nbd_read'] + list(READ_MODES)
 DEFAULT_MODES = ['plain', 'nbd', 'nbd_writeback', 'nbd_lazy', 'nbd_unsafe', 'nbd_lazy_unsafe', 'nbd_read']
@@ -180,7 +181,12 @@ def _run_read_mode(backend, mode, src, scratch, work, size, size_mib, intervals,
         return out
     if mode.startswith('read_convert'):
         _sparse(scratch, 0)
-        cmd = ['qemu-img', 'convert', '-q', '-f', 'qcow2', '-O', 'raw'] + (['-W', '-m', '16'] if mode.endswith('_w') else []) + [delta, scratch]
+        cmd = ['qemu-img', 'convert', '-q', '-f', 'qcow2', '-O', 'raw']
+        if mode != 'read_convert':
+            cmd += ['-W', '-m', '16']                 # 16 is qemu's maximum
+        if 'direct' in mode:
+            cmd += ['-t', 'none']
+        cmd += [delta, scratch]
         t0 = time.time()
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
         if r.returncode:

@@ -774,3 +774,45 @@ def test_bench_restore_profile_is_selected_and_skips_without_nbd(stack):
     assert j['state'] == 'done', j
     assert set(j['result']['modes']) == set(P.bench.RESTORE_MODES) == set(P.bench.READ_MODES)   # json sorts keys
     assert all(v == {'skipped': 'needs the nbd backend'} for v in j['result']['modes'].values())
+
+
+def test_nbd_stage_into_runs_one_convert_with_direct_io_and_reports_progress(tmp_path, monkeypatch):
+    import subprocess as sp
+    cmds = []
+
+    class _Proc:
+        def __init__(self, cmd, **kw):
+            cmds.append(cmd); self.returncode = 0
+            import io
+            self.stdout = io.StringIO('    (0.00/100%)\r    (50.00/100%)\r    (100.00/100%)\r')
+            self.stderr = io.StringIO('')
+        def wait(self, timeout=None): return 0
+        def terminate(self): pass
+    monkeypatch.setattr(P.images.subprocess, 'Popen', _Proc)
+    be = P.images.NbdBackend(P.images.NbdPool(1, str(tmp_path)))
+    monkeypatch.setattr(be, 'virtual_size', lambda p: 4 * MiB)
+    img = tmp_path / 'p.qcow2'; img.write_bytes(bytes(4 * MiB)); dev = tmp_path / 'dev'; dev.write_bytes(bytes(4 * MiB))
+    seen = []
+    n = be.stage_into(str(img), str(dev), [{'lower': 0, 'upper': 2}], 4, progress=lambda d, t: seen.append((d, t)))
+    assert n == 3 * MiB and seen[-1] == (3 * MiB, 3 * MiB) and (3 * MiB // 2, 3 * MiB) in seen
+    c = cmds[0]
+    assert c[:2] == ['qemu-img', 'convert'] and '-n' in c and '--target-is-zero' in c and ['-t', 'none'] == c[c.index('-t'):c.index('-t') + 2]
+    assert c[c.index('-m') + 1] == '16' and '-W' in c and c[-2:] == [str(img), str(dev)]
+    # a device smaller than the image falls back to the copier through nbd (older chains)
+    small = tmp_path / 'small'; small.write_bytes(bytes(2 * MiB))
+    called = []
+    import contextlib
+    @contextlib.contextmanager
+    def ro(path, cache=None):
+        called.append(path); yield str(img)
+    monkeypatch.setattr(be, 'open_readonly', ro)
+    be.stage_into(str(img), str(small), [{'lower': 0, 'upper': 0}], 4)
+    assert called == [str(img)] and len(cmds) == 1
+    # a failing convert is an error with qemu's message
+    class _Bad(_Proc):
+        def __init__(self, cmd, **kw):
+            super().__init__(cmd); self.returncode = 1
+            import io; self.stderr = io.StringIO('qemu-img: Could not open')
+    monkeypatch.setattr(P.images.subprocess, 'Popen', _Bad)
+    with pytest.raises(RuntimeError, match='Could not open'):
+        be.stage_into(str(img), str(dev), [{'lower': 0, 'upper': 0}], 4)

@@ -9,7 +9,7 @@ import shutil
 import socket
 import subprocess
 
-VERSION = '0.3.0'
+VERSION = '0.3.1'
 _SKIP_PREFIXES = ('lo', 'docker', 'veth', 'br-', 'virbr', 'cni', 'flannel', 'tun', 'tap', 'wg')
 
 
@@ -62,6 +62,8 @@ def identity(cfg, backend_name: str, nbd_free: int | None) -> dict:
             'full_flag': True,
             # verify accepts upto_seq and reports progress (points, bytes)
             'verify_upto': True,
+            # stage writes through qemu-img convert, not an nbd attach
+            'stage_convert': True,
             'selfcheck': SELFCHECK.get('ok'),
             'mounts': True,
             'filesystems': ['ext4', 'ext3', 'ext2', 'xfs', 'btrfs', 'vfat', 'ntfs', 'exfat', 'lvm'],

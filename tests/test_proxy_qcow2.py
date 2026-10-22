@@ -105,3 +105,21 @@ def test_lazy_refcount_image_is_clean_after_a_normal_close(tmp_path):
     be.create(str(tmp_path / 'strict.qcow2'), 4 * MiB, lazy_refcounts=False)
     info = json.loads(subprocess.run(['qemu-img', 'info', '--output=json', str(tmp_path / 'strict.qcow2')], capture_output=True, text=True, check=True).stdout)
     assert info['format-specific']['data']['lazy-refcounts'] is False
+
+
+def test_stage_into_writes_the_chain_content_onto_a_zeroed_target(tmp_path):
+    """The restore staging command (qemu-img convert -n -W -m 16 --target-is-zero) reproduces a
+    base + delta chain on a zeroed raw target, block for block. Buffered target here: a regular
+    file on the test filesystem may refuse O_DIRECT."""
+    images = _images()
+    be = images.NbdBackend.__new__(images.NbdBackend)
+    be.lazy_refcounts = True; be.cache = 'unsafe'
+    parent, delta = str(tmp_path / 'p.qcow2'), str(tmp_path / 'd.qcow2')
+    be.create(parent, 4 * MiB); _qemu_io(parent, 'write -P 0xaa 0 1M', 'write -P 0xbb 3M 1M')
+    be.create(delta, 4 * MiB, backing=parent); _qemu_io(delta, 'write -P 0x5a 1M 1M', 'write -z 3M 1M')
+    target = tmp_path / 'target.raw'; target.write_bytes(bytes(4 * MiB))
+    seen = []
+    n = be.stage_into(delta, str(target), [{'lower': 0, 'upper': 1}], 4, progress=lambda d, t: seen.append(d), direct=False)
+    data = target.read_bytes()
+    assert data[:MiB] == b'\xaa' * MiB and data[MiB:2 * MiB] == b'\x5a' * MiB and data[2 * MiB:] == bytes(2 * MiB)
+    assert n == 2 * MiB and seen and seen[-1] == 2 * MiB

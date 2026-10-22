@@ -369,9 +369,10 @@ class Engine:
         """
         request: {target, chain_dir, seq, devices:[{uuid, staging_clone_uuid}]}
         Writes a point's disk images into writable staging disks hot-added to this proxy's VM
-        (created by the backup service). Only allocated, non-zero blocks are copied; a fresh
-        HyperCore disk reads as zeros. The service then snapshots the proxy VM and clones the
-        staging disks onto the restored VM.
+        (created by the backup service). Only allocated, non-zero blocks are written; a fresh
+        HyperCore disk reads as zeros. The nbd backend does it with one qemu-img convert per
+        disk (see images.NbdBackend.stage_into). The service then snapshots the proxy VM and
+        clones the staging disks onto the restored VM.
         """
         req = job.request
         root = self._with_target(req)
@@ -399,8 +400,7 @@ class Engine:
                     job.progress['blocks_done'] = _b + done // copier.MiB
 
                 t = time.time()
-                with self.backend.open_readonly(image) as src:
-                    written = copier.copy_intervals(src, dst, intervals, writers=self.cfg.writers, progress=prog, cancelled=job.cancelled)
+                written = self.backend.stage_into(image, dst, intervals, self.cfg.writers, progress=prog, cancelled=job.cancelled)
                 if job.cancelled():
                     raise RuntimeError('cancelled')
                 out.append({'uuid': d['uuid'], 'file': d['file'], 'bytes_written': written, 'blocks': copier.blocks_in(intervals),

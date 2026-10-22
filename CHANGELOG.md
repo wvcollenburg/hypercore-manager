@@ -99,6 +99,13 @@ release is tagged.
   clear, readable by anyone who can clone or mount the VM's disks. A deployment now deletes the
   ISO once the proxy has registered (ejects it while the VM runs), and the daily sweep does the
   same for proxies deployed by earlier versions.
+- **Restore staging reads the chain with qemu-img convert** (16 coroutines, out-of-order writes,
+  direct I/O onto the zeroed staging disk) instead of through an nbd attach. Reading a chain from
+  a CIFS share measured 59.5 MiB/s against 28.7 before, and a restore no longer holds an nbd
+  slot. On the lab the end-to-end restore time did not change (118 s against 120 s for 6 GB):
+  there the write into the staging disk caps at ~50 MiB/s, so the gain shows only where the
+  target writes faster than the share reads. The bench has a restore profile (`profile:
+  restore` on the API) that compares every read strategy.
 - **Proxy write throughput onto SMB shares doubled.** The proxy writes qcow2 images with lazy
   refcounts and qemu-nbd's unsafe cache mode by default (`PROXY_QCOW2_LAZY_REFCOUNTS`,
   `PROXY_NBD_CACHE`), which removes the SMB flush qemu issued for every MiB written; a finished
