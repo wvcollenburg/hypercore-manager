@@ -5428,7 +5428,12 @@ async function _loadLegacyNotice() {
 }
 async function clAdoptLegacy(cid) {
   if (!confirm(t('clusters.legacy_confirm'))) return;
-  try { await apiFetch('/api/legacy-metrics/adopt', {method: 'POST', body: JSON.stringify({cluster_id: cid})}); } catch (e) { showToast(e.message, 'err'); return; }
+  const el = document.getElementById('legacyNotice');
+  if (el) el.querySelectorAll('button').forEach(b => { b.disabled = true; b.textContent = '…'; });
+  let st;
+  try { st = await apiFetch('/api/legacy-metrics/adopt', {method: 'POST', body: JSON.stringify({cluster_id: cid})}); }
+  catch (e) { showToast(e.message, 'err'); _loadLegacyNotice(); return; }
+  if (st && st.state !== 'running') showToast(t('clusters.legacy_failed', {error: st.error || st.state || '?'}), 'err');
   _loadLegacyNotice();
 }
 function _renderClustersCard(clusters, me) {
