@@ -76,6 +76,11 @@ def copy_back_query(scratch: str, dst: str, org: str, measurement: Optional[str]
     return f'from(bucket: "{scratch}") |> {rng} {flt}|> to(bucket: "{dst}", org: "{org}")'
 
 
+def scratch_oldest_query() -> str:
+    return (f'from(bucket: "{SCRATCH_BUCKET}") |> range(start: 0) |> limit(n: 1) '
+            '|> keep(columns: ["_time"]) |> group() |> limit(n: 100000)')
+
+
 def group_columns(tag_keys: list[str]) -> list[str]:
     """The group key to() needs so that cluster_id and the existing tags are written as tags."""
     return ['_measurement', '_field', 'cluster_id'] + sorted(k for k in tag_keys if k not in SYSTEM_COLUMNS)
@@ -287,7 +292,11 @@ def start(cluster_id: str, adapter, buckets: list[str], org: str, registered_at:
             _update(lambda d: d['adoption'].update({'state': 'done', 'points': points, 'finished_at': datetime.now(timezone.utc).isoformat()}))
         except Exception as e:  # noqa: BLE001 — the thread is the error boundary
             log.exception('legacy adoption failed')
-            _update(lambda d: d['adoption'].update({'state': 'failed', 'error': str(e)[:300], 'finished_at': datetime.now(timezone.utc).isoformat()}))
+            where = _load().get('adoption') or {}
+            step = where.get('window') or {}
+            ctx = f"{where.get('bucket') or '?'}/{where.get('measurement') or '?'} {step.get('phase') or ''} {str(step.get('from') or '')[:10]}".strip()
+            msg = ' '.join(str(e).split())[:400]
+            _update(lambda d: d['adoption'].update({'state': 'failed', 'error': f'at {ctx}: {msg}', 'finished_at': datetime.now(timezone.utc).isoformat()}))
         finally:
             invalidate_summary()
             if on_done:
@@ -352,10 +361,15 @@ def adopt(cluster_id: str, adapter, buckets: list[str], org: str, registered_at:
     era_end = min(registered_at + timedelta(days=2), now)
     # recovery: a previous run may have died between the delete and the copy back
     if adapter.bucket_exists(SCRATCH_BUCKET):
-        for b in buckets:
-            rows = adapter.rows(f'from(bucket: "{SCRATCH_BUCKET}") |> range(start: 0) |> keep(columns: ["_time"]) |> first()')
-            if rows:
-                first_t = min(r['_time'] for r in rows)
+        progress(note='scratch bucket found: restoring what an interrupted run left there')
+        try:
+            # one row per series (limit before keep so storage stops early), oldest time in Python
+            rows = adapter.rows(scratch_oldest_query())
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f'reading the scratch bucket: {str(e)[:200]}') from e
+        if rows:
+            first_t = min(r['_time'] for r in rows)
+            for b in buckets:
                 _run_windowed(adapter, first_t, now, chunk_hours, lambda w0, w1: copy_back_query(SCRATCH_BUCKET, b, org, None, w0, w1), wait, progress, 'restore')
         adapter.delete_bucket(SCRATCH_BUCKET)
         progress(note='restored data left in the scratch bucket by an interrupted run')

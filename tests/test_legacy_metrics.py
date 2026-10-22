@@ -36,8 +36,9 @@ class _Fake:
             return []                                     # no tagged points around the registration
         if 'measurementTagKeys' in flux:
             return [{'_value': k} for k in ('_start', '_stop', '_measurement', '_field', 'node', 'vm_uuid')]
-        if bucket == lm.SCRATCH_BUCKET and 'first()' in flux:
-            return [{'_time': T0}]
+        if bucket == lm.SCRATCH_BUCKET and 'limit(n: 1)' in flux and 'keep(columns: ["_time"])' in flux:
+            assert 'first()' not in flux, 'first() needs _value, which keep() dropped (the 400 seen on the lab)'
+            return [{'_time': T0}, {'_time': T0 + timedelta(days=1)}]
         raise AssertionError(flux)
     def run(self, flux):
         self.calls.append(('run', flux))
@@ -125,7 +126,7 @@ def test_adopt_recovers_scratch_and_is_idempotent():
     assert lm.adopt('cid-1', fk, ['metrics'], 'org', T0 + timedelta(days=5), progress=lambda **kw: notes.append(kw), now=NOW, wait=_wait) == 2
     first_runs = [c for c in fk.calls if c[0] == 'run'][:1]
     assert first_runs and first_runs[0][1].startswith('from(bucket: "hcm_adopt_scratch")') and 'to(bucket: "metrics"' in first_runs[0][1]
-    assert any('interrupted' in (n.get('note') or '') for n in notes)
+    assert any('interrupted' in (n.get('note') or '') for n in notes) and any('scratch bucket found' in (n.get('note') or '') for n in notes)
     assert lm.adopt('cid-1', _Fake({'metrics': {}}), ['metrics'], 'org', T0, now=NOW, wait=_wait) == 0, 'idempotent'
 
 
