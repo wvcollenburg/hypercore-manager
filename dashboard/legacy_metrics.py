@@ -199,7 +199,8 @@ def summary_state(adapter, buckets: list[str], stop: Optional[datetime], max_age
                     log.warning('legacy summary failed: %s', e)
                     data = {'buckets': {}, 'total': 0, 'first': None, 'last': None, 'error': str(e)[:200]}
                 with _LOCK:
-                    _SUMMARY.update({'state': 'ready', 'data': data, 'at': time.time()})
+                    # a failed scan is not cached: the next request retries (InfluxDB may just be restarting)
+                    _SUMMARY.update({'state': 'ready', 'data': data, 'at': None if data.get('error') else time.time()})
             threading.Thread(target=run, name='hcm-legacy-summary', daemon=True).start()
         return {'state': _SUMMARY['state'], 'data': _SUMMARY['data']}
 

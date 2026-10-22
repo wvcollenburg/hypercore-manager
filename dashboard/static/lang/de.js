@@ -851,6 +851,7 @@ window.LANG = {
   'clusters.legacy_found': "{n} Messpunkte aus 0.9.x ohne Cluster-Tag gefunden ({span}). Für {cluster} übernehmen, damit Foresight und der Balancer ihre Historie behalten?",
   'clusters.legacy_adopt': "Historie übernehmen",
   'clusters.legacy_scanning': "Messwerte werden nach Punkten aus 0.9.x ohne Cluster-Tag durchsucht… (Monate an Daten dauern einige Minuten)",
+  'clusters.legacy_scan_failed': "Die Suche nach 0.9.x-Messwerten ist fehlgeschlagen: {error}. Gleich ein neuer Versuch (InfluxDB startet möglicherweise neu).",
   'clusters.legacy_confirm': "Die alten Messwerte diesem Cluster zuordnen? Läuft im Hintergrund und kann dauern; nichts wird gelöscht.",
   'clusters.legacy_running': "Historie wird übernommen: {measurement} ({done}/{total} Messungen, bisher {points} Punkte)…",
   'clusters.legacy_done': "Historie übernommen: {n} Punkte gehören jetzt zum Cluster.",
