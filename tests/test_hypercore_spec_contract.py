@@ -78,9 +78,10 @@ def test_export_path_param_name_matches_client(v1):
 
 # fields each service reads from a GET response, by path (nested via a dotted name)
 READ_V1 = {
-    '/Node': ['uuid', 'peerID', 'lanIP', 'cpuUsage', 'totalMemUsageBytes', 'systemMemUsageBytes', 'memUsagePercentage',
-              'memSize', 'capacity', 'numThreads', 'numCores', 'numSockets', 'networkStatus', 'virtualizationOnline',
-              'allowRunningVMs', 'drives'],
+    '/Node': ['uuid', 'peerID', 'lanIP', 'backplaneIP', 'networkStatus', 'currentDisposition', 'allowRunningVMs',
+              'virtualizationOnline', 'supportsVirtualization',
+              'cpuUsage', 'totalMemUsageBytes', 'systemMemUsageBytes', 'memUsagePercentage',
+              'memSize', 'capacity', 'numThreads', 'numCores', 'numSockets', 'drives'],
     '/Node.drives': ['uuid', 'slot', 'type', 'serialNumber', 'capacityBytes', 'usedBytes', 'errorCount', 'reallocatedSectors',
                      'isHealthy', 'hasTemperature', 'temperature', 'hasMaxTemperature', 'maxTemperature',
                      'hasTemperatureThreshold', 'temperatureThreshold'],

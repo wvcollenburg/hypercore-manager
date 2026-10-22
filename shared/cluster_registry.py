@@ -55,6 +55,7 @@ class Cluster:
     api_version: str = 'auto'                  # auto | v1 | v2 (the switch)
     api_v2_available: Optional[bool] = None    # what the last probe found; None = never probed
     hc_version: Optional[str] = None
+    active_host: Optional[str] = None          # node the services currently reach the cluster on
 
     @property
     def base_url(self) -> str:
@@ -131,7 +132,7 @@ def _connect():
 _COLUMNS = '''c.cluster_id::text AS cluster_id, c.cluster_name, c.hc_host, c.hc_username, c.verify_tls,
               c.enabled, c.is_template, c.hc_cluster_uuid, c.colour, c.last_seen_at, c.last_error,
               c.registered_at, c.updated_at, c.folder_id::text AS folder_id, f.name AS folder_name,
-              c.api_version, c.api_v2_available, c.hc_version'''
+              c.api_version, c.api_v2_available, c.hc_version, c.active_host'''
 _FROM = 'FROM config.clusters c LEFT JOIN config.folders f ON f.folder_id = c.folder_id'
 
 
@@ -145,6 +146,7 @@ def _row_to_cluster(r: dict) -> Cluster:
         registered_at=r['registered_at'], updated_at=r['updated_at'],
         folder_id=r.get('folder_id'), folder_name=r.get('folder_name'),
         api_version=r.get('api_version') or 'auto', api_v2_available=r.get('api_v2_available'), hc_version=r.get('hc_version'),
+        active_host=r.get('active_host'),
     )
 
 
@@ -344,13 +346,16 @@ def duplicate_of(cluster: Cluster, clusters: Optional[list[Cluster]] = None) -> 
 
 
 def mark_seen(cluster_id: str, hc_cluster_uuid: Optional[str] = None, *, api_v2_available: Optional[bool] = None,
-              hc_version: Optional[str] = None) -> None:
+              hc_version: Optional[str] = None, active_host: Optional[str] = None) -> None:
     """Record a successful contact (and, when given, what the probe found about REST v2 and the
-    HyperCore version). When the HyperCore uuid turns out to be shared with another enabled
-    cluster, the newer registration is flagged instead of cleared."""
+    HyperCore version, and the node address the contact went through). When the HyperCore uuid
+    turns out to be shared with another enabled cluster, the newer registration is flagged
+    instead of cleared."""
     sets, params = ['last_seen_at = NOW()', 'last_error = NULL'], []
     if hc_cluster_uuid:
         sets.append('hc_cluster_uuid = %s'); params.append(hc_cluster_uuid)
+    if active_host:
+        sets.append('active_host = %s'); params.append(normalize_host(active_host))
     if api_v2_available is not None:
         sets.append('api_v2_available = %s'); params.append(bool(api_v2_available))
     if hc_version:
@@ -373,6 +378,236 @@ def mark_seen(cluster_id: str, hc_cluster_uuid: Optional[str] = None, *, api_v2_
                                        f"registered twice? Balancing is suspended for this entry.")
         except Exception as exc:
             log.warning('cluster_registry duplicate check(%s): %s', cluster_id, exc)
+
+
+# ---------------------------------------------------------------------------
+# nodes — every node of a cluster as seen through GET /Node. HyperCore has no primary node:
+# each one serves the REST API, so any present ONLINE/IN node is a valid address.
+# ---------------------------------------------------------------------------
+
+def is_ip(host: str) -> bool:
+    """True when the stored host (without port) is an IPv4 or IPv6 literal."""
+    import ipaddress
+    h = normalize_host(host or '')
+    if h.startswith('['):
+        h = h[1:h.find(']')] if ']' in h else h[1:]
+    elif h.count(':') == 1:
+        h = h.split(':', 1)[0]
+    try:
+        ipaddress.ip_address(h)
+        return True
+    except ValueError:
+        return False
+
+
+def node_from_api(node: dict) -> dict[str, Any]:
+    """The subset of a GET /Node record this module stores."""
+    def _b(v):
+        return None if v is None else bool(v)
+    return {
+        'node_uuid': node.get('uuid') or '',
+        'peer_id': node.get('peerID'),
+        'lan_ip': node.get('lanIP') or '',
+        'backplane_ip': node.get('backplaneIP') or '',
+        'network_status': node.get('networkStatus') or 'UNKNOWN',
+        'disposition': node.get('currentDisposition') or 'UNKNOWN',
+        'allow_running_vms': _b(node.get('allowRunningVMs')),
+        'virtualization_online': _b(node.get('virtualizationOnline')),
+        'supports_virtualization': _b(node.get('supportsVirtualization')),
+    }
+
+
+def resolve_node_address(seed_host: str, lan_ip: str, lookup=None) -> str:
+    """The address the services use for a node. Registered by IP: the node's LAN IP as it is.
+    Registered by DNS name: the reverse-resolved name of the LAN IP, so TLS verification
+    matches the node's own certificate; when the lookup fails the IP is kept (and will fail a
+    TLS check, which is the honest outcome)."""
+    if not lan_ip or is_ip(seed_host):
+        return lan_ip
+    try:
+        import socket
+        name = (lookup or socket.gethostbyaddr)(lan_ip)
+        name = name[0] if isinstance(name, tuple) else name
+        return name or lan_ip
+    except Exception:
+        log.warning('cluster_registry: no reverse DNS for node %s (cluster registered as %s); keeping the IP',
+                    lan_ip, seed_host)
+        return lan_ip
+
+
+def node_usable(node: dict) -> bool:
+    """A present node the API can be reached on. Witness nodes count (no storage, no VMs,
+    full API); the virtualization flags say nothing about the API."""
+    return bool(node.get('present', True)) and node.get('network_status') == 'ONLINE' \
+        and node.get('disposition') == 'IN' and bool(node.get('address') or node.get('lan_ip'))
+
+
+def order_candidates(seed_host: str, active_host: Optional[str], known_nodes: list[dict],
+                     current: Optional[str] = None) -> list[str]:
+    """Addresses a service tries, in order: the one it uses now (else the cluster's recorded
+    active host), then the other usable nodes rotated after it, then the registered address as
+    a last resort. No node is preferred; the seed only matters before discovery."""
+    usable = []
+    for n in known_nodes or []:
+        if node_usable(n):
+            a = normalize_host(n.get('address') or n.get('lan_ip') or '')
+            if a and a not in usable:
+                usable.append(a)
+    start = normalize_host(current or active_host or '')
+    out = [start] if start else []
+    if start in usable:
+        i = usable.index(start)
+        out += usable[i + 1:] + usable[:i]
+    else:
+        out += usable
+    seed = normalize_host(seed_host or '')
+    if seed and seed not in out:
+        out.append(seed)
+    return out
+
+
+def candidate_hosts(cluster_id: str, current: Optional[str] = None) -> list[str]:
+    """order_candidates() fed from the registry. Falls back to the registered address alone
+    when the registry cannot be read, so a Postgres hiccup never blocks a login."""
+    c = get(cluster_id)
+    if c is None:
+        return []
+    try:
+        known = nodes(cluster_id)
+    except Exception as exc:
+        log.warning('cluster_registry.candidate_hosts(%s): %s', cluster_id, exc)
+        known = []
+    return order_candidates(c.host, c.active_host, known, current=current)
+
+
+def set_active_host(cluster_id: str, host: str) -> None:
+    """Record the node the cluster is currently reached on (written on every switch)."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('UPDATE config.clusters SET active_host = %s WHERE cluster_id = %s',
+                        (normalize_host(host), cluster_id))
+        conn.commit()
+    except Exception as exc:
+        log.warning('cluster_registry.set_active_host(%s): %s', cluster_id, exc)
+    finally:
+        conn.close()
+
+
+def upsert_nodes(cluster_id: str, api_nodes: list[dict], seed_host: Optional[str] = None) -> None:
+    """Store the node list of one GET /Node (raw records or node_from_api() rows). Nodes missing from the list are kept with
+    present = FALSE. The reverse lookup (name-registered clusters only) runs once per new node
+    or per changed LAN IP, never per poll. Never raises."""
+    rows = [dict(n) if 'node_uuid' in n else node_from_api(n) for n in api_nodes or []]   # raw API or slim
+    rows = [r for r in rows if r.get('node_uuid')]
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            if seed_host is None:
+                cur.execute('SELECT hc_host FROM config.clusters WHERE cluster_id = %s', (cluster_id,))
+                got = cur.fetchone()
+                seed_host = (got or {}).get('hc_host') or ''
+            cur.execute('SELECT node_uuid, lan_ip, address FROM config.cluster_nodes WHERE cluster_id = %s', (cluster_id,))
+            known = {r['node_uuid']: r for r in cur.fetchall()}
+            for r in rows:
+                old = known.get(r['node_uuid'])
+                if old and old['lan_ip'] == r['lan_ip'] and old['address']:
+                    r['address'] = old['address']
+                else:
+                    r['address'] = resolve_node_address(seed_host, r['lan_ip'])
+                cur.execute(
+                    '''INSERT INTO config.cluster_nodes
+                           (cluster_id, node_uuid, peer_id, lan_ip, backplane_ip, address, network_status, disposition,
+                            allow_running_vms, virtualization_online, supports_virtualization, present, last_seen_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW())
+                       ON CONFLICT (cluster_id, node_uuid) DO UPDATE SET
+                           peer_id = EXCLUDED.peer_id, lan_ip = EXCLUDED.lan_ip, backplane_ip = EXCLUDED.backplane_ip,
+                           address = EXCLUDED.address, network_status = EXCLUDED.network_status,
+                           disposition = EXCLUDED.disposition, allow_running_vms = EXCLUDED.allow_running_vms,
+                           virtualization_online = EXCLUDED.virtualization_online,
+                           supports_virtualization = EXCLUDED.supports_virtualization,
+                           present = TRUE, last_seen_at = NOW()''',
+                    (cluster_id, r['node_uuid'], r['peer_id'], r['lan_ip'], r['backplane_ip'], r['address'],
+                     r['network_status'], r['disposition'], r['allow_running_vms'], r['virtualization_online'],
+                     r['supports_virtualization']),
+                )
+            seen = [r['node_uuid'] for r in rows]
+            if seen:
+                cur.execute('UPDATE config.cluster_nodes SET present = FALSE WHERE cluster_id = %s AND present AND NOT (node_uuid = ANY(%s))',
+                            (cluster_id, seen))
+        conn.commit()
+    except Exception as exc:  # bookkeeping must never break a poll loop
+        log.warning('cluster_registry.upsert_nodes(%s): %s', cluster_id, exc)
+    finally:
+        conn.close()
+
+
+_NODE_COLUMNS = '''cluster_id::text AS cluster_id, node_uuid, peer_id, lan_ip, backplane_ip, address, network_status,
+                   disposition, allow_running_vms, virtualization_online, supports_virtualization, present,
+                   first_seen_at, last_seen_at'''
+
+
+def _node_row(r: dict) -> dict[str, Any]:
+    d = dict(r)
+    for k in ('first_seen_at', 'last_seen_at'):
+        if d.get(k) is not None:
+            d[k] = d[k].isoformat()
+    d['usable'] = node_usable(d)
+    d['witness'] = d.get('supports_virtualization') is False
+    return d
+
+
+def nodes_for(cluster_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    """Known nodes per cluster, present ones first, then by peer id."""
+    out: dict[str, list[dict[str, Any]]] = {cid: [] for cid in cluster_ids}
+    if not cluster_ids:
+        return out
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f'SELECT {_NODE_COLUMNS} FROM config.cluster_nodes WHERE cluster_id = ANY(%s::uuid[]) '
+                        'ORDER BY present DESC, peer_id NULLS LAST, lan_ip', (cluster_ids,))
+            for r in cur.fetchall():
+                out.setdefault(r['cluster_id'], []).append(_node_row(r))
+        return out
+    finally:
+        conn.close()
+
+
+def nodes(cluster_id: str) -> list[dict[str, Any]]:
+    return nodes_for([cluster_id]).get(cluster_id, [])
+
+
+def node_owner(node_uuids: list[str]) -> Optional[dict[str, Any]]:
+    """The registered cluster that already lists one of these node uuids, if any:
+    {'cluster_id', 'cluster_name', 'peer_id', 'lan_ip'} of the first match."""
+    ids = [u for u in (node_uuids or []) if u]
+    if not ids:
+        return None
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT n.cluster_id::text AS cluster_id, c.cluster_name, n.peer_id, n.lan_ip
+                           FROM config.cluster_nodes n JOIN config.clusters c ON c.cluster_id = n.cluster_id
+                           WHERE n.node_uuid = ANY(%s) ORDER BY c.registered_at LIMIT 1''', (ids,))
+            r = cur.fetchone()
+            return dict(r) if r else None
+    finally:
+        conn.close()
+
+
+def forget_node(cluster_id: str, node_uuid: str) -> bool:
+    """Remove a node row that is no longer present. A present node is never removed."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM config.cluster_nodes WHERE cluster_id = %s AND node_uuid = %s AND NOT present',
+                        (cluster_id, node_uuid))
+            n = cur.rowcount
+        conn.commit()
+        return n > 0
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -488,6 +723,7 @@ def test_connection(host: str, username: str, password: str, verify_tls: bool = 
             'hc_cluster_uuid': info.get('uuid') or '',
             'version': info.get('icosVersion') or info.get('version') or '',
             'node_count': len(node_list),
+            'nodes': [node_from_api(n) for n in node_list if isinstance(n, dict)],
             'api_v2': probe_v2(s, url, timeout),
         }
     except requests.exceptions.SSLError as exc:

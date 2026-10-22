@@ -90,3 +90,92 @@ def test_duplicate_groups_by_hypercore_uuid():
     assert cr.duplicate_of(a, [a, b, c, d]) is None, 'the keeper is not a duplicate'
     assert cr.duplicate_of(c, [a, b, c, d]) is None
     assert cr.duplicate_groups([a, c, d]) == []
+
+
+# --- multi-node awareness: node records, addresses that follow the seed, usability ---------
+
+@pytest.mark.parametrize('host,expected', [
+    ('172.16.0.241', True), ('172.16.0.241:8443', True), ('[fe80::1]', True), ('[fe80::1]:443', True),
+    ('hc-node1.example.net', False), ('https://hc.example.net/rest/v1', False), ('', False),
+])
+def test_is_ip(host, expected):
+    import cluster_registry as cr
+    assert cr.is_ip(host) is expected
+
+
+def _api_node(**over):
+    base = {'uuid': 'ba566cf9-0000-0000-0000-000000000001', 'peerID': 1, 'lanIP': '172.16.0.241',
+            'backplaneIP': '10.20.30.241', 'networkStatus': 'ONLINE', 'currentDisposition': 'IN',
+            'allowRunningVMs': True, 'virtualizationOnline': True, 'supportsVirtualization': True,
+            'drives': [], 'cpuUsage': 3.2}
+    base.update(over)
+    return base
+
+
+def test_node_from_api_keeps_the_fields_we_store():
+    import cluster_registry as cr
+    n = cr.node_from_api(_api_node())
+    assert n == {'node_uuid': 'ba566cf9-0000-0000-0000-000000000001', 'peer_id': 1, 'lan_ip': '172.16.0.241',
+                 'backplane_ip': '10.20.30.241', 'network_status': 'ONLINE', 'disposition': 'IN',
+                 'allow_running_vms': True, 'virtualization_online': True, 'supports_virtualization': True}
+    sparse = cr.node_from_api({'uuid': 'x'})
+    assert sparse['network_status'] == 'UNKNOWN' and sparse['disposition'] == 'UNKNOWN'
+    assert sparse['allow_running_vms'] is None and sparse['supports_virtualization'] is None
+
+
+def test_node_address_follows_the_seed():
+    import cluster_registry as cr
+    calls = []
+    def lookup(ip):
+        calls.append(ip)
+        return ('node2.lab.example.net', [], [ip])
+    # registered by IP: the LAN IP as it is, no lookup
+    assert cr.resolve_node_address('172.16.0.241', '172.16.0.242', lookup=lookup) == '172.16.0.242'
+    assert calls == []
+    # registered by name: the reverse-resolved name
+    assert cr.resolve_node_address('hc.lab.example.net', '172.16.0.242', lookup=lookup) == 'node2.lab.example.net'
+    assert calls == ['172.16.0.242']
+    # lookup fails: keep the IP
+    def broken(ip):
+        raise OSError('no PTR')
+    assert cr.resolve_node_address('hc.lab.example.net', '172.16.0.243', lookup=broken) == '172.16.0.243'
+    assert cr.resolve_node_address('hc.lab.example.net', '', lookup=lookup) == ''
+
+
+def test_node_usable_ignores_virtualization_flags():
+    import cluster_registry as cr
+    witness = {'present': True, 'network_status': 'ONLINE', 'disposition': 'IN', 'address': '10.0.0.4',
+               'allow_running_vms': False, 'virtualization_online': False, 'supports_virtualization': False}
+    assert cr.node_usable(witness), 'a witness serves the API'
+    assert not cr.node_usable(dict(witness, network_status='OFFLINE'))
+    assert not cr.node_usable(dict(witness, disposition='OUT'))
+    assert not cr.node_usable(dict(witness, present=False))
+    assert not cr.node_usable(dict(witness, address='', lan_ip=''))
+
+
+def test_cluster_dataclass_carries_active_host():
+    import cluster_registry as cr
+    c = _cluster('a' * 8 + '-0000-0000-0000-000000000001', 'Lab 241', 'hc-1', 1)
+    assert c.active_host is None
+    assert 'active_host' in c.to_dict()
+
+
+def _known(*addrs, **flags):
+    return [{'address': a, 'lan_ip': a, 'present': True, 'network_status': 'ONLINE', 'disposition': 'IN', **flags} for a in addrs]
+
+
+def test_order_candidates_no_preferred_node():
+    import cluster_registry as cr
+    nodes = _known('10.0.0.1', '10.0.0.2', '10.0.0.3')
+    # first contact, nothing recorded yet: the usable nodes, the seed is among them
+    assert cr.order_candidates('10.0.0.1', None, nodes) == ['10.0.0.1', '10.0.0.2', '10.0.0.3']
+    # the node in use comes first, the rest rotate after it, the seed gets no preference
+    assert cr.order_candidates('10.0.0.1', '10.0.0.2', nodes) == ['10.0.0.2', '10.0.0.3', '10.0.0.1']
+    assert cr.order_candidates('10.0.0.1', '10.0.0.2', nodes, current='10.0.0.3') == ['10.0.0.3', '10.0.0.1', '10.0.0.2']
+    # a seed that is not a node (DNS name, VIP) is the last resort only
+    assert cr.order_candidates('hc.example.net', None, nodes) == ['10.0.0.1', '10.0.0.2', '10.0.0.3', 'hc.example.net']
+    # nothing discovered yet: the seed alone
+    assert cr.order_candidates('10.0.0.1', None, []) == ['10.0.0.1']
+    # offline / out / gone nodes are skipped; the current one is kept even when flagged (one failure moves on)
+    nodes[1]['network_status'] = 'OFFLINE'; nodes[2]['present'] = False
+    assert cr.order_candidates('10.0.0.1', '10.0.0.2', nodes) == ['10.0.0.2', '10.0.0.1']

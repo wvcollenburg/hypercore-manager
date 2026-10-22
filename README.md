@@ -169,6 +169,20 @@ balancer account needs rights to live-migrate VMs; read-only accounts work for m
 dry-run. A cluster can be disabled (collection and balancing pause, history stays) or removed
 (optionally purging its Foresight history).
 
+**Nodes.** The address you register is only the first contact. HyperCore has no primary node:
+every node serves the full REST API, so the collector discovers all nodes of the cluster
+(`GET /Node`) and every service keeps one login session on one of them. When that node stops
+answering, the service logs in on another node and carries on; the node in use is shown under
+the cluster in Settings → Clusters, and nothing moves back when the old node returns. Witness
+nodes count as addresses. **Test connection** on a registered cluster logs in on every known
+node and reports how many answered. A node that leaves the cluster stays listed greyed out
+until an admin forgets it.
+
+If you register a cluster by DNS name and verify TLS, the discovered nodes are addressed by
+their reverse-DNS names so each node's own certificate can be verified: make sure every node
+has a PTR record and a certificate matching it. Registered by IP, the node IPs are used as they
+are.
+
 `HCM_SECRET_KEY` protects the stored passwords. Back it up with the database; if it is lost the
 clusters keep working until the next restart, after which their passwords must be re-entered.
 

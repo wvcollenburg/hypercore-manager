@@ -23,6 +23,7 @@ import config_db
 import cluster_registry
 import hcm_crypto
 import hypercore_tasks
+import hypercore_session
 from config_db import TEMPLATE_CLUSTER_ID
 
 # =============================================================================
@@ -79,47 +80,33 @@ def _busy_reason(cluster_id: str, client, vm_uuid: str):
 
 
 class HyperCoreApiClient:
-    def __init__(self, base_url: str, user: str, pw: str, verify: bool):
-        self.base_url = base_url.rstrip('/')
-        self.user = user
-        self.pw = pw
-        self.session = requests.Session()
-        self.session.verify = verify
-        
-        if not verify:
-            from urllib3.exceptions import InsecureRequestWarning
-            warnings.simplefilter('ignore', InsecureRequestWarning)
+    """The balancer's view of one cluster, on top of the shared ClusterSession: one login,
+    re-login on 401, and failover to another node when the current one stops answering."""
+
+    def __init__(self, hc: hypercore_session.ClusterSession):
+        self.hc = hc
+
+    @property
+    def session(self):            # the logged-in requests.Session (task feed, interlock)
+        return self.hc.session
+
+    @property
+    def base_url(self) -> str:    # REST base of the node in use
+        return self.hc.base_url
 
     def login(self) -> bool:
-        url = f"{self.base_url}/login"
-        payload = {"username": self.user, "password": self.pw}
         try:
-            self.session.cookies.clear()
-            response = self.session.post(url, json=payload, timeout=10)
-            response.raise_for_status()
+            self.hc.login()
             return True
-        except requests.exceptions.RequestException as e:
-            print(f"Login failed: {e}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{self.hc.name}] Login failed: {e}")
             return False
 
     def close(self):
-        try:
-            self.session.post(f"{self.base_url}/logout", timeout=5)
-        except:
-            pass
-        self.session.close()
+        self.hc.close()
 
     def fetch(self, endpoint: str) -> Any:
-        response = self.session.get(f"{self.base_url}{endpoint}", timeout=15)
-        if response.status_code == 401:
-            ts = time.strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[{ts}] Session expired (401). Re-authenticating...")
-            if self.login():
-                response = self.session.get(f"{self.base_url}{endpoint}", timeout=15)
-            else:
-                raise requests.exceptions.HTTPError("Re-authentication failed after 401")
-        response.raise_for_status()
-        return response.json()
+        return self.hc.get_json(endpoint, timeout=15)
 
     def get_nodes(self): return self.fetch("/Node")
     def get_vms(self): return self.fetch("/VirDomain")
@@ -144,14 +131,7 @@ class HyperCoreApiClient:
             "actionType": "LIVEMIGRATE", 
             "nodeUUID": target_node
         }]
-        resp = self.session.post(f"{self.base_url}/VirDomain/action", json=action, timeout=15)
-        if resp.status_code == 401:
-            ts = time.strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[{ts}] Session expired (401) during migration. Re-authenticating...")
-            if self.login():
-                resp = self.session.post(f"{self.base_url}/VirDomain/action", json=action, timeout=15)
-            else:
-                raise requests.exceptions.HTTPError("Re-authentication failed during migration")
+        resp = self.hc.post("/VirDomain/action", json=action, timeout=15)
         resp.raise_for_status()
         return resp.json()
 
@@ -777,7 +757,11 @@ class ClusterBalancerThread(threading.Thread):
 
     def run(self):
         username, password = cluster_registry.credentials(self.cluster.cluster_id)
-        client = HyperCoreApiClient(self.cluster.base_url, username, password, bool(self.cluster.verify_tls))
+        hc = hypercore_session.ClusterSession(
+            self.cluster.cluster_id, username, password, bool(self.cluster.verify_tls), service='balancer',
+            name=self.cluster.name, seed=self.cluster.host,
+            logger=lambda msg: print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{self.cluster.name}] {msg}"))
+        client = HyperCoreApiClient(hc)
         client.interlock = lambda vm_uuid, _cid=self.cluster.cluster_id, _c=client: _busy_reason(_cid, _c, vm_uuid)
         if not client.login():
             cluster_registry.mark_error(self.cluster.cluster_id, 'balancer login failed')

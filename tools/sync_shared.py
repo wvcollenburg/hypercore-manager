@@ -24,6 +24,7 @@ TARGETS = {
     'cluster_registry.py': ['Collector', 'Balancer', 'dashboard', 'sentinel', 'backup'],
     'config_db.py':        ['Collector', 'Balancer', 'dashboard'],
     'hypercore_tasks.py':  ['Collector', 'Balancer', 'dashboard'],
+    'hypercore_session.py': ['Collector', 'Balancer', 'sentinel', 'backup'],
 }
 
 

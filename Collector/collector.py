@@ -10,6 +10,7 @@ import config_db
 import cluster_registry
 import hcm_crypto
 import hypercore_tasks
+import hypercore_session
 
 # clusters are registered in the dashboard (config.clusters); nothing cluster-specific
 # comes from the environment any more. self-signed certificates are the norm on
@@ -30,32 +31,19 @@ def _ts():
     return time.strftime('%H:%M:%S')
 
 
-def fetch_data(session, base_url, endpoint):
-    res = session.get(f"{base_url}{endpoint}", timeout=15)
-    res.raise_for_status()
-    return res.json()
+def fetch_data(hc, endpoint):
+    """GET through the cluster session (re-login on 401, failover to another node when the
+    current one stops answering)."""
+    return hc.get_json(endpoint, timeout=15)
 
 
-def fetch_safe(session, base_url, endpoint, default=None):
+def fetch_safe(hc, endpoint, default=None):
     """Fetch with graceful fallback — returns default on failure instead of crashing."""
     try:
-        return fetch_data(session, base_url, endpoint)
+        return fetch_data(hc, endpoint)
     except Exception as e:
         print(f"[{_ts()}] Warning: Failed to fetch {endpoint}: {e}")
         return default if default is not None else []
-
-
-def do_login(session, base_url, username, password):
-    session.cookies.clear()
-    res = session.post(f"{base_url}/login", json={"username": username, "password": password}, timeout=10)
-    res.raise_for_status()
-
-
-def do_logout(session, base_url):
-    try:
-        session.post(f"{base_url}/logout", timeout=5)
-    except Exception:
-        pass
 
 
 def write_with_retry(write_api, bucket, points, max_retries=3, retry_delay=5):
@@ -258,14 +246,14 @@ def collect_fast(cid, nodes, vms, vm_stats, node_info_map):
     return points, vm_info_map
 
 
-def collect_slow(cid, session, base_url, node_info_map):
+def collect_slow(cid, hc, node_info_map):
     """Collects low-frequency data: snapshots, replication, cluster info, conditions."""
     points = []
 
     # =========================================================================
     # cluster info — version tracking, name
     # =========================================================================
-    cluster = fetch_safe(session, base_url, "/Cluster")
+    cluster = fetch_safe(hc, "/Cluster")
     for c in cluster:
         if isinstance(c, dict) and c.get('uuid'):
             node_info_map['__hc_cluster_uuid__'] = c['uuid']
@@ -279,7 +267,7 @@ def collect_slow(cid, session, base_url, node_info_map):
     # =========================================================================
     # snapshots — per-VM snapshot tracking
     # =========================================================================
-    snapshots = fetch_safe(session, base_url, "/VirDomainSnapshot")
+    snapshots = fetch_safe(hc, "/VirDomainSnapshot")
     snap_by_vm = {}
     for snap in snapshots:
         dom_uuid = snap.get('domainUUID', 'unknown')
@@ -302,7 +290,7 @@ def collect_slow(cid, session, base_url, node_info_map):
     # =========================================================================
     # replication — progress tracking
     # =========================================================================
-    replications = fetch_safe(session, base_url, "/VirDomainReplication")
+    replications = fetch_safe(hc, "/VirDomainReplication")
     for rep in replications:
         progress = rep.get('progress', {})
         p = Point("replication_metrics").tag("cluster_id", cid) \
@@ -318,7 +306,7 @@ def collect_slow(cid, session, base_url, node_info_map):
     # =========================================================================
     # conditions — cluster health alerts
     # =========================================================================
-    conditions = fetch_safe(session, base_url, "/Condition")
+    conditions = fetch_safe(hc, "/Condition")
     for cond in conditions:
         # only collect user-visible, active conditions to avoid noise
         if not cond.get('userVisible', False):
@@ -378,27 +366,43 @@ class ClusterWorker(threading.Thread):
         super().__init__(name=f"collector-{cluster.name}", daemon=True)
         self.cluster = cluster
         self.cid = cluster.cluster_id
-        self.base_url = cluster.base_url
         self.write_api = write_api
         self.stop = stop_event
-        self.session = requests.Session()
-        self.session.verify = bool(cluster.verify_tls)
+        username, password = cluster_registry.credentials(self.cid)
+        self.hc = hypercore_session.ClusterSession(
+            self.cid, username, password, bool(cluster.verify_tls), service='collector', name=cluster.name,
+            seed=cluster.host, logger=lambda msg: print(f"[{_ts()}] [{cluster.name}] {msg}"))
         self._worker_started = time.time()
         self._seen_moves: set[str] = set()
+        self._nodes_sig = None          # last node list stored in the registry (uuid, ip, status, ...)
+        self._nodes_stored_at = 0.0
 
     def log(self, msg):
         print(f"[{_ts()}] [{self.cluster.name}] {msg}")
 
+    @property
+    def base_url(self):
+        return self.hc.base_url
+
     def _login(self):
-        username, password = cluster_registry.credentials(self.cid)
-        do_login(self.session, self.base_url, username, password)
+        self.hc.login()
+
+    def _store_nodes(self, nodes, slow_poll_interval):
+        """Keep the registry's node table current: written when the node list or a node's
+        status changes, and at least once per slow poll so last_seen_at keeps moving."""
+        sig = tuple(sorted((str(n.get('uuid')), str(n.get('lanIP')), str(n.get('networkStatus')),
+                            str(n.get('currentDisposition')), bool(n.get('allowRunningVMs')),
+                            bool(n.get('virtualizationOnline'))) for n in nodes or []))
+        if sig != self._nodes_sig or time.time() - self._nodes_stored_at >= slow_poll_interval:
+            cluster_registry.upsert_nodes(self.cid, nodes, seed_host=self.cluster.host)
+            self._nodes_sig, self._nodes_stored_at = sig, time.time()
 
     def _poll_tasks(self, points):
         """REST v2 task feed: keep the cluster's active and recent tasks in Postgres for the
         dashboard and turn moves we did not make into 'external' migration-log events."""
         try:
-            active = hypercore_tasks.fetch_tasks(self.session, self.base_url, active_only=True, limit=200)
-            recent = hypercore_tasks.fetch_tasks(self.session, self.base_url, limit=40)
+            active = hypercore_tasks.fetch_tasks(self.hc.session, self.hc.base_url, active_only=True, limit=200)
+            recent = hypercore_tasks.fetch_tasks(self.hc.session, self.hc.base_url, limit=40)
         except Exception as e:
             self.log(f"REST v2 task feed unavailable: {e}")
             return
@@ -423,9 +427,10 @@ class ClusterWorker(threading.Thread):
                           .field("reason", f"HyperCore task {ev['task_tag']}").field("task_tag", ev['task_tag']).time(ev['time']))
 
     def run(self):
-        self.log(f"Worker started for {self.base_url}")
+        self.log(f"Worker started for {self.cluster.host} (registered address)")
         try:
             self._login()
+            self.log(f"Logged in on {self.hc.host}")
         except Exception as e:
             self.log(f"Initial login failed: {e}")
             cluster_registry.mark_error(self.cid, f"login failed: {e}")
@@ -441,23 +446,25 @@ class ClusterWorker(threading.Thread):
             retry_delay        = config_db.get('INFLUX_RETRY_DELAY', self.cid)   or 5
 
             try:
-                nodes = fetch_data(self.session, self.base_url, "/Node")
-                vms = fetch_data(self.session, self.base_url, "/VirDomain")
-                vm_stats = fetch_data(self.session, self.base_url, "/VirDomainStats")
+                nodes = fetch_data(self.hc, "/Node")
+                vms = fetch_data(self.hc, "/VirDomain")
+                vm_stats = fetch_data(self.hc, "/VirDomainStats")
+                self._store_nodes(nodes, slow_poll_interval)
 
                 fast_points, vm_info_map = collect_fast(self.cid, nodes, vms, vm_stats, node_info_map)
 
                 slow_points = []
                 if time.time() - last_slow_poll >= slow_poll_interval:
-                    slow_points = collect_slow(self.cid, self.session, self.base_url, node_info_map)
+                    slow_points = collect_slow(self.cid, self.hc, node_info_map)
                     last_slow_poll = time.time()
                     # pick up a changed API switch and (unless v1 is forced) re-probe REST v2
                     fresh = cluster_registry.get(self.cid)
                     if fresh:
                         self.cluster = fresh
-                    v2 = cluster_registry.probe_v2(self.session, self.base_url) if self.cluster.api_version != 'v1' else None
+                    v2 = cluster_registry.probe_v2(self.hc.session, self.hc.base_url) if self.cluster.api_version != 'v1' else None
                     cluster_registry.mark_seen(self.cid, node_info_map.get('__hc_cluster_uuid__'),
-                                               api_v2_available=v2, hc_version=node_info_map.get('__hc_version__'))
+                                               api_v2_available=v2, hc_version=node_info_map.get('__hc_version__'),
+                                               active_host=self.hc.host)
                     if v2 is not None:
                         self.cluster.api_v2_available = v2
 
@@ -479,13 +486,19 @@ class ClusterWorker(threading.Thread):
                 else:
                     self.log(f"HTTP Error: {e}")
                     cluster_registry.mark_error(self.cid, f"HTTP error: {e}")
+            except hypercore_session.AuthFailed as e:
+                self.log(f"Login refused: {e}")
+                cluster_registry.mark_error(self.cid, f"login failed: {e}")
+            except hypercore_session.ClusterUnreachable as e:
+                self.log(f"Unreachable: {e}")
+                cluster_registry.mark_error(self.cid, f"unreachable: {e}")
             except Exception as e:
                 self.log(f"Unexpected Error: {e}")
                 cluster_registry.mark_error(self.cid, str(e))
 
             self.stop.wait(poll_interval)
 
-        do_logout(self.session, self.base_url)
+        self.hc.close()
         self.log("Worker stopped")
 
 

@@ -7,7 +7,7 @@ import pytest
 
 _BACKUP = os.path.join(os.path.dirname(__file__), '..', 'backup')
 _SHARED = os.path.join(os.path.dirname(__file__), '..', 'shared')
-_CLASH = ('config', 'db', 'log', 'api', 'hypercore', 'jobs', 'scheduler', 'incremental', 'proxy_client', 'manifest_names', 'deploy', 'cluster_registry')
+_CLASH = ('config', 'db', 'log', 'api', 'hypercore', 'jobs', 'scheduler', 'incremental', 'proxy_client', 'manifest_names', 'deploy', 'cluster_registry', 'hypercore_session')
 
 
 def _import():
