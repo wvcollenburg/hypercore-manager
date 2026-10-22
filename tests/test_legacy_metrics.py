@@ -171,3 +171,10 @@ def test_adopt_reuses_a_known_summary_and_heartbeats_while_scanning():
     fk2 = _Fake({'metrics': {'vm_metrics': (T0, T0 + timedelta(days=1))}}); notes2 = []
     lm.adopt('cid-1', fk2, ['metrics'], 'org', T0 + timedelta(days=3), progress=lambda **kw: notes2.append(kw), now=NOW, wait=_wait)
     assert any(n.get('scanning') for n in notes2), 'without a known summary the scan reports progress (which refreshes the heartbeat)'
+
+
+def test_every_window_reports_progress_so_the_heartbeat_moves():
+    fk = _Fake({'metrics': {'vm_metrics': (T0, T0 + timedelta(days=3))}}); notes = []
+    lm.adopt('cid-1', fk, ['metrics'], 'org', T0 + timedelta(days=5), progress=lambda **kw: notes.append(kw), now=NOW, chunk_hours=24, wait=_wait)
+    windows = [n['window'] for n in notes if n.get('window')]
+    assert len(windows) >= 10 and {w['phase'] for w in windows} == {'copy', 'copy back'}, 'copy and copy back report every window'

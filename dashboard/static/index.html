@@ -5408,7 +5408,8 @@ async function _loadLegacyNotice() {
   if (!d) return;
   const a = d.adoption || {};
   if (a.state === 'running') {
-    el.innerHTML = `<div class="ex-hint" style="margin:8px 0;">${t('clusters.legacy_running', {measurement: a.measurement || '…', done: a.done || 0, total: a.total || 0, points: a.points || 0})}</div>`;
+    const w = a.window ? ` — ${_clEsc(a.window.phase)} ${_clEsc((a.window.from || '').slice(0, 10))}` : '';
+    el.innerHTML = `<div class="ex-hint" style="margin:8px 0;">${t('clusters.legacy_running', {measurement: a.measurement || '…', done: a.done || 0, total: a.total || 0, points: a.points || 0})}${w}</div>`;
     setTimeout(_loadLegacyNotice, 4000); return;
   }
   if (a.state === 'done') { el.innerHTML = `<div class="ex-hint" style="margin:8px 0;color:var(--accent-green);">${t('clusters.legacy_done', {n: a.points || 0})}</div>`; return; }

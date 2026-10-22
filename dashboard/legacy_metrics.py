@@ -306,13 +306,16 @@ def _progress(**kw) -> None:
 
 
 # ------------------------------------------------------------------ the work
-def _run_windowed(adapter, start: datetime, stop: datetime, hours: int, make_query: Callable, wait: Callable) -> None:
+def _run_windowed(adapter, start: datetime, stop: datetime, hours: int, make_query: Callable, wait: Callable,
+                  progress: Callable = lambda **kw: None, phase: str = 'copy') -> None:
     """Run make_query(w0, w1) over [start, stop) in windows of `hours`. A failure (typically the
     InfluxDB container restarting after exceeding its memory) waits for the server to answer
-    again, halves the window down to one hour and retries the same range."""
+    again, halves the window down to one hour and retries the same range. Every window reports
+    progress, which is what keeps the run's heartbeat alive during a long measurement."""
     cur, size = start, timedelta(hours=hours)
     while cur < stop:
         w1 = min(cur + size, stop)
+        progress(window={'phase': phase, 'from': cur.isoformat(), 'to': w1.isoformat()})
         try:
             adapter.run(make_query(cur, w1))
         except Exception as e:  # noqa: BLE001
@@ -352,7 +355,7 @@ def adopt(cluster_id: str, adapter, buckets: list[str], org: str, registered_at:
             rows = adapter.rows(f'from(bucket: "{SCRATCH_BUCKET}") |> range(start: 0) |> keep(columns: ["_time"]) |> first()')
             if rows:
                 first_t = min(r['_time'] for r in rows)
-                _run_windowed(adapter, first_t, now, chunk_hours, lambda w0, w1: copy_back_query(SCRATCH_BUCKET, b, org, None, w0, w1), wait)
+                _run_windowed(adapter, first_t, now, chunk_hours, lambda w0, w1: copy_back_query(SCRATCH_BUCKET, b, org, None, w0, w1), wait, progress, 'restore')
         adapter.delete_bucket(SCRATCH_BUCKET)
         progress(note='restored data left in the scratch bucket by an interrupted run')
     adopted = 0
@@ -380,10 +383,10 @@ def adopt(cluster_id: str, adapter, buckets: list[str], org: str, registered_at:
                 keys = [r.get('_value') for r in adapter.rows(tag_keys_query(bucket, m))]
                 cols = group_columns([k for k in keys if k])
                 _run_windowed(adapter, start_t, stop_t, chunk_hours,
-                              lambda w0, w1: copy_query(bucket, SCRATCH_BUCKET, org, m, cluster_id, w0, w1, cols), wait)
+                              lambda w0, w1: copy_query(bucket, SCRATCH_BUCKET, org, m, cluster_id, w0, w1, cols), wait, progress, 'copy')
                 adapter.delete(bucket, start_t - timedelta(seconds=1), stop_t, f'_measurement="{m}"')
                 _run_windowed(adapter, start_t, stop_t, chunk_hours,
-                              lambda w0, w1: copy_back_query(SCRATCH_BUCKET, bucket, org, m, w0, w1), wait)
+                              lambda w0, w1: copy_back_query(SCRATCH_BUCKET, bucket, org, m, w0, w1), wait, progress, 'copy back')
                 adapter.delete(SCRATCH_BUCKET, datetime(1970, 1, 1, tzinfo=timezone.utc), now + timedelta(days=1), f'_measurement="{m}"')
                 adopted += int(info['days'])
                 progress(done=i + 1, points=adopted, note=f'{bucket}/{m}: {info["days"]} day(s) of data')
