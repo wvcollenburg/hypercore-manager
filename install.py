@@ -791,8 +791,8 @@ def try_save(stdscr, state: dict) -> bool:
         "  docker compose up -d",
     ])
     msg.append("  (every module starts with the stack; stop the ones you don't use, e.g. docker compose stop sentinel)")
-    msg.extend(["", "After first start, set SC_DRY_RUN=false in .env once you've verified",
-                "the Balancer's proposed migrations look sensible."])
+    msg.extend(["", "Every cluster starts in dry-run. Switch it off per cluster in the dashboard",
+                "(Clusterbalancer -> settings) once its proposed migrations look sensible."])
 
     status, version = detect_compose()
     if status == 'v2':

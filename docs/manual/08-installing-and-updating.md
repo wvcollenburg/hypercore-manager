@@ -217,7 +217,6 @@ clusters"); changing them in `.env` later does not alter clusters that already e
 | `SC_RAM_LIMIT_PERCENT` | Hard RAM ceiling per node (85) |
 | `SC_CPU_UPPER_THRESHOLD_PERCENT` | CPU percentage that triggers reactive balancing (50) |
 | `SC_PREDICTIVE_BALANCING_ENABLED`, `SC_PREDICTIVE_INTERVAL_SECONDS` | The Oracle predictive engine and how often it runs (43200, twelve hours) |
-| `SC_EXCLUDE_NODE_IPS` | Node IPs never to migrate to or from |
 
 **Dashboard.** `SC_DASHBOARD_USER` and `SC_DASHBOARD_PASSWORD` seed the admin account;
 `SC_DASHBOARD_STALE_SECONDS` is the age at which metrics are shown as stale.

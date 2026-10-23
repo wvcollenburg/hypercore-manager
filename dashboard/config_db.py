@@ -127,12 +127,13 @@ def _env_fallback(key: str) -> Any:
 
 def seed_from_env() -> None:
     """
-    Called once at service startup.
-    - Missing keys are inserted from env var (or hardcoded default).
-    - Existing keys are updated from env var only if their stored value still
-      matches the hardcoded default (i.e. never touched by the user via the UI).
-    Seeds the Defaults template row only; clusters copy from it on creation.
-    Falls back silently if PostgreSQL is unreachable.
+    Called once at service startup. Inserts every key the Defaults template lacks, from the
+    env var when set, else the hardcoded default. It never updates a stored value: an earlier
+    version re-applied the env var whenever the stored value equalled the hardcoded default,
+    which could not tell "never touched" from "set back to the default in the dashboard", so a
+    node exclusion cleared in the UI, or dry-run switched back on, came back from .env at the
+    next restart. Clusters copy from the template on creation. Falls back silently if
+    PostgreSQL is unreachable.
     """
     with _lock:
         try:
@@ -141,26 +142,13 @@ def seed_from_env() -> None:
                 with conn.cursor() as cur:
                     for key, (env_var, default, type_hint) in TUNABLES.items():
                         raw_env = os.getenv(env_var) or None
+                        value = _cast(raw_env, type_hint) if raw_env is not None else default
                         cur.execute(
-                            'SELECT value FROM config.tunables WHERE cluster_id = %s AND key = %s',
-                            (DEFAULT_CLUSTER_ID, key),
+                            '''INSERT INTO config.tunables (cluster_id, key, value, type)
+                               VALUES (%s, %s, %s, %s)
+                               ON CONFLICT (cluster_id, key) DO NOTHING''',
+                            (DEFAULT_CLUSTER_ID, key, _serialize(value, type_hint), type_hint),
                         )
-                        row = cur.fetchone()
-                        if row is None:
-                            value = _cast(raw_env, type_hint) if raw_env is not None else default
-                            cur.execute(
-                                '''INSERT INTO config.tunables (cluster_id, key, value, type)
-                                   VALUES (%s, %s, %s, %s)''',
-                                (DEFAULT_CLUSTER_ID, key, _serialize(value, type_hint), type_hint),
-                            )
-                        elif raw_env is not None and row[0] == _serialize(default, type_hint):
-                            # still at hardcoded default — env var now available, apply it
-                            cur.execute(
-                                '''UPDATE config.tunables
-                                      SET value = %s, updated_at = NOW()
-                                    WHERE cluster_id = %s AND key = %s''',
-                                (_serialize(_cast(raw_env, type_hint), type_hint), DEFAULT_CLUSTER_ID, key),
-                            )
                 conn.commit()
             finally:
                 conn.close()

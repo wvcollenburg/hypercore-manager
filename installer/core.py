@@ -810,25 +810,6 @@ def build_schema() -> list[Section]:
                     ),
                 ),
                 Field(
-                    key="SC_EXCLUDE_NODE_IPS",
-                    label="Excluded node IPs (CSV)",
-                    default="",
-                    description=(
-                        "Comma-separated list of node IPs that the Balancer must not "
-                        "migrate VMs onto OR off of. Used to quarantine nodes during "
-                        "maintenance or for nodes hosting workloads pinned by policy."
-                    ),
-                    why_default=(
-                        "Empty — by default the Balancer treats every node as a "
-                        "valid placement target."
-                    ),
-                    when_change=(
-                        "Add the management/witness node's IP if it should never "
-                        "host workload VMs. Add a node temporarily during firmware "
-                        "updates to drain it."
-                    ),
-                ),
-                Field(
                     key="SC_CPU_TARGET_TOLERANCE_PERCENT",
                     label="CPU target tolerance (%)",
                     type="float",

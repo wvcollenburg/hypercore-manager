@@ -204,7 +204,6 @@ cluster (or for the template, or for all clusters at once) under Settings → Tu
 | `SC_PREDICTIVE_BALANCING_ENABLED` | `true` | Enable/disable the Oracle |
 | `SC_PREDICTIVE_INTERVAL_SECONDS` | `43200` | How often the Oracle runs (default: 12 hours) |
 | `SC_PREDICTIVE_MAX_WORKERS` | `8` | Parallel threads for VM forecasting |
-| `SC_EXCLUDE_NODE_IPS` | *(empty)* | Comma-separated node IPs to exclude from all balancing |
 
 See [the installing chapter of the manual](docs/manual/08-installing-and-updating.md#settings-in-env) for the full configuration reference.
 
