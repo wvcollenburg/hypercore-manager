@@ -1911,6 +1911,22 @@ def apply_easy_autogen(sections: list[Section], values: dict[str, str], profiles
             values[f.key] = gen_token(32) if f.type == "token" else gen_password(24)
 
 
+def regenerate_secrets(sections: list[Section], values: dict[str, str]) -> list[str]:
+    """Replace every generated secret and token with a fresh value, whatever it holds now,
+    in every profile. The operator-supplied keys (the dashboard password) are kept. This is
+    what a fresh install after `docker compose down -v` wants; an upgrade must NOT do it:
+    HCM_SECRET_KEY encrypts the cluster passwords in PostgreSQL and the database and
+    InfluxDB init passwords only apply to new volumes. Returns the keys it replaced."""
+    done = []
+    for s in sections:
+        for f in s.fields:
+            if not f.must_change or f.key in EASY_REQUIRED_KEYS or f.type not in ("token", "password"):
+                continue
+            values[f.key] = gen_token(32) if f.type == "token" else gen_password(24)
+            done.append(f.key)
+    return done
+
+
 def autofill_paths(sections: list[Section], values: dict[str, str]) -> None:
     """For every path field with an autofill function, replace empty/default
     values with the detected one."""

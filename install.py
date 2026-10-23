@@ -39,6 +39,7 @@ from installer.core import (
     Section,
     TEMPLATE_PATH,
     apply_easy_autogen,
+    regenerate_secrets,
     autofill_paths,
     build_schema,
     collect_path_warnings,
@@ -580,7 +581,7 @@ def screen_easy(stdscr, state: dict) -> bool:
             for f in easy_fields
         )
         save_attr = curses.color_pair(C_SELECTED) if cursor == save_idx else curses.color_pair(C_DEFAULT)
-        save_label = " W   Generate secrets and write .env" if all_set else " W   (fill in all four fields first)"
+        save_label = " W   Generate secrets and write .env" if all_set else " W   (enter the dashboard password first)"
         addstr_safe(stdscr, y, 4, " " * (w - 8), save_attr)
         addstr_safe(stdscr, y, 4, save_label, save_attr | curses.A_BOLD)
 
@@ -1080,18 +1081,25 @@ def run(stdscr) -> None:
     }
 
     if existing:
-        message_box(
+        keep = confirm_box(
             stdscr,
             "Existing .env detected",
             [
-                f"Found existing {ENV_PATH.resolve()}.",
+                f"Found existing {ENV_PATH.resolve()}; its values are pre-loaded.",
+                "The current file is backed up to .env.bak.<timestamp> when you write.",
                 "",
-                "Its values have been pre-loaded as your starting point. The current",
-                "file will be backed up to .env.bak.<timestamp> before being",
-                "overwritten when you choose 'Write .env and exit'.",
+                "Keep the existing secrets and tokens?",
+                "",
+                "  Yes: upgrading a running installation. The database keeps working:",
+                "       HCM_SECRET_KEY encrypts the stored cluster passwords, and the",
+                "       PostgreSQL and InfluxDB passwords only apply to new volumes.",
+                "  No:  fresh install after 'docker compose down -v'. Every secret and",
+                "       token is regenerated; the dashboard password is kept as entered.",
             ],
-            color_pair=C_HELP,
+            default_yes=True,
         )
+        if not keep:
+            regenerate_secrets(sections, values)
 
     mode = screen_mode(stdscr)
     if mode is None:

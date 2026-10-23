@@ -154,3 +154,20 @@ def test_env_template_installer_and_compose_agree():
     assert template == schema, (sorted(template - schema), sorted(schema - template))
     assert template <= compose, sorted(template - compose)
     assert compose - template <= fallbacks, sorted(compose - template - fallbacks)
+
+
+def test_regenerate_secrets_replaces_every_secret_but_the_dashboard_password(schema):
+    """Re-running the installer over an existing .env pre-loads its secrets; a fresh install after
+    a volume wipe needs new ones (seen on the online install: same secret key, old session cookies
+    still valid). The operator's own password stays."""
+    values = core.seed_default_values(schema)
+    core.apply_easy_autogen(schema, values, core.EASY_PROFILES)
+    values['SC_DASHBOARD_PASSWORD'] = 'operator-chosen'
+    values['BACKUP_API_TOKEN'] = 'old-backup-token'      # a profile outside easy mode is replaced too
+    before = dict(values)
+    replaced = core.regenerate_secrets(schema, values)
+    assert values['SC_DASHBOARD_PASSWORD'] == 'operator-chosen'
+    for key in ('INFLUX_TOKEN', 'DOCKER_INFLUXDB_INIT_PASSWORD', 'SENTINEL_PG_PASSWORD', 'SC_DASHBOARD_SECRET_KEY',
+                'HCM_SECRET_KEY', 'SENTINEL_API_TOKEN', 'BACKUP_API_TOKEN', 'PROXY_API_TOKEN', 'SENTINEL_WEBHOOK_SECRET'):
+        assert key in replaced and values[key] != before[key] and values[key] not in core.PLACEHOLDERS, key
+    assert 'SC_DASHBOARD_PASSWORD' not in replaced

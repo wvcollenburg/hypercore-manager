@@ -47,8 +47,10 @@ Two ways to write `.env`; the rest is the same.
 **With the installer.** `install.py` is an interactive, text-mode installer that walks you
 through every setting: what it does, why the default is what it is, when to change it. Easy
 mode asks only for the dashboard password and generates every secret; advanced mode shows them
-all. It warns when the wrong Compose is on the host, pre-fills an existing `.env` when you run
-it again later, and ends with the commands to start the stack.
+all. It warns when the wrong Compose is on the host and ends with the commands to start the
+stack. Run it again later and it pre-fills the existing `.env` and asks whether to keep the
+secrets: yes for an upgrade of a running installation, no for a fresh install after
+`docker compose down -v`, which regenerates every secret and token.
 
 ```
 git clone <repository>
