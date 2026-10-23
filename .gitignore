@@ -55,5 +55,5 @@ dist/
 *.bak
 
 # ── Internal working notes (not for the public repo, for now) ────────────────
-BACKLOG.md
-PLAN-*.md
+# local working notes (backlog and plans), never published
+plans/
