@@ -40,6 +40,8 @@ from installer.core import (
     TEMPLATE_PATH,
     apply_easy_autogen,
     validate_timezone,
+    timezone_regions,
+    timezone_cities,
     autofill_paths,
     build_schema,
     collect_path_warnings,
@@ -513,7 +515,7 @@ def screen_easy(stdscr, state: dict) -> bool:
         {
             "key": "TZ",
             "label": "Time zone",
-            "hint": "IANA name for log timestamps and the default of scheduled jobs, e.g. Europe/Amsterdam or US/Eastern",
+            "hint": "Enter opens a picker: UTC, or a region and then a city. Used for log timestamps and the default of scheduled jobs",
             "type": "timezone",
         },
     ]
@@ -611,7 +613,11 @@ def screen_easy(stdscr, state: dict) -> bool:
         elif ch in (curses.KEY_DOWN, ord("j")):
             cursor = (cursor + 1) % n_items
         elif ch in (10, 13, curses.KEY_ENTER):
-            if cur_field is not None:
+            if cur_field is not None and cur_field["type"] == "timezone":
+                new = pick_timezone(stdscr, staged[cur_field["key"]])
+                if new is not None:
+                    staged[cur_field["key"]] = new
+            elif cur_field is not None:
                 masked = (cur_field["type"] == "password")
                 allow_gen = (cur_field["key"] == "SC_DASHBOARD_PASSWORD")
                 generator = (lambda: gen_password(20)) if allow_gen else None
@@ -1005,6 +1011,12 @@ def edit_field(stdscr, state: dict, f: Field) -> None:
             values[f.key] = new
         return
 
+    if f.type == "timezone":
+        new = pick_timezone(stdscr, current)
+        if new is not None:
+            values[f.key] = new
+        return
+
     masked = (f.type == "password")
     allow_gen = (f.type in ("password", "token"))
     generator = (lambda: gen_password(24)) if f.type == "password" else (lambda: gen_token(32))
@@ -1063,6 +1075,89 @@ def pick_choice(stdscr, f: Field, current: str) -> Optional[str]:
             return f.choices[cursor]
         elif ch == 27:
             return None
+
+
+def pick_from_list(stdscr, title: str, items: list[str], current: str = "", hint: str = "") -> Optional[str]:
+    """Scrolling list box. Typing narrows the list (case-insensitive substring), Backspace widens
+    it, Enter picks, Esc cancels. Returns the chosen item or None."""
+    if not items:
+        return None
+    h, w = stdscr.getmaxyx()
+    box_w = min(max(44, max(len(x) for x in items) + 10), w - 4)
+    box_h = min(len(items) + 6, h - 4)
+    rows = box_h - 6
+    y0 = max(1, (h - box_h) // 2)
+    x0 = max(1, (w - box_w) // 2)
+    win = curses.newwin(box_h, box_w, y0, x0)
+    win.bkgd(" ", curses.color_pair(C_DEFAULT))
+    win.keypad(True)
+    query = ""
+    cursor = items.index(current) if current in items else 0
+    top = 0
+    while True:
+        shown = [x for x in items if query.lower() in x.lower()] if query else items
+        if not shown:
+            cursor = 0
+        else:
+            cursor = max(0, min(cursor, len(shown) - 1))
+        if cursor < top:
+            top = cursor
+        if cursor >= top + rows:
+            top = cursor - rows + 1
+        win.erase()
+        draw_box(win, 0, 0, box_h, box_w, title)
+        addstr_safe(win, 1, 2, (f"Filter: {query}" if query else (hint or "Type to filter")).ljust(box_w - 4), curses.color_pair(C_DIM))
+        for i, item in enumerate(shown[top:top + rows]):
+            idx = top + i
+            attr = curses.color_pair(C_SELECTED) if idx == cursor else curses.color_pair(C_DEFAULT)
+            addstr_safe(win, 3 + i, 2, " " * (box_w - 4), attr)
+            addstr_safe(win, 3 + i, 4, item[: box_w - 8], attr)
+        if not shown:
+            addstr_safe(win, 3, 4, "(nothing matches)", curses.color_pair(C_DIM))
+        more = f" {cursor + 1}/{len(shown)} " if shown else ""
+        addstr_safe(win, box_h - 2, 2, (" ↑↓ move   Enter pick   Esc back   " + more)[: box_w - 4], curses.color_pair(C_DIM))
+        win.refresh()
+        ch = win.getch()
+        if ch == curses.KEY_UP:
+            cursor -= 1
+        elif ch == curses.KEY_DOWN:
+            cursor += 1
+        elif ch == curses.KEY_PPAGE:
+            cursor -= rows
+        elif ch == curses.KEY_NPAGE:
+            cursor += rows
+        elif ch in (10, 13, curses.KEY_ENTER):
+            if shown:
+                return shown[cursor]
+        elif ch == 27:
+            return None
+        elif ch in (curses.KEY_BACKSPACE, 127, 8):
+            query = query[:-1]
+        elif 32 <= ch < 127:
+            query += chr(ch)
+            cursor = 0
+
+
+def pick_timezone(stdscr, current: str = "") -> Optional[str]:
+    """Two stages from the host's tz database: a region (or UTC), then its city. Esc in the
+    city list goes back to the regions; Esc there cancels. Returns the IANA name or None."""
+    cur_region = current.split("/", 1)[0] if "/" in (current or "") else (current or "")
+    while True:
+        region = pick_from_list(stdscr, "Time zone — region", timezone_regions(), cur_region, "UTC, or a region to pick a city from")
+        if region is None:
+            return None
+        if region == "UTC":
+            return "UTC"
+        cities = timezone_cities(region)
+        if not cities:
+            message_box(stdscr, "No zones", [f"The host's time zone database has no zones under {region}/."], color_pair=C_WARN)
+            continue
+        cur_city = current[len(region) + 1:] if (current or "").startswith(region + "/") else ""
+        city = pick_from_list(stdscr, f"Time zone — {region}/…", cities, cur_city, "Type a city name to filter")
+        if city is None:
+            cur_region = region
+            continue
+        return f"{region}/{city}"
 
 
 # ============================================================================

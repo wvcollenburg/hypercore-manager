@@ -182,3 +182,13 @@ def test_easy_mode_covers_every_module_and_asks_for_the_time_zone(schema):
     src = (Path(__file__).resolve().parents[1] / 'install.py').read_text()
     assert '"backup",   "Backup",' in src and '"Backup (optional)"' not in src, 'every module is on by default in advanced mode'
     assert '"key": "TZ",' in src, 'easy mode asks for the time zone'
+
+
+def test_timezone_picker_lists_utc_then_regions_then_cities():
+    regions = core.timezone_regions()
+    assert regions[0] == 'UTC' and 'Europe' in regions and 'US' in regions and 'Etc' not in regions
+    cities = core.timezone_cities('Europe')
+    assert 'Amsterdam' in cities and cities == sorted(cities) and all('/' not in c or c.count('/') >= 1 for c in cities)
+    assert 'Indiana/Indianapolis' in core.timezone_cities('America'), 'sub-regions keep their path after the region'
+    assert 'Eastern' in core.timezone_cities('US')
+    assert core.validate_timezone('Europe/' + cities[0]) is None, 'everything the picker offers validates'

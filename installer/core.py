@@ -1362,6 +1362,35 @@ def validate_value(field_def: Field, value: str) -> Optional[str]:
     return None
 
 
+# regions offered by the time zone picker, in this order; UTC is a choice of its own. The bare
+# legacy names (CET, EST, Japan, ...) and the Etc/ offsets are left out on purpose.
+TZ_REGIONS = ["Africa", "America", "Antarctica", "Asia", "Atlantic", "Australia", "Europe", "Indian", "Pacific",
+              "US", "Canada", "Mexico", "Brazil", "Chile"]
+
+
+def timezone_regions() -> list[str]:
+    """['UTC', 'Africa', 'America', ...]: UTC first, then every region of TZ_REGIONS the host's
+    tz database actually has zones for."""
+    try:
+        from zoneinfo import available_timezones
+        have = {z.split("/", 1)[0] for z in available_timezones() if "/" in z}
+    except Exception:  # noqa: BLE001
+        have = set(TZ_REGIONS)
+    return ["UTC"] + [r for r in TZ_REGIONS if r in have]
+
+
+def timezone_cities(region: str) -> list[str]:
+    """The zones of a region, sorted, as the part after 'Region/' (America/Indiana/Indianapolis
+    shows as Indiana/Indianapolis)."""
+    try:
+        from zoneinfo import available_timezones
+        zones = available_timezones()
+    except Exception:  # noqa: BLE001
+        return []
+    prefix = region + "/"
+    return sorted(z[len(prefix):] for z in zones if z.startswith(prefix))
+
+
 def validate_timezone(value: str) -> Optional[str]:
     """None when value is an IANA zone the host's tz database knows (Europe/Amsterdam,
     US/Eastern, UTC); an error message otherwise. Case matters: 'europe/amsterdam' is not a
