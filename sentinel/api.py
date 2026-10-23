@@ -1,5 +1,5 @@
 """
-api.py — SC//Foresight REST API (F1–F4, F6).
+api.py — Foresight REST API (F1–F4, F6).
 
 Runs as a Flask application on a dedicated port (default 8081), started as
 a daemon thread alongside the health endpoint.
@@ -72,7 +72,15 @@ def _require_token(f):
 # ---------------------------------------------------------------------------
 
 def _cfg() -> cfg_module.Config:
-    return _api_app.config['SENTINEL_CFG']
+    """Config of the cluster this request is about: ?cluster=<uuid> when it names a running
+    engine, otherwise the first engine. The dict is owned and updated by sentinel.py."""
+    cfgs: dict = _api_app.config.get('SENTINEL_CFGS') or {}
+    wanted = (request.args.get('cluster') or '').strip()
+    if wanted and wanted in cfgs:
+        return cfgs[wanted]
+    if cfgs:
+        return next(iter(cfgs.values()))
+    return _api_app.config['SENTINEL_CFG']   # no cluster registered yet: base config, no data
 
 
 def _pagination() -> tuple[int, int]:
@@ -825,7 +833,7 @@ def post_whatif():
 def get_tunables():
     """Return all Sentinel live-tunable settings with metadata."""
     import tunables as _tunables
-    return jsonify(_tunables.get_with_meta())
+    return jsonify(_tunables.get_with_meta(_cfg().cluster_id))
 
 
 @_api_app.route('/api/v1/tunables', methods=['PUT'])
@@ -873,186 +881,9 @@ def put_tunables():
     if errors:
         return jsonify({'error': 'Validation failed', 'details': errors}), 400
 
-    _tunables.save_many(validated)
-    return jsonify(_tunables.get_with_meta())
-
-
-# ---------------------------------------------------------------------------
-# H3 — sharing preferences (GET/PUT)
-# ---------------------------------------------------------------------------
-
-@_api_app.route('/api/v1/sharing', methods=['GET'])
-@_require_token
-def get_sharing():
-    """
-    H3: Return the current sharing configuration.
-
-    Returns all sharing_prefs fields except bearer_token and anon_hmac_key
-    (secrets are never returned).
-    """
-    cfg = _cfg()
-    try:
-        with db.connect(cfg) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    '''
-                    SELECT sharing_enabled, viewer_url,
-                           last_sync_at, last_sync_status, last_sync_error,
-                           anon_vm_names, anon_node_uuids, anon_cluster_name
-                    FROM config.sharing_prefs
-                    WHERE cluster_id = 'default'
-                    LIMIT 1
-                    ''',
-                )
-                row = cur.fetchone()
-    except Exception as e:
-        log.exception('GET /api/v1/sharing failed')
-        return jsonify({'error': str(e)}), 500
-
-    if not row:
-        return jsonify({
-            'sharing_enabled':  False,
-            'viewer_url':       None,
-            'last_sync_at':     None,
-            'last_sync_status': None,
-            'last_sync_error':  None,
-            'anon_vm_names':    False,
-            'anon_node_uuids':  False,
-            'anon_cluster_name': False,
-        })
-
-    sharing_enabled, viewer_url, last_sync_at, last_sync_status, last_sync_error, \
-        anon_vm_names, anon_node_uuids, anon_cluster_name = row
-
-    from datetime import date
-    return jsonify({
-        'sharing_enabled':  bool(sharing_enabled),
-        'viewer_url':       viewer_url,
-        'last_sync_at':     last_sync_at.isoformat() if isinstance(last_sync_at, (date, datetime)) else last_sync_at,
-        'last_sync_status': last_sync_status,
-        'last_sync_error':  last_sync_error,
-        'anon_vm_names':    bool(anon_vm_names),
-        'anon_node_uuids':  bool(anon_node_uuids),
-        'anon_cluster_name': bool(anon_cluster_name),
-    })
-
-
-@_api_app.route('/api/v1/sharing', methods=['PUT'])
-@_require_token
-def put_sharing():
-    """
-    H3: Update sharing configuration.
-
-    Accepts a JSON body with any subset of the writable fields.
-    bearer_token is accepted but never returned.
-    Returns the same shape as GET on success.
-    """
-    cfg  = _cfg()
-    body = request.get_json(silent=True) or {}
-
-    # validate viewer_url if provided
-    viewer_url = body.get('viewer_url', ...)
-    if viewer_url is not ... and viewer_url and not str(viewer_url).startswith('https://'):
-        return jsonify({'error': 'viewer_url must start with https://'}), 400
-
-    allowed = {
-        'sharing_enabled',
-        'viewer_url',
-        'bearer_token',
-        'anon_vm_names',
-        'anon_node_uuids',
-        'anon_cluster_name',
-    }
-    updates = {k: v for k, v in body.items() if k in allowed}
-    if not updates:
-        return jsonify({'error': 'No valid fields provided'}), 400
-
-    # build SET clause
-    set_parts = []
-    params = []
-    for k, v in updates.items():
-        set_parts.append(f'{k} = %s')
-        params.append(v)
-    set_parts.append('updated_at = NOW()')
-    params.append('default')  # WHERE cluster_id = 'default'
-
-    try:
-        with db.connect(cfg) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"UPDATE config.sharing_prefs SET {', '.join(set_parts)} WHERE cluster_id = %s",
-                    params,
-                )
-    except Exception as e:
-        log.exception('PUT /api/v1/sharing failed')
-        return jsonify({'error': str(e)}), 500
-
-    # return the same shape as GET (re-query to get current state)
-    try:
-        with db.connect(cfg) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    '''
-                    SELECT sharing_enabled, viewer_url,
-                           last_sync_at, last_sync_status, last_sync_error,
-                           anon_vm_names, anon_node_uuids, anon_cluster_name
-                    FROM config.sharing_prefs
-                    WHERE cluster_id = 'default'
-                    LIMIT 1
-                    ''',
-                )
-                row = cur.fetchone()
-    except Exception as e:
-        log.exception('PUT /api/v1/sharing: re-read failed')
-        return jsonify({'error': str(e)}), 500
-
-    sharing_enabled, viewer_url, last_sync_at, last_sync_status, last_sync_error, \
-        anon_vm_names, anon_node_uuids, anon_cluster_name = row
-
-    from datetime import date
-    return jsonify({
-        'sharing_enabled':  bool(sharing_enabled),
-        'viewer_url':       viewer_url,
-        'last_sync_at':     last_sync_at.isoformat() if isinstance(last_sync_at, (date, datetime)) else last_sync_at,
-        'last_sync_status': last_sync_status,
-        'last_sync_error':  last_sync_error,
-        'anon_vm_names':    bool(anon_vm_names),
-        'anon_node_uuids':  bool(anon_node_uuids),
-        'anon_cluster_name': bool(anon_cluster_name),
-    })
-
-
-# ---------------------------------------------------------------------------
-# H1/H2 — export snapshot + test-push
-# ---------------------------------------------------------------------------
-
-@_api_app.route('/api/v1/export/snapshot')
-@_require_token
-def get_export_snapshot():
-    """
-    H1: Return the current full snapshot as JSON for local inspection.
-
-    Builds a full (non-delta) snapshot from the current PostgreSQL state,
-    optionally anonymises it according to the customer's sharing_prefs, and
-    returns the result.  The payload is *not* signed — this endpoint is for
-    debugging and local verification only.
-
-    The raw (pre-anonymisation) snapshot is what is returned; anonymisation is
-    applied on the copy that would be transmitted, not on the response here.
-    """
-    import anonymiser as _anonymiser
-    import exporter as _exporter
-
-    cfg = _cfg()
-    try:
-        snapshot = _exporter.build_snapshot(cfg)
-        anon_cfg = _anonymiser.load_anon_config(cfg)
-        if anon_cfg.enabled:
-            snapshot = _anonymiser.anonymise_snapshot(snapshot, anon_cfg)
-        return jsonify(snapshot)
-    except Exception as e:
-        log.exception('GET /api/v1/export/snapshot failed')
-        return jsonify({'error': str(e)}), 500
+    cid = _cfg().cluster_id
+    _tunables.save_many(validated, cid)
+    return jsonify(_tunables.get_with_meta(cid))
 
 
 @_api_app.route('/api/v1/trend/run', methods=['POST'])
@@ -1075,7 +906,7 @@ def post_trend_run():
             'error':   'Trigger not configured — analysis loop is not running.',
         }), 503
     try:
-        trigger()
+        trigger(_cfg().cluster_id)
     except Exception as e:
         log.exception('POST /api/v1/trend/run: trigger failed')
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1083,184 +914,21 @@ def post_trend_run():
     return jsonify({'success': True, 'message': 'Analysis cycle triggered'})
 
 
-@_api_app.route('/api/v1/export/test-push', methods=['POST'])
-@_require_token
-def post_export_test_push():
-    """
-    H1: Build, sign, and push a full snapshot to the configured viewer_url.
-
-    This is a manual test trigger.  The scheduled push loop (H5) calls the
-    same underlying logic on a timer; this endpoint lets operators verify that
-    connectivity and credentials are correct without waiting for the scheduler.
-
-    Returns::
-
-        { "success": bool, "status_code": int | null, "error": str | null }
-    """
-    import anonymiser as _anonymiser
-    import exporter as _exporter
-
-    cfg = _cfg()
-
-    # load sharing prefs to get viewer_url and bearer_token
-    try:
-        with db.connect(cfg) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    '''
-                    SELECT sharing_enabled, viewer_url, bearer_token
-                    FROM config.sharing_prefs
-                    WHERE cluster_id = 'default'
-                    LIMIT 1
-                    ''',
-                )
-                row = cur.fetchone()
-    except Exception as e:
-        log.exception('POST /api/v1/export/test-push: failed to read sharing_prefs')
-        return jsonify({'success': False, 'status_code': None, 'error': str(e)}), 500
-
-    if not row:
-        return jsonify({
-            'success': False,
-            'status_code': None,
-            'error': 'No sharing_prefs row found; run migration 015.',
-        }), 500
-
-    sharing_enabled, viewer_url, bearer_token = row
-
-    if not sharing_enabled:
-        return jsonify({
-            'success': False,
-            'status_code': None,
-            'error': 'Sharing is disabled in config.sharing_prefs.',
-        }), 400
-
-    if not viewer_url:
-        return jsonify({
-            'success': False,
-            'status_code': None,
-            'error': 'viewer_url is not configured in config.sharing_prefs.',
-        }), 400
-
-    if not bearer_token:
-        return jsonify({
-            'success': False,
-            'status_code': None,
-            'error': 'bearer_token is not configured in config.sharing_prefs.',
-        }), 400
-
-    try:
-        snapshot = _exporter.build_snapshot(cfg)
-        anon_cfg = _anonymiser.load_anon_config(cfg)
-        if anon_cfg.enabled:
-            snapshot = _anonymiser.anonymise_snapshot(snapshot, anon_cfg)
-        signed   = _exporter.sign_snapshot(snapshot, bearer_token)
-    except Exception as e:
-        log.exception('POST /api/v1/export/test-push: snapshot build/sign failed')
-        return jsonify({'success': False, 'status_code': None, 'error': str(e)}), 500
-
-    # transmit to the viewer
-    try:
-        import urllib.request
-        import urllib.error
-        payload_bytes = json.dumps(signed, default=str).encode()
-        push_req = urllib.request.Request(
-            viewer_url.rstrip('/') + '/api/v1/sync',
-            data=payload_bytes,
-            headers={
-                'Content-Type':  'application/json',
-                'Authorization': f'Bearer {bearer_token}',
-            },
-            method='POST',
-        )
-        with urllib.request.urlopen(push_req, timeout=30) as resp:
-            status_code = resp.getcode()
-        log.info('export test-push succeeded', extra={'status_code': status_code, 'viewer_url': viewer_url})
-        return jsonify({'success': True, 'status_code': status_code, 'error': None})
-    except urllib.error.HTTPError as http_err:
-        log.warning(
-            'export test-push HTTP error',
-            extra={'status_code': http_err.code, 'viewer_url': viewer_url},
-        )
-        return jsonify({'success': False, 'status_code': http_err.code, 'error': str(http_err)})
-    except Exception as e:
-        log.exception('POST /api/v1/export/test-push: transmission failed')
-        return jsonify({'success': False, 'status_code': None, 'error': str(e)}), 500
-
-
-# ---------------------------------------------------------------------------
-# H4 — .hcb encrypted file export
-# ---------------------------------------------------------------------------
-
-@_api_app.route('/api/v1/export/hcb')
-@_require_token
-def get_export_hcb():
-    """
-    H4: Build and return an AES-256-GCM encrypted .hcb snapshot file.
-
-    Designed for air-gapped / offline transfer — no viewer registration required.
-    The caller supplies a passphrase via the ?passphrase= query parameter.  The
-    same passphrase must be entered when importing the file into SC//Foresight-Central.
-
-    Anonymisation is applied according to config.sharing_prefs toggles if a prefs
-    row exists; it is skipped silently if the table is not yet migrated.
-    """
-    import anonymiser as _anonymiser
-    import exporter as _exporter
-    import hcb as _hcb
-    from flask import make_response
-
-    passphrase = request.args.get('passphrase', '').strip()
-    if not passphrase:
-        return jsonify({
-            'error': 'passphrase_required',
-            'message': 'Supply a passphrase via ?passphrase=<value>. '
-                       'You will need it to import the file into SC//Foresight-Central.',
-        }), 400
-
-    cfg = _cfg()
-
-    # anonymisation is best-effort — silently skip if sharing_prefs table absent
-    anon_cfg = _anonymiser.load_anon_config(cfg)
-
-    try:
-        snapshot = _exporter.build_snapshot(cfg)
-        if anon_cfg.enabled:
-            snapshot = _anonymiser.anonymise_snapshot(snapshot, anon_cfg)
-        # sign with the passphrase so the viewer can verify integrity on import
-        signed = _exporter.sign_snapshot(snapshot, passphrase)
-    except Exception as e:
-        log.exception('GET /api/v1/export/hcb: snapshot build/sign failed')
-        return jsonify({'error': 'snapshot_error', 'message': str(e)}), 500
-
-    try:
-        file_bytes = _hcb.encrypt(json.dumps(signed, default=str), passphrase)
-    except Exception as e:
-        log.exception('GET /api/v1/export/hcb: encryption failed')
-        return jsonify({'error': 'encryption_error', 'message': str(e)}), 500
-
-    timestamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
-    filename  = f'sentinel-export-{timestamp}.hcb'
-
-    response = make_response(file_bytes)
-    response.headers['Content-Type']        = 'application/octet-stream'
-    response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
-    return response
-
-
 # ---------------------------------------------------------------------------
 # startup
 # ---------------------------------------------------------------------------
 
-def start(cfg: cfg_module.Config, trigger_analysis_fn=None) -> None:
+def start(cfg: cfg_module.Config, trigger_analysis_fn=None, cfgs: dict = None) -> None:
     """
     Start the REST API server in a daemon thread.
 
-    trigger_analysis_fn is an optional callable that, when invoked, signals the
-    analysis loop to run on its next iteration.  Wired up by sentinel.py so the
-    POST /api/v1/trend/run endpoint can request an immediate forecast cycle.
+    cfg is the base (environment) config: port and token. cfgs is the live
+    {cluster_id: Config} dict maintained by sentinel.py's supervisor; requests pick
+    their cluster with ?cluster=<uuid>. trigger_analysis_fn(cluster_id) signals that
+    cluster's analysis loop to run on its next iteration (POST /api/v1/trend/run).
     """
     _api_app.config['SENTINEL_CFG']     = cfg
+    _api_app.config['SENTINEL_CFGS']    = cfgs if cfgs is not None else {}
     _api_app.config['API_TOKEN']        = cfg.api_token
     _api_app.config['TRIGGER_ANALYSIS'] = trigger_analysis_fn
 

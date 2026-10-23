@@ -39,6 +39,10 @@ from installer.core import (
     Section,
     TEMPLATE_PATH,
     apply_easy_autogen,
+    validate_timezone,
+    validate_env_literal,
+    timezone_regions,
+    timezone_cities,
     autofill_paths,
     build_schema,
     collect_path_warnings,
@@ -382,8 +386,8 @@ def screen_profiles(stdscr, state: dict) -> bool:
     """First screen: pick which profiles you'll run. Returns False if cancelled."""
     items = [
         ("core",     "Core stack (always on)",                 "InfluxDB, Postgres, Collector, Balancer, Dashboard", True),
-        ("sentinel", "Sentinel — SC//Foresight (recommended)", "Capacity forecasting, right-sizing, REST API",       True),
-        ("tools",    "Grafana (optional)",                     "Extra metrics-explorer UI on port 3000",            False),
+        ("sentinel", "Sentinel — Foresight (recommended)", "Capacity forecasting, right-sizing, REST API",       True),
+        ("backup",   "Backup",                                 "Scheduled VM backups/exports to SMB/NFS and imports", True),
     ]
     selected = {key for key, _, _, default in items if default}
     selected.add("core")  # always on, locked
@@ -394,10 +398,10 @@ def screen_profiles(stdscr, state: dict) -> bool:
         stdscr.erase()
         draw_titlebar(stdscr, " HyperCore Manager — Installer  ")
         h, w = stdscr.getmaxyx()
-        draw_box(stdscr, 2, 2, h - 4, w - 4, "Step 1 of 2 — Pick the profiles you intend to run")
+        draw_box(stdscr, 2, 2, h - 4, w - 4, "Step 1 of 2 — Pick the modules you intend to use")
 
         intro = [
-            "Sections of the installer that don't apply to your chosen profiles will",
+            "Sections of the installer that don't apply to your chosen modules will",
             "be skipped, so you don't have to answer questions you'll never use.",
             "",
             "Toggle with Space.  Core is mandatory.",
@@ -447,14 +451,14 @@ def screen_mode(stdscr) -> Optional[str]:
         (
             "easy",
             "Easy mode  (recommended)",
-            "Just enter your HyperCore IP, credentials, and a dashboard password.",
+            "Just enter a dashboard password and your time zone; clusters are registered in the dashboard.",
             "Strong secrets are auto-generated; everything else uses sensible defaults.",
         ),
         (
             "advanced",
             "Advanced mode",
             "Walk through every setting in .env with full descriptions and defaults.",
-            "Use this if you want to tune thresholds, intervals, retention, or paths.",
+            "Use this for InfluxDB retention, Foresight thresholds, webhooks or paths.",
         ),
     ]
     cursor = 0
@@ -498,41 +502,28 @@ def screen_mode(stdscr) -> Optional[str]:
 
 
 def screen_easy(stdscr, state: dict) -> bool:
-    """Easy-mode: 4-field form. Returns True on save, False on quit."""
+    """Easy-mode: two fields (dashboard password, time zone); every secret is generated.
+    Clusters are registered in the dashboard once the stack is running."""
     values: dict[str, str] = state["values"]
 
     easy_fields = [
         {
-            "key": "SC_HOST",
-            "label": "HyperCore IP",
-            "hint": "Any node IP (e.g. 192.168.1.10) — protocol & /rest/v1 added automatically",
-            "type": "text",
-        },
-        {
-            "key": "SC_USERNAME",
-            "label": "HyperCore username",
-            "hint": "Service account with rights to live-migrate VMs",
-            "type": "text",
-        },
-        {
-            "key": "SC_PASSWORD",
-            "label": "HyperCore password",
-            "hint": "Cluster password for the username above",
-            "type": "password",
-        },
-        {
             "key": "SC_DASHBOARD_PASSWORD",
             "label": "Dashboard password",
-            "hint": "Initial admin password for the web UI on port 5000",
+            "hint": "Initial admin password for the web UI on port 5000 — clusters are registered there afterwards",
             "type": "password",
+        },
+        {
+            "key": "TZ",
+            "label": "Time zone",
+            "hint": "Enter opens a picker: UTC, or a region and then a city. Used for log timestamps and the default of scheduled jobs",
+            "type": "timezone",
         },
     ]
 
     staged: dict[str, str] = {
-        "SC_HOST": extract_host_ip(values.get("SC_HOST", "")),
-        "SC_USERNAME": values.get("SC_USERNAME", "admin") or "admin",
-        "SC_PASSWORD": "" if values.get("SC_PASSWORD", "") in PLACEHOLDERS else values.get("SC_PASSWORD", ""),
         "SC_DASHBOARD_PASSWORD": "" if values.get("SC_DASHBOARD_PASSWORD", "") in PLACEHOLDERS else values.get("SC_DASHBOARD_PASSWORD", ""),
+        "TZ": values.get("TZ", "") or "UTC",
     }
 
     cursor = 0
@@ -541,31 +532,19 @@ def screen_easy(stdscr, state: dict) -> bool:
     n_items = n_fields + 1
 
     def commit() -> bool:
-        ip = staged["SC_HOST"].strip()
-        if "://" in ip:
-            ip = ip.split("://", 1)[1]
-        if "/" in ip:
-            ip = ip.split("/", 1)[0]
-        if not ip:
-            message_box(stdscr, "Missing HyperCore IP", ["Please enter the IP address of any HyperCore node."], color_pair=C_WARN)
-            return False
-        if not looks_like_host(ip):
-            if not confirm_box(stdscr, "Unusual host", [f"'{ip}' doesn't look like an IP or hostname.", "", "Continue anyway?"], default_yes=False):
-                return False
-        if not staged["SC_USERNAME"].strip():
-            message_box(stdscr, "Missing username", ["Please enter the HyperCore service account username."], color_pair=C_WARN)
-            return False
-        if not staged["SC_PASSWORD"]:
-            message_box(stdscr, "Missing password", ["Please enter the HyperCore password."], color_pair=C_WARN)
-            return False
         if not staged["SC_DASHBOARD_PASSWORD"]:
             message_box(stdscr, "Missing dashboard password", ["Please enter (or generate) a dashboard admin password."], color_pair=C_WARN)
             return False
-
-        values["SC_HOST"] = normalize_sc_host(ip)
-        values["SC_USERNAME"] = staged["SC_USERNAME"].strip()
-        values["SC_PASSWORD"] = staged["SC_PASSWORD"]
+        err = validate_timezone(staged["TZ"])
+        if err:
+            message_box(stdscr, "Invalid time zone", [err], color_pair=C_WARN)
+            return False
+        err = validate_env_literal(staged["SC_DASHBOARD_PASSWORD"])
+        if err:
+            message_box(stdscr, "Dashboard password", [err], color_pair=C_WARN)
+            return False
         values["SC_DASHBOARD_PASSWORD"] = staged["SC_DASHBOARD_PASSWORD"]
+        values["TZ"] = staged["TZ"].strip()
 
         autofill_paths(state["sections"], values)
         apply_easy_autogen(state["sections"], values, state["profiles"])
@@ -579,8 +558,8 @@ def screen_easy(stdscr, state: dict) -> bool:
 
         intro = [
             "Strong secrets for InfluxDB, Postgres, dashboard sessions and the",
-            "Sentinel API will be generated automatically. Repo + SSH paths are",
-            "auto-detected. Re-run this installer any time to switch modes.",
+            "Sentinel, backup and proxy APIs are generated automatically. Repo and",
+            "SSH paths are auto-detected. Re-run this installer any time to switch modes.",
         ]
         y = 3
         for line in intro:
@@ -621,7 +600,7 @@ def screen_easy(stdscr, state: dict) -> bool:
             for f in easy_fields
         )
         save_attr = curses.color_pair(C_SELECTED) if cursor == save_idx else curses.color_pair(C_DEFAULT)
-        save_label = " W   Generate secrets and write .env" if all_set else " W   (fill in all four fields first)"
+        save_label = " W   Generate secrets and write .env" if all_set else " W   (enter the dashboard password and time zone first)"
         addstr_safe(stdscr, y, 4, " " * (w - 8), save_attr)
         addstr_safe(stdscr, y, 4, save_label, save_attr | curses.A_BOLD)
 
@@ -639,7 +618,11 @@ def screen_easy(stdscr, state: dict) -> bool:
         elif ch in (curses.KEY_DOWN, ord("j")):
             cursor = (cursor + 1) % n_items
         elif ch in (10, 13, curses.KEY_ENTER):
-            if cur_field is not None:
+            if cur_field is not None and cur_field["type"] == "timezone":
+                new = pick_timezone(stdscr, staged[cur_field["key"]])
+                if new is not None:
+                    staged[cur_field["key"]] = new
+            elif cur_field is not None:
                 masked = (cur_field["type"] == "password")
                 allow_gen = (cur_field["key"] == "SC_DASHBOARD_PASSWORD")
                 generator = (lambda: gen_password(20)) if allow_gen else None
@@ -655,7 +638,11 @@ def screen_easy(stdscr, state: dict) -> bool:
                     generator=generator,
                 )
                 if new is not None:
-                    staged[cur_field["key"]] = new
+                    err = validate_timezone(new) if cur_field["type"] == "timezone" else None
+                    if err:
+                        message_box(stdscr, "Invalid time zone", [err, "", f"You entered: {new}"], color_pair=C_ERR)
+                    else:
+                        staged[cur_field["key"]] = new.strip() if cur_field["type"] == "timezone" else new
             else:
                 if commit():
                     return True
@@ -830,12 +817,9 @@ def try_save(stdscr, state: dict) -> bool:
         "  docker compose build",
         "  docker compose up -d",
     ])
-    if "sentinel" in profiles:
-        msg.append("  docker compose --profile sentinel up -d")
-    if "tools" in profiles:
-        msg.append("  docker compose --profile tools up -d")
-    msg.extend(["", "After first start, set SC_DRY_RUN=false in .env once you've verified",
-                "the Balancer's proposed migrations look sensible."])
+    msg.append("  (every module starts with the stack; stop the ones you don't use, e.g. docker compose stop sentinel)")
+    msg.extend(["", "Every cluster starts in dry-run. Switch it off per cluster in the dashboard",
+                "(Clusterbalancer -> settings) once its proposed migrations look sensible."])
 
     status, version = detect_compose()
     if status == 'v2':
@@ -1032,6 +1016,12 @@ def edit_field(stdscr, state: dict, f: Field) -> None:
             values[f.key] = new
         return
 
+    if f.type == "timezone":
+        new = pick_timezone(stdscr, current)
+        if new is not None:
+            values[f.key] = new
+        return
+
     masked = (f.type == "password")
     allow_gen = (f.type in ("password", "token"))
     generator = (lambda: gen_password(24)) if f.type == "password" else (lambda: gen_token(32))
@@ -1092,6 +1082,89 @@ def pick_choice(stdscr, f: Field, current: str) -> Optional[str]:
             return None
 
 
+def pick_from_list(stdscr, title: str, items: list[str], current: str = "", hint: str = "") -> Optional[str]:
+    """Scrolling list box. Typing narrows the list (case-insensitive substring), Backspace widens
+    it, Enter picks, Esc cancels. Returns the chosen item or None."""
+    if not items:
+        return None
+    h, w = stdscr.getmaxyx()
+    box_w = min(max(44, max(len(x) for x in items) + 10), w - 4)
+    box_h = min(len(items) + 6, h - 4)
+    rows = box_h - 6
+    y0 = max(1, (h - box_h) // 2)
+    x0 = max(1, (w - box_w) // 2)
+    win = curses.newwin(box_h, box_w, y0, x0)
+    win.bkgd(" ", curses.color_pair(C_DEFAULT))
+    win.keypad(True)
+    query = ""
+    cursor = items.index(current) if current in items else 0
+    top = 0
+    while True:
+        shown = [x for x in items if query.lower() in x.lower()] if query else items
+        if not shown:
+            cursor = 0
+        else:
+            cursor = max(0, min(cursor, len(shown) - 1))
+        if cursor < top:
+            top = cursor
+        if cursor >= top + rows:
+            top = cursor - rows + 1
+        win.erase()
+        draw_box(win, 0, 0, box_h, box_w, title)
+        addstr_safe(win, 1, 2, (f"Filter: {query}" if query else (hint or "Type to filter")).ljust(box_w - 4), curses.color_pair(C_DIM))
+        for i, item in enumerate(shown[top:top + rows]):
+            idx = top + i
+            attr = curses.color_pair(C_SELECTED) if idx == cursor else curses.color_pair(C_DEFAULT)
+            addstr_safe(win, 3 + i, 2, " " * (box_w - 4), attr)
+            addstr_safe(win, 3 + i, 4, item[: box_w - 8], attr)
+        if not shown:
+            addstr_safe(win, 3, 4, "(nothing matches)", curses.color_pair(C_DIM))
+        more = f" {cursor + 1}/{len(shown)} " if shown else ""
+        addstr_safe(win, box_h - 2, 2, (" ↑↓ move   Enter pick   Esc back   " + more)[: box_w - 4], curses.color_pair(C_DIM))
+        win.refresh()
+        ch = win.getch()
+        if ch == curses.KEY_UP:
+            cursor -= 1
+        elif ch == curses.KEY_DOWN:
+            cursor += 1
+        elif ch == curses.KEY_PPAGE:
+            cursor -= rows
+        elif ch == curses.KEY_NPAGE:
+            cursor += rows
+        elif ch in (10, 13, curses.KEY_ENTER):
+            if shown:
+                return shown[cursor]
+        elif ch == 27:
+            return None
+        elif ch in (curses.KEY_BACKSPACE, 127, 8):
+            query = query[:-1]
+        elif 32 <= ch < 127:
+            query += chr(ch)
+            cursor = 0
+
+
+def pick_timezone(stdscr, current: str = "") -> Optional[str]:
+    """Two stages from the host's tz database: a region (or UTC), then its city. Esc in the
+    city list goes back to the regions; Esc there cancels. Returns the IANA name or None."""
+    cur_region = current.split("/", 1)[0] if "/" in (current or "") else (current or "")
+    while True:
+        region = pick_from_list(stdscr, "Time zone — region", timezone_regions(), cur_region, "UTC, or a region to pick a city from")
+        if region is None:
+            return None
+        if region == "UTC":
+            return "UTC"
+        cities = timezone_cities(region)
+        if not cities:
+            message_box(stdscr, "No zones", [f"The host's time zone database has no zones under {region}/."], color_pair=C_WARN)
+            continue
+        cur_city = current[len(region) + 1:] if (current or "").startswith(region + "/") else ""
+        city = pick_from_list(stdscr, f"Time zone — {region}/…", cities, cur_city, "Type a city name to filter")
+        if city is None:
+            cur_region = region
+            continue
+        return f"{region}/{city}"
+
+
 # ============================================================================
 # entry point
 # ============================================================================
@@ -1124,18 +1197,28 @@ def run(stdscr) -> None:
     }
 
     if existing:
-        message_box(
+        start_from_existing = confirm_box(
             stdscr,
             "Existing .env detected",
             [
                 f"Found existing {ENV_PATH.resolve()}.",
+                "The current file is backed up to .env.bak.<timestamp> when you write.",
                 "",
-                "Its values have been pre-loaded as your starting point. The current",
-                "file will be backed up to .env.bak.<timestamp> before being",
-                "overwritten when you choose 'Write .env and exit'.",
+                "Start from its values?",
+                "",
+                "  Yes: upgrading or reconfiguring a running installation. Every value,",
+                "       secrets included, is pre-filled. The database keeps working:",
+                "       HCM_SECRET_KEY encrypts the stored cluster passwords, and the",
+                "       PostgreSQL and InfluxDB passwords only apply to new volumes.",
+                "  No:  fresh install after 'docker compose down -v'. The file is ignored",
+                "       and everything starts blank, as if it were not there.",
             ],
-            color_pair=C_HELP,
+            default_yes=True,
         )
+        if not start_from_existing:
+            values = seed_default_values(sections)
+            state["values"] = values
+            state["existing"] = False
 
     mode = screen_mode(stdscr)
     if mode is None:

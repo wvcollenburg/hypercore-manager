@@ -39,6 +39,9 @@ from typing import Iterable
 
 log = logging.getLogger('dashboard.migrations')
 
+# arbitrary constant shared by every dashboard worker; distinct from user_db's lock id
+ADVISORY_LOCK_ID = 987654322
+
 
 def apply_pending(conn, init_dir: str) -> list[str]:
     """
@@ -52,43 +55,53 @@ def apply_pending(conn, init_dir: str) -> list[str]:
         return []
 
     cur = conn.cursor()
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS public.schema_migrations (
-            filename     TEXT PRIMARY KEY,
-            applied_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-    ''')
-    conn.commit()
 
-    cur.execute('SELECT filename FROM public.schema_migrations')
-    applied: set[str] = {row['filename'] for row in cur.fetchall()}
-
-    files: Iterable[str] = sorted(
-        f for f in os.listdir(init_dir)
-        if f.endswith('.sql') and not f.startswith('.')
-    )
-
-    newly_applied: list[str] = []
-    for f in files:
-        if f in applied:
-            continue
-
-        path = os.path.join(init_dir, f)
-        with open(path, encoding='utf-8') as fh:
-            sql = fh.read()
-
-        log.info('Applying migration %s', f)
-        try:
-            cur.execute(sql)
-            cur.execute(
-                'INSERT INTO public.schema_migrations (filename) VALUES (%s)',
-                [f],
+    # several gunicorn workers start this runner at the same moment; a session-level
+    # advisory lock makes them take turns so only one applies and records each file
+    cur.execute('SELECT pg_advisory_lock(%s)', [ADVISORY_LOCK_ID])
+    try:
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS public.schema_migrations (
+                filename     TEXT PRIMARY KEY,
+                applied_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
-            conn.commit()
-            newly_applied.append(f)
-        except Exception:
-            conn.rollback()
-            log.exception('Migration failed: %s', f)
-            raise
+        ''')
+        conn.commit()
+
+        cur.execute('SELECT filename FROM public.schema_migrations')
+        applied: set[str] = {row['filename'] for row in cur.fetchall()}
+
+        files: Iterable[str] = sorted(
+            f for f in os.listdir(init_dir)
+            if f.endswith('.sql') and not f.startswith('.')
+        )
+
+        newly_applied: list[str] = []
+        for f in files:
+            if f in applied:
+                continue
+
+            path = os.path.join(init_dir, f)
+            with open(path, encoding='utf-8') as fh:
+                sql = fh.read()
+
+            log.info('Applying migration %s', f)
+            try:
+                cur.execute(sql)
+                # ON CONFLICT: belt and braces for a runner that did not hold the lock
+                cur.execute(
+                    'INSERT INTO public.schema_migrations (filename) VALUES (%s) '
+                    'ON CONFLICT (filename) DO NOTHING',
+                    [f],
+                )
+                conn.commit()
+                newly_applied.append(f)
+            except Exception:
+                conn.rollback()
+                log.exception('Migration failed: %s', f)
+                raise
+    finally:
+        cur.execute('SELECT pg_advisory_unlock(%s)', [ADVISORY_LOCK_ID])
+        conn.commit()
 
     return newly_applied

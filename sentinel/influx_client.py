@@ -46,6 +46,9 @@ class InfluxReader:
 
     def __init__(self, cfg: cfg_module.Config) -> None:
         self._cfg    = cfg
+        # every measurement is tagged with the registry cluster_id by the collector;
+        # all queries filter on it so several clusters can share one bucket
+        self._cluster_id = cfg.cluster_id
         self._client = InfluxDBClient(
             url=cfg.influx_url,
             token=cfg.influx_token,
@@ -62,13 +65,19 @@ class InfluxReader:
 
     @staticmethod
     def _normalise(record) -> dict[str, Any]:
-        """Convert a raw FluxRecord to a normalised dict."""
+        """Convert a raw FluxRecord to a normalised dict.
+
+        Queries that end in ``keep(columns: [...])`` without ``_time`` return records
+        with no time column; FluxRecord.get_time() raises KeyError on those, so the
+        value is read defensively and comes back as None.
+        """
+        values = record.values
         return {
-            'time':        record.get_time(),
-            'measurement': record.values.get('_measurement'),
-            'field':       record.values.get('_field'),
-            'value':       record.values.get('_value'),
-            **{k: v for k, v in record.values.items()
+            'time':        values.get('_time'),
+            'measurement': values.get('_measurement'),
+            'field':       values.get('_field'),
+            'value':       values.get('_value'),
+            **{k: v for k, v in values.items()
                if k not in ('_time', '_measurement', '_field', '_value',
                             '_start', '_stop', 'result', 'table')},
         }
@@ -126,6 +135,7 @@ class InfluxReader:
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: {self._window(lookback_days)})
+  |> filter(fn: (r) => r.cluster_id == "{self._cluster_id}")
   |> filter(fn: (r) => r._measurement == "node_metrics" and r._field == "cpu_usage")
   |> keep(columns: ["_time", "_value", "node_uuid", "node_peer_id"])
 '''
@@ -147,6 +157,7 @@ from(bucket: "{self._cfg.influx_bucket}")
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: {self._window(lookback_days)})
+  |> filter(fn: (r) => r.cluster_id == "{self._cluster_id}")
   |> filter(fn: (r) => r._measurement == "node_metrics"
        and (r._field == "mem_usage_percentage" or r._field == "mem_size"))
   |> keep(columns: ["_time", "_field", "_value", "node_uuid", "node_peer_id"])
@@ -176,6 +187,7 @@ from(bucket: "{self._cfg.influx_bucket}")
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: {self._window(lookback_days)})
+  |> filter(fn: (r) => r.cluster_id == "{self._cluster_id}")
   |> filter(fn: (r) => r._measurement == "vm_metrics" and r._field == "cpu_usage")
   |> keep(columns: ["_time", "_value", "vm_uuid", "vm_name", "node_uuid"])
 '''
@@ -193,6 +205,7 @@ from(bucket: "{self._cfg.influx_bucket}")
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: {self._window(lookback_days)})
+  |> filter(fn: (r) => r.cluster_id == "{self._cluster_id}")
   |> filter(fn: (r) => r._measurement == "vm_metrics"
        and (r._field == "rx_bit_rate" or r._field == "tx_bit_rate"))
   |> keep(columns: ["_time", "_field", "_value", "vm_uuid", "vm_name", "node_uuid"])
@@ -222,6 +235,7 @@ from(bucket: "{self._cfg.influx_bucket}")
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: {self._window(lookback_days)})
+  |> filter(fn: (r) => r.cluster_id == "{self._cluster_id}")
   |> filter(fn: (r) => r._measurement == "vsd_metrics"
        and (r._field == "read_latency_us" or r._field == "write_latency_us"))
   |> filter(fn: (r) => r.vsd_type != "NVRAM" and r.vsd_type != "VTPM"
@@ -250,6 +264,7 @@ from(bucket: "{self._cfg.influx_bucket}")
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: {self._window(lookback_days)})
+  |> filter(fn: (r) => r.cluster_id == "{self._cluster_id}")
   |> filter(fn: (r) => r._measurement == "vsd_metrics"
        and (r._field == "read_kbps" or r._field == "write_kbps"))
   |> filter(fn: (r) => r.vsd_type != "NVRAM" and r.vsd_type != "VTPM"
@@ -281,6 +296,7 @@ from(bucket: "{self._cfg.influx_bucket}")
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: {self._window(lookback_days)})
+  |> filter(fn: (r) => r.cluster_id == "{self._cluster_id}")
   |> filter(fn: (r) => r._measurement == "drive_metrics" and r._field == "used_bytes")
   |> keep(columns: ["_time", "_value", "node_uuid", "drive_uuid", "drive_slot"])
 '''
@@ -303,6 +319,7 @@ from(bucket: "{self._cfg.influx_bucket}")
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: -24h)
+  |> filter(fn: (r) => r.cluster_id == "{self._cluster_id}")
   |> filter(fn: (r) => r._measurement == "vm_inventory" and r._field == "num_vcpu")
   |> last()
   |> keep(columns: ["_time", "_value", "vm_uuid"])
@@ -319,6 +336,7 @@ from(bucket: "{self._cfg.influx_bucket}")
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: -24h)
+  |> filter(fn: (r) => r.cluster_id == "{self._cluster_id}")
   |> filter(fn: (r) => r._measurement == "node_metrics" and r._field == "mem_size")
   |> last()
   |> keep(columns: ["_time", "_value", "node_uuid"])
@@ -344,6 +362,7 @@ from(bucket: "{self._cfg.influx_bucket}")
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: -24h)
+  |> filter(fn: (r) => r.cluster_id == "{self._cluster_id}")
   |> filter(fn: (r) => r._measurement == "vm_inventory" and r._field == "mem_bytes")
   |> group(columns: ["vm_uuid"])
   |> last()
@@ -377,6 +396,7 @@ from(bucket: "{self._cfg.influx_bucket}")
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: -{window_minutes}m)
+  |> filter(fn: (r) => r.cluster_id == "{self._cluster_id}")
   |> filter(fn: (r) => r._measurement == "vm_inventory" and r._field == "mem_bytes")
   |> group(columns: ["vm_uuid"])
   |> last()
@@ -399,6 +419,7 @@ from(bucket: "{self._cfg.influx_bucket}")
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: -{window_minutes}m)
+  |> filter(fn: (r) => r.cluster_id == "{self._cluster_id}")
   |> filter(fn: (r) => r._measurement == "vm_metrics" and r._field == "cpu_usage")
   |> group(columns: ["vm_uuid", "vm_name"])
   |> last()
@@ -423,6 +444,7 @@ from(bucket: "{self._cfg.influx_bucket}")
         flux = f'''
 from(bucket: "{self._cfg.influx_bucket}")
   |> range(start: -20m)
+  |> filter(fn: (r) => r.cluster_id == "{self._cluster_id}")
   |> filter(fn: (r) => r._measurement == "node_metrics" and r._field == "cpu_usage")
   |> group(columns: ["node_uuid"])
   |> last()

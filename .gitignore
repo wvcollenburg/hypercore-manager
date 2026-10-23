@@ -1,5 +1,5 @@
 # =============================================================================
-# HyperCore Cluster Balancer / SC//Foresight — .gitignore
+# HyperCore Manager — .gitignore
 # =============================================================================
 
 # ── Secrets & environment ────────────────────────────────────────────────────
@@ -26,7 +26,6 @@ env/
 pip-wheel-metadata/
 
 # ── Testing & coverage ───────────────────────────────────────────────────────
-tests/
 .pytest_cache/
 .coverage
 htmlcov/
@@ -47,7 +46,7 @@ Thumbs.db
 *.tar
 *.tar.gz
 
-# ── Release artefacts (publish via GitHub Releases, not git) ─────────────────
+# ── Build artefacts ──────────────────────────────────────────────────────────
 dist/
 
 # ── Logs & temporary files ───────────────────────────────────────────────────
@@ -55,6 +54,6 @@ dist/
 *.tmp
 *.bak
 
-# ── Documentation source (keep README, exclude Word/binary docs) ─────────────
-*.docx
-SENTINEL.md
+# ── Internal working notes (not for the public repo, for now) ────────────────
+# local working notes (backlog and plans), never published
+plans/

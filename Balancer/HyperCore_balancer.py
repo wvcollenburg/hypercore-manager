@@ -20,6 +20,11 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 load_dotenv()
 
 import config_db
+import cluster_registry
+import hcm_crypto
+import hypercore_tasks
+import hypercore_session
+from config_db import TEMPLATE_CLUSTER_ID
 
 # =============================================================================
 # configuration & defaults
@@ -39,11 +44,9 @@ def get_config(key: str, default: Any, cast_type: type = str) -> Any:
     except (ValueError, TypeError):
         return default
 
-# cluster credentials & endpoint — configurables, stay in .env
-SC_HOST = get_config('SC_HOST', "https://cluster-ip/rest/v1")
-SC_USERNAME = get_config('SC_USERNAME', "admin")
-SC_PASSWORD = get_config('SC_PASSWORD', "password")
-SC_VERIFY_SSL = get_config('SC_VERIFY_SSL', False, bool)
+# clusters (host + credentials) live in the registry, configured in the dashboard;
+# the balancer runs one LoadBalancer per enabled cluster
+REGISTRY_POLL_SECONDS = 60
 
 # influxdb target for migration events — configurables
 INFLUX_URL = get_config('INFLUX_URL', "http://influxdb:8086")
@@ -57,48 +60,53 @@ INFLUX_BUCKET = get_config('INFLUX_BUCKET', "metrics")
 # API client with automatic re-authentication on 401
 # =============================================================================
 
+class MigrationBlocked(Exception):
+    """Raised instead of sending a migration while the cluster or the VM is busy."""
+
+
+def _busy_reason(cluster_id: str, client, vm_uuid: str):
+    """The interlock: when the cluster uses REST v2, read the active tasks and refuse to move a
+    VM while a migration runs anywhere or the VM itself is in a snapshot, clone, export, import
+    or replication. On any error the move proceeds as before."""
+    try:
+        c = cluster_registry.get(cluster_id)
+        if not c or not c.uses_v2:
+            return None
+        tasks = hypercore_tasks.fetch_tasks(client.session, client.base_url, active_only=True, limit=100)
+        return hypercore_tasks.busy_reason(tasks, vm_uuid=vm_uuid)
+    except Exception as e:              # noqa: BLE001
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [INTERLOCK] task feed unavailable, proceeding: {e}")
+        return None
+
+
 class HyperCoreApiClient:
-    def __init__(self, base_url: str, user: str, pw: str, verify: bool):
-        self.base_url = base_url.rstrip('/')
-        self.user = user
-        self.pw = pw
-        self.session = requests.Session()
-        self.session.verify = verify
-        
-        if not verify:
-            from urllib3.exceptions import InsecureRequestWarning
-            warnings.simplefilter('ignore', InsecureRequestWarning)
+    """The balancer's view of one cluster, on top of the shared ClusterSession: one login,
+    re-login on 401, and failover to another node when the current one stops answering."""
+
+    def __init__(self, hc: hypercore_session.ClusterSession):
+        self.hc = hc
+
+    @property
+    def session(self):            # the logged-in requests.Session (task feed, interlock)
+        return self.hc.session
+
+    @property
+    def base_url(self) -> str:    # REST base of the node in use
+        return self.hc.base_url
 
     def login(self) -> bool:
-        url = f"{self.base_url}/login"
-        payload = {"username": self.user, "password": self.pw}
         try:
-            self.session.cookies.clear()
-            response = self.session.post(url, json=payload, timeout=10)
-            response.raise_for_status()
+            self.hc.login()
             return True
-        except requests.exceptions.RequestException as e:
-            print(f"Login failed: {e}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{self.hc.name}] Login failed: {e}")
             return False
 
     def close(self):
-        try:
-            self.session.post(f"{self.base_url}/logout", timeout=5)
-        except:
-            pass
-        self.session.close()
+        self.hc.close()
 
     def fetch(self, endpoint: str) -> Any:
-        response = self.session.get(f"{self.base_url}{endpoint}", timeout=15)
-        if response.status_code == 401:
-            ts = time.strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[{ts}] Session expired (401). Re-authenticating...")
-            if self.login():
-                response = self.session.get(f"{self.base_url}{endpoint}", timeout=15)
-            else:
-                raise requests.exceptions.HTTPError("Re-authentication failed after 401")
-        response.raise_for_status()
-        return response.json()
+        return self.hc.get_json(endpoint, timeout=15)
 
     def get_nodes(self): return self.fetch("/Node")
     def get_vms(self): return self.fetch("/VirDomain")
@@ -111,20 +119,19 @@ class HyperCoreApiClient:
         except:
             return "UNKNOWN"
 
+    interlock = None        # callable(vm_uuid) -> reason string when the move must wait (REST v2 task feed)
+
     def migrate(self, vm_uuid: str, target_node: str) -> Dict:
+        if self.interlock:
+            reason = self.interlock(vm_uuid)
+            if reason:
+                raise MigrationBlocked(reason)
         action = [{
             "virDomainUUID": vm_uuid, 
             "actionType": "LIVEMIGRATE", 
             "nodeUUID": target_node
         }]
-        resp = self.session.post(f"{self.base_url}/VirDomain/action", json=action, timeout=15)
-        if resp.status_code == 401:
-            ts = time.strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[{ts}] Session expired (401) during migration. Re-authenticating...")
-            if self.login():
-                resp = self.session.post(f"{self.base_url}/VirDomain/action", json=action, timeout=15)
-            else:
-                raise requests.exceptions.HTTPError("Re-authentication failed during migration")
+        resp = self.hc.post("/VirDomain/action", json=action, timeout=15)
         resp.raise_for_status()
         return resp.json()
 
@@ -151,11 +158,13 @@ class MigrationLogger:
             self.available = False
     
     def log_event(self, vm_name: str, vm_uuid: str, source_ip: str, target_ip: str,
-                  engine: str, mode: str, dry_run: bool, reason: str = ""):
+                  engine: str, mode: str, dry_run: bool, reason: str = "",
+                  cluster_id: str = TEMPLATE_CLUSTER_ID):
         if not self.available:
             return
         try:
             point = Point("migration_events") \
+                .tag("cluster_id", cluster_id) \
                 .tag("engine", engine) \
                 .tag("mode", mode) \
                 .tag("dry_run", str(dry_run).lower()) \
@@ -180,10 +189,16 @@ class MigrationLogger:
 # =============================================================================
 
 class LoadBalancer:
-    def __init__(self, client: HyperCoreApiClient, config: Dict, migration_logger: MigrationLogger):
+    def __init__(self, client: HyperCoreApiClient, config: Dict, migration_logger: MigrationLogger,
+                 cluster=None, stop_event: Optional[threading.Event] = None):
         self.client = client
         self.config = config
         self.migration_logger = migration_logger
+        # the registry cluster this instance balances; tests pass none and get the template id
+        self.cluster = cluster
+        self.cluster_id = cluster.cluster_id if cluster is not None else TEMPLATE_CLUSTER_ID
+        self.cluster_name = cluster.name if cluster is not None else 'cluster'
+        self.stop = stop_event or threading.Event()
         self.max_history = int((config['AVG_WINDOW_MINUTES'] * 60) / config['SAMPLE_INTERVAL_SECONDS'])
 
         self.node_cpu_history = {}
@@ -206,7 +221,7 @@ class LoadBalancer:
 
     def reload_config(self):
         """Hot-reload tunables from SQLite. Logs any changed values."""
-        new = config_db.get_all()
+        new = config_db.get_all(self.cluster_id)
         for key in list(self.config.keys()):
             if key in new and new[key] != self.config[key]:
                 self.log(1, f"[CONFIG] {key}: {self.config[key]} → {new[key]}")
@@ -223,7 +238,11 @@ class LoadBalancer:
     def log(self, level: int, message: str):
         if level == 0 or self.config['VERBOSITY'] >= level:
             ts = time.strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[{ts}] {message}")
+            print(f"[{ts}] [{self.cluster_name}] {message}")
+
+    def _sleep(self, seconds: float):
+        """Interruptible sleep: returns early when the supervisor asks this cluster to stop."""
+        self.stop.wait(seconds)
 
     def update_metrics(self, nodes, vm_stats):
         for n in nodes:
@@ -477,7 +496,7 @@ class LoadBalancer:
         """Runs the predictive engine in a background thread, then discards the snapshot."""
         try:
             from predictive_engine import get_proactive_migrations
-            self._predictive_results = get_proactive_migrations(vms_snapshot, nodes_snapshot)
+            self._predictive_results = get_proactive_migrations(vms_snapshot, nodes_snapshot, cluster_id=self.cluster_id)
         except ImportError:
             self.log(0, "[PREDICTIVE ERROR] Could not load predictive_engine. Are 'pandas' and 'prophet' installed?")
             self._predictive_results = []
@@ -497,7 +516,7 @@ class LoadBalancer:
             self.log(0, "🔮 Predictive Balancing Module is ENABLED.")
             
         try:
-            while True:
+            while not self.stop.is_set():
                 # hot-reload tunables every 60 seconds
                 now_ts = time.time()
                 if now_ts - self._last_config_check > 60:
@@ -510,13 +529,13 @@ class LoadBalancer:
                         self.log(0, f"Migration {status} for {self.active_task['vm']}")
                         self.active_task = None
                         self.last_migration_time = time.time()
-                    time.sleep(10); continue
+                    self._sleep(10); continue
 
                 try:
                     nodes, vms, stats = self.client.get_nodes(), self.client.get_vms(), self.client.get_vm_stats()
                     self.update_metrics(nodes, stats)
                 except Exception as e:
-                    self.log(0, f"API Fetch Error: {e}"); time.sleep(30); continue
+                    self.log(0, f"API Fetch Error: {e}"); self._sleep(30); continue
 
                 # evaluate cluster state once — shared by affinity, predictive, and reactive engines
                 state  = self.evaluate_cluster(nodes, vms)
@@ -547,16 +566,17 @@ class LoadBalancer:
                         vm_name=aff_vm['name'], vm_uuid=aff_vm['uuid'],
                         source_ip=aff_src['name'], target_ip=aff_tgt['name'],
                         engine="Affinity", mode=aff_mode,
-                        dry_run=self.config['DRY_RUN'], reason="affinity-violation"
+                        dry_run=self.config['DRY_RUN'], reason="affinity-violation",
+                        cluster_id=self.cluster_id
                     )
-                    time.sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
+                    self._sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
                     continue
 
                 # non-affinity migration cooldown
                 elapsed = time.time() - self.last_migration_time
                 cluster_cd = self.config['MIGRATION_COOLDOWN_MINUTES'] * 60
                 if elapsed < cluster_cd:
-                    time.sleep(self.config['SAMPLE_INTERVAL_SECONDS']); continue
+                    self._sleep(self.config['SAMPLE_INTERVAL_SECONDS']); continue
 
                 # =================================================================
                 # optional: predictive balancing
@@ -643,7 +663,8 @@ class LoadBalancer:
                             vm_name=rec.vm_name, vm_uuid=rec.vm_uuid,
                             source_ip=rec.source_ip, target_ip=rec.target_ip,
                             engine="predictive", mode="PREDICTIVE",
-                            dry_run=self.config['DRY_RUN'], reason=rec.reason
+                            dry_run=self.config['DRY_RUN'], reason=rec.reason,
+                            cluster_id=self.cluster_id
                         )
 
                         reservation_secs = self.config.get('PREDICTIVE_RESERVATION_MINUTES', 5) * 60
@@ -676,7 +697,7 @@ class LoadBalancer:
                         self.last_predictive_run = time.time()
 
                     if self.active_task or (self.config['DRY_RUN'] and applied_predictive):
-                        time.sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
+                        self._sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
                         continue
 
                 # =================================================================
@@ -685,7 +706,7 @@ class LoadBalancer:
                 first_uid = nodes[0]['uuid'] if nodes else None
                 if first_uid and len(self.node_cpu_history.get(first_uid, [])) < self.max_history:
                     self.log(2, f"Buffer: {len(self.node_cpu_history[first_uid])}/{self.max_history}")
-                    time.sleep(self.config['SAMPLE_INTERVAL_SECONDS']); continue
+                    self._sleep(self.config['SAMPLE_INTERVAL_SECONDS']); continue
 
                 vm, src, tgt, mode = self.select_candidate(state)
                 
@@ -705,7 +726,7 @@ class LoadBalancer:
                         except Exception as e:
                             self.log(0, f"[REACTIVE ERROR] Migration request rejected for {vm['name']}: {e}")
                             self.vm_cooldowns[vm['uuid']] = time.time()
-                            time.sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
+                            self._sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
                             continue
 
                     # log the event to InfluxDB for the dashboard
@@ -714,25 +735,97 @@ class LoadBalancer:
                         source_ip=src['name'], target_ip=tgt['name'],
                         engine="reactive", mode=mode,
                         dry_run=self.config['DRY_RUN'],
-                        reason=f"Reactive {mode} balancing"
+                        reason=f"Reactive {mode} balancing",
+                        cluster_id=self.cluster_id
                     )
                     
-                time.sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
+                self._sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
         except KeyboardInterrupt: self.log(0, "Shutdown requested.")
         finally:
+            self.log(0, "Balancer stopped for this cluster.")
             self.client.close()
             self.migration_logger.close()
+
+class ClusterBalancerThread(threading.Thread):
+    """Runs one LoadBalancer for one registry cluster until its stop event is set."""
+
+    def __init__(self, cluster, migration_logger: MigrationLogger, stop_event: threading.Event):
+        super().__init__(name=f"balancer-{cluster.name}", daemon=True)
+        self.cluster = cluster
+        self.stop_event = stop_event
+        self.migration_logger = migration_logger
+
+    def run(self):
+        username, password = cluster_registry.credentials(self.cluster.cluster_id)
+        hc = hypercore_session.ClusterSession(
+            self.cluster.cluster_id, username, password, bool(self.cluster.verify_tls), service='balancer',
+            name=self.cluster.name, seed=self.cluster.host,
+            logger=lambda msg: print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{self.cluster.name}] {msg}"))
+        client = HyperCoreApiClient(hc)
+        client.interlock = lambda vm_uuid, _cid=self.cluster.cluster_id, _c=client: _busy_reason(_cid, _c, vm_uuid)
+        if not client.login():
+            cluster_registry.mark_error(self.cluster.cluster_id, 'balancer login failed')
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{self.cluster.name}] Login failed — retrying on next registry sync.")
+            return
+        config_db.copy_template_to(self.cluster.cluster_id)   # pick up tunables added since registration
+        config = config_db.get_all(self.cluster.cluster_id)
+        LoadBalancer(client, config, self.migration_logger, cluster=self.cluster, stop_event=self.stop_event).start()
+
 
 def _handle_sigterm(*_):
     raise KeyboardInterrupt()
 
+
 if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _handle_sigterm)
     config_db.seed_from_env()
-    CONFIG = config_db.get_all()
-    client = HyperCoreApiClient(SC_HOST, SC_USERNAME, SC_PASSWORD, SC_VERIFY_SSL)
+    if not hcm_crypto.key_configured():
+        print(f"ERROR: {hcm_crypto.ENV_VAR} is not set — stored cluster credentials cannot be decrypted.")
     migration_logger = MigrationLogger(INFLUX_URL, INFLUX_TOKEN, INFLUX_ORG, INFLUX_BUCKET)
-    if client.login():
-        LoadBalancer(client, CONFIG, migration_logger).start()
-    else:
-        sys.exit("Login failed. Check credentials.")
+    threads: Dict[str, Tuple[ClusterBalancerThread, threading.Event]] = {}
+    warned_duplicates: set = set()
+    last_idle_notice = 0.0
+    try:
+        while True:
+            try:
+                clusters = {c.cluster_id: c for c in cluster_registry.list_enabled()}
+            except Exception as e:
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Registry unavailable: {e}")
+                clusters = None
+            if clusters is not None:
+                # two registry entries pointing at the same HyperCore cluster (e.g. two node IPs)
+                # would run two balancers against one cluster; only the first registered balances
+                suspended = set()
+                for group in cluster_registry.duplicate_groups(list(clusters.values())):
+                    for dup in group[1:]:
+                        suspended.add(dup.cluster_id)
+                        if dup.cluster_id in threads or dup.cluster_id not in warned_duplicates:
+                            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{dup.name}] Balancing SUSPENDED: same HyperCore "
+                                  f"cluster as '{group[0].name}'. Remove the duplicate entry or point it at another cluster.")
+                            warned_duplicates.add(dup.cluster_id)
+                for cid, (t, ev) in list(threads.items()):
+                    c = clusters.get(cid)
+                    # stop on removal/disable, on a credential/host change, if the thread died, or when suspended
+                    if c is None or c.updated_at != t.cluster.updated_at or not t.is_alive() or cid in suspended:
+                        ev.set()
+                        del threads[cid]
+                for cid, c in clusters.items():
+                    if cid in suspended:
+                        continue
+                    if cid not in threads:
+                        ev = threading.Event()
+                        t = ClusterBalancerThread(c, migration_logger, ev)
+                        t.start()
+                        threads[cid] = (t, ev)
+                if not clusters and time.time() - last_idle_notice > 300:
+                    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] No clusters registered yet — add one in the dashboard (Settings → Clusters).")
+                    last_idle_notice = time.time()
+            time.sleep(REGISTRY_POLL_SECONDS)
+    except KeyboardInterrupt:
+        print("Shutdown requested.")
+    finally:
+        for _, ev in threads.values():
+            ev.set()
+        for t, _ in threads.values():
+            t.join(timeout=10)
+        migration_logger.close()

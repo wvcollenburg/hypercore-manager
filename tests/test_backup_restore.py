@@ -1,0 +1,286 @@
+"""backup/restore.py — the fast restore path with fakes (diskless import, staging, clone-in, policies)."""
+import importlib
+import os
+import sys
+import types
+import xml.etree.ElementTree as ET
+
+import pytest
+
+_BACKUP = os.path.join(os.path.dirname(__file__), '..', 'backup')
+_CLASH = ('config', 'db', 'log', 'api', 'hypercore', 'jobs', 'scheduler', 'incremental', 'proxy_client', 'manifest_names', 'restore', 'vm_definition')
+
+
+def _import():
+    saved = {n: sys.modules.pop(n) for n in _CLASH if n in sys.modules}
+    sys.path.insert(0, _BACKUP)
+    try:
+        rs = importlib.import_module('restore')
+        inc = importlib.import_module('incremental')
+        hc = importlib.import_module('hypercore')
+    finally:
+        sys.path.remove(_BACKUP)
+        for n in _CLASH:
+            sys.modules.pop(n, None)
+        sys.modules.update(saved)
+    return rs, inc, hc
+
+
+rs, inc, hcm = _import()
+
+DEF = {'uuid': 'src-vm', 'name': 'exptest', 'description': 'd', 'mem': 4294967296, 'numVCPU': 2, 'machineType': 'scale-uefi-tpm-9.5',
+       'operatingSystem': 'os_other', 'cpuType': 'c', 'tags': 'test,dnd', 'bootDevices': ['disk-1', 'cd-1'],
+       'blockDevs': [{'uuid': 'cd-1', 'type': 'IDE_CDROM', 'capacity': 0}, {'uuid': 'disk-1', 'type': 'VIRTIO_DISK', 'capacity': 15000000000},
+                     {'uuid': 'nv-1', 'type': 'NVRAM', 'capacity': 540672}, {'uuid': 'tpm-1', 'type': 'VTPM', 'capacity': 0}],
+       'netDevs': [{'uuid': 'nic-1', 'type': 'VIRTIO', 'macAddress': '02:00:5E:4B:5C:5E', 'vlan': 7, 'connected': True}]}
+
+
+def test_policies_and_boot_order():
+    # MAC addresses are kept on request only, whether or not the source VM still exists
+    assert rs.mac_decision('auto', source_vm_exists=False) is False and rs.mac_decision('new', False) is False
+    assert rs.mac_decision('original', True) is True and rs.mac_decision('original', False) is True
+    disks, utils = rs.plan_devices(DEF)
+    assert [d['uuid'] for d in disks] == ['disk-1'] and [u['uuid'] for u in utils] == ['nv-1', 'tpm-1']
+    new_vm = {'blockDevs': [{'uuid': 'new-cd', 'type': 'IDE_CDROM'}, {'uuid': 'new-disk', 'type': 'VIRTIO_DISK'}]}
+    assert rs.boot_order(DEF, {'disk-1': 'new-disk'}, new_vm) == ['new-disk', 'new-cd']
+
+
+def test_render_definition_is_diskless(monkeypatch):
+    monkeypatch.setattr(rs.db, 'get_os_template', lambda mt, prof: None)
+    xml = rs.render_definition(DEF, 'new-uuid', {'nv-1': 'NV', 'tpm-1': 'TPM'})
+    root = ET.fromstring(xml)
+    assert root.findtext('uuid') == 'new-uuid' and root.findtext('os/nvram') == 'scribe:scribe/NV'
+    assert not [d for d in root.iter('disk') if d.get('device') == 'disk'], 'no data disks in a diskless definition'
+    assert root.find('.//disk[@device="cdrom"]') is not None and root.find('.//interface/mac').get('address') == '02:00:5E:4B:5C:5E'
+    ns = {'s': 'http://www.scalecomputing.com/scaled'}
+    assert root.find('.//s:vtpm', ns).get('uuid') == 'TPM'
+
+
+class _FakeHC:
+    DISK_TYPES = hcm.HyperCoreClient.DISK_TYPES
+    UTILITY_TYPES = hcm.HyperCoreClient.UTILITY_TYPES
+
+    def __init__(self, source_exists=False):
+        self.calls = []; self.n = 0; self.snaps = {}; self.proxy_devs = []; self.new_devs = []
+        self.vms = [{'uuid': 'proxy-vm', 'name': 'proxy'}] + ([{'uuid': 'src-vm', 'name': 'exptest'}] if source_exists else [])
+        self.new_vm = None
+    def list_vms_full(self): return list(self.vms)
+    def task_status(self, tag): return {'state': 'COMPLETE'}
+    def update_status(self): return {}
+    def list_nodes(self): return [{'networkStatus': 'ONLINE'}]
+    def import_vm(self, uri, name=None, description=None, tags=None, definition_file=None):
+        self.calls.append(('import', definition_file, name, tags))
+        self.new_vm = {'uuid': 'new-vm', 'name': name, 'blockDevs': [{'uuid': 'new-nv', 'type': 'NVRAM'}, {'uuid': 'new-tpm', 'type': 'VTPM'}, {'uuid': 'new-cd', 'type': 'IDE_CDROM'}],
+                       'netDevs': [{'uuid': 'new-nic', 'macAddress': '02:00:5E:AA:AA:AA', 'connected': True}]}
+        self.vms.append(self.new_vm); return 'task', 'new-vm'
+    def get_vm(self, u): return self.new_vm
+    def create_block_device(self, vm, cap, dev_type='VIRTIO_DISK', tiering=None):
+        self.n += 1; u = f'stage-{self.n}'; self.proxy_devs.append(u); self.calls.append(('create_staging', vm, cap, tiering)); return 'task', u
+    def create_snapshot(self, vm, label, quiesce=True, retain_days=None):
+        self.n += 1; u = f'psnap-{self.n}'; self.snaps[u] = {'uuid': u, 'state': 'CREATED', 'deviceSnapshots': []}; self.calls.append(('snapshot', vm, label)); return 'task', u
+    def get_snapshot(self, u): return self.snaps.get(u)
+    def delete_snapshot(self, u): self.snaps.pop(u, None); return 'task'
+    refuse_types = ()
+    def clone_device(self, dev, snap, target, cap, read_only=True, dev_type='VIRTIO_DISK', tiering=None):
+        if dev_type in self.refuse_types:
+            raise hcm.HyperCoreError(f'HyperCore API 400 on /VirDomainBlockDevice/{dev}/clone: type {dev_type} not allowed', 400)
+        self.n += 1; u = f'restored-disk-{self.n}'; self.new_devs.append(u); self.new_vm['blockDevs'].append({'uuid': u, 'type': dev_type})
+        self.calls.append(('clone', dev, snap, target, read_only, dev_type, tiering)); return 'task', u
+    def delete_block_device(self, u): self.proxy_devs.remove(u) if u in self.proxy_devs else None; self.calls.append(('delete_dev', u)); return 'task'
+    def patch_block_device(self, u, **f): self.calls.append(('patch_dev', u, f)); return 'task'
+    def patch_vm(self, u, **f): self.calls.append(('patch_vm', u, f)); return 'task'
+    def patch_netdev(self, u, **f): self.calls.append(('patch_nic', u, f)); return 'task'
+    def vm_action(self, u, a): self.calls.append(('action', u, a)); return 'task'
+
+
+class _FakePC:
+    def __init__(self):
+        self.jobs = []
+        self.verify_result = {'ok': True, 'points': {'base': {'ok': True, 'mismatches': []}, 'delta-0001': {'ok': True, 'mismatches': []}}, 'bytes': 8 << 20, 'duration_s': 0.2}
+    def submit(self, kind, body): self.jobs.append((kind, body)); return f'j{len(self.jobs)}'
+    def wait(self, jid, on_progress=None, timeout=0, poll=0):
+        kind, body = self.jobs[int(jid[1:]) - 1]
+        if kind == 'stage' and on_progress: on_progress({'blocks_done': 3, 'blocks_total': 3})
+        if kind == 'verify':
+            if on_progress: on_progress({'points_total': 2, 'points_done': 1, 'bytes_total': 8 << 20, 'bytes_done': 5 << 20})
+            return {'state': 'done', 'result': dict(self.verify_result)}
+        return {'state': 'done', 'result': {'bytes_written': 3 << 20, 'devices': []} if kind == 'stage' else {'files': [], 'removed': []}}
+
+
+class _FakeDB:
+    def __init__(self):
+        self.restore = {'id': 9, 'point_id': 100, 'target_name': 'exptest-copy', 'params': {'mac_policy': 'original', 'start': True, 'nic_connected': False}}
+        self.point = {'id': 100, 'chain_id': 1, 'seq': 1, 'dir': 'delta-0001', 'status': 'ok', 'definition': DEF}
+        self.points = [{'id': 99, 'chain_id': 1, 'seq': 0, 'dir': 'base', 'status': 'ok'}, self.point]
+        self.messages = []
+        self.chain = {'id': 1, 'cluster_id': 'c1', 'vm_name': 'exptest', 'target_id': 9, 'chain_dir': 'Amsterdam/exptest_src-vm.chain', 'folder_slug': 'Amsterdam', 'status': 'active'}
+    def get_restore(self, rid): return dict(self.restore)
+    def get_point(self, pid): return self.point
+    def get_chain(self, cid): return self.chain
+    def get_share(self, sid, with_secret=False): return {'id': 9, 'uri_base': 'smb://nas/share', 'username': 'u', 'password': 'p'}
+    def get_os_template(self, mt, prof): return None
+    def update_restore(self, rid, **f):
+        self.restore.update(f)
+        if 'message' in f: self.messages.append(f['message'])
+    def get_points(self, cid, include_pruned=False): return list(self.points)
+    def update_point(self, pid, **f): [p.update(f) for p in self.points if p['id'] == pid]
+    def update_proxy(self, pid, **f): pass
+    def get_proxies(self, cid, enabled_only=False): return [{'id': 7, 'vm_uuid': 'proxy-vm', 'last_seen_at': None}]
+    def get_proxy(self, pid, with_secret=False): return {'id': 7, 'name': 'px', 'url': 'http://px', 'token': 't', 'vm_uuid': 'proxy-vm', 'tls_fingerprint': None, 'tls_verify': False}
+
+
+@pytest.fixture
+def world(monkeypatch):
+    fdb, fhc, fpc = _FakeDB(), _FakeHC(), _FakePC()
+    monkeypatch.setattr(rs, 'db', fdb); monkeypatch.setattr(inc, 'db', fdb)
+    monkeypatch.setattr(rs.jobs, 'client_for', lambda cid: fhc)
+    monkeypatch.setattr(rs, 'proxy_client_for', lambda p: fpc)
+    monkeypatch.setattr(rs.time, 'sleep', lambda s: None); monkeypatch.setattr(inc.time, 'sleep', lambda s: None)
+    monkeypatch.setattr(rs.jobs.time, 'sleep', lambda s: None)
+    rs.jobs._PREFLIGHT_CACHE.clear()
+    return types.SimpleNamespace(db=fdb, hc=fhc, pc=fpc)
+
+
+def test_fast_restore_end_to_end(world):
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'COMPLETE', r
+    kinds = [k for k, _ in world.pc.jobs]
+    assert kinds == ['verify', 'flatten', 'stage', 'sweep'], 'the backing chain is re-hashed before anything is created'
+    ver = world.pc.jobs[0][1]
+    assert ver['upto_seq'] == 1 and ver['chain_dir'] == 'Amsterdam/exptest_src-vm.chain'
+    assert all(p['verified_at'] and p.get('verify_error') is None for p in world.db.points), 'passing points are stamped'
+    assert any(m.startswith('verifying chain: point 2/2, 5/8 MiB') for m in world.db.messages)
+    assert 'chain verified' in r['message']
+    world.pc.jobs.pop(0)
+    flat = world.pc.jobs[0][1]
+    assert set(flat['only_uuids']) == {'nv-1', 'tpm-1'} and flat['definition_xml'].startswith('<domain') and flat['out_dir'].startswith('Amsterdam/_restore/')
+    assert ET.fromstring(flat['definition_xml']).find('.//disk[@device="disk"]') is None
+    imp = [c for c in world.hc.calls if c[0] == 'import'][0]
+    assert imp[1] == flat['definition_name'] and imp[2] == 'exptest-copy' and imp[3] == 'test,dnd'
+    stage = world.pc.jobs[1][1]
+    assert stage['devices'] == [{'uuid': 'disk-1', 'staging_clone_uuid': 'stage-1'}] and stage['seq'] == 1
+    clone = [c for c in world.hc.calls if c[0] == 'clone'][0]
+    assert clone[1] == 'stage-1' and clone[3] == 'new-vm' and clone[4] is False, 'staging disk cloned read-write onto the restored VM'
+    assert clone[5] == 'VIRTIO_DISK' and clone[6] == 8, 'original bus, SSD tiering explicit (the attach default would be 0)'
+    assert ('patch_dev', world.hc.new_devs[0], {'tieringPriorityFactor': 8}) in world.hc.calls, 'a clone inherits tiering from the staging disk: set it after'
+    assert [c for c in world.hc.calls if c[0] == 'create_staging'][0][3] == 0, 'staging disks stay off the SSD tier'
+    assert world.hc.proxy_devs == [] and world.hc.snaps == {}, 'staging disk and proxy snapshot removed'
+    assert ('patch_vm', 'new-vm', {'bootDevices': [world.hc.new_devs[0], 'new-cd']}) in world.hc.calls
+    nic = [c for c in world.hc.calls if c[0] == 'patch_nic'][0]
+    assert nic[2] == {'connected': False, 'vlan': 7, 'macAddress': '02:00:5E:4B:5C:5E'}, 'original MAC on request'
+    assert ('action', 'new-vm', 'START') in world.hc.calls and r['created_uuid'] == 'new-vm' and 'MAC original' in r['message']
+
+
+def test_disks_come_back_on_their_original_bus(world):
+    """An IDE disk is restored as IDE and a SCSI disk as SCSI (the VM is off, so even IDE may be
+    attached); the stored tiering factor is put back; a refusal is an error naming the bus, never a
+    silent switch to virtio."""
+    world.db.point['definition'] = dict(DEF, blockDevs=DEF['blockDevs'] + [{'uuid': 'disk-ide', 'type': 'IDE_DISK', 'capacity': 1 << 30, 'tieringPriorityFactor': 0},
+                                                                          {'uuid': 'disk-scsi', 'type': 'SCSI_DISK', 'capacity': 1 << 30}])
+    rs.run_restore(9)
+    assert world.db.restore['status'] == 'COMPLETE', world.db.restore
+    clones = [(c[1], c[5], c[6]) for c in world.hc.calls if c[0] == 'clone']
+    assert clones == [('stage-1', 'VIRTIO_DISK', 8), ('stage-2', 'IDE_DISK', 0), ('stage-3', 'SCSI_DISK', 8)]
+    assert [c[2]['tieringPriorityFactor'] for c in world.hc.calls if c[0] == 'patch_dev'] == [8, 0, 8]
+    world.hc.refuse_types = ('IDE_DISK',); world.hc.calls.clear(); world.hc.vms = [v for v in world.hc.vms if v['uuid'] != 'new-vm']
+    world.db.restore.update(status='RUNNING')
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'ERROR' and 'could not be attached as IDE_DISK' in r['message'], r
+    assert not [c for c in world.hc.calls if c[0] == 'clone' and c[5] != 'IDE_DISK' and c[1] == 'stage-5'], 'no fallback to another bus'
+    assert world.hc.proxy_devs == [] and world.hc.snaps == {}, 'staging disks and proxy snapshot cleaned up after the refusal'
+
+
+def test_restore_refuses_while_a_node_is_missing(world):
+    world.hc.list_nodes = lambda: [{'lanIP': '10.0.0.243', 'networkStatus': 'OFFLINE'}]
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'ERROR' and r['message'].startswith('node not online: 10.0.0.243') and 'evicted' in r['message']
+    assert not world.pc.jobs and not [c for c in world.hc.calls if c[0] == 'import'], 'nothing was created'
+
+
+def test_restore_keeps_new_mac_when_source_vm_still_exists(world, monkeypatch):
+    world.hc.vms.append({'uuid': 'src-vm', 'name': 'exptest'})
+    world.db.restore['params'] = {'mac_policy': 'auto', 'start': False, 'nic_connected': True}
+    rs.run_restore(9)
+    nic = [c for c in world.hc.calls if c[0] == 'patch_nic'][0]
+    assert 'macAddress' not in nic[2] and nic[2]['connected'] is True
+    assert not [c for c in world.hc.calls if c[0] == 'action']
+
+
+def test_restore_refuses_existing_name_and_cleans_up_on_failure(world, monkeypatch):
+    world.hc.vms.append({'uuid': 'x', 'name': 'exptest-copy'})
+    rs.run_restore(9)
+    assert world.db.restore['status'] == 'ERROR' and 'already exists' in world.db.restore['message']
+    world.hc.vms.pop()
+    def boom(jid, on_progress=None, timeout=0, poll=0):
+        kind, _ = world.pc.jobs[int(jid[1:]) - 1]
+        if kind == 'stage':
+            raise rs.ProxyError('target unreachable')
+        return {'state': 'done', 'result': dict(world.pc.verify_result) if kind == 'verify' else {'files': []}}
+    monkeypatch.setattr(world.pc, 'wait', boom)
+    world.db.restore.update(status='RUNNING')
+    rs.run_restore(9)
+    assert world.db.restore['status'] == 'ERROR' and 'target unreachable' in world.db.restore['message']
+    assert world.hc.proxy_devs == [], 'staging disks removed after a failed stage'
+
+
+def test_iso_name_and_hypercore_iso_calls():
+    sys.path.insert(0, _BACKUP)
+    try:
+        saved = {n: sys.modules.pop(n) for n in _CLASH if n in sys.modules}
+        flr = importlib.import_module('flr')
+    finally:
+        sys.path.remove(_BACKUP)
+        for n in _CLASH:
+            sys.modules.pop(n, None)
+        sys.modules.update(saved)
+    n = flr.iso_name('My VM (prod)')
+    assert n.startswith('hcm-recovery-My_VM__prod_-') and n.endswith('.iso')
+    client = hcm.HyperCoreClient.__new__(hcm.HyperCoreClient)
+    calls = []
+    client._request = lambda m, p, **kw: calls.append((m, p, kw.get('json'))) or {'createdUUID': 'iso-1', 'taskTag': 't'}
+    assert client.create_iso('x.iso', 4096) == 'iso-1' and calls[-1][2] == {'name': 'x.iso', 'size': 4096, 'readyForInsert': False}
+    client.set_cdrom('cd-1', 'iso-1'); assert calls[-1] == ('PATCH', '/VirDomainBlockDevice/cd-1', {'path': 'scribe/iso-1'})
+    client.set_cdrom('cd-1', None); assert calls[-1][2] == {'path': ''}
+    client.ready_iso('iso-1'); assert calls[-1] == ('PATCH', '/ISO/iso-1', {'readyForInsert': True})
+
+
+def test_length_stream_reads_exactly_and_reports_len():
+    ls = hcm.LengthStream(iter([b'abc', b'defg', b'h']), 8)
+    assert len(ls) == 8 and ls.read(2) == b'ab' and ls.read(4) == b'cdef' and ls.read(10) == b'gh' and ls.read(1) == b''
+    assert hcm.LengthStream(iter([b'xy', b'z']), 3).read() == b'xyz'
+
+
+def test_refused_start_leaves_the_restore_complete(world, monkeypatch):
+    """HyperCore refuses to start a copy whose MAC address is in use; the VM is complete, the entry says so."""
+    world.hc.vms.append({'uuid': 'src-vm', 'name': 'exptest'})
+    world.db.restore['params'] = {'mac_policy': 'original', 'start': True, 'nic_connected': False}
+
+    def refuse(u, a):
+        raise rs.HyperCoreError('HyperCore API 400 on /VirDomain/action: MAC address 02:00:5E:4B:5C:5E is already in use.')
+    monkeypatch.setattr(world.hc, 'vm_action', refuse)
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'COMPLETE' and 'Not started' in r['message'] and 'already in use' in r['message'] and r['created_uuid'] == 'new-vm'
+
+
+def test_restore_stops_before_import_when_the_chain_is_corrupt(world):
+    world.pc.verify_result = {'ok': False, 'points': {'base': {'ok': True, 'mismatches': []},
+                                                     'delta-0001': {'ok': False, 'mismatches': ['disk-1.qcow2: checksum differs']}}, 'bytes': 8 << 20}
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'ERROR' and 'chain integrity check failed' in r['message'] and 'delta-0001: disk-1.qcow2: checksum differs' in r['message']
+    assert [k for k, _ in world.pc.jobs] == ['verify'], 'nothing flattened or staged'
+    assert not any(c[0] == 'import' for c in world.hc.calls), 'no VM created on the cluster'
+    bad = next(p for p in world.db.points if p['dir'] == 'delta-0001'); good = next(p for p in world.db.points if p['dir'] == 'base')
+    assert bad['verify_error'] == 'disk-1.qcow2: checksum differs' and good.get('verify_error') is None and good['verified_at']
+
+
+def test_restore_can_skip_the_verify_and_says_so(world):
+    world.db.restore['params'] = {'mac_policy': 'new', 'start': False, 'nic_connected': False, 'verify': False}
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'COMPLETE' and [k for k, _ in world.pc.jobs] == ['flatten', 'stage', 'sweep']
+    assert 'chain not verified (skipped)' in r['message']

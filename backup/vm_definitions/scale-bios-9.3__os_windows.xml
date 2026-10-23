@@ -1,0 +1,83 @@
+<domain xmlns:qemu="http://libvirt.org/schemas/domain/qemu/1.0" type="kvm">
+  <name>{{uuid}}</name>
+  <description>{{description}}</description>
+  <uuid>{{uuid}}</uuid>
+  <memory unit="KiB">{{mem_kib}}</memory>
+  <vcpu placement="static">{{vcpu}}</vcpu>
+  <cpu>
+    <topology sockets="1" cores="{{vcpu}}" threads="1"/>
+  </cpu>
+  <os>
+    <type xmlns:scaled="http://www.scalecomputing.com/scaled" arch="x86_64" machine="pc-i440fx-rhel7.6.0">hvm</type>
+    <smbios mode="sysinfo"/>
+  </os>
+  <sysinfo type="smbios">
+    <entry name="system"/>
+    <entry name="baseBoard"/>
+  </sysinfo>
+  <metadata>
+    <scale-metadata xmlns="http://www.scalecomputing.com/scaled">
+      <os uuid="{{os}}"/>
+      <tags>
+{{tags}}      </tags>
+      <cpuVendor name="intel"/>
+      <cpu name="{{cpu_type}}"/>
+      <machine name="scale-bios-9.3" version="9.7"/>
+      <aes present="true"/>
+    </scale-metadata>
+  </metadata>
+  <features>
+    <acpi/>
+    <apic/>
+    <pae/>
+    <hyperv>
+      <relaxed state="on"/>
+      <vapic state="on"/>
+      <spinlocks state="on" retries="8191"/>
+      <stimer state="on"/>
+      <synic state="on"/>
+      <vpindex state="on"/>
+      <runtime state="on"/>
+      <reset state="on"/>
+      <frequencies state="on"/>
+      <tlbflush state="on"/>
+      <ipi state="on"/>
+    </hyperv>
+    <msrs unknown="ignore"/>
+  </features>
+  <clock offset="utc">
+    <timer name="pit" tickpolicy="delay"/>
+    <timer name="rtc" tickpolicy="catchup"/>
+    <timer name="hypervclock" present="yes"/>
+  </clock>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>destroy</on_reboot>
+  <on_crash>restart</on_crash>
+  <devices>
+    <emulator>/usr/libexec/qemu-kvm</emulator>
+    <input type="tablet" bus="usb"/>
+    <controller type="virtio-serial" index="0">
+      <address type="pci" domain="0x0000" bus="0x00" slot="0x1f" function="0x0"/>
+    </controller>
+    <channel type="unix">
+      <source mode="bind" path="/var/lib/libvirt/qemu/{{uuid}}.agent"/>
+      <target type="virtio" name="org.qemu.guest_agent.0"/>
+    </channel>
+    <memballoon model="none"/>
+    <controller type="pci" index="0" model="pci-root"/>
+    <controller type="pci" index="1" model="pci-bridge">
+      <address type="pci" domain="0x0000" bus="0x00" slot="0x10" function="0x0" multifunction="off"/>
+    </controller>
+    <controller type="pci" index="2" model="pci-bridge">
+      <address type="pci" domain="0x0000" bus="0x00" slot="0x15" function="0x0" multifunction="off"/>
+    </controller>
+{{devices}}    <video>
+      <model type="vga"/>
+    </video>
+    <graphics type="vnc" autoport="yes"/>
+  </devices>
+  <qemu:commandline>
+    <qemu:arg value="-global"/>
+    <qemu:arg value="x86_64-cpu.host-phys-bits=off"/>
+  </qemu:commandline>
+</domain>

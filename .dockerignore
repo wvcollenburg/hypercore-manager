@@ -1,0 +1,20 @@
+# build context for the dashboard image (context: repository root, see docker-compose.yaml);
+# everything the image does not need is left out so builds stay small
+.git
+.github
+tests
+postgres
+proxy
+backup
+Collector
+Balancer
+sentinel
+installer
+influxdb
+docs/*.json
+*.md
+!docs/administration.md
+!docs/manual/**
+.env
+.env.*
+PLAN-*.md

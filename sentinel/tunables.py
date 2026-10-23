@@ -24,7 +24,34 @@ logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 
-DEFAULT_CLUSTER_ID = os.getenv('SC_CLUSTER_ID', '00000000-0000-0000-0000-000000000001')
+TEMPLATE_CLUSTER_ID = '00000000-0000-0000-0000-000000000001'
+# the cluster whose tunables this process reads and writes; sentinel.py sets it once the
+# registry has yielded a cluster. Until then the Defaults template is used.
+DEFAULT_CLUSTER_ID = TEMPLATE_CLUSTER_ID
+
+
+def set_cluster_id(cluster_id: str) -> None:
+    """Switch live tunables to *cluster_id* and make sure it has every key the template has
+    (keys added in a newer release are copied over from the Defaults template)."""
+    global DEFAULT_CLUSTER_ID
+    DEFAULT_CLUSTER_ID = cluster_id
+    if cluster_id == TEMPLATE_CLUSTER_ID:
+        return
+    try:
+        conn = _connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''INSERT INTO config.tunables (cluster_id, key, value, type)
+                       SELECT %s, key, value, type FROM config.tunables WHERE cluster_id = %s
+                       ON CONFLICT (cluster_id, key) DO NOTHING''',
+                    (cluster_id, TEMPLATE_CLUSTER_ID),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning('tunables: could not copy template tunables to %s: %s', cluster_id, exc)
 
 TunableDef = namedtuple('TunableDef', [
     'env_var', 'default', 'type_hint', 'live_reload',
@@ -223,7 +250,7 @@ def seed_from_env() -> None:
                         raw_env = os.getenv(defn.env_var) or None
                         cur.execute(
                             'SELECT value FROM config.tunables WHERE cluster_id = %s AND key = %s',
-                            (DEFAULT_CLUSTER_ID, key),
+                            (TEMPLATE_CLUSTER_ID, key),
                         )
                         row = cur.fetchone()
                         if row is None:
@@ -231,7 +258,7 @@ def seed_from_env() -> None:
                             cur.execute(
                                 '''INSERT INTO config.tunables (cluster_id, key, value, type)
                                    VALUES (%s, %s, %s, %s)''',
-                                (DEFAULT_CLUSTER_ID, key,
+                                (TEMPLATE_CLUSTER_ID, key,
                                  _serialize(value, defn.type_hint), defn.type_hint),
                             )
                         elif raw_env is not None and row[0] == _serialize(defn.default, defn.type_hint):
@@ -241,7 +268,7 @@ def seed_from_env() -> None:
                                       SET value = %s, updated_at = NOW()
                                     WHERE cluster_id = %s AND key = %s''',
                                 (_serialize(_cast(raw_env, defn.type_hint), defn.type_hint),
-                                 DEFAULT_CLUSTER_ID, key),
+                                 TEMPLATE_CLUSTER_ID, key),
                             )
                 conn.commit()
             finally:
@@ -250,8 +277,9 @@ def seed_from_env() -> None:
             logger.warning('tunables: PostgreSQL unavailable during seed, using env vars: %s', exc)
 
 
-def get_all() -> dict:
+def get_all(cluster_id: str = None) -> dict:
     """Return all live-reload tunables as {key: typed_value}."""
+    cid = cluster_id or DEFAULT_CLUSTER_ID
     with _lock:
         try:
             conn = _connect()
@@ -260,7 +288,7 @@ def get_all() -> dict:
                     cur.execute(
                         '''SELECT key, value, type FROM config.tunables
                            WHERE cluster_id = %s AND key = ANY(%s)''',
-                        (DEFAULT_CLUSTER_ID, list(TUNABLES.keys())),
+                        (cid, list(TUNABLES.keys())),
                     )
                     rows = cur.fetchall()
             finally:
@@ -271,8 +299,9 @@ def get_all() -> dict:
             return {k: _env_fallback(k) for k in TUNABLES}
 
 
-def save_many(updates: dict) -> None:
+def save_many(updates: dict, cluster_id: str = None) -> None:
     """Upsert multiple tunables in one transaction. Unknown keys are skipped."""
+    cid = cluster_id or DEFAULT_CLUSTER_ID
     with _lock:
         try:
             conn = _connect()
@@ -287,7 +316,7 @@ def save_many(updates: dict) -> None:
                                VALUES (%s, %s, %s, %s, NOW())
                                ON CONFLICT (cluster_id, key) DO UPDATE
                                    SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at''',
-                            (DEFAULT_CLUSTER_ID, key,
+                            (cid, key,
                              _serialize(value, defn.type_hint), defn.type_hint),
                         )
                 conn.commit()
@@ -297,8 +326,9 @@ def save_many(updates: dict) -> None:
             logger.warning('tunables: PostgreSQL unavailable for save_many(), changes dropped: %s', exc)
 
 
-def get_with_meta() -> list:
+def get_with_meta(cluster_id: str = None) -> list:
     """Return all tunables with full metadata — used by the tunables API."""
+    cid = cluster_id or DEFAULT_CLUSTER_ID
     with _lock:
         try:
             conn = _connect()
@@ -308,7 +338,7 @@ def get_with_meta() -> list:
                         '''SELECT key, value, type, updated_at FROM config.tunables
                            WHERE cluster_id = %s AND key = ANY(%s)
                            ORDER BY key''',
-                        (DEFAULT_CLUSTER_ID, list(TUNABLES.keys())),
+                        (cid, list(TUNABLES.keys())),
                     )
                     db_rows = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
             finally:
@@ -348,7 +378,7 @@ def apply_live(base_cfg) -> Any:
     Falls back to the existing cfg values if the DB is unreachable.
     """
     try:
-        live = get_all()
+        live = get_all(getattr(base_cfg, 'cluster_id', None))
         overrides = {
             defn.cfg_field: live[key]
             for key, defn in TUNABLES.items()

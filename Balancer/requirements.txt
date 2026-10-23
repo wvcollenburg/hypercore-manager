@@ -1,7 +1,8 @@
-requests
-python-dotenv
-pandas
-prophet
-influxdb-client
-urllib3
-psycopg2-binary
+requests==2.34.2
+python-dotenv==1.2.4
+pandas==3.0.6
+prophet==1.5.0
+influxdb-client==1.50.0
+urllib3==2.8.0
+psycopg2-binary==2.9.13
+cryptography==42.0.8

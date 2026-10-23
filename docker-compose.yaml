@@ -1,5 +1,3 @@
-version: '3.8'
-
 # =============================================================================
 # resource limits — read before changing
 # =============================================================================
@@ -20,18 +18,16 @@ version: '3.8'
 #     dashboard: 0.25 CPU   256MB
 #     postgres:  0.25 CPU   256MB  <- shared config store (replaces SQLite volume)
 #
-#   profile-conditional (sentinel / full):
 #     sentinel:  0.50 CPU   512MB
-#
-#   optional (tools profile):
-#     grafana:   0.25 CPU   128MB
+#     backup:    0.25 CPU   256MB  <- VM backup/import scheduler
+#     proxy:     1.00 CPU  1024MB  <- backup proxy (privileged, reads snapshot clones)
 #
 # total limits intentionally exceed physical cores because the Oracle (balancer
 # spike) and Sentinel analysis runs never overlap — outside those windows the
 # entire stack uses well under 0.5 cores combined
 #
-# the balancer's CPU limit should match or exceed SC_PREDICTIVE_MAX_WORKERS
-# in your .env file. if you reduce the CPU limit below the worker count,
+# the balancer's CPU limit should match or exceed the PREDICTIVE_MAX_WORKERS tunable
+# (Settings -> Tunables). if you reduce the CPU limit below the worker count,
 # Prophet workers will compete for cores and predictive runs will take longer
 # =============================================================================
 
@@ -51,6 +47,15 @@ services:
       - INFLUX_LONGTERM_BUCKET=${INFLUX_LONGTERM_BUCKET}
       - INFLUX_PRIMARY_RETENTION=${INFLUX_PRIMARY_RETENTION}
       - INFLUX_LONGTERM_RETENTION=${INFLUX_LONGTERM_RETENTION}
+      # Keep InfluxDB's own memory below the container limit (768M below): by default queries
+      # may use unlimited memory and the write cache 1 GiB, so a heavy query gets the whole
+      # server killed by Docker instead of being refused. With these caps a too-large query
+      # fails with an error and the database stays up. Raise them together with the limit.
+      - INFLUXD_QUERY_MEMORY_BYTES=${INFLUXD_QUERY_MEMORY_BYTES:-268435456}
+      - INFLUXD_QUERY_MAX_MEMORY_BYTES=${INFLUXD_QUERY_MAX_MEMORY_BYTES:-402653184}
+      - INFLUXD_QUERY_INITIAL_MEMORY_BYTES=${INFLUXD_QUERY_INITIAL_MEMORY_BYTES:-16777216}
+      - INFLUXD_QUERY_CONCURRENCY=${INFLUXD_QUERY_CONCURRENCY:-16}   # max memory must cover concurrency × initial
+      - INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE=${INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE:-201326592}
     volumes:
       - influxdb-data:/var/lib/influxdb2
     healthcheck:
@@ -66,43 +71,19 @@ services:
           memory: 768M
     restart: unless-stopped
 
-  grafana:
-    image: grafana/grafana:latest
-    container_name: sc_grafana
-    profiles:
-      - tools
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
-    depends_on:
-      influxdb:
-        condition: service_healthy
-    volumes:
-      - grafana-data:/var/lib/grafana
-    deploy:
-      resources:
-        limits:
-          cpus: "0.25"
-          memory: 128M
-    restart: unless-stopped
-
   collector:
     build: ./Collector
     container_name: sc_collector
     environment:
+      # encrypts cluster credentials stored in PostgreSQL; shared by every service that talks to HyperCore
+      - HCM_SECRET_KEY=${HCM_SECRET_KEY}
+      - TZ=${TZ:-UTC}
       # HyperCore credentials
-      - SC_HOST=${SC_HOST}
-      - SC_USERNAME=${SC_USERNAME}
-      - SC_PASSWORD=${SC_PASSWORD}
-      - SC_VERIFY_SSL=${SC_VERIFY_SSL}
       # InfluxDB connection
       - INFLUX_URL=http://influxdb:8086
       - INFLUX_TOKEN=${INFLUX_TOKEN}
       - INFLUX_ORG=${INFLUX_ORG}
       - INFLUX_BUCKET=${INFLUX_BUCKET}
-      - SC_POLL_INTERVAL=${SC_POLL_INTERVAL}
-      - SC_SLOW_POLL_INTERVAL=${SC_SLOW_POLL_INTERVAL}
       - INFLUX_PRIMARY_RETENTION=${INFLUX_PRIMARY_RETENTION}
       # PostgreSQL config store
       - PG_HOST=postgres
@@ -124,37 +105,10 @@ services:
     build: ./Balancer
     container_name: sc_balancer
     environment:
-      # HyperCore credentials
-      - SC_HOST=${SC_HOST}
-      - SC_USERNAME=${SC_USERNAME}
-      - SC_PASSWORD=${SC_PASSWORD}
-      - SC_VERIFY_SSL=${SC_VERIFY_SSL}
-
-      # master toggles
-      - SC_DRY_RUN=${SC_DRY_RUN}
-      - SC_VERBOSITY=${SC_VERBOSITY}
-
-      # --- reactive engine tuning ---
-      - SC_AVG_WINDOW_MINUTES=${SC_AVG_WINDOW_MINUTES}
-      - SC_SAMPLE_INTERVAL_SECONDS=${SC_SAMPLE_INTERVAL_SECONDS}
-      - SC_RAM_LIMIT_PERCENT=${SC_RAM_LIMIT_PERCENT}
-      - SC_RAM_UPPER_THRESHOLD_PERCENT=${SC_RAM_UPPER_THRESHOLD_PERCENT}
-      - SC_CPU_UPPER_THRESHOLD_PERCENT=${SC_CPU_UPPER_THRESHOLD_PERCENT}
-      - SC_MAX_VCPU_RATIO=${SC_MAX_VCPU_RATIO}
-      - SC_VM_MOVE_COOLDOWN_MINUTES=${SC_VM_MOVE_COOLDOWN_MINUTES}
-      - SC_MIGRATION_COOLDOWN_MINUTES=${SC_MIGRATION_COOLDOWN_MINUTES}
-      - SC_EXCLUDE_NODE_IPS=${SC_EXCLUDE_NODE_IPS}
-      - SC_CPU_TARGET_TOLERANCE_PERCENT=${SC_CPU_TARGET_TOLERANCE_PERCENT}
-
-      # --- predictive engine tuning (the Oracle) ---
-      - SC_PREDICTIVE_BALANCING_ENABLED=${SC_PREDICTIVE_BALANCING_ENABLED}
-      - SC_PREDICTIVE_INTERVAL_SECONDS=${SC_PREDICTIVE_INTERVAL_SECONDS}
-      - SC_PREDICTIVE_THRESHOLD=${SC_PREDICTIVE_THRESHOLD}
-      - SC_PREDICTIVE_MIN_HISTORY_HOURS=${SC_PREDICTIVE_MIN_HISTORY_HOURS}
-      - SC_PREDICTIVE_LEAD_TIME_HOURS=${SC_PREDICTIVE_LEAD_TIME_HOURS}
-      - SC_PREDICTIVE_LOOKBACK_DAYS=${SC_PREDICTIVE_LOOKBACK_DAYS}
-      - SC_PREDICTIVE_MAX_WORKERS=${SC_PREDICTIVE_MAX_WORKERS}
-      - SC_PREDICTIVE_RESERVATION_MINUTES=${SC_PREDICTIVE_RESERVATION_MINUTES}
+      # encrypts cluster credentials stored in PostgreSQL; shared by every service that talks to HyperCore
+      - HCM_SECRET_KEY=${HCM_SECRET_KEY}
+      - TZ=${TZ:-UTC}
+      # tunables (dry-run, thresholds, the Oracle) come from PostgreSQL, set in the dashboard
 
       # Oracle InfluxDB connection — internal to the Docker network
       - INFLUX_URL=http://influxdb:8086
@@ -178,20 +132,23 @@ services:
     restart: unless-stopped
 
   dashboard:
-    build: ./dashboard
+    build:
+      context: .                      # the image also carries docs/manual (served at /manual)
+      dockerfile: dashboard/Dockerfile
     container_name: sc_dashboard
     ports:
       - "5000:5000"
     environment:
+      # encrypts cluster credentials stored in PostgreSQL; shared by every service that talks to HyperCore
+      - HCM_SECRET_KEY=${HCM_SECRET_KEY}
+      - TZ=${TZ:-UTC}
       - INFLUX_URL=http://influxdb:8086
       - INFLUX_TOKEN=${INFLUX_TOKEN}
       - INFLUX_ORG=${INFLUX_ORG}
       - INFLUX_BUCKET=${INFLUX_BUCKET}
-      - SC_DASHBOARD_STALE_SECONDS=${SC_DASHBOARD_STALE_SECONDS}
       - SC_DASHBOARD_USER=${SC_DASHBOARD_USER}
       - SC_DASHBOARD_PASSWORD=${SC_DASHBOARD_PASSWORD}
       - SC_DASHBOARD_SECRET_KEY=${SC_DASHBOARD_SECRET_KEY}
-      - SC_EXCLUDE_NODE_IPS=${SC_EXCLUDE_NODE_IPS}
       # PostgreSQL config store
       - PG_HOST=postgres
       - PG_PORT=5432
@@ -201,6 +158,9 @@ services:
       # Sentinel REST API — D5 what-if proxy
       - SENTINEL_API_URL=http://sentinel:8081
       - SENTINEL_API_TOKEN=${SENTINEL_API_TOKEN:-}
+      # Backup REST API
+      - BACKUP_API_URL=http://backup:8082
+      - BACKUP_API_TOKEN=${BACKUP_API_TOKEN:-${EXPORTS_API_TOKEN:-}}
       # auto-update: repo is always at /repo inside the container via volume mount;
       # SC_HOST_REPO_PATH carries the real host-side path so docker run can mount
       # it correctly when spawning the updater container
@@ -252,12 +212,12 @@ services:
   sentinel:
     build: ./sentinel
     container_name: sc_sentinel
-    profiles:
-      - sentinel
-      - full
     ports:
-      - "8081:8081"    # SC//Foresight REST API (F1-F4, F6)
+      - "8081:8081"    # Foresight REST API (F1-F4, F6)
     environment:
+      # encrypts cluster credentials stored in PostgreSQL; shared by every service that talks to HyperCore
+      - HCM_SECRET_KEY=${HCM_SECRET_KEY}
+      - TZ=${TZ:-UTC}
       # InfluxDB (read-only consumer)
       - INFLUX_URL=http://influxdb:8086
       - INFLUX_TOKEN=${INFLUX_TOKEN}
@@ -282,20 +242,18 @@ services:
       - SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD=${SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD:-80.0}
       - SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD=${SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD:-90.0}
       - SENTINEL_ANALYSIS_WINDOW_DAYS=${SENTINEL_ANALYSIS_WINDOW_DAYS:-14}
+      - SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION=${SENTINEL_FORECAST_MIN_R2_FOR_EXHAUSTION:-0.5}
+      - SENTINEL_FORECAST_DAILY_AGGREGATE=${SENTINEL_FORECAST_DAILY_AGGREGATE:-mean}
       - SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES=${SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES:-3}
       # data retention
       - SENTINEL_RETENTION_MONTHS=${SENTINEL_RETENTION_MONTHS:-12}
+      - SENTINEL_VM_PRUNE_INTERVAL_SECONDS=${SENTINEL_VM_PRUNE_INTERVAL_SECONDS:-900}
       # collection intervals
       - SENTINEL_COLLECTION_INTERVAL_SECONDS=${SENTINEL_COLLECTION_INTERVAL_SECONDS:-300}
       - SENTINEL_TREND_INTERVAL_SECONDS=${SENTINEL_TREND_INTERVAL_SECONDS:-3600}
       # phase 2 REST API (F1-F4, F6)
       - SENTINEL_API_PORT=8081
       - SENTINEL_API_TOKEN=${SENTINEL_API_TOKEN:-}
-      # phase 3 HyperCore credentials — C7 outcome tracking, same as Collector
-      - SC_HOST=${SC_HOST}
-      - SC_USERNAME=${SC_USERNAME}
-      - SC_PASSWORD=${SC_PASSWORD}
-      - SC_VERIFY_SSL=${SC_VERIFY_SSL}
       # phase 3 outcome tracker (C7)
       - SENTINEL_OUTCOME_TRACKER_ENABLED=${SENTINEL_OUTCOME_TRACKER_ENABLED:-true}
       - SENTINEL_OUTCOME_CHECK_DELAY_HOURS=${SENTINEL_OUTCOME_CHECK_DELAY_HOURS:-48}
@@ -326,7 +284,91 @@ services:
           memory: 512M
     restart: unless-stopped
 
+  backup:
+    build: ./backup
+    container_name: sc_backup
+    ports:
+      - "8082:8082"    # Backup REST API (proxied by the dashboard)
+    environment:
+      - HCM_SECRET_KEY=${HCM_SECRET_KEY}
+      - TZ=${TZ:-UTC}
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DB=hypercore_balancer
+      - PG_USER=sentinel
+      - PG_PASSWORD=${SENTINEL_PG_PASSWORD}
+      - BACKUP_API_PORT=8082
+      # the dashboard exports the stack's proxy image for proxy VMs (deploy and update); same token as BACKUP_API_TOKEN
+      - DASHBOARD_URL=http://dashboard:5000
+      # self-proxy inside this stack (optional; remote proxies are registered in the dashboard)
+      - PROXY_API_URL=${PROXY_API_URL:-http://proxy:8083}
+      - PROXY_API_TOKEN=${PROXY_API_TOKEN:-}
+      # BACKUP_* is the current name; EXPORTS_* from the first release is still honoured
+      - BACKUP_API_TOKEN=${BACKUP_API_TOKEN:-${EXPORTS_API_TOKEN:-}}
+      - BACKUP_TASK_TIMEOUT_HOURS=${BACKUP_TASK_TIMEOUT_HOURS:-${EXPORTS_TASK_TIMEOUT_HOURS:-8}}
+      - BACKUP_POLL_INTERVAL_SECONDS=${BACKUP_POLL_INTERVAL_SECONDS:-${EXPORTS_POLL_INTERVAL_SECONDS:-15}}
+      - BACKUP_DEFAULT_RETENTION=${BACKUP_DEFAULT_RETENTION:-${EXPORTS_DEFAULT_RETENTION:-7}}
+      - BACKUP_DEFAULT_RUN_TIME=${BACKUP_DEFAULT_RUN_TIME:-${EXPORTS_DEFAULT_RUN_TIME:-03:00}}
+      # reference snapshots expire on the cluster after this many days (0 = never); a run waits up
+      # to this many hours for a cluster update or a missing node to clear before it is deferred
+      - BACKUP_ANCHOR_RETAIN_DAYS=${BACKUP_ANCHOR_RETAIN_DAYS:-60}
+      - BACKUP_PREFLIGHT_WAIT_HOURS=${BACKUP_PREFLIGHT_WAIT_HOURS:-2}
+    # NFS pruning needs the share mounted here; SMB pruning works without a mount.
+    # Add in docker-compose.override.yml:  volumes: ["/mnt/nas/hypercore:/mnt/nas/hypercore"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8082/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Backup proxy: reads hot-added snapshot clones and writes qcow2 chains onto
+  # backup targets. Privileged on purpose: it needs the host's block devices,
+  # /dev/nbd* and the ability to mount SMB/NFS shares. Runs here when the stack
+  # lives on a VM in the cluster (self-proxy); the same image runs in a small VM
+  # per remote cluster for the MSP case.
+  proxy:
+    build: ./proxy
+    container_name: sc_proxy
+    privileged: true
+    environment:
+      - TZ=${TZ:-UTC}
+      - PROXY_API_PORT=8083
+      - PROXY_API_TOKEN=${PROXY_API_TOKEN:-}
+      - PROXY_NBD_SLOTS=${PROXY_NBD_SLOTS:-8}
+      - PROXY_WRITERS=${PROXY_WRITERS:-4}
+      - PROXY_QCOW2_LAZY_REFCOUNTS=${PROXY_QCOW2_LAZY_REFCOUNTS:-true}
+      - PROXY_NBD_CACHE=${PROXY_NBD_CACHE:-unsafe}
+      - PROXY_HOST_NET=/host/sys/class/net
+      - PROXY_TLS=off          # inside the compose network; a remote proxy VM uses PROXY_TLS=auto (self-signed, pinned)
+    volumes:
+      - /dev:/dev
+      - /sys:/host/sys:ro     # host interfaces (MAC addresses) for proxy identity; sysfs symlinks need the whole tree
+      - proxy-data:/var/lib/hcm-proxy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8083/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G        # bounds the page cache of qemu-nbd's writes; the copier itself uses O_DIRECT
+    restart: unless-stopped
+
 volumes:
   influxdb-data:
-  grafana-data:
   postgres-data:
+  proxy-data:

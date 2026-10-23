@@ -1,4 +1,7 @@
-"""Shared installer core — used by the curses TUI and the Windows wizard.
+"""Shared installer core — used by the curses TUI (install.py) and the test suite.
+
+Clusters are not configured here: they are registered in the dashboard after the stack
+is up. The .env holds databases, secrets, ports and application defaults only.
 
 This module owns:
   * The schema describing every variable in .env.template.
@@ -7,8 +10,8 @@ This module owns:
   * Strong password / token generation and the easy-mode autogen pass.
   * Small utilities (host normalization, path autodetect).
 
-It deliberately has zero UI dependencies so a Windows GUI, the curses TUI,
-or a unit test can all share the same logic.
+It deliberately has zero UI dependencies so the curses TUI and the unit
+tests share the same logic.
 """
 
 from __future__ import annotations
@@ -33,16 +36,16 @@ TEMPLATE_PATH = Path(".env.template")
 # strings the schema treats as "still a placeholder, must be replaced"
 PLACEHOLDERS = {"CHANGE_ME", "https://nodeip/rest/v1", "password", ""}
 
-# profiles available in the schema, mirrors the docker-compose --profile flags
+# sections of the schema are grouped by the module they configure
 PROFILE_CORE = "core"
 PROFILE_SENTINEL = "sentinel"
-PROFILE_TOOLS = "tools"
+PROFILE_BACKUP = "backup"
 
 # easy-mode required keys — filled by the operator, never autogen'd
-EASY_REQUIRED_KEYS = {"SC_HOST", "SC_USERNAME", "SC_PASSWORD", "SC_DASHBOARD_PASSWORD"}
+EASY_REQUIRED_KEYS = {"SC_DASHBOARD_PASSWORD", "TZ"}
 
 # easy-mode default profile set
-EASY_PROFILES = {PROFILE_CORE, PROFILE_SENTINEL}
+EASY_PROFILES = {PROFILE_CORE, PROFILE_SENTINEL, PROFILE_BACKUP}   # every module starts with the stack
 
 
 # ============================================================================
@@ -53,7 +56,7 @@ EASY_PROFILES = {PROFILE_CORE, PROFILE_SENTINEL}
 class Field:
     key: str                                # env var name
     label: str                              # short human-readable label
-    type: str = "text"                      # text|password|token|int|float|bool|choice|path
+    type: str = "text"                      # text|password|token|int|float|bool|choice|path|timezone
     default: str = ""
     description: str = ""                   # what it does
     why_default: str = ""                   # why this value is the default
@@ -80,11 +83,13 @@ class Section:
 # ============================================================================
 
 def gen_password(length: int = 24) -> str:
-    """Strong password: alphanumeric + symbols, no ambiguous chars (0/O/1/l/I)."""
+    """Strong password: alphanumeric + symbols, no ambiguous chars (0/O/1/l/I) and no '$':
+    Docker Compose reads $NAME inside an .env value as a variable and substitutes an empty
+    string, which cut a generated password in half on a real install."""
     alphabet = (
         string.ascii_letters
         + string.digits
-        + "!@#$%^&*-_=+?"
+        + "!@#%^&*-_=+?"
     )
     alphabet = alphabet.translate(str.maketrans("", "", "0O1lI"))
     while True:
@@ -205,85 +210,172 @@ def build_schema() -> list[Section]:
             ],
         ),
 
-        # -------- HyperCore --------
+        # -------- secrets & time --------
         Section(
-            key="hypercore",
-            title="HyperCore Cluster",
-            blurb="Connection details and credentials for the Scale HyperCore REST API",
+            key="secrets",
+            title="Secrets & time",
+            blurb="Encryption key for stored cluster credentials, timezone for schedules",
             fields=[
                 Field(
-                    key="SC_HOST",
-                    label="REST API URL",
-                    default="https://nodeip/rest/v1",
+                    key="HCM_SECRET_KEY",
+                    label="Credential encryption key",
+                    type="token",
+                    default="CHANGE_ME",
                     must_change=True,
                     description=(
-                        "Full URL to the HyperCore REST API. Must include the protocol "
-                        "(https://) and the /rest/v1 path. The Collector polls this "
-                        "endpoint on every cycle and the Balancer issues migrations "
-                        "through it."
+                        "HyperCore clusters are registered in the dashboard (Settings -> Clusters); "
+                        "their passwords are stored in PostgreSQL encrypted with this key. Every "
+                        "service that talks to a cluster receives it."
                     ),
                     why_default=(
-                        "Placeholder — the cluster IP differs per deployment and there "
-                        "is no sensible global default."
+                        "There is no safe default for a key. The installer generates a 256-bit "
+                        "random value; press G to generate."
                     ),
                     when_change=(
-                        "Always. Replace 'nodeip' with any node IP in the cluster "
-                        "(HyperCore handles the routing internally). Example: "
-                        "https://192.168.1.10/rest/v1"
+                        "Never casually: changing it makes every stored cluster password "
+                        "unreadable until re-entered. Back it up with the database."
                     ),
                 ),
                 Field(
-                    key="SC_USERNAME",
-                    label="Username",
-                    default="admin",
-                    description=(
-                        "HyperCore service account name used for read + migration "
-                        "operations. Must have rights to list nodes/VMs and live-migrate."
-                    ),
-                    why_default=(
-                        "'admin' works on a fresh cluster but is a poor practice — every "
-                        "audit trail will read 'admin'."
-                    ),
-                    when_change=(
-                        "Strongly recommended: create a dedicated service account "
-                        "(e.g. 'svc-balancer') so audit logs identify the automation."
-                    ),
+                    key="TZ",
+                    label="Timezone",
+                    type="timezone",
+                    default="UTC",
+                    description="IANA timezone used for scheduled jobs and log timestamps (e.g. Europe/Amsterdam).",
+                    why_default="UTC is unambiguous for logs shared across sites.",
+                    when_change="Set your local zone if you want 'daily at 03:00' to mean local time.",
                 ),
+            ],
+        ),
+
+        # -------- Backup --------
+        Section(
+            key="backup",
+            title="Backup (VM backups, exports and imports)",
+            blurb="Scheduled VM backups and exports to SMB/NFS with retention, and VM imports",
+            profiles={PROFILE_BACKUP},
+            fields=[
                 Field(
-                    key="SC_PASSWORD",
-                    label="Password",
-                    type="password",
-                    default="password",
+                    key="BACKUP_API_TOKEN",
+                    label="Backup API token",
+                    type="token",
+                    default="CHANGE_ME",
                     must_change=True,
-                    description=(
-                        "Password for SC_USERNAME. Stored as plaintext in .env on the "
-                        "management host — protect file permissions accordingly."
-                    ),
-                    why_default=(
-                        "Placeholder — 'password' is obviously not a real credential."
-                    ),
-                    when_change=(
-                        "Always. Use the actual cluster password for the service account."
-                    ),
+                    profiles={PROFILE_BACKUP},
+                    description="Bearer token the dashboard presents to the Backup REST API on the internal network.",
+                    why_default="No safe default for a token; press G to generate one.",
+                    when_change="Rotate it if it leaks; both the backup and dashboard containers read it from .env.",
                 ),
                 Field(
-                    key="SC_VERIFY_SSL",
-                    label="Verify TLS",
+                    key="PROXY_API_TOKEN",
+                    label="Backup proxy API token",
+                    type="token",
+                    default="CHANGE_ME",
+                    must_change=True,
+                    profiles={PROFILE_BACKUP},
+                    description="Bearer token the backup service presents to the backup proxy (the container in this stack or a proxy VM in a remote cluster).",
+                    why_default="No safe default for a token; press G to generate one.",
+                    when_change="Rotate it if it leaks; the backup and proxy containers read it from .env.",
+                ),
+                Field(
+                    key="PROXY_WRITERS",
+                    label="Proxy parallel writers",
+                    type="int",
+                    default="4",
+                    profiles={PROFILE_BACKUP},
+                    description="Parallel writer threads per backup job in the proxy.",
+                    why_default="Four keeps a 1 GbE link busy without starving the VM.",
+                    when_change="Raise on 10 GbE proxies; lower on tiny proxy VMs.",
+                ),
+                Field(
+                    key="PROXY_NBD_SLOTS",
+                    label="Proxy nbd slots",
+                    type="int",
+                    default="8",
+                    profiles={PROFILE_BACKUP},
+                    description="How many /dev/nbd devices the proxy may use at once (one per image being written or mounted).",
+                    why_default="Eight covers a few concurrent jobs; the nbd kernel module provides 16 by default.",
+                    when_change="Match the module's nbds_max when you raise job concurrency.",
+                ),
+                Field(
+                    key="PROXY_QCOW2_LAZY_REFCOUNTS",
+                    label="Proxy qcow2 lazy refcounts",
                     type="bool",
-                    default="false",
-                    description=(
-                        "Whether to verify the HyperCore TLS certificate. When false, "
-                        "the Collector and Balancer accept self-signed certs without "
-                        "complaint."
-                    ),
-                    why_default=(
-                        "false — most HyperCore clusters ship with a self-signed cert "
-                        "that won't validate against a public CA bundle."
-                    ),
-                    when_change=(
-                        "Set true if you've installed a certificate signed by a CA the "
-                        "host trusts. Recommended for production where MITM matters."
-                    ),
+                    default="true",
+                    profiles={PROFILE_BACKUP},
+                    description="Write backup images with qcow2 lazy refcounts: qemu skips the flush it otherwise issues for every allocated cluster (one per MiB written).",
+                    why_default="Together with the unsafe cache mode this doubled the write rate onto an SMB share in our lab; an image not closed cleanly is repaired on its next open.",
+                    when_change="Set to false to keep qemu's strict ordering; compare with 'Measure throughput' on a proxy first.",
+                ),
+                Field(
+                    key="PROXY_NBD_CACHE",
+                    label="Proxy nbd cache mode",
+                    type="choice",
+                    choices=["writeback", "unsafe", "none"],
+                    default="unsafe",
+                    profiles={PROFILE_BACKUP},
+                    description="qemu-nbd cache mode while the proxy writes a backup image.",
+                    why_default="'unsafe' ignores flushes until the image is closed; the proxy syncs a finished point to the share before its checksum is taken, and an unfinished point is never valid. It measured 55 MiB/s against 37 for writeback on our lab's SMB share.",
+                    when_change="writeback honours every flush; none uses direct I/O. Compare with 'Measure throughput' on a proxy.",
+                ),
+                Field(
+                    key="BACKUP_TASK_TIMEOUT_HOURS",
+                    label="Task timeout (hours)",
+                    type="int",
+                    default="8",
+                    profiles={PROFILE_BACKUP},
+                    description="A HyperCore export or import task that runs longer than this is marked failed.",
+                    why_default="Eight hours covers multi-terabyte VMs on gigabit links.",
+                    when_change="Raise it for very large VMs on slow links.",
+                ),
+                Field(
+                    key="BACKUP_POLL_INTERVAL_SECONDS",
+                    label="Task poll interval (seconds)",
+                    type="int",
+                    default="15",
+                    profiles={PROFILE_BACKUP},
+                    description="How often a running task's progress is read from the cluster.",
+                    why_default="Progress changes slowly; 15 s keeps the API quiet.",
+                    when_change="Rarely.",
+                ),
+                Field(
+                    key="BACKUP_DEFAULT_RETENTION",
+                    label="Default copies to keep",
+                    type="int",
+                    default="7",
+                    profiles={PROFILE_BACKUP},
+                    description="Pre-filled retention for new backup plans (each schedule can override).",
+                    why_default="A week of daily copies.",
+                    when_change="Match your backup policy.",
+                ),
+                Field(
+                    key="BACKUP_DEFAULT_RUN_TIME",
+                    label="Default run time (HH:MM)",
+                    default="03:00",
+                    profiles={PROFILE_BACKUP},
+                    description="Pre-filled daily run time for new backup plans, in the TZ configured above.",
+                    why_default="Night-time, outside most maintenance windows.",
+                    when_change="Stagger schedules across clusters to spread NAS load.",
+                ),
+                Field(
+                    key="BACKUP_ANCHOR_RETAIN_DAYS",
+                    label="Reference snapshot lifetime (days)",
+                    default="60",
+                    profiles={PROFILE_BACKUP},
+                    description="HyperCore removes a plan's reference snapshot itself after this many days (0 = never). "
+                                "A VM backed up less often than this gets a full copy with a note.",
+                    why_default="Twice the daily sweep's 30-day age: an installation that disappears leaves nothing on the cluster for good.",
+                    when_change="Raise it for VMs that are backed up less than every two months.",
+                ),
+                Field(
+                    key="BACKUP_PREFLIGHT_WAIT_HOURS",
+                    label="Wait for a busy cluster (hours)",
+                    default="2",
+                    profiles={PROFILE_BACKUP},
+                    description="A run that finds the cluster updating itself or a node missing waits this long for it to clear, "
+                                "then is recorded as deferred and left to the next scheduled run.",
+                    why_default="Covers a rolling cluster update without burning the whole backup window.",
+                    when_change="Shorten it when plans run several times a day.",
                 ),
             ],
         ),
@@ -428,478 +520,55 @@ def build_schema() -> list[Section]:
                         "Reduce on small disks; raise if you need a longer baseline."
                     ),
                 ),
-            ],
-        ),
-
-        # -------- Grafana --------
-        Section(
-            key="grafana",
-            title="Grafana (optional)",
-            blurb="Optional metrics-explorer UI — only if you run the 'tools' profile",
-            profiles={PROFILE_TOOLS},
-            fields=[
                 Field(
-                    key="GF_SECURITY_ADMIN_PASSWORD",
-                    label="Admin password",
-                    type="password",
-                    default="CHANGE_ME",
-                    must_change=True,
-                    description=(
-                        "Password for the Grafana 'admin' user, used to log into the "
-                        "Grafana web UI on port 3000."
-                    ),
-                    why_default=(
-                        "Placeholder — Grafana would otherwise default to 'admin/admin' "
-                        "and prompt at first login."
-                    ),
-                    when_change=(
-                        "Always, before starting the tools profile. Press G to generate."
-                    ),
-                    profiles={PROFILE_TOOLS},
+                    key="INFLUXD_QUERY_MAX_MEMORY_BYTES",
+                    label="InfluxDB query memory, all queries (bytes)",
+                    type="int",
+                    default="402653184",
+                    description="Memory InfluxDB may use for all running queries together.",
+                    why_default="384 MB: half of the container's 768 MB limit, so a heavy query fails with an error instead of Docker killing the database.",
+                    when_change="Raise together with the InfluxDB container's memory limit in docker-compose.yaml.",
+                ),
+                Field(
+                    key="INFLUXD_QUERY_MEMORY_BYTES",
+                    label="InfluxDB query memory, per query (bytes)",
+                    type="int",
+                    default="268435456",
+                    description="Memory one query may use.",
+                    why_default="256 MB leaves room for the collector's writes next to one big dashboard query.",
+                    when_change="Raise together with the InfluxDB container's memory limit in docker-compose.yaml.",
+                ),
+                Field(
+                    key="INFLUXD_QUERY_INITIAL_MEMORY_BYTES",
+                    label="InfluxDB initial query memory (bytes)",
+                    type="int",
+                    default="16777216",
+                    description="Memory a query starts with before asking for more.",
+                    why_default="16 MB is InfluxDB's own guidance for small deployments.",
+                    when_change="Raise together with the InfluxDB container's memory limit in docker-compose.yaml.",
+                ),
+                Field(
+                    key="INFLUXD_QUERY_CONCURRENCY",
+                    label="InfluxDB concurrent queries",
+                    type="int",
+                    default="16",
+                    description="How many queries InfluxDB runs at once; the rest queue.",
+                    why_default="16 × the initial query memory stays under the cap for all queries, which InfluxDB requires at start-up (its default of 1024 would need 16 GB).",
+                    when_change="Raise together with the memory caps on big installations.",
+                ),
+                Field(
+                    key="INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE",
+                    label="InfluxDB write cache (bytes)",
+                    type="int",
+                    default="201326592",
+                    description="Size of the in-memory write cache before it is flushed to disk.",
+                    why_default="192 MB instead of InfluxDB's 1 GiB default, which alone exceeds the container limit.",
+                    when_change="Raise together with the InfluxDB container's memory limit in docker-compose.yaml.",
                 ),
             ],
         ),
 
         # -------- collector --------
-        Section(
-            key="collector",
-            title="Collector",
-            blurb="Polls HyperCore for cluster + VM metrics and writes them to InfluxDB",
-            fields=[
-                Field(
-                    key="SC_POLL_INTERVAL",
-                    label="Fast poll (sec)",
-                    type="int",
-                    default="30",
-                    description=(
-                        "How often the Collector pulls per-VM and per-node CPU/RAM "
-                        "metrics from the HyperCore REST API."
-                    ),
-                    why_default=(
-                        "30s — matches HyperCore's own internal sampling cadence; "
-                        "polling faster yields no extra resolution."
-                    ),
-                    when_change=(
-                        "Raise (60-120) on very large clusters where API calls become "
-                        "expensive. Don't go below 30."
-                    ),
-                ),
-                Field(
-                    key="SC_SLOW_POLL_INTERVAL",
-                    label="Slow poll (sec)",
-                    type="int",
-                    default="300",
-                    description=(
-                        "Cadence for less-volatile metadata (VM specs, node hardware)."
-                    ),
-                    why_default=(
-                        "300s — these values change rarely (only when an admin edits "
-                        "a VM), so polling more often is wasted load."
-                    ),
-                    when_change=(
-                        "Rarely. If you script frequent VM spec changes, lower it "
-                        "so the dashboard sees them faster."
-                    ),
-                ),
-            ],
-        ),
-
-        # -------- balancer master --------
-        Section(
-            key="balancer_master",
-            title="Balancer — Master Toggles",
-            blurb="The two big switches: dry-run safety net and log verbosity",
-            fields=[
-                Field(
-                    key="SC_DRY_RUN",
-                    label="Dry run",
-                    type="bool",
-                    default="true",
-                    description=(
-                        "When true the Balancer logs every migration it WOULD perform "
-                        "but never actually moves a VM. Essential safety net for the "
-                        "first day or two of a new install."
-                    ),
-                    why_default=(
-                        "true — fail-safe. A misconfigured Balancer that immediately "
-                        "starts shuffling VMs is much worse than one that does nothing."
-                    ),
-                    when_change=(
-                        "Set false ONLY after you've watched the Balancer for at least "
-                        "one full reactive cycle and confirmed its proposed moves are "
-                        "sensible. The dashboard 'Activity' tab shows what it would do."
-                    ),
-                ),
-                Field(
-                    key="SC_VERBOSITY",
-                    label="Verbosity (1-5)",
-                    type="int",
-                    default="3",
-                    description=(
-                        "Logging detail. 1 = errors only, 3 = decisions + outcomes, "
-                        "5 = every metric sample and intermediate score."
-                    ),
-                    why_default=(
-                        "3 — enough to see why the Balancer made each call without "
-                        "drowning the log."
-                    ),
-                    when_change=(
-                        "Bump to 5 when debugging an unexpected migration. Drop to 1 "
-                        "in long-term steady-state to reduce log volume."
-                    ),
-                ),
-            ],
-        ),
-
-        # -------- balancer reactive --------
-        Section(
-            key="balancer_reactive",
-            title="Balancer — Reactive Engine",
-            blurb="Live response thresholds: when does the Balancer act NOW?",
-            fields=[
-                Field(
-                    key="SC_AVG_WINDOW_MINUTES",
-                    label="Averaging window (min)",
-                    type="int",
-                    default="5",
-                    description=(
-                        "Length of the rolling window used to smooth instantaneous "
-                        "spikes before deciding to migrate."
-                    ),
-                    why_default=(
-                        "5 minutes — long enough to ignore single-poll spikes, short "
-                        "enough to react before users notice contention."
-                    ),
-                    when_change=(
-                        "Increase if you see migrations triggered by very short bursts. "
-                        "Decrease if you want faster reaction at the cost of more churn."
-                    ),
-                ),
-                Field(
-                    key="SC_SAMPLE_INTERVAL_SECONDS",
-                    label="Sample interval (sec)",
-                    type="int",
-                    default="30",
-                    description=(
-                        "How often the reactive engine evaluates whether a migration "
-                        "is needed."
-                    ),
-                    why_default=(
-                        "30s — matches the Collector cadence so each cycle has fresh "
-                        "data."
-                    ),
-                    when_change=(
-                        "Match this to SC_POLL_INTERVAL — there's no benefit to "
-                        "evaluating faster than data arrives."
-                    ),
-                ),
-                Field(
-                    key="SC_RAM_LIMIT_PERCENT",
-                    label="RAM hard ceiling (%)",
-                    type="float",
-                    default="85.0",
-                    description=(
-                        "Absolute upper bound on per-node RAM usage. The Balancer "
-                        "will never place a VM on a node where doing so would push "
-                        "RAM above this."
-                    ),
-                    why_default=(
-                        "85% — leaves enough headroom for guest OS bursts and "
-                        "HyperCore's own RAM overhead without wasting capacity."
-                    ),
-                    when_change=(
-                        "Lower (75-80) if you've seen OOM events. Raising above 90 "
-                        "is risky on a 3-node cluster: a node loss may leave nowhere "
-                        "to evacuate VMs."
-                    ),
-                ),
-                Field(
-                    key="SC_RAM_UPPER_THRESHOLD_PERCENT",
-                    label="RAM target ceiling (%)",
-                    type="float",
-                    default="65.0",
-                    description=(
-                        "Threshold that triggers proactive rebalancing — when a node "
-                        "exceeds this, the Balancer looks for a VM to evacuate even "
-                        "though there's no immediate emergency."
-                    ),
-                    why_default=(
-                        "65% — gives 20pp of headroom below the hard ceiling, room to "
-                        "absorb workload growth between checks."
-                    ),
-                    when_change=(
-                        "Tighten (55-60) for very smooth distribution; relax (70-75) "
-                        "to reduce migration churn on already-balanced clusters."
-                    ),
-                ),
-                Field(
-                    key="SC_CPU_UPPER_THRESHOLD_PERCENT",
-                    label="CPU target ceiling (%)",
-                    type="float",
-                    default="50.0",
-                    description=(
-                        "CPU usage above this on a node triggers reactive balancing."
-                    ),
-                    why_default=(
-                        "50% — tuned for steady-state. CPU is far more bursty than "
-                        "RAM, so the threshold is much lower than the RAM target."
-                    ),
-                    when_change=(
-                        "Raise (60-70) on workloads that legitimately run hot. Lower "
-                        "if you want the Balancer to spread work earlier."
-                    ),
-                ),
-                Field(
-                    key="SC_MAX_VCPU_RATIO",
-                    label="Max vCPU:pCPU ratio",
-                    type="float",
-                    default="2.0",
-                    description=(
-                        "Upper bound on assigned vCPU count divided by physical core "
-                        "count per node. The Balancer refuses migrations that would "
-                        "exceed this."
-                    ),
-                    why_default=(
-                        "2.0 — conservative. Most general-purpose workloads tolerate "
-                        "2:1 oversubscription comfortably."
-                    ),
-                    when_change=(
-                        "Lower to 1.5 for latency-sensitive workloads. Raise to 3-4 "
-                        "for VDI or other bursty fleets where most VMs sit idle."
-                    ),
-                ),
-                Field(
-                    key="SC_VM_MOVE_COOLDOWN_MINUTES",
-                    label="Per-VM cooldown (min)",
-                    type="int",
-                    default="30",
-                    description=(
-                        "Minimum gap between two successive migrations of the SAME "
-                        "VM. Prevents ping-pong."
-                    ),
-                    why_default=(
-                        "30 min — a VM that just moved should stay put long enough "
-                        "to refute the conditions that triggered the move."
-                    ),
-                    when_change=(
-                        "Raise (60-120) if you still see the same VM bouncing. Drop "
-                        "only when debugging."
-                    ),
-                ),
-                Field(
-                    key="SC_MIGRATION_COOLDOWN_MINUTES",
-                    label="Cluster cooldown (min)",
-                    type="int",
-                    default="5",
-                    description=(
-                        "Minimum gap between any two migrations cluster-wide. Limits "
-                        "the rate at which the Balancer churns the cluster."
-                    ),
-                    why_default=(
-                        "5 min — fast enough to converge during a real imbalance, "
-                        "slow enough to avoid flooding HyperCore with concurrent moves."
-                    ),
-                    when_change=(
-                        "Raise (10-15) on very large clusters where simultaneous "
-                        "migrations strain the storage fabric."
-                    ),
-                ),
-                Field(
-                    key="SC_EXCLUDE_NODE_IPS",
-                    label="Excluded node IPs (CSV)",
-                    default="",
-                    description=(
-                        "Comma-separated list of node IPs that the Balancer must not "
-                        "migrate VMs onto OR off of. Used to quarantine nodes during "
-                        "maintenance or for nodes hosting workloads pinned by policy."
-                    ),
-                    why_default=(
-                        "Empty — by default the Balancer treats every node as a "
-                        "valid placement target."
-                    ),
-                    when_change=(
-                        "Add the management/witness node's IP if it should never "
-                        "host workload VMs. Add a node temporarily during firmware "
-                        "updates to drain it."
-                    ),
-                ),
-                Field(
-                    key="SC_CPU_TARGET_TOLERANCE_PERCENT",
-                    label="CPU target tolerance (%)",
-                    type="float",
-                    default="5.0",
-                    description=(
-                        "How close to the target CPU level a node must already be "
-                        "before the Balancer considers it 'good enough' and stops "
-                        "looking for further moves."
-                    ),
-                    why_default=(
-                        "5% — wide enough that small drift doesn't trigger pointless "
-                        "migrations, narrow enough to keep the cluster well-balanced."
-                    ),
-                    when_change=(
-                        "Lower for very tight balancing; raise to reduce migration "
-                        "frequency at the cost of looser distribution."
-                    ),
-                ),
-            ],
-        ),
-
-        # -------- balancer predictive --------
-        Section(
-            key="balancer_predictive",
-            title="Balancer — Predictive Engine (Oracle)",
-            blurb="Forecast-driven preemptive migrations using Prophet",
-            enable_field="SC_PREDICTIVE_BALANCING_ENABLED",
-            fields=[
-                Field(
-                    key="SC_PREDICTIVE_BALANCING_ENABLED",
-                    label="Predictive enabled",
-                    type="bool",
-                    default="true",
-                    description=(
-                        "Master switch for the Oracle. When false the Balancer runs "
-                        "purely reactively."
-                    ),
-                    why_default=(
-                        "true — the Oracle's whole point is to migrate BEFORE a "
-                        "predictable spike. Disabling it negates a major feature."
-                    ),
-                    when_change=(
-                        "Disable if Prophet's CPU cost is unacceptable on the host, "
-                        "or while debugging unexpected predictive moves."
-                    ),
-                ),
-                Field(
-                    key="SC_PREDICTIVE_INTERVAL_SECONDS",
-                    label="Run interval (sec)",
-                    type="int",
-                    default="43200",
-                    description=(
-                        "How often the Oracle runs a full forecast pass across all "
-                        "VMs. Each run is CPU-heavy."
-                    ),
-                    why_default=(
-                        "43200 (12 hours) — usage patterns don't shift faster than "
-                        "this, and twice-a-day forecasting catches the next 12h "
-                        "window comfortably."
-                    ),
-                    when_change=(
-                        "Don't drop below 6 hours unless you have a lot of CPU to "
-                        "spare. Raising to 24 hours is fine for stable workloads."
-                    ),
-                ),
-                Field(
-                    key="SC_PREDICTIVE_THRESHOLD",
-                    label="Trigger threshold (%)",
-                    type="float",
-                    default="80.0",
-                    description=(
-                        "Predicted node usage % above which the Oracle plans a "
-                        "preemptive migration."
-                    ),
-                    why_default=(
-                        "80% — high enough that we don't move VMs for shallow "
-                        "predicted spikes, low enough to act before saturation."
-                    ),
-                    when_change=(
-                        "Lower (70) for more aggressive preemption; raise (85-90) "
-                        "if you only want intervention for serious predicted spikes."
-                    ),
-                ),
-                Field(
-                    key="SC_PREDICTIVE_MIN_HISTORY_HOURS",
-                    label="Min history (hours)",
-                    type="int",
-                    default="336",
-                    description=(
-                        "Minimum age of metric history required before the Oracle "
-                        "will produce a forecast for a given VM."
-                    ),
-                    why_default=(
-                        "336h = 14 days. Enough to capture 2 weekday + 2 weekend "
-                        "cycles, which is the minimum Prophet needs for weekly "
-                        "seasonality."
-                    ),
-                    when_change=(
-                        "Don't go below 168 (1 week). Increase to 720 (30 days) if "
-                        "you want stronger monthly seasonality."
-                    ),
-                ),
-                Field(
-                    key="SC_PREDICTIVE_LOOKBACK_DAYS",
-                    label="Lookback (days)",
-                    type="int",
-                    default="90",
-                    description=(
-                        "How many days of history Prophet ingests per forecast."
-                    ),
-                    why_default=(
-                        "90 days — captures quarterly cycles without bloating "
-                        "training time."
-                    ),
-                    when_change=(
-                        "Raise to 180-365 for better long-cycle detection (slower "
-                        "training). Drop to 30 only if memory is tight."
-                    ),
-                ),
-                Field(
-                    key="SC_PREDICTIVE_MAX_WORKERS",
-                    label="Max parallel workers",
-                    type="int",
-                    default="8",
-                    description=(
-                        "Number of Prophet workers run in parallel. Each is CPU-bound."
-                    ),
-                    why_default=(
-                        "8 — reasonable on a generous host. The balancer container's "
-                        "CPU limit (1.5 in docker-compose) caps actual parallelism."
-                    ),
-                    when_change=(
-                        "MUST be <= the balancer container's cpus: limit. Lower "
-                        "(2-4) on small hosts; raise on dedicated boxes."
-                    ),
-                ),
-                Field(
-                    key="SC_PREDICTIVE_LEAD_TIME_HOURS",
-                    label="Lead time (hours)",
-                    type="int",
-                    default="1",
-                    description=(
-                        "How far in advance of a predicted spike the Oracle should "
-                        "kick off the preemptive migration."
-                    ),
-                    why_default=(
-                        "1 hour — enough lead time for live migration to complete "
-                        "and the VM to settle, without acting unhelpfully early."
-                    ),
-                    when_change=(
-                        "Raise (2-3) on large VMs where migration takes longer."
-                    ),
-                ),
-                Field(
-                    key="SC_PREDICTIVE_RESERVATION_MINUTES",
-                    label="Reservation window (min)",
-                    type="int",
-                    default="5",
-                    description=(
-                        "After the Oracle picks a target node, that node's headroom "
-                        "is reserved for this many minutes so a parallel decision "
-                        "doesn't double-book it."
-                    ),
-                    why_default=(
-                        "5 min — long enough for a single migration to commit; short "
-                        "enough that stale reservations don't block subsequent moves."
-                    ),
-                    when_change=(
-                        "Raise (15-30) if migrations on your storage fabric routinely "
-                        "exceed 5 minutes."
-                    ),
-                ),
-            ],
-        ),
-
-        # -------- auto-update paths --------
         Section(
             key="autoupdate",
             title="Auto-update paths",
@@ -951,25 +620,8 @@ def build_schema() -> list[Section]:
         Section(
             key="dashboard",
             title="Dashboard",
-            blurb="Web UI on port 5000 — login, session signing, staleness threshold",
+            blurb="Web UI on port 5000 — login, session signing",
             fields=[
-                Field(
-                    key="SC_DASHBOARD_STALE_SECONDS",
-                    label="Stale threshold (sec)",
-                    type="int",
-                    default="120",
-                    description=(
-                        "How old a metric sample can be before the dashboard marks "
-                        "it as 'stale' (greyed out)."
-                    ),
-                    why_default=(
-                        "120s — 4x the default poll interval, so the dashboard only "
-                        "complains when something is actually wrong."
-                    ),
-                    when_change=(
-                        "Match this to ~4x your SC_POLL_INTERVAL."
-                    ),
-                ),
                 Field(
                     key="SC_DASHBOARD_USER",
                     label="Initial admin username",
@@ -1364,7 +1016,7 @@ def build_schema() -> list[Section]:
                     ),
                     when_change=(
                         "Lower (120) if dashboard freshness matters more than load. "
-                        "Don't go below SC_POLL_INTERVAL."
+                        "Don't go below the collector's POLL_INTERVAL tunable (30 s by default)."
                     ),
                     profiles={PROFILE_SENTINEL},
                 ),
@@ -1707,6 +1359,82 @@ def validate_value(field_def: Field, value: str) -> Optional[str]:
     elif field_def.type == "choice":
         if field_def.choices and value not in field_def.choices:
             return f"Must be one of: {', '.join(field_def.choices)}"
+    elif field_def.type == "timezone":
+        return validate_timezone(value)
+    elif field_def.type in ("password", "token"):
+        return validate_env_literal(value)
+    return None
+
+
+def validate_env_literal(value: str) -> Optional[str]:
+    """None when Docker Compose will hand the value to the containers unchanged. '$' starts a
+    variable reference in a compose .env file, a leading quote starts a quoted value, and
+    whitespace ends an unquoted one."""
+    if "$" in value:
+        return "Must not contain '$': Docker Compose reads $NAME in .env as a variable."
+    if value[:1] in ("'", '"'):
+        return "Must not start with a quote: Docker Compose would parse it as a quoted value."
+    if any(ch.isspace() for ch in value):
+        return "Must not contain spaces."
+    return None
+
+
+# regions offered by the time zone picker, in this order; UTC is a choice of its own. The bare
+# legacy names (CET, EST, Japan, ...) and the Etc/ offsets are left out on purpose.
+TZ_REGIONS = ["Africa", "America", "Antarctica", "Asia", "Atlantic", "Australia", "Europe", "Indian", "Pacific",
+              "US", "Canada", "Mexico", "Brazil", "Chile"]
+
+
+def timezone_regions() -> list[str]:
+    """['UTC', 'Africa', 'America', ...]: UTC first, then every region of TZ_REGIONS the host's
+    tz database actually has zones for."""
+    try:
+        from zoneinfo import available_timezones
+        have = {z.split("/", 1)[0] for z in available_timezones() if "/" in z}
+    except Exception:  # noqa: BLE001
+        have = set(TZ_REGIONS)
+    return ["UTC"] + [r for r in TZ_REGIONS if r in have]
+
+
+def timezone_cities(region: str) -> list[str]:
+    """The zones of a region, sorted, as the part after 'Region/' (America/Indiana/Indianapolis
+    shows as Indiana/Indianapolis)."""
+    try:
+        from zoneinfo import available_timezones
+        zones = available_timezones()
+    except Exception:  # noqa: BLE001
+        return []
+    prefix = region + "/"
+    return sorted(z[len(prefix):] for z in zones if z.startswith(prefix))
+
+
+def validate_timezone(value: str) -> Optional[str]:
+    """None when value is an IANA zone the host's tz database knows (Europe/Amsterdam,
+    US/Eastern, UTC); an error message otherwise. Case matters: 'europe/amsterdam' is not a
+    zone and would make every container fall back to UTC without a word."""
+    value = (value or "").strip()
+    if not value:
+        return "Enter an IANA time zone, e.g. Europe/Amsterdam or US/Eastern."
+    try:
+        from zoneinfo import ZoneInfo, available_timezones
+        if value not in available_timezones():
+            raise KeyError(value)
+        ZoneInfo(value)
+    except KeyError:
+        hint = ""
+        try:
+            from zoneinfo import available_timezones
+            lower = {z.lower(): z for z in available_timezones()}
+            if value.lower() in lower:
+                hint = f" Did you mean {lower[value.lower()]}?"
+        except Exception:  # noqa: BLE001
+            pass
+        return f"'{value}' is not an IANA time zone (e.g. Europe/Amsterdam, US/Eastern, UTC).{hint}"
+    except Exception as exc:  # noqa: BLE001 — no tz database on this host: accept the shape only
+        import re
+        if not re.fullmatch(r"[A-Za-z_]+(/[A-Za-z0-9_+\-]+)*", value):
+            return f"'{value}' does not look like an IANA time zone (e.g. Europe/Amsterdam)."
+        return None
     return None
 
 

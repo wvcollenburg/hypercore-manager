@@ -28,12 +28,10 @@ snapshot is null.
 
 import json
 import logging
-import warnings
 from datetime import datetime, timezone
 
 import psycopg2.extras
 import requests
-from urllib3.exceptions import InsecureRequestWarning
 
 import config as cfg_module
 import db
@@ -45,34 +43,26 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 class _HCSession:
-    """Thin authenticated wrapper around the HyperCore REST API."""
+    """Thin authenticated wrapper around the HyperCore REST API, on the shared ClusterSession
+    (re-login on 401, failover to another node of the cluster)."""
 
     def __init__(self, cfg: cfg_module.Config) -> None:
-        self._cfg     = cfg
-        self._session = requests.Session()
-        self._session.verify = cfg.hc_verify_ssl
-        if not cfg.hc_verify_ssl:
-            warnings.filterwarnings('ignore', category=InsecureRequestWarning)
+        import hypercore_session
+        self._cfg = cfg
+        self._hc = hypercore_session.ClusterSession(
+            cfg.cluster_id, cfg.hc_username, cfg.hc_password, cfg.hc_verify_ssl,
+            service='sentinel', name=cfg.cluster_name or cfg.cluster_id, seed=cfg.hc_host,
+            logger=lambda msg: log.info('[%s] %s', cfg.cluster_name or cfg.cluster_id, msg))
 
     def login(self) -> None:
-        resp = self._session.post(
-            f'{self._cfg.hc_host}/login',
-            json={'username': self._cfg.hc_username, 'password': self._cfg.hc_password},
-            timeout=10,
-        )
-        resp.raise_for_status()
+        self._hc.login()
 
     def logout(self) -> None:
-        try:
-            self._session.post(f'{self._cfg.hc_host}/logout', timeout=5)
-        except Exception:
-            pass
+        self._hc.logout()
 
     def get_vms(self) -> list[dict]:
         """Return list of VM objects from /VirDomain."""
-        resp = self._session.get(f'{self._cfg.hc_host}/VirDomain', timeout=15)
-        resp.raise_for_status()
-        return resp.json()
+        return self._hc.get_json('/VirDomain', timeout=15)
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +142,7 @@ def run_once(cfg: cfg_module.Config) -> None:
       - Compare with InfluxDB "before" data and write outcomes.
     """
     if not cfg.hc_host:
-        log.debug('Outcome tracker skipped — SC_HOST not configured')
+        log.debug('Outcome tracker skipped — no cluster registered yet')
         return
 
     # ── 1. load pending events ──────────────────────────────────────────────

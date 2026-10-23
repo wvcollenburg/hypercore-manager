@@ -1,5 +1,5 @@
 """
-sentinel.py — SC//Foresight Sentinel entry point.
+sentinel.py — Foresight Sentinel entry point.
 
 Architecture
 ------------
@@ -23,7 +23,7 @@ Two independent loops run on configurable intervals:
       Polls HyperCore for VM spec changes after a right-sizing recommendation
       has been emitted for long enough (default: 48 hours).  Writes outcome
       (resized_up / resized_down / no_action) back to the audit record.
-      Disabled when SENTINEL_OUTCOME_TRACKER_ENABLED=false or SC_HOST is unset.
+      Disabled when SENTINEL_OUTCOME_TRACKER_ENABLED=false.
 
   Webhook loop  (default 60 s)  [Phase 3 — F5]
       Dispatches outbound HTTP POST alerts for new CRITICAL/EMERGENCY audit
@@ -49,7 +49,6 @@ import api
 import config
 import health
 import log
-import sync_push
 import tunables
 
 logger = logging.getLogger('sentinel.main')
@@ -60,12 +59,17 @@ logger = logging.getLogger('sentinel.main')
 # used by the POST /api/v1/trend/run endpoint and by the shutdown signal
 # handler (so the loop exits responsively rather than sleeping the full
 # interval before noticing the stop signal)
-_trigger_event: threading.Event = threading.Event()
+# one ClusterEngine per enabled registry cluster, keyed by cluster_id; the API reads the
+# same dict (cluster_id -> Config) to pick the cluster a request is about
+_engines: dict = {}
+_cfgs: dict = {}
 
 
-def trigger_analysis() -> None:
-    """Signal the analysis loop to run on its next iteration."""
-    _trigger_event.set()
+def trigger_analysis(cluster_id: str = None) -> None:
+    """Signal one cluster's analysis loop (or all of them) to run on its next iteration."""
+    for cid, engine in list(_engines.items()):
+        if cluster_id in (None, cid):
+            engine.trigger.set()
 
 
 def _malloc_trim() -> None:
@@ -172,7 +176,7 @@ def connectivity_loop(cfg: config.Config, stop: threading.Event, reader) -> None
         stop.wait(cfg.collection_interval_seconds)
 
 
-def analysis_loop(cfg: config.Config, stop: threading.Event, reader) -> None:
+def analysis_loop(cfg: config.Config, stop: threading.Event, reader, trigger: threading.Event) -> None:
     """
     On each trend interval:
       1. Query InfluxDB on-demand for the full analysis window.
@@ -190,11 +194,11 @@ def analysis_loop(cfg: config.Config, stop: threading.Event, reader) -> None:
         # wait for the trend interval before the first run so the connectivity
         # loop has had a chance to confirm InfluxDB is alive.  wake early on
         # an external trigger (POST /api/v1/trend/run) or shutdown signal
-        triggered = _trigger_event.wait(cfg.trend_interval_seconds)
+        triggered = trigger.wait(cfg.trend_interval_seconds)
         if stop.is_set():
             break
         if triggered:
-            _trigger_event.clear()
+            trigger.clear()
             logger.info('Analysis cycle triggered manually')
 
         # refresh live-tunable config before each cycle — no restart needed
@@ -282,81 +286,126 @@ def webhook_loop(cfg: config.Config, stop: threading.Event) -> None:
         stop.wait(cfg.webhook_dispatch_interval_seconds)
 
 
-def main() -> None:
-    cfg = config.load()
+class ClusterEngine:
+    """All Sentinel loops for one registry cluster, started and stopped as a unit."""
 
+    def __init__(self, cluster):
+        self.cluster = cluster
+        self.cfg = config.load(cluster)
+        self.stop = threading.Event()
+        self.trigger = threading.Event()
+        self.threads: list = []
+        self.reader = None
+
+    def start(self) -> None:
+        from influx_client import InfluxReader
+        cfg = self.cfg
+        tunables.set_cluster_id(cfg.cluster_id)          # copy template tunables the cluster lacks
+        self.reader = InfluxReader(cfg)
+        self.threads = [
+            threading.Thread(target=connectivity_loop, args=(cfg, self.stop, self.reader), name=f'connectivity-{self.cluster.name}', daemon=True),
+            threading.Thread(target=analysis_loop,     args=(cfg, self.stop, self.reader, self.trigger), name=f'analysis-{self.cluster.name}', daemon=True),
+            threading.Thread(target=pruning_loop,      args=(cfg, self.stop, self.reader), name=f'pruning-{self.cluster.name}', daemon=True),
+            threading.Thread(target=outcome_loop,      args=(cfg, self.stop),              name=f'outcome-{self.cluster.name}', daemon=True),
+            threading.Thread(target=webhook_loop,      args=(cfg, self.stop),              name=f'webhook-{self.cluster.name}', daemon=True),
+        ]
+        for t in self.threads:
+            t.start()
+        logger.info('Analysing cluster', extra={'cluster_id': cfg.cluster_id, 'cluster_name': cfg.cluster_name})
+
+    def shutdown(self, timeout: float = 60) -> None:
+        self.stop.set()
+        self.trigger.set()   # wake the analysis loop so it notices the stop flag
+        for t in self.threads:
+            t.join(timeout=timeout)
+        if self.reader:
+            try:
+                self.reader.close()
+            except Exception:
+                pass
+        logger.info('Stopped analysing cluster', extra={'cluster_id': self.cfg.cluster_id, 'cluster_name': self.cfg.cluster_name})
+
+
+REGISTRY_POLL_SECONDS = 60
+
+
+def _reconcile_engines() -> None:
+    """Start an engine for every enabled registry cluster, stop engines whose cluster was
+    disabled, removed or re-credentialed."""
+    import cluster_registry
+    try:
+        clusters = {c.cluster_id: c for c in cluster_registry.list_enabled()}
+    except Exception as exc:
+        logger.warning('Cluster registry unavailable', extra={'error': str(exc)})
+        return
+    for cid, engine in list(_engines.items()):
+        c = clusters.get(cid)
+        if c is None or c.updated_at != engine.cluster.updated_at:
+            engine.shutdown(timeout=30)
+            _engines.pop(cid, None)
+            _cfgs.pop(cid, None)
+    for cid, c in clusters.items():
+        if cid not in _engines:
+            try:
+                engine = ClusterEngine(c)
+                engine.start()
+                _engines[cid] = engine
+                _cfgs[cid] = engine.cfg
+            except Exception:
+                logger.exception('Could not start analysis for cluster', extra={'cluster_name': c.name})
+
+
+def main() -> None:
     log.configure(level=os.getenv('SENTINEL_LOG_LEVEL', 'INFO'))
 
-    # T1: seed live tunables from env vars on first start (no-op if already seeded)
+    base_cfg = config.Config()   # environment only: ports, token, intervals
+
+    # T1: seed live tunables (Defaults template) from env vars on first start
     tunables.seed_from_env()
 
     logger.info(
         'Sentinel starting',
         extra={
-            'collection_interval_s':   cfg.collection_interval_seconds,
-            'trend_interval_s':        cfg.trend_interval_seconds,
-            'prune_interval_s':        cfg.vm_prune_interval_seconds,
-            'outcome_interval_s':      cfg.outcome_check_interval_seconds,
-            'outcome_tracker_enabled': cfg.outcome_tracker_enabled,
-            'webhook_enabled':         cfg.webhook_enabled and bool(cfg.webhook_url),
-            'cluster_id':              cfg.cluster_id,
+            'collection_interval_s':   base_cfg.collection_interval_seconds,
+            'trend_interval_s':        base_cfg.trend_interval_seconds,
+            'prune_interval_s':        base_cfg.vm_prune_interval_seconds,
+            'outcome_interval_s':      base_cfg.outcome_check_interval_seconds,
+            'outcome_tracker_enabled': base_cfg.outcome_tracker_enabled,
+            'webhook_enabled':         base_cfg.webhook_enabled and bool(base_cfg.webhook_url),
         },
     )
-
-    if not cfg.hc_verify_ssl:
-        logger.warning(
-            'SC_VERIFY_SSL is false \u2014 TLS certificate validation disabled for HyperCore API. '
-            'Set SC_VERIFY_SSL=true in production.'
-        )
-    if not cfg.api_token:
+    if not base_cfg.api_token:
         logger.warning(
             'SENTINEL_API_TOKEN is not set \u2014 REST API authentication is disabled. '
             'Set a strong token in production.'
         )
 
-    health.start(port=cfg.health_port)
-    health.set_trend_interval(cfg.trend_interval_seconds)
-    api.start(cfg, trigger_analysis_fn=trigger_analysis)
+    health.start(port=base_cfg.health_port)
+    health.set_trend_interval(base_cfg.trend_interval_seconds)
+    api.start(base_cfg, trigger_analysis_fn=trigger_analysis, cfgs=_cfgs)
 
     stop = threading.Event()
 
     def _handle_signal(signum, _frame):
         logger.info('Shutdown signal received', extra={'signal': signum})
         stop.set()
-        # wake the analysis loop so it observes the stop flag immediately
-        # instead of sleeping out the rest of trend_interval_seconds
-        _trigger_event.set()
 
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT,  _handle_signal)
 
-    # create one shared InfluxReader — the underlying HTTP connection is
-    # kept alive and reused across both the connectivity and analysis loops
-    from influx_client import InfluxReader
-    reader = InfluxReader(cfg)
-
-    sync_loop = sync_push.SyncPushLoop(cfg)
-    sync_loop.start()
-
-    threads = [
-        threading.Thread(target=connectivity_loop, args=(cfg, stop, reader), name='connectivity', daemon=True),
-        threading.Thread(target=analysis_loop,     args=(cfg, stop, reader), name='analysis',     daemon=True),
-        threading.Thread(target=pruning_loop,      args=(cfg, stop, reader), name='pruning',      daemon=True),
-        threading.Thread(target=outcome_loop,      args=(cfg, stop),         name='outcome',      daemon=True),
-        threading.Thread(target=webhook_loop,      args=(cfg, stop),         name='webhook',      daemon=True),
-    ]
-    for t in threads:
-        t.start()
-
-    # block main thread until shutdown signal
-    stop.wait()
+    notified_idle = False
+    while not stop.is_set():
+        _reconcile_engines()
+        if not _engines and not notified_idle:
+            logger.info('No cluster registered yet \u2014 waiting (add one in the dashboard, Settings \u2192 Clusters)')
+            notified_idle = True
+        if _engines:
+            notified_idle = False
+        stop.wait(REGISTRY_POLL_SECONDS)
 
     logger.info('Waiting for loops to finish current iteration...')
-    sync_loop.stop()
-    reader.close()
-    for t in threads:
-        t.join(timeout=60)
-
+    for engine in list(_engines.values()):
+        engine.shutdown()
     logger.info('Sentinel stopped')
 
 

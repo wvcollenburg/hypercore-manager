@@ -156,11 +156,12 @@ class Config:
     )
 
     # ── HyperCore API (C7 outcome tracking) ──────────────────────────────────
-    # same credentials used by the collector container
-    hc_host:       str  = field(default_factory=lambda: _str('SC_HOST',       ''))
-    hc_username:   str  = field(default_factory=lambda: _str('SC_USERNAME',   ''))
-    hc_password:   str  = field(default_factory=lambda: _str('SC_PASSWORD',   ''))
-    hc_verify_ssl: bool = field(default_factory=lambda: _bool('SC_VERIFY_SSL', False))
+    # filled from the cluster registry by load(); nothing comes from the environment
+    hc_host:       str  = ''      # REST base URL, e.g. https://10.0.0.1/rest/v1
+    hc_username:   str  = ''
+    hc_password:   str  = ''
+    hc_verify_ssl: bool = False
+    cluster_name:  str  = ''
 
     # ── outcome tracker (C7) ─────────────────────────────────────────────────
     # enable/disable outcome tracking entirely
@@ -184,6 +185,37 @@ class Config:
     )
 
 
-def load() -> Config:
-    """Return a Config instance populated from the current environment."""
-    return Config()
+def load(cluster=None) -> Config:
+    """Return a Config instance populated from the environment and the cluster registry.
+
+    *cluster* is a cluster_registry.Cluster; when omitted the first enabled cluster is
+    used. With no cluster registered yet the HyperCore fields stay empty and
+    cluster_id stays at the defaults template (nothing is analysed until a cluster
+    exists — sentinel.py waits for one).
+    """
+    cfg = Config()
+    if cluster is None:
+        try:
+            import cluster_registry
+            enabled = cluster_registry.list_enabled()
+            cluster = enabled[0] if enabled else None
+        except Exception:
+            cluster = None
+    if cluster is not None:
+        import dataclasses
+        import cluster_registry
+        try:
+            username, password = cluster_registry.credentials(cluster.cluster_id)
+        except Exception:
+            username, password = cluster.username, ''
+        # Config is a frozen dataclass: derive a new instance instead of assigning
+        cfg = dataclasses.replace(
+            cfg,
+            cluster_id=cluster.cluster_id,
+            cluster_name=cluster.name,
+            hc_host=cluster.base_url,
+            hc_verify_ssl=bool(cluster.verify_tls),
+            hc_username=username,
+            hc_password=password,
+        )
+    return cfg

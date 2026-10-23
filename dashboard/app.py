@@ -22,7 +22,7 @@ Endpoints:
     GET /api/query/<measurement> - Generic query for any measurement
     GET /                   - Serves the dashboard HTML
 
-SC//Foresight (Sentinel) endpoints — E1-E7:
+Foresight (Sentinel) endpoints — E1-E7:
     GET /api/sentinel/summary        - Overview: health score, counts (E3/E6)
     GET /api/sentinel/forecasts      - Capacity forecast snapshots (E1)
     GET /api/sentinel/rightsizing    - Right-sizing recommendations (E2)
@@ -42,6 +42,7 @@ import re
 import secrets
 import subprocess
 import threading
+import time
 import urllib.request
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
@@ -54,6 +55,11 @@ from flask_cors import CORS
 from influxdb_client import InfluxDBClient
 import config_db
 import user_db
+import cluster_registry
+import hypercore_tasks
+import hcm_crypto
+import storage_summary
+from versioning import latest_semver_tag, is_newer, origin_to_web_url
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
@@ -92,6 +98,11 @@ def require_auth(f):
         if not session.get('user_id'):
             if request.path.startswith('/api/'):
                 return jsonify({'error': 'Authentication required'}), 401
+            return redirect(url_for('login_page'))
+        if not request.path.startswith('/api/') and not user_db.get_by_username(session.get('username') or ''):
+            # a cookie signed before the users table was recreated (a reinstall that kept the
+            # secret key): the session passes but its user is gone, so it is treated as logged out
+            session.clear()
             return redirect(url_for('login_page'))
         return f(*args, **kwargs)
     return decorated
@@ -141,8 +152,97 @@ def _pg():
         conn.close()
 
 
+# ---------------------------------------------------------------------------
+# cluster selection
+# ---------------------------------------------------------------------------
+# the frontend sends ?cluster=<uuid> on every data call. The registry is cached
+# briefly so a page load with a dozen API calls costs one lookup, not twelve
+_registry_cache = {'at': 0.0, 'clusters': []}
+_REGISTRY_TTL = 10.0
+
+
+def _enabled_clusters():
+    now = time.time()
+    if now - _registry_cache['at'] > _REGISTRY_TTL:
+        try:
+            _registry_cache['clusters'] = cluster_registry.list_enabled()
+        except Exception as exc:
+            app.logger.warning('cluster registry unavailable: %s', exc)
+            _registry_cache['clusters'] = []
+        _registry_cache['at'] = now
+    return _registry_cache['clusters']
+
+
+def _invalidate_registry_cache():
+    _registry_cache['at'] = 0.0
+    _membership_cache.clear()
+
+
+# folder memberships per user, cached briefly like the registry
+_membership_cache: dict = {}
+
+
+class BadRequest(Exception):
+    pass
+
+
+def _hours_arg(default: int = 1) -> int:
+    """?hours= as a whole number of hours, clamped to a year; anything else is the caller's mistake (400), not a 500."""
+    raw = request.args.get('hours', str(default))
+    try:
+        return max(1, min(int(raw), 8760))
+    except (TypeError, ValueError):
+        raise BadRequest(f'hours must be a whole number of hours, not {raw!r}')
+
+
+@app.errorhandler(BadRequest)
+def _bad_request(e):
+    return jsonify({'error': str(e)}), 400
+
+
+def _is_admin_request() -> bool:
+    return (not _AUTH_ENABLED) or session.get('role') == 'admin'
+
+
+def _visible_folder_ids() -> set:
+    uid = session.get('user_id') or ''
+    now = time.time()
+    hit = _membership_cache.get(uid)
+    if hit and now - hit[0] < _REGISTRY_TTL:
+        return hit[1]
+    try:
+        ids = cluster_registry.folder_ids_for_user(uid)
+    except Exception as exc:
+        app.logger.warning('folder memberships unavailable: %s', exc)
+        ids = set()
+    _membership_cache[uid] = (now, ids)
+    return ids
+
+
+def _visible_clusters():
+    """Enabled clusters the current user may see: everything for admins, otherwise the
+    clusters in folders the user is a member of. Unfiled clusters are admin-only."""
+    enabled = _enabled_clusters()
+    if _is_admin_request():
+        return enabled
+    folders = _visible_folder_ids()
+    return [c for c in enabled if c.folder_id and c.folder_id in folders]
+
+
 def _cluster_id() -> str:
-    return os.getenv('SC_CLUSTER_ID', '00000000-0000-0000-0000-000000000001')
+    """Cluster the current request is about: ?cluster=<uuid> when it names a cluster the
+    user may see, else the first visible cluster, else the defaults template (no data)."""
+    visible = _visible_clusters()
+    wanted = (request.args.get('cluster') or '').strip() if request else ''
+    if wanted and cluster_registry.is_uuid(wanted):
+        if any(c.cluster_id == wanted for c in visible):
+            return wanted
+    return visible[0].cluster_id if visible else cluster_registry.TEMPLATE_CLUSTER_ID
+
+
+def _flux_cluster() -> str:
+    """Flux filter line restricting a query to the selected cluster."""
+    return f'|> filter(fn: (r) => r["cluster_id"] == "{_cluster_id()}")'
 
 
 def _agg_window(hours: int) -> str:
@@ -156,11 +256,18 @@ def _agg_window(hours: int) -> str:
     return '1d'
 
 
-def is_stale(history_list):
+def _stale_seconds() -> float:
+    """The STALE_SECONDS tunable, read once per request: a lookup opens a PostgreSQL connection,
+    and calling it per node, VM or disk inside a list comprehension cost ~0.7 s per request."""
+    return config_db.get('STALE_SECONDS') or STALE_SECONDS
+
+
+def is_stale(history_list, stale_secs=None):
     """Returns True if the most recent data point is older than STALE_SECONDS."""
     if not history_list:
         return True
-    stale_secs = config_db.get('STALE_SECONDS') or STALE_SECONDS
+    if stale_secs is None:
+        stale_secs = _stale_seconds()
     latest_time = max(h['time'] for h in history_list)
     latest_dt = datetime.fromisoformat(latest_time.replace('Z', '+00:00'))
     return (datetime.now(timezone.utc) - latest_dt).total_seconds() > stale_secs
@@ -172,12 +279,13 @@ def is_stale(history_list):
 @app.route('/api/nodes')
 @require_auth
 def get_nodes():
-    range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+    range_hours = _hours_arg()
     client = get_influx_client()
     try:
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_hours}h)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "node_metrics")
           |> filter(fn: (r) => r["_field"] != "network_online" and r["_field"] != "virtualization_online" and r["_field"] != "allow_running_vms")
           |> aggregateWindow(every: {_agg_window(range_hours)}, fn: mean, createEmpty: false)
@@ -213,6 +321,7 @@ def get_nodes():
         vcpu_query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -1h)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "vm_inventory")
           |> filter(fn: (r) => r["_field"] == "num_vcpu")
           |> filter(fn: (r) => r["vm_state"] == "RUNNING")
@@ -237,6 +346,7 @@ def get_nodes():
         current_query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -5m)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "node_metrics")
           |> filter(fn: (r) => r["_field"] == "cpu_usage")
           |> last()
@@ -249,7 +359,8 @@ def get_nodes():
                     nodes[nid]['current_cpu'] = record.get_value()
 
         # filter out nodes that haven't reported recently
-        active = [n for n in nodes.values() if not is_stale(n['history'])]
+        stale_secs = _stale_seconds()
+        active = [n for n in nodes.values() if not is_stale(n['history'], stale_secs)]
         return jsonify(active)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -263,12 +374,13 @@ def get_nodes():
 @app.route('/api/vms')
 @require_auth
 def get_vms():
-    range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+    range_hours = _hours_arg()
     client = get_influx_client()
     try:
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_hours}h)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "vm_metrics")
           |> aggregateWindow(every: {_agg_window(range_hours)}, fn: mean, createEmpty: false)
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
@@ -308,6 +420,7 @@ def get_vms():
         current_query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -5m)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "vm_metrics")
           |> filter(fn: (r) => r["_field"] == "cpu_usage")
           |> last()
@@ -320,7 +433,8 @@ def get_vms():
                     vms[vid]['current_cpu'] = record.get_value()
 
         # filter out VMs that haven't reported recently (deleted/stopped)
-        active = [v for v in vms.values() if not is_stale(v['history'])]
+        stale_secs = _stale_seconds()
+        active = [v for v in vms.values() if not is_stale(v['history'], stale_secs)]
         return jsonify(active)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -334,13 +448,14 @@ def get_vms():
 @app.route('/api/drives')
 @require_auth
 def get_drives():
-    range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+    range_hours = _hours_arg()
     include_stale = request.args.get('include_stale', 'false').lower() == 'true'
     client = get_influx_client()
     try:
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_hours}h)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "drive_metrics")
           |> aggregateWindow(every: {_agg_window(range_hours)}, fn: last, createEmpty: false)
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
@@ -379,7 +494,8 @@ def get_drives():
         if include_stale:
             active = list(drives.values())
         else:
-            active = [d for d in drives.values() if not is_stale(d['history'])]
+            stale_secs = _stale_seconds()
+            active = [d for d in drives.values() if not is_stale(d['history'], stale_secs)]
         return jsonify(active)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -393,13 +509,19 @@ def get_drives():
 @app.route('/api/vsds')
 @require_auth
 def get_vsds():
-    range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+    """Per-disk history. With ?vm=<uuid> only that VM's disks (the VM detail panel); the overview
+    views use /api/storage/summary instead, which carries no per-disk history."""
+    range_hours = _hours_arg()
+    vm_filter = (request.args.get('vm') or '').strip()
+    vm_flux = f'|> filter(fn: (r) => r["vm_uuid"] == "{vm_filter}")' if re.fullmatch(r'[0-9a-fA-F-]{1,64}', vm_filter) else ''
     client = get_influx_client()
     try:
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_hours}h)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "vsd_metrics")
+          {vm_flux}
           |> aggregateWindow(every: {_agg_window(range_hours)}, fn: mean, createEmpty: false)
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
         '''
@@ -433,8 +555,47 @@ def get_vsds():
                 })
         
         # filter out VSDs that haven't reported recently
-        active = [v for v in vsds.values() if not is_stale(v['history'])]
+        stale_secs = _stale_seconds()
+        active = [v for v in vsds.values() if not is_stale(v['history'], stale_secs)]
         return jsonify(active)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        client.close()
+
+
+# =============================================================================
+# API: storage overview — per-VM series + cluster totals, no per-disk history
+# =============================================================================
+@app.route('/api/storage/summary')
+@require_auth
+def get_storage_summary():
+    """What the Infraviewer overview needs from the disks: per VM one series (IOPS and
+    throughput summed over its disks, latency of the worst disk), a cluster total series, and
+    each disk's newest sample for the VM cards. InfluxDB does the aggregation per VM per window,
+    so the payload and the Python work scale with VMs x points, not disks x points."""
+    range_hours = _hours_arg()
+    client = get_influx_client()
+    try:
+        stale_secs = _stale_seconds()
+        sum_q, max_q, latest_q = storage_summary.flux_queries(INFLUX_BUCKET, _flux_cluster(), range_hours, _agg_window(range_hours), stale_secs)
+        api = client.query_api()
+        rows = []
+        for q in (sum_q, max_q):
+            for table in api.query(org=INFLUX_ORG, query=q):
+                for r in table.records:
+                    rows.append((r.values.get('vm_uuid', 'unknown'), r.values.get('vm_name', 'Unknown'), r.get_field(),
+                                 r.get_time().isoformat(), r.get_value()))
+        latest = []
+        for table in api.query(org=INFLUX_ORG, query=latest_q):
+            for r in table.records:
+                latest.append({'uuid': r.values.get('vsd_uuid', 'unknown'), 'name': r.values.get('vsd_name', 'unknown'),
+                               'type': r.values.get('vsd_type', 'unknown'), 'vm_uuid': r.values.get('vm_uuid', 'unknown'),
+                               'vm_name': r.values.get('vm_name', 'Unknown'), 'node_uuid': r.values.get('node_uuid', 'unknown'),
+                               'time': r.get_time().isoformat(), **{f: r.values.get(f) for f in storage_summary.FIELDS}})
+        out = storage_summary.build(rows, latest, datetime.now(timezone.utc), stale_secs)
+        out['hours'] = range_hours
+        return jsonify(out)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -444,6 +605,20 @@ def get_vsds():
 # =============================================================================
 # API: migration events (last 7 days by default)
 # =============================================================================
+@app.route('/api/cluster/tasks')
+@require_auth
+def api_cluster_tasks():
+    """Live activity of the selected cluster from the REST v2 task feed the collector keeps."""
+    cid = _cluster_id()
+    c = cluster_registry.get(cid)
+    if not c or not c.uses_v2:
+        return jsonify({'v2': False, 'tasks': []})
+    try:
+        return jsonify({'v2': True, 'tasks': cluster_registry.list_tasks(cid, 40)})
+    except Exception as e:
+        return jsonify({'v2': True, 'tasks': [], 'error': str(e)}), 200
+
+
 @app.route('/api/migrations')
 @require_auth
 def get_migrations():
@@ -453,6 +628,7 @@ def get_migrations():
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_days}d)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "migration_events")
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
         '''
@@ -474,7 +650,7 @@ def get_migrations():
                 })
 
         events.sort(key=lambda e: e['time'], reverse=True)
-        return jsonify(events[:50])
+        return jsonify(hypercore_tasks.dedupe_external(events)[:50])
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -493,6 +669,7 @@ def get_predictions():
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_days}d)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "predictive_recommendations")
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
         '''
@@ -534,6 +711,7 @@ def get_forecast_runs():
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_days}d)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "predictive_runs")
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
         '''
@@ -578,6 +756,7 @@ def get_forecast_runs():
 # =============================================================================
 @app.route('/api/modules')
 @require_auth
+@require_admin
 def get_modules():
     client = get_influx_client()
     try:
@@ -611,9 +790,10 @@ def get_modules():
 # =============================================================================
 @app.route('/api/query/<measurement>')
 @require_auth
+@require_admin
 def query_measurement(measurement):
     try:
-        range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+        range_hours = _hours_arg()
         limit       = max(1, min(int(request.args.get('limit', '100')), 10000))
     except (ValueError, TypeError):
         return jsonify({'error': 'Invalid hours or limit parameter'}), 400
@@ -626,6 +806,7 @@ def query_measurement(measurement):
         query = f'''
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{range_hours}h)
+          {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "{measurement}")
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
           |> sort(columns: ["_time"], desc: true)
@@ -663,8 +844,34 @@ def get_data_quality():
     they went silent.
     Returns {reliable, gap_count, total_gap_hours, checked_hours}.
     """
-    WINDOW_DAYS   = 14
+    WINDOW_DAYS   = 14     # history Foresight needs before forecasts are meaningful
     GAP_THRESHOLD = 0.08   # flag if >8 % of 1-hour windows are empty
+    MIN_HOURS     = 24     # younger clusters have too little history to judge gaps
+    REQUIRED_HOURS = WINDOW_DAYS * 24
+
+    # the window never reaches back before the cluster was registered: a cluster added an
+    # hour ago is not "missing" the previous 13 days
+    cid = _cluster_id()
+    since = datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)
+    try:
+        c = cluster_registry.get(cid)
+        if c and c.registered_at and c.registered_at > since:
+            since = c.registered_at
+    except Exception:
+        pass
+    window_hours = (datetime.now(timezone.utc) - since).total_seconds() / 3600
+    progress = {
+        'cluster_id':      cid,
+        'window_hours':    round(window_hours, 1),
+        'required_hours':  REQUIRED_HOURS,
+        'history_pct':     round(min(100.0, window_hours / REQUIRED_HOURS * 100), 1),
+        'enough_history':  window_hours >= REQUIRED_HOURS,
+        'min_judge_hours': MIN_HOURS,
+    }
+    if window_hours < MIN_HOURS:
+        return jsonify({'reliable': True, 'gap_count': 0, 'total_gap_hours': 0, 'checked_hours': 0,
+                        'insufficient_history': True, **progress})
+    range_start = since.strftime('%Y-%m-%dT%H:%M:%SZ')
 
     client = get_influx_client()
     try:
@@ -673,6 +880,7 @@ def get_data_quality():
         active_query = f'''
 from(bucket: "{INFLUX_BUCKET}")
   |> range(start: -{stale_secs}s)
+  {_flux_cluster()}
   |> filter(fn: (r) => r._measurement == "node_metrics")
   |> filter(fn: (r) => r._field == "cpu_usage")
   |> keep(columns: ["node_uuid"])
@@ -687,13 +895,14 @@ from(bucket: "{INFLUX_BUCKET}")
         if not active_uuids:
             # no active nodes — nothing meaningful to check
             return jsonify({'reliable': True, 'gap_count': 0,
-                            'total_gap_hours': 0, 'checked_hours': 0})
+                            'total_gap_hours': 0, 'checked_hours': 0, **progress})
 
         # step 2: check for gaps only within those active nodes
         node_filter = ' or '.join(f'r.node_uuid == "{uid}"' for uid in active_uuids)
         query = f'''
 from(bucket: "{INFLUX_BUCKET}")
-  |> range(start: -{WINDOW_DAYS}d)
+  |> range(start: {range_start})
+  {_flux_cluster()}
   |> filter(fn: (r) => r._measurement == "node_metrics")
   |> filter(fn: (r) => r._field == "cpu_usage")
   |> filter(fn: (r) => {node_filter})
@@ -707,7 +916,7 @@ from(bucket: "{INFLUX_BUCKET}")
 
         if checked_hours == 0:
             return jsonify({'reliable': False, 'gap_count': 0,
-                            'total_gap_hours': 0, 'checked_hours': 0})
+                            'total_gap_hours': 0, 'checked_hours': 0, **progress})
 
         reliable = (gap_count / checked_hours) <= GAP_THRESHOLD
         return jsonify({
@@ -715,6 +924,7 @@ from(bucket: "{INFLUX_BUCKET}")
             'gap_count':       gap_count,
             'total_gap_hours': gap_count,
             'checked_hours':   checked_hours,
+            **progress,
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -728,9 +938,11 @@ from(bucket: "{INFLUX_BUCKET}")
 @app.route('/api/config', methods=['GET'])
 @require_auth
 def get_config():
-    """Return all tunables with metadata for the settings UI."""
+    """Return all tunables with metadata for the settings UI (selected cluster, or the
+    defaults template when ?cluster=defaults)."""
     try:
-        return jsonify(config_db.get_with_meta())
+        cid = config_db.TEMPLATE_CLUSTER_ID if request.args.get('cluster') == 'defaults' else _cluster_id()
+        return jsonify(config_db.get_with_meta(cid))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -744,14 +956,548 @@ def post_config():
         updates = request.get_json(force=True)
         if not isinstance(updates, dict):
             return jsonify({'error': 'Expected a JSON object'}), 400
-        config_db.save_many(updates)
+        cid = config_db.TEMPLATE_CLUSTER_ID if request.args.get('cluster') == 'defaults' else _cluster_id()
+        config_db.save_many(updates, cid)
+        if request.args.get('apply_to_all') == '1':
+            for c in _enabled_clusters():
+                config_db.save_many(updates, c.cluster_id)
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 # =============================================================================
-# SC//Foresight (sentinel) API — E1-E6
+# cluster registry API — clusters are configured here, not in .env
+# =============================================================================
+
+def _cluster_payload(c, extras=None):
+    d = c.to_dict()
+    d['has_password'] = True
+    if extras:
+        d.update(extras.get(c.cluster_id, {}))
+    return d
+
+
+def _cluster_extras(clusters):
+    """Per-cluster facts for the rail: balancer mode and latest Foresight health score."""
+    ids = [c.cluster_id for c in clusters]
+    out = {cid: {'dry_run': None, 'health_score': None, 'health_severity': None} for cid in ids}
+    if not ids:
+        return out
+    try:
+        with _pg() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""SELECT cluster_id::text AS cluster_id, value FROM config.tunables
+                               WHERE key = 'DRY_RUN' AND cluster_id = ANY(%s::uuid[])""", (ids,))
+                for r in cur.fetchall():
+                    out[r['cluster_id']]['dry_run'] = str(r['value']).lower() == 'true'
+                cur.execute("""SELECT DISTINCT ON (cluster_id) cluster_id::text AS cluster_id,
+                                      health_score, severity::text AS severity
+                               FROM recommendations.cluster_health_scores
+                               WHERE cluster_id = ANY(%s::uuid[]) AND expires_at > NOW()
+                               ORDER BY cluster_id, calculated_at DESC""", (ids,))
+                for r in cur.fetchall():
+                    out[r['cluster_id']]['health_score'] = r['health_score']
+                    out[r['cluster_id']]['health_severity'] = r['severity']
+    except Exception as exc:
+        app.logger.warning('cluster extras unavailable: %s', exc)
+    try:
+        for cid, nodes in cluster_registry.nodes_for(ids).items():
+            out.setdefault(cid, {})['nodes'] = nodes
+    except Exception as exc:
+        app.logger.warning('cluster nodes unavailable: %s', exc)
+    return out
+
+
+@app.route('/api/clusters', methods=['GET'])
+@require_auth
+def api_clusters_list():
+    """All registered clusters (never the defaults template) plus the selection the
+    server would make for this request, so the UI can initialise its picker."""
+    try:
+        clusters = cluster_registry.list_all()
+        folders = cluster_registry.list_folders()
+    except Exception as e:
+        return jsonify({'error': str(e), 'clusters': [], 'folders': [], 'selected': None}), 200
+    admin = _is_admin_request()
+    if not admin:
+        allowed = _visible_folder_ids()
+        clusters = [c for c in clusters if c.folder_id and c.folder_id in allowed]
+        folders = [{k: v for k, v in f.items() if k != 'members'} for f in folders if f['folder_id'] in allowed]
+    enabled = [c for c in clusters if c.enabled]
+    extras = _cluster_extras(clusters)
+    groups = cluster_registry.duplicate_groups(enabled)
+    return jsonify({
+        'clusters': [_cluster_payload(c, extras) for c in clusters],
+        'folders': folders,
+        'is_admin': admin,
+        'enabled_count': len(enabled),
+        'selected': _cluster_id() if enabled else None,
+        'secret_key_configured': hcm_crypto.key_configured(),
+        # entries that point at the same HyperCore cluster (same uuid): the first keeps balancing
+        'duplicate_groups': [[c.cluster_id for c in g] for g in groups],
+    })
+
+
+def _cluster_form(body: dict) -> dict:
+    return {
+        'name':       (body.get('name') or '').strip(),
+        'host':       cluster_registry.normalize_host(body.get('host') or ''),
+        'username':   (body.get('username') or '').strip(),
+        'password':   body.get('password') or '',
+        'verify_tls': bool(body.get('verify_tls', False)),
+        'colour':     (body.get('colour') or '').strip() or None,
+        'api_version': (body.get('api_version') or 'auto').strip() if (body.get('api_version') or 'auto').strip() in ('auto', 'v1', 'v2') else 'auto',
+    }
+
+
+@app.route('/api/clusters', methods=['POST'])
+@require_auth
+@require_admin
+def api_clusters_create():
+    body = request.get_json(force=True, silent=True) or {}
+    f = _cluster_form(body)
+    if not (f['name'] and f['host'] and f['username'] and f['password']):
+        return jsonify({'error': 'name, host, username and password are required'}), 400
+    if not hcm_crypto.key_configured():
+        return jsonify({'error': f'{hcm_crypto.ENV_VAR} is not set on the dashboard; cannot store credentials'}), 500
+    probe = cluster_registry.test_connection(f['host'], f['username'], f['password'], f['verify_tls'])
+    if not probe.get('ok') and not body.get('force'):
+        return jsonify({'error': probe.get('error', 'connection test failed'), 'probe': probe}), 400
+    hc_uuid = probe.get('hc_cluster_uuid') or None
+    probe_nodes = probe.get('nodes') or []
+    if hc_uuid:
+        dup = next((c for c in cluster_registry.list_all() if c.hc_cluster_uuid == hc_uuid), None)
+        if dup is None:
+            # a cluster whose uuid we never learned (registered with force) still lists its nodes
+            owner = cluster_registry.node_owner([n.get('node_uuid') for n in probe_nodes])
+            dup = cluster_registry.get(owner['cluster_id']) if owner else None
+        if dup and not body.get('force'):
+            mine = next((n for n in probe_nodes if n.get('lan_ip') and n['lan_ip'] == f['host']), None)
+            which = f" (node {mine['peer_id']} of it)" if mine and mine.get('peer_id') is not None else ''
+            return jsonify({'error': f"this cluster is already registered as '{dup.name}'{which}", 'duplicate_of': dup.cluster_id}), 409
+    try:
+        cid = cluster_registry.create(f['name'], f['host'], f['username'], f['password'],
+                                      verify_tls=f['verify_tls'], colour=f['colour'], hc_cluster_uuid=hc_uuid,
+                                      api_version=f['api_version'], api_v2_available=probe.get('api_v2') if probe.get('ok') else None,
+                                      hc_version=probe.get('version') or None)
+    except Exception as e:
+        msg = str(e)
+        if 'ux_clusters_name' in msg or 'duplicate key' in msg:
+            return jsonify({'error': 'a cluster with that name already exists'}), 409
+        return jsonify({'error': msg}), 500
+    if probe_nodes:
+        cluster_registry.upsert_nodes(cid, probe_nodes, seed_host=f['host'])
+    if probe.get('timezone'):
+        cluster_registry.mark_seen(cid, timezone=probe['timezone'])
+    _invalidate_registry_cache()
+    c = cluster_registry.get(cid)
+    return jsonify({'ok': True, 'cluster': _cluster_payload(c), 'probe': probe}), 201
+
+
+@app.route('/api/clusters/<cluster_id>', methods=['PUT'])
+@require_auth
+@require_admin
+def api_clusters_update(cluster_id):
+    if not cluster_registry.get(cluster_id):
+        return jsonify({'error': 'cluster not found'}), 404
+    body = request.get_json(force=True, silent=True) or {}
+    fields = {}
+    for k in ('name', 'host', 'username', 'password', 'colour', 'api_version', 'timezone'):
+        if k in body:
+            fields[k] = body[k]
+    for k in ('verify_tls', 'enabled'):
+        if k in body:
+            fields[k] = bool(body[k])
+    if 'folder_id' in body:
+        fields['folder_id'] = body['folder_id'] or None   # null unfiles the cluster
+    try:
+        cluster_registry.update(cluster_id, **fields)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        msg = str(e)
+        if 'ux_clusters_name' in msg or 'duplicate key' in msg:
+            return jsonify({'error': 'a cluster with that name already exists'}), 409
+        return jsonify({'error': msg}), 500
+    _invalidate_registry_cache()
+    return jsonify({'ok': True, 'cluster': _cluster_payload(cluster_registry.get(cluster_id))})
+
+
+@app.route('/api/clusters/<cluster_id>', methods=['DELETE'])
+@require_auth
+@require_admin
+def api_clusters_delete(cluster_id):
+    if not cluster_registry.get(cluster_id):
+        return jsonify({'error': 'cluster not found'}), 404
+    purge = request.args.get('purge') == '1'
+    try:
+        cluster_registry.delete(cluster_id, purge=purge)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    _invalidate_registry_cache()
+    return jsonify({'ok': True, 'purged': purge})
+
+
+@app.route('/api/clusters/test', methods=['POST'])
+@require_auth
+@require_admin
+def api_clusters_test_new():
+    """Connection test for the add/edit form (credentials from the body)."""
+    f = _cluster_form(request.get_json(force=True, silent=True) or {})
+    if not (f['host'] and f['username']):
+        return jsonify({'ok': False, 'error': 'host and username are required'}), 400
+    return jsonify(cluster_registry.test_connection(f['host'], f['username'], f['password'], f['verify_tls']))
+
+
+@app.route('/api/clusters/<cluster_id>/test', methods=['POST'])
+@require_auth
+@require_admin
+def api_clusters_test_existing(cluster_id):
+    """Connection test with the stored credentials; records the outcome on the cluster."""
+    c = cluster_registry.get(cluster_id)
+    if not c:
+        return jsonify({'ok': False, 'error': 'cluster not found'}), 404
+    try:
+        username, password = cluster_registry.credentials(cluster_id)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'cannot decrypt stored password: {e}'}), 500
+    result = _test_every_node(c, username, password)
+    if result.get('ok'):
+        cluster_registry.mark_seen(cluster_id, result.get('hc_cluster_uuid') or None,
+                                   api_v2_available=result.get('api_v2'), hc_version=result.get('version') or None,
+                                   active_host=result.get('via'), timezone=result.get('timezone'))
+        if result.get('nodes'):
+            cluster_registry.upsert_nodes(cluster_id, result['nodes'], seed_host=c.host)
+    else:
+        cluster_registry.mark_error(cluster_id, result.get('error', 'connection test failed'))
+    _invalidate_registry_cache()
+    return jsonify(result)
+
+
+def _test_every_node(c, username, password) -> dict:
+    """Log in on the configured address and on every known present node, in parallel (one
+    login each). The first success supplies the cluster facts; per-node outcomes ride along."""
+    from concurrent.futures import ThreadPoolExecutor
+    addresses: list[tuple[str, object]] = []
+    known = {}
+    for n in cluster_registry.nodes(c.cluster_id):
+        if n.get('present') and (n.get('address') or n.get('lan_ip')):
+            known[cluster_registry.normalize_host(n.get('address') or n['lan_ip'])] = n.get('peer_id')
+    seed = cluster_registry.normalize_host(c.host)
+    if seed not in known:
+        addresses.append((seed, None))
+    addresses.extend(known.items())
+    def probe(item):
+        addr, peer = item
+        r = cluster_registry.test_connection(addr, username, password, c.verify_tls)
+        return addr, peer, r
+    with ThreadPoolExecutor(max_workers=min(8, len(addresses))) as pool:
+        probes = list(pool.map(probe, addresses))
+    per_node = [{'address': a, 'peer_id': p, 'ok': bool(r.get('ok')), 'error': r.get('error')} for a, p, r in probes]
+    first = next(((a, r) for a, p, r in probes if r.get('ok')), None)
+    if first:
+        out = dict(first[1]); out['via'] = first[0]
+    else:
+        out = {'ok': False, 'error': probes[0][2].get('error', 'connection test failed') if probes else 'no address to test'}
+    out['nodes_tested'] = per_node
+    out['nodes_ok'] = sum(1 for n in per_node if n['ok'])
+    out['nodes_total'] = len(per_node)
+    return out
+
+
+MANUAL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'manual')
+
+
+@app.route('/manual/')
+@app.route('/manual/<slug>')
+@require_auth
+def manual_page(slug=''):
+    """The user manual, rendered from docs/manual (behind the login: it shows this installation's
+    screenshots and names)."""
+    import manual
+    path = manual.resolve(MANUAL_DIR, slug)
+    if path is None:
+        return Response('<h1>Not found</h1>', status=404, mimetype='text/html')
+    body = manual.render(path.read_text(encoding='utf-8'))
+    nav = manual.chapters(MANUAL_DIR)
+    title = next((c['title'] for c in nav if c['slug'] == slug), path.stem)
+    return Response(manual.page(title, body, nav, slug, _read_version_file()), mimetype='text/html')
+
+
+@app.route('/manual/img/<path:filename>')
+@require_auth
+def manual_image(filename):
+    return send_from_directory(os.path.join(MANUAL_DIR, 'img'), filename)
+
+
+@app.route('/api/clusters/<cluster_id>/nodes/<node_uuid>', methods=['DELETE'])
+@require_auth
+@require_admin
+def api_clusters_forget_node(cluster_id, node_uuid):
+    """Drop a node row that is no longer part of the cluster (present nodes are kept)."""
+    if not cluster_registry.get(cluster_id):
+        return jsonify({'error': 'cluster not found'}), 404
+    try:
+        gone = cluster_registry.forget_node(cluster_id, node_uuid)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    if not gone:
+        return jsonify({'error': 'node is still present on the cluster or unknown'}), 409
+    _invalidate_registry_cache()
+    return jsonify({'ok': True})
+
+
+# folders: grouping in the rail plus access rights for non-admin users
+@app.route('/api/folders', methods=['GET'])
+@require_auth
+def api_folders_list():
+    try:
+        folders = cluster_registry.list_folders()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    if not _is_admin_request():
+        allowed = _visible_folder_ids()
+        folders = [{k: v for k, v in f.items() if k != 'members'} for f in folders if f['folder_id'] in allowed]
+    return jsonify(folders)
+
+
+@app.route('/api/folders', methods=['POST'])
+@require_auth
+@require_admin
+def api_folders_create():
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        fid = cluster_registry.create_folder(body.get('name', ''), body.get('colour'))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        if 'ux_folders_name' in str(e) or 'duplicate key' in str(e):
+            return jsonify({'error': 'a folder with that name already exists'}), 409
+        return jsonify({'error': str(e)}), 500
+    _invalidate_registry_cache()
+    return jsonify({'ok': True, 'folder_id': fid}), 201
+
+
+@app.route('/api/folders/<folder_id>', methods=['PUT'])
+@require_auth
+@require_admin
+def api_folders_update(folder_id):
+    if not cluster_registry.is_uuid(folder_id):
+        return jsonify({'error': 'invalid folder id'}), 400
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        cluster_registry.update_folder(folder_id, name=body.get('name'), colour=body.get('colour'),
+                                       share_id=body['share_id'] if 'share_id' in body else ...)
+    except Exception as e:
+        if 'ux_folders_name' in str(e) or 'duplicate key' in str(e):
+            return jsonify({'error': 'a folder with that name already exists'}), 409
+        return jsonify({'error': str(e)}), 500
+    _invalidate_registry_cache()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/folders/<folder_id>', methods=['DELETE'])
+@require_auth
+@require_admin
+def api_folders_delete(folder_id):
+    if not cluster_registry.is_uuid(folder_id):
+        return jsonify({'error': 'invalid folder id'}), 400
+    cluster_registry.delete_folder(folder_id)
+    _invalidate_registry_cache()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/folders/<folder_id>/members', methods=['PUT'])
+@require_auth
+@require_admin
+def api_folders_members(folder_id):
+    """Body: {"user_id": "...", "member": true|false}."""
+    if not cluster_registry.is_uuid(folder_id):
+        return jsonify({'error': 'invalid folder id'}), 400
+    body = request.get_json(force=True, silent=True) or {}
+    uid = (body.get('user_id') or '').strip()
+    if not cluster_registry.is_uuid(uid):
+        return jsonify({'error': 'invalid user id'}), 400
+    cluster_registry.set_folder_member(folder_id, uid, bool(body.get('member', True)))
+    _invalidate_registry_cache()
+    return jsonify({'ok': True})
+
+
+# =============================================================================
+# Backup module proxy — the `backup` container owns plans, runs, imports and targets
+# =============================================================================
+
+_BACKUP_MUTATING = {'POST', 'PUT', 'DELETE'}
+
+
+# keys that would reveal a target's path or account to a non-admin; the UI shows alias/folder only
+_BACKUP_SENSITIVE_KEYS = frozenset({'base', 'user', 'username', 'path_uri_base', 'prune_path', 'smb_user',
+                                    'source_uri', 'uri_base', 'uri'})
+
+
+def _strip_sensitive(obj):
+    """Recursively drop target paths and accounts from a backup API response (non-admin callers)."""
+    if isinstance(obj, dict):
+        return {k: _strip_sensitive(v) for k, v in obj.items() if k not in _BACKUP_SENSITIVE_KEYS}
+    if isinstance(obj, list):
+        return [_strip_sensitive(v) for v in obj]
+    return obj
+
+
+def _backup_env():
+    """BACKUP_* wins; the EXPORTS_* names from the module's first release still work."""
+    url = os.getenv('BACKUP_API_URL') or os.getenv('EXPORTS_API_URL') or 'http://backup:8082'
+    token = os.getenv('BACKUP_API_TOKEN') or os.getenv('EXPORTS_API_TOKEN') or ''
+    return url, token
+
+
+# ─── proxy image export: the backup service pushes this installation's proxy image to proxy VMs ───
+_PROXY_IMAGE_NAME = 'hcm-proxy'
+
+
+def _proxy_image_source() -> str:
+    """The image compose built for the `proxy` service of this project."""
+    return f"{os.getenv('COMPOSE_PROJECT_NAME', 'drsproject')}-proxy"
+
+
+def _proxy_image_version() -> str | None:
+    """The proxy version in the checkout the images were built from (proxy/identity.py)."""
+    try:
+        with open(os.path.join(_REPO_PATH, 'proxy', 'identity.py'), encoding='utf-8') as fh:
+            m = re.search(r"^VERSION = '([^']+)'", fh.read(), re.M)
+        return m.group(1) if m else None
+    except OSError:
+        return None
+
+
+def _internal_token_ok() -> bool:
+    _, token = _backup_env()
+    auth = request.headers.get('Authorization', '')
+    return not token or auth == f'Bearer {token}'
+
+
+@app.route('/internal/proxy-image/version')
+def proxy_image_version():
+    """{version, tag, available, detail}: what a push would carry. Bearer BACKUP_API_TOKEN."""
+    if not _internal_token_ok():
+        return jsonify({'error': 'Unauthorized'}), 401
+    version = _proxy_image_version()
+    src = _proxy_image_source()
+    r = subprocess.run(['docker', 'image', 'inspect', src, '--format', '{{.Id}} {{.Architecture}}'], capture_output=True, text=True, timeout=20)
+    if r.returncode != 0 or not version:
+        detail = f'image {src} not built on this host' if r.returncode != 0 else 'proxy version not readable from the checkout'
+        return jsonify({'version': version, 'tag': None, 'available': False, 'detail': detail})
+    arch = (r.stdout.split() + ['', ''])[1]
+    return jsonify({'version': version, 'tag': f'{_PROXY_IMAGE_NAME}:{version}', 'available': True, 'image': src, 'arch': arch})
+
+
+@app.route('/internal/proxy-image')
+def proxy_image_export():
+    """Stream `docker save` of the stack's proxy image, tagged hcm-proxy:<version>, to the backup
+    service. Nothing is spooled; the tag travels in the X-Image-Tag header."""
+    if not _internal_token_ok():
+        return jsonify({'error': 'Unauthorized'}), 401
+    version = _proxy_image_version()
+    src = _proxy_image_source()
+    if not version:
+        return jsonify({'error': 'proxy version not readable from the checkout'}), 500
+    tag = f'{_PROXY_IMAGE_NAME}:{version}'
+    r = subprocess.run(['docker', 'tag', src, tag], capture_output=True, text=True, timeout=20)
+    if r.returncode != 0:
+        return jsonify({'error': f'image {src} not built on this host: {(r.stderr or r.stdout).strip()}'}), 500
+    proc = subprocess.Popen(['docker', 'save', tag], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def stream():
+        try:
+            while True:
+                chunk = proc.stdout.read(1 << 20)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            proc.stdout.close()
+            proc.wait()
+            if proc.returncode != 0:
+                app.logger.error('docker save %s failed: %s', tag, proc.stderr.read().decode(errors='replace').strip())
+    return Response(stream(), mimetype='application/x-tar', headers={'X-Image-Tag': tag, 'X-Image-Version': version})
+
+
+@app.route('/api/backup/status')
+@require_auth
+def backup_status():
+    """Reachability of the optional backup container; the tab hides when it is off."""
+    url, token = _backup_env()
+    try:
+        rq = urllib.request.Request(f'{url}/api/v1/status?cluster={_cluster_id()}',
+                                    headers={'Authorization': f'Bearer {token}'} if token else {})
+        with urllib.request.urlopen(rq, timeout=3) as resp:
+            data = json.loads(resp.read().decode())
+        data['available'] = True
+        return jsonify(data if _is_admin_request() else _strip_sensitive(data))
+    except Exception:
+        return jsonify({'available': False})
+
+
+@app.route('/api/backup/<path:sub>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+@require_auth
+def backup_proxy(sub):
+    """Forward to the backup API with the selected cluster and the bearer token.
+    Reads are open to every user who can see the cluster; changes need admin."""
+    # folder members manage plans and imports for their clusters (the target and its credentials
+    # are the admin's business); target management itself is admin-only
+    if sub.startswith(('targets', 'proxies')) and not _is_admin_request():
+        return jsonify({'error': 'Admin access required'}), 403
+    url, token = _backup_env()
+    cid = _cluster_id()
+    qs = request.query_string.decode()
+    qs = (qs + '&' if qs else '') + f'cluster={cid}'
+    body = None
+    headers = {'Authorization': f'Bearer {token}'} if token else {}
+    if request.method in ('POST', 'PUT'):
+        payload = request.get_json(silent=True) or {}
+        # the body's cluster is always the one the user has selected and may see
+        if 'cluster_id' in payload or sub.endswith(('plans', 'import/start')):
+            payload['cluster_id'] = cid
+        body = json.dumps(payload).encode()
+        headers['Content-Type'] = 'application/json'
+    if request.method == 'GET' and sub.startswith('flr/mounts/') and sub.rsplit('/', 1)[-1] in ('file', 'zip'):
+        # downloads stream through; nothing in them is a target path or credential
+        try:
+            rq = urllib.request.Request(f'{url}/api/v1/{sub}?{qs}', headers=headers)
+            resp = urllib.request.urlopen(rq, timeout=600)
+        except urllib.error.HTTPError as e:
+            return Response(e.read(), status=e.code, mimetype='application/json')
+        except Exception as e:
+            return jsonify({'error': f'Backup service unreachable: {e}'}), 503
+        passthrough = {k: v for k, v in resp.headers.items() if k.lower() in ('content-length', 'content-disposition', 'content-type')}
+
+        def gen():
+            with resp:
+                while True:
+                    chunk = resp.read(1 << 20)
+                    if not chunk:
+                        break
+                    yield chunk
+        return Response(gen(), status=resp.status, headers=passthrough)
+    try:
+        rq = urllib.request.Request(f'{url}/api/v1/{sub}?{qs}', data=body, headers=headers, method=request.method)
+        with urllib.request.urlopen(rq, timeout=60) as resp:
+            raw = resp.read()
+            if _is_admin_request():
+                return Response(raw, status=resp.status, mimetype='application/json')
+            try:
+                return jsonify(_strip_sensitive(json.loads(raw.decode() or 'null'))), resp.status
+            except ValueError:
+                return Response(raw, status=resp.status, mimetype='application/json')
+    except urllib.error.HTTPError as e:
+        return Response(e.read(), status=e.code, mimetype='application/json')
+    except Exception as e:
+        return jsonify({'error': f'Backup service unreachable: {e}'}), 503
+
+
+# =============================================================================
+# Foresight (sentinel) API — E1-E6
 # all routes query the recommendations schema in PostgreSQL directly
 # =============================================================================
 
@@ -1203,7 +1949,7 @@ def sentinel_vms():
         headers = {}
         if sentinel_token:
             headers['Authorization'] = f'Bearer {sentinel_token}'
-        rq = _req.Request(f'{sentinel_api_url}/api/v1/vms', headers=headers)
+        rq = _req.Request(f'{sentinel_api_url}/api/v1/vms?cluster={_cluster_id()}', headers=headers)
         with _req.urlopen(rq, timeout=10) as resp:
             return jsonify(json.loads(resp.read().decode()))
     except urllib.error.HTTPError as e:
@@ -1234,7 +1980,7 @@ def sentinel_whatif():
             headers['Authorization'] = f'Bearer {sentinel_token}'
 
         rq = _req.Request(
-            f'{sentinel_api_url}/api/v1/whatif',
+            f'{sentinel_api_url}/api/v1/whatif?cluster={_cluster_id()}',
             data=payload,
             headers=headers,
             method='POST',
@@ -1266,7 +2012,7 @@ def sentinel_get_tunables():
         headers = {}
         if sentinel_token:
             headers['Authorization'] = f'Bearer {sentinel_token}'
-        rq = _req.Request(f'{sentinel_api_url}/api/v1/tunables', headers=headers)
+        rq = _req.Request(f'{sentinel_api_url}/api/v1/tunables?cluster={_cluster_id()}', headers=headers)
         with _req.urlopen(rq, timeout=10) as resp:
             return jsonify(json.loads(resp.read().decode()))
     except urllib.error.HTTPError as e:
@@ -1293,7 +2039,7 @@ def sentinel_put_tunables():
         if sentinel_token:
             headers['Authorization'] = f'Bearer {sentinel_token}'
         rq = _req.Request(
-            f'{sentinel_api_url}/api/v1/tunables',
+            f'{sentinel_api_url}/api/v1/tunables?cluster={_cluster_id()}',
             data=payload, headers=headers, method='PUT',
         )
         with _req.urlopen(rq, timeout=10) as resp:
@@ -1321,7 +2067,7 @@ def sentinel_trigger_trend_run():
         if sentinel_token:
             headers['Authorization'] = f'Bearer {sentinel_token}'
         rq = _req.Request(
-            f'{sentinel_api_url}/api/v1/trend/run',
+            f'{sentinel_api_url}/api/v1/trend/run?cluster={_cluster_id()}',
             data=b'', headers=headers, method='POST',
         )
         with _req.urlopen(rq, timeout=10) as resp:
@@ -1329,153 +2075,6 @@ def sentinel_trigger_trend_run():
     except urllib.error.HTTPError as e:
         body_err = e.read().decode(errors='replace')
         return jsonify({'error': body_err}), e.code
-    except Exception as e:
-        return jsonify({'error': f'Sentinel unreachable: {e}'}), 503
-
-
-# H3 — sharing preferences proxy (Phase 4)
-
-@app.route('/api/sentinel/sharing', methods=['GET'])
-@require_auth
-def sentinel_get_sharing():
-    """H3: Forward GET /api/sentinel/sharing → sentinel /api/v1/sharing."""
-    import urllib.request as _req
-    import urllib.error
-
-    sentinel_api_url = os.getenv('SENTINEL_API_URL', 'http://sentinel:8081')
-    sentinel_token   = os.getenv('SENTINEL_API_TOKEN', '')
-
-    try:
-        headers = {}
-        if sentinel_token:
-            headers['Authorization'] = f'Bearer {sentinel_token}'
-        rq = _req.Request(f'{sentinel_api_url}/api/v1/sharing', headers=headers)
-        with _req.urlopen(rq, timeout=10) as resp:
-            return jsonify(json.loads(resp.read().decode()))
-    except urllib.error.HTTPError as e:
-        return jsonify({'error': e.read().decode(errors='replace')}), e.code
-    except Exception as e:
-        return jsonify({'error': f'Sentinel unreachable: {e}'}), 503
-
-
-@app.route('/api/sentinel/sharing', methods=['PUT'])
-@require_auth
-@require_admin
-def sentinel_put_sharing():
-    """H3: Forward PUT /api/sentinel/sharing → sentinel /api/v1/sharing."""
-    import urllib.request as _req
-    import urllib.error
-
-    sentinel_api_url = os.getenv('SENTINEL_API_URL', 'http://sentinel:8081')
-    sentinel_token   = os.getenv('SENTINEL_API_TOKEN', '')
-
-    try:
-        body    = request.get_json(silent=True) or {}
-        payload = json.dumps(body).encode()
-        headers = {'Content-Type': 'application/json'}
-        if sentinel_token:
-            headers['Authorization'] = f'Bearer {sentinel_token}'
-        rq = _req.Request(
-            f'{sentinel_api_url}/api/v1/sharing',
-            data=payload, headers=headers, method='PUT',
-        )
-        with _req.urlopen(rq, timeout=10) as resp:
-            return jsonify(json.loads(resp.read().decode()))
-    except urllib.error.HTTPError as e:
-        body_err = e.read().decode(errors='replace')
-        return jsonify({'error': body_err}), e.code
-    except Exception as e:
-        return jsonify({'error': f'Sentinel unreachable: {e}'}), 503
-
-
-@app.route('/api/sentinel/export/test-push', methods=['POST'])
-@require_auth
-def sentinel_export_test_push():
-    """H1: Forward POST /api/sentinel/export/test-push → sentinel /api/v1/export/test-push."""
-    import urllib.request as _req
-    import urllib.error
-
-    sentinel_api_url = os.getenv('SENTINEL_API_URL', 'http://sentinel:8081')
-    sentinel_token   = os.getenv('SENTINEL_API_TOKEN', '')
-
-    try:
-        headers = {'Content-Type': 'application/json'}
-        if sentinel_token:
-            headers['Authorization'] = f'Bearer {sentinel_token}'
-        rq = _req.Request(
-            f'{sentinel_api_url}/api/v1/export/test-push',
-            data=b'{}', headers=headers, method='POST',
-        )
-        with _req.urlopen(rq, timeout=60) as resp:
-            return jsonify(json.loads(resp.read().decode()))
-    except urllib.error.HTTPError as e:
-        body_err = e.read().decode(errors='replace')
-        return jsonify({'error': body_err}), e.code
-    except Exception as e:
-        return jsonify({'error': f'Sentinel unreachable: {e}'}), 503
-
-
-@app.route('/api/sentinel/export/snapshot')
-@require_auth
-def sentinel_export_snapshot():
-    """H1: Forward GET /api/sentinel/export/snapshot → sentinel /api/v1/export/snapshot."""
-    import urllib.request as _req
-    import urllib.error
-
-    sentinel_api_url = os.getenv('SENTINEL_API_URL', 'http://sentinel:8081')
-    sentinel_token   = os.getenv('SENTINEL_API_TOKEN', '')
-
-    try:
-        headers = {}
-        if sentinel_token:
-            headers['Authorization'] = f'Bearer {sentinel_token}'
-        rq = _req.Request(f'{sentinel_api_url}/api/v1/export/snapshot', headers=headers)
-        with _req.urlopen(rq, timeout=30) as resp:
-            return jsonify(json.loads(resp.read().decode()))
-    except urllib.error.HTTPError as e:
-        return jsonify({'error': e.read().decode(errors='replace')}), e.code
-    except Exception as e:
-        return jsonify({'error': f'Sentinel unreachable: {e}'}), 503
-
-
-@app.route('/api/sentinel/export/hcb')
-@require_auth
-def sentinel_export_hcb():
-    """H4: Forward GET /api/sentinel/export/hcb → sentinel /api/v1/export/hcb (binary stream).
-    Forwards the ?passphrase= query parameter supplied by the browser."""
-    import urllib.request as _req
-    import urllib.error
-    from urllib.parse import urlencode
-
-    sentinel_api_url = os.getenv('SENTINEL_API_URL', 'http://sentinel:8081')
-    sentinel_token   = os.getenv('SENTINEL_API_TOKEN', '')
-
-    passphrase = request.args.get('passphrase', '')
-    qs = urlencode({'passphrase': passphrase}) if passphrase else ''
-    url = f'{sentinel_api_url}/api/v1/export/hcb'
-    if qs:
-        url = f'{url}?{qs}'
-
-    try:
-        headers = {}
-        if sentinel_token:
-            headers['Authorization'] = f'Bearer {sentinel_token}'
-        rq = _req.Request(url, headers=headers)
-        with _req.urlopen(rq, timeout=60) as resp:
-            file_bytes          = resp.read()
-            content_disposition = resp.headers.get('Content-Disposition', '')
-            content_type        = resp.headers.get('Content-Type', 'application/octet-stream')
-        response = Response(file_bytes, mimetype=content_type)
-        if content_disposition:
-            response.headers['Content-Disposition'] = content_disposition
-        return response
-    except urllib.error.HTTPError as e:
-        body_err = e.read().decode(errors='replace')
-        try:
-            err_json = json.loads(body_err)
-        except Exception:
-            err_json = {'error': body_err}
-        return jsonify(err_json), e.code
     except Exception as e:
         return jsonify({'error': f'Sentinel unreachable: {e}'}), 503
 
@@ -1546,17 +2145,30 @@ def logout():
 def api_me():
     if not _AUTH_ENABLED:
         return jsonify({'user_id': None, 'username': 'dev', 'role': 'admin',
-                        'otp_enabled': False, 'dev_mode': True})
+                        'otp_enabled': False, 'dev_mode': True, 'community_ack': None})
     u = user_db.get_by_username(session['username'])
     if not u:
-        return jsonify({'error': 'User not found'}), 404
+        session.clear()                     # see require_auth: the session outlived its user
+        return jsonify({'error': 'Authentication required'}), 401
     return jsonify({
         'user_id':     str(u['user_id']),
         'username':    u['username'],
         'role':        u['role'],
         'otp_enabled': u['otp_enabled'],
         'dev_mode':    False,
+        'community_ack': bool(u.get('community_ack', False)),
     })
+
+
+@app.route('/api/users/me/community-ack', methods=['POST'])
+@require_auth
+def api_me_community_ack():
+    """Record that the current user has seen the community-support notice."""
+    if not _AUTH_ENABLED:
+        # no user row to persist on; the frontend falls back to localStorage
+        return jsonify({'ok': True, 'dev_mode': True})
+    user_db.set_community_ack(session['username'])
+    return jsonify({'ok': True, 'dev_mode': False})
 
 
 @app.route('/api/users', methods=['GET'])
@@ -1700,7 +2312,42 @@ def _git(*args, timeout=10):
     return r.stdout.strip() if r.returncode == 0 else ''
 
 
-_SEMVER_RE = re.compile(r'^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$')
+# the services an update recreates: everything but the two databases, whose volumes and
+# config do not change on a release. Recreating them too is what the restart container did
+# when its own compose version hashed the config differently from the host's.
+_APP_SERVICES = ('collector', 'balancer', 'dashboard', 'sentinel', 'backup', 'proxy')
+
+
+def _origin_url() -> str:
+    """The browsable URL of the checkout's origin; nothing about the repository is hardcoded."""
+    return origin_to_web_url(_git('remote', 'get-url', 'origin'))
+
+
+def _restore_ownership(log=None) -> None:
+    """git runs as root inside the container on the bind-mounted checkout and leaves root-owned
+    files behind (seen 2026-10-22: the host user's next git pull failed with 'cannot lock ref:
+    Permission denied'). Give everything back to the owner of the checkout's root."""
+    try:
+        if os.geteuid() != 0:
+            return
+        st = os.stat(_REPO_PATH)
+        if st.st_uid == 0 and st.st_gid == 0:
+            return
+        changed = 0
+        for root, dirs, files in os.walk(_REPO_PATH):
+            for name in dirs + files:
+                p = os.path.join(root, name)
+                try:
+                    cur = os.lstat(p)
+                    if cur.st_uid != st.st_uid or cur.st_gid != st.st_gid:
+                        os.lchown(p, st.st_uid, st.st_gid); changed += 1
+                except OSError:
+                    pass
+        if changed and log:
+            log(f'Restored ownership of {changed} file(s) to uid {st.st_uid}.')
+    except Exception as exc:  # noqa: BLE001
+        if log:
+            log(f'Warning: could not restore ownership: {exc}')
 
 
 def _read_version_file() -> str:
@@ -1712,34 +2359,13 @@ def _read_version_file() -> str:
         return ''
 
 
-def _semver_key(v: str):
-    """Sort key for semver-like version strings.
-
-    Pre-release suffixes sort *below* the matching release per the SemVer
-    spec, so v0.9.0-rc.1 < v0.9.0. Returns None for unparseable input.
-    """
-    m = _SEMVER_RE.match(v.strip())
-    if not m:
-        return None
-    major, minor, patch, pre = m.groups()
-    pre_key = (0, pre) if pre else (1, '')
-    return (int(major), int(minor), int(patch), pre_key)
-
-
 def _latest_remote_tag() -> str:
     """Return the highest semver-like tag known to git, or '' if none.
 
     Assumes `git fetch --tags` has run, so local tags mirror origin.
     """
     raw = _git('tag', '-l')
-    if not raw:
-        return ''
-    candidates = [(t, _semver_key(t)) for t in raw.splitlines() if t.strip()]
-    valid = [(t, k) for t, k in candidates if k is not None]
-    if not valid:
-        return ''
-    valid.sort(key=lambda x: x[1])
-    return valid[-1][0]
+    return latest_semver_tag(raw.splitlines()) if raw else ''
 
 
 def _changelog_between(local_tag: str, remote_tag: str) -> list[str]:
@@ -1751,6 +2377,13 @@ def _changelog_between(local_tag: str, remote_tag: str) -> list[str]:
 
 
 def _check_for_update():
+    # the running version comes from the local VERSION file and must be published even
+    # when the remote check fails, so the footer always shows what is installed
+    current_version = _read_version_file()
+    _write_update_patch({
+        'current_version': current_version or None,
+        'current_label':   f'v{current_version}' if current_version else None,
+    })
     try:
         r = subprocess.run(
             ['git', '-C', _REPO_PATH, 'fetch', '--tags', '--quiet'],
@@ -1763,15 +2396,13 @@ def _check_for_update():
             })
             return
 
-        current_version = _read_version_file()
+        _restore_ownership()
         remote_tag      = _latest_remote_tag()
         # tag conventionally has a leading 'v'; the version string itself does not
         remote_version  = remote_tag.lstrip('v') if remote_tag else ''
         local_tag       = f'v{current_version}' if current_version else ''
 
-        cur_key = _semver_key(current_version) if current_version else None
-        rem_key = _semver_key(remote_version)  if remote_version  else None
-        update_available = bool(cur_key and rem_key and rem_key > cur_key)
+        update_available = is_newer(remote_version, current_version)
 
         changelog = _changelog_between(local_tag, remote_tag) if update_available else []
 
@@ -1783,6 +2414,7 @@ def _check_for_update():
             'current_label':    f'v{current_version}' if current_version else None,
             'remote_label':     f'v{remote_version}'  if remote_version  else None,
             'changelog':        changelog,
+            'repo_url':         _origin_url() or None,
             'last_checked':     datetime.now(timezone.utc).isoformat(),
             'error':            None,
         })
@@ -1890,9 +2522,11 @@ def _do_apply_update():
                 log(f'Warning: stash pop had conflicts — manual resolve needed on server.')
                 log('Run: git -C /path/to/repo stash pop')
 
+        _restore_ownership(log)
+
         log('Building new images (no downtime yet)...')
         r = subprocess.run(
-            ['docker-compose', '--profile', 'full', 'build'],
+            ['docker-compose', 'build'],
             capture_output=True, text=True, timeout=600,
             cwd=_REPO_PATH,
         )
@@ -1935,7 +2569,7 @@ def _do_apply_update():
                 '--env-file', f'{_REPO_PATH}/.env',
                 '-w', '/repo',
                 f'{project}-dashboard',
-                'docker-compose', '--profile', 'full', 'up', '-d',
+                'docker-compose', 'up', '-d', '--no-deps', *_APP_SERVICES,
             ],
             capture_output=True, text=True, timeout=30,
         )
@@ -1943,7 +2577,7 @@ def _do_apply_update():
             log(f'docker run failed: {(r.stderr or r.stdout).strip()}')
             _write_update_patch({'apply_in_progress': False})
             return
-        log(f'Restart container spawned ({r.stdout.strip()[:12]}). Page will reload shortly.')
+        log(f'Restart container spawned ({r.stdout.strip()[:12]}); the databases keep running. Page will reload shortly.')
         _write_update_patch({'apply_in_progress': False})
     except Exception as exc:
         log(f'Error: {exc}')
@@ -1961,6 +2595,7 @@ def api_update_status():
         'current_label':     state.get('current_label'),
         'remote_label':      state.get('remote_label'),
         'changelog':         state.get('changelog', []),
+        'repo_url':          state.get('repo_url'),
         'last_checked':      state.get('last_checked'),
         'error':             state.get('error'),
         'apply_in_progress': state.get('apply_in_progress', False),
@@ -1997,16 +2632,6 @@ def index():
     return send_from_directory('static', 'index.html')
 
 
-@app.route('/lcars')
-@require_auth
-def index_lcars():
-    return send_from_directory('static', 'index2.html')
-
-
-@app.route('/lcars2')
-@require_auth
-def index_lcars2():
-    return send_from_directory('static', 'index3.html')
 
 
 if __name__ == '__main__':
