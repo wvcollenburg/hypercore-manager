@@ -65,17 +65,17 @@ def test_device_capacity_and_definition_subset():
           'cpuType': 'x', 'tags': 'a,b', 'bootDevices': ['d'], 'stats': [1, 2, 3], 'snapshotList': ['x'],
           'blockDevs': [{'uuid': 'c', 'type': 'IDE_CDROM', 'capacity': 0}, {'uuid': 'd', 'type': 'VIRTIO_DISK', 'capacity': 10, 'slot': 0},
                         {'uuid': 'n', 'type': 'NVRAM', 'capacity': 540672}, {'uuid': 't', 'type': 'VTPM', 'capacity': 0}],
-          'netDevs': [{'uuid': 'nic', 'type': 'VIRTIO', 'macAddress': '7C:4C:58:4B:5C:5E', 'vlan': 0, 'connected': True, 'ipv4Addresses': []}]}
+          'netDevs': [{'uuid': 'nic', 'type': 'VIRTIO', 'macAddress': '02:00:5E:4B:5C:5E', 'vlan': 0, 'connected': True, 'ipv4Addresses': []}]}
     d = client.definition_of(vm)
-    assert 'stats' not in d and d['netDevs'][0]['macAddress'] == '7C:4C:58:4B:5C:5E' and 'ipv4Addresses' not in d['netDevs'][0]
+    assert 'stats' not in d and d['netDevs'][0]['macAddress'] == '02:00:5E:4B:5C:5E' and 'ipv4Addresses' not in d['netDevs'][0]
     assert [b['uuid'] for b in client.backup_devices(vm)] == ['d', 'n', 't'], 'CD-ROM excluded, utility devices included'
     assert client.snapshot_serials({'deviceSnapshots': [{'uuid': 'd', 'serialNumber': 7}, {'uuid': 'n', 'serialNumber': 7}]}) == {'d': 7, 'n': 7}
 
 
 def test_proxy_client_fingerprint_and_mac_match():
     assert pcm.normalise_fingerprint('AB:CD ef') == 'abcdef' and pcm.normalise_fingerprint(None) is None
-    vms = [{'uuid': '1', 'name': 'a', 'netDevs': [{'macAddress': '7c:4c:58:4b:5c:5e'}]}, {'uuid': '2', 'name': 'b', 'netDevs': []}]
-    assert pcm.match_vm_by_macs(['7C:4C:58:4B:5C:5E'], vms)['uuid'] == '1'
+    vms = [{'uuid': '1', 'name': 'a', 'netDevs': [{'macAddress': '02:00:5e:4b:5c:5e'}]}, {'uuid': '2', 'name': 'b', 'netDevs': []}]
+    assert pcm.match_vm_by_macs(['02:00:5E:4B:5C:5E'], vms)['uuid'] == '1'
     assert pcm.match_vm_by_macs(['00:11:22:33:44:55'], vms) is None
     with pytest.raises(pcm.ProxyError):
         pcm.certificate_fingerprint('http://proxy:8083')
@@ -91,7 +91,7 @@ def test_chain_naming_matches_the_proxy():
         sys.modules.pop('manifest', None)
         if saved:
             sys.modules['manifest'] = saved
-    for name, uuid in (('exptest', '3cf115a9-8208-41b2-a67d-0ed5421441c2'), ('My VM (prod)', 'abcdef12-0000-0000-0000-000000000000')):
+    for name, uuid in (('exptest', '3cf115a9-1111-4111-8111-111111111111'), ('My VM (prod)', 'abcdef12-0000-0000-0000-000000000000')):
         assert mn.chain_dirname(name, uuid) == pm.chain_dirname(name, uuid)
         assert mn.chain_dirname(name, uuid, '20261021-190000') == pm.chain_dirname(name, uuid, '20261021-190000')
     assert mn.chain_dirname('exptest', '3cf115a9-x', '20261021-190000') == 'exptest_3cf115a9_20261021-190000.chain'
@@ -116,7 +116,7 @@ class _FakeHC:
     def snapshot_serials(self, s): return hcm.HyperCoreClient.snapshot_serials(s)
     def task_status(self, tag): return {'state': 'COMPLETE'}
     def update_status(self): return {'updateStatus': {'masterState': 'COMPLETE'}}
-    def list_nodes(self): return [{'uuid': 'n1', 'lanIP': '172.16.0.241', 'networkStatus': 'ONLINE'}]
+    def list_nodes(self): return [{'uuid': 'n1', 'lanIP': '10.0.0.241', 'networkStatus': 'ONLINE'}]
     quiesced = True
     def create_snapshot(self, vm, label, quiesce=True, retain_days=None):
         self.n += 1; u = f'snap-{self.n}'; self.snaps[u] = {'uuid': u, 'state': 'CREATED', 'label': label, 'quiesced': self.quiesced, 'retain_days': retain_days,
@@ -274,16 +274,16 @@ def test_preflight_rules_and_a_deferred_run():
     assert pf({}, [])['ok'], 'a cluster that never updated has no status'
     up = pf({'updateStatus': {'masterState': 'RUNNING', 'toVersion': '9.9.0', 'percent': '40'}}, [{'networkStatus': 'ONLINE'}])
     assert not up['ok'] and up['kind'] == 'update' and '9.9.0' in up['detail'] and '40%' in up['detail']
-    node = pf({}, [{'lanIP': '172.16.0.242', 'networkStatus': 'OFFLINE', 'uuid': 'n2'}, {'lanIP': '172.16.0.241', 'networkStatus': 'ONLINE'}])
-    assert not node['ok'] and node['kind'] == 'node' and node['nodes'] == [{'lan_ip': '172.16.0.242', 'status': 'OFFLINE', 'uuid': 'n2'}]
+    node = pf({}, [{'lanIP': '10.0.0.242', 'networkStatus': 'OFFLINE', 'uuid': 'n2'}, {'lanIP': '10.0.0.241', 'networkStatus': 'ONLINE'}])
+    assert not node['ok'] and node['kind'] == 'node' and node['nodes'] == [{'lan_ip': '10.0.0.242', 'status': 'OFFLINE', 'uuid': 'n2'}]
     assert 'Scale Computing support' in inc.jobs.DEFERRED_HINT['node']
 
 
 def test_run_is_deferred_while_a_node_is_missing(world):
-    world.hc.list_nodes = lambda: [{'uuid': 'n2', 'lanIP': '172.16.0.242', 'networkStatus': 'OFFLINE'}]
+    world.hc.list_nodes = lambda: [{'uuid': 'n2', 'lanIP': '10.0.0.242', 'networkStatus': 'OFFLINE'}]
     inc.run_incremental(4)
     run = world.db.runs[1]
-    assert run['status'] == 'SKIPPED' and run['message'].startswith('Deferred: node not online: 172.16.0.242 (OFFLINE)')
+    assert run['status'] == 'SKIPPED' and run['message'].startswith('Deferred: node not online: 10.0.0.242 (OFFLINE)')
     assert 'evicted' in run['message'] and not world.hc.snaps and not world.pc.jobs, 'nothing touched the cluster'
     # the wait loop reports the reason once and gives up at the deadline; a healthy cluster passes at once
     seen = []

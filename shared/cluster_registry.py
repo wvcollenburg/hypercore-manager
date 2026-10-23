@@ -91,7 +91,7 @@ def is_uuid(value: str) -> bool:
 
 
 def normalize_host(raw: str) -> str:
-    """Accept '172.16.0.241', 'cluster.example.com:443', 'https://x/rest/v1' and
+    """Accept '10.0.0.241', 'cluster.example.com:443', 'https://x/rest/v1' and
     return just host[:port]."""
     s = (raw or '').strip()
     s = re.sub(r'^[a-zA-Z]+://', '', s)

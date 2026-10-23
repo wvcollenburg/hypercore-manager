@@ -134,7 +134,7 @@ def test_tests_dir_not_gitignored(repo):
 
 
 def test_root_holds_only_readme_license_and_notice(repo):
-    """Every other document lives under docs/ or .github/ (William, 2026-10-23)."""
+    """Every other document lives under docs/ or .github/."""
     import subprocess
     tracked = subprocess.run(['git', '-C', str(repo), 'ls-files'], capture_output=True, text=True).stdout.splitlines()
     root_docs = sorted(f for f in tracked if '/' not in f and (f.endswith('.md') or f in ('LICENSE', 'NOTICE')))

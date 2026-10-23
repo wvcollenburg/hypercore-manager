@@ -46,7 +46,7 @@ def test_build_path_uri_injects_and_encodes_credentials():
 
 
 def test_build_path_uri_normalises_upn_like_the_smb_client():
-    assert jobs.build_path_uri('smb://nas/share', 'test123@demolabs.me', 'pw') == 'smb://demolabs.me%5Ctest123:pw@nas/share'
+    assert jobs.build_path_uri('smb://nas/share', 'alice@example.org', 'pw') == 'smb://example.org%5Calice:pw@nas/share'
     assert jobs.build_path_uri('smb://nas/share', 'DOMAIN/user', 'pw') == 'smb://DOMAIN%5Cuser:pw@nas/share'
 
 
@@ -60,7 +60,7 @@ def test_build_path_uri_replaces_existing_userinfo():
 
 
 @pytest.mark.parametrize('user, expected', [
-    ('DOMAIN/user', 'DOMAIN\\user'), ('DOMAIN\\user', 'DOMAIN\\user'), ('test123@demolabs.me', 'demolabs.me\\test123'),
+    ('DOMAIN/user', 'DOMAIN\\user'), ('DOMAIN\\user', 'DOMAIN\\user'), ('alice@example.org', 'example.org\\alice'),
     ('plain', 'plain'), ('  padded  ', 'padded'), (None, ''),
 ])
 def test_smb_username_normalisation(user, expected):

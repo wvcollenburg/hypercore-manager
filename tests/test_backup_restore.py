@@ -32,7 +32,7 @@ DEF = {'uuid': 'src-vm', 'name': 'exptest', 'description': 'd', 'mem': 429496729
        'operatingSystem': 'os_other', 'cpuType': 'c', 'tags': 'test,dnd', 'bootDevices': ['disk-1', 'cd-1'],
        'blockDevs': [{'uuid': 'cd-1', 'type': 'IDE_CDROM', 'capacity': 0}, {'uuid': 'disk-1', 'type': 'VIRTIO_DISK', 'capacity': 15000000000},
                      {'uuid': 'nv-1', 'type': 'NVRAM', 'capacity': 540672}, {'uuid': 'tpm-1', 'type': 'VTPM', 'capacity': 0}],
-       'netDevs': [{'uuid': 'nic-1', 'type': 'VIRTIO', 'macAddress': '7C:4C:58:4B:5C:5E', 'vlan': 7, 'connected': True}]}
+       'netDevs': [{'uuid': 'nic-1', 'type': 'VIRTIO', 'macAddress': '02:00:5E:4B:5C:5E', 'vlan': 7, 'connected': True}]}
 
 
 def test_policies_and_boot_order():
@@ -51,7 +51,7 @@ def test_render_definition_is_diskless(monkeypatch):
     root = ET.fromstring(xml)
     assert root.findtext('uuid') == 'new-uuid' and root.findtext('os/nvram') == 'scribe:scribe/NV'
     assert not [d for d in root.iter('disk') if d.get('device') == 'disk'], 'no data disks in a diskless definition'
-    assert root.find('.//disk[@device="cdrom"]') is not None and root.find('.//interface/mac').get('address') == '7C:4C:58:4B:5C:5E'
+    assert root.find('.//disk[@device="cdrom"]') is not None and root.find('.//interface/mac').get('address') == '02:00:5E:4B:5C:5E'
     ns = {'s': 'http://www.scalecomputing.com/scaled'}
     assert root.find('.//s:vtpm', ns).get('uuid') == 'TPM'
 
@@ -71,7 +71,7 @@ class _FakeHC:
     def import_vm(self, uri, name=None, description=None, tags=None, definition_file=None):
         self.calls.append(('import', definition_file, name, tags))
         self.new_vm = {'uuid': 'new-vm', 'name': name, 'blockDevs': [{'uuid': 'new-nv', 'type': 'NVRAM'}, {'uuid': 'new-tpm', 'type': 'VTPM'}, {'uuid': 'new-cd', 'type': 'IDE_CDROM'}],
-                       'netDevs': [{'uuid': 'new-nic', 'macAddress': '7C:4C:58:AA:AA:AA', 'connected': True}]}
+                       'netDevs': [{'uuid': 'new-nic', 'macAddress': '02:00:5E:AA:AA:AA', 'connected': True}]}
         self.vms.append(self.new_vm); return 'task', 'new-vm'
     def get_vm(self, u): return self.new_vm
     def create_block_device(self, vm, cap, dev_type='VIRTIO_DISK', tiering=None):
@@ -168,7 +168,7 @@ def test_fast_restore_end_to_end(world):
     assert world.hc.proxy_devs == [] and world.hc.snaps == {}, 'staging disk and proxy snapshot removed'
     assert ('patch_vm', 'new-vm', {'bootDevices': [world.hc.new_devs[0], 'new-cd']}) in world.hc.calls
     nic = [c for c in world.hc.calls if c[0] == 'patch_nic'][0]
-    assert nic[2] == {'connected': False, 'vlan': 7, 'macAddress': '7C:4C:58:4B:5C:5E'}, 'original MAC on request'
+    assert nic[2] == {'connected': False, 'vlan': 7, 'macAddress': '02:00:5E:4B:5C:5E'}, 'original MAC on request'
     assert ('action', 'new-vm', 'START') in world.hc.calls and r['created_uuid'] == 'new-vm' and 'MAC original' in r['message']
 
 
@@ -193,10 +193,10 @@ def test_disks_come_back_on_their_original_bus(world):
 
 
 def test_restore_refuses_while_a_node_is_missing(world):
-    world.hc.list_nodes = lambda: [{'lanIP': '172.16.0.243', 'networkStatus': 'OFFLINE'}]
+    world.hc.list_nodes = lambda: [{'lanIP': '10.0.0.243', 'networkStatus': 'OFFLINE'}]
     rs.run_restore(9)
     r = world.db.restore
-    assert r['status'] == 'ERROR' and r['message'].startswith('node not online: 172.16.0.243') and 'evicted' in r['message']
+    assert r['status'] == 'ERROR' and r['message'].startswith('node not online: 10.0.0.243') and 'evicted' in r['message']
     assert not world.pc.jobs and not [c for c in world.hc.calls if c[0] == 'import'], 'nothing was created'
 
 
@@ -259,7 +259,7 @@ def test_refused_start_leaves_the_restore_complete(world, monkeypatch):
     world.db.restore['params'] = {'mac_policy': 'original', 'start': True, 'nic_connected': False}
 
     def refuse(u, a):
-        raise rs.HyperCoreError('HyperCore API 400 on /VirDomain/action: MAC address 7C:4C:58:4B:5C:5E is already in use.')
+        raise rs.HyperCoreError('HyperCore API 400 on /VirDomain/action: MAC address 02:00:5E:4B:5C:5E is already in use.')
     monkeypatch.setattr(world.hc, 'vm_action', refuse)
     rs.run_restore(9)
     r = world.db.restore

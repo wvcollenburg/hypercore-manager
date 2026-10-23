@@ -125,9 +125,9 @@ def test_gen_token_hex():
 
 
 @pytest.mark.parametrize('inp, expected', [
-    ('172.16.0.241',                   'https://172.16.0.241/rest/v1'),
-    ('https://172.16.0.241/rest/v1',   'https://172.16.0.241/rest/v1'),
-    ('https://172.16.0.241',           'https://172.16.0.241/rest/v1'),
+    ('10.0.0.241',                   'https://10.0.0.241/rest/v1'),
+    ('https://10.0.0.241/rest/v1',   'https://10.0.0.241/rest/v1'),
+    ('https://10.0.0.241',           'https://10.0.0.241/rest/v1'),
     ('cluster.example.com',            'https://cluster.example.com/rest/v1'),
 ])
 def test_normalize_sc_host(inp, expected):
@@ -135,7 +135,7 @@ def test_normalize_sc_host(inp, expected):
 
 
 def test_extract_host_ip_roundtrip():
-    assert core.extract_host_ip('https://172.16.0.241/rest/v1') == '172.16.0.241'
+    assert core.extract_host_ip('https://10.0.0.241/rest/v1') == '10.0.0.241'
     assert core.extract_host_ip(core.normalize_sc_host('10.1.2.3')) == '10.1.2.3'
 
 

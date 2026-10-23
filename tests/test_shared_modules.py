@@ -23,9 +23,9 @@ def crypto(monkeypatch):
 
 
 def test_crypto_roundtrip(crypto):
-    token = crypto.encrypt('Z@bbix / ünïcode')
-    assert token != 'Z@bbix / ünïcode'
-    assert crypto.decrypt(token) == 'Z@bbix / ünïcode'
+    token = crypto.encrypt('S3cret / ünïcode')
+    assert token != 'S3cret / ünïcode'
+    assert crypto.decrypt(token) == 'S3cret / ünïcode'
     assert crypto.key_configured()
 
 
@@ -50,8 +50,8 @@ def test_crypto_missing_key_is_a_clear_error(monkeypatch):
 
 
 @pytest.mark.parametrize('raw, host', [
-    ('172.16.0.241', '172.16.0.241'),
-    ('  HTTPS://172.16.0.241/rest/v1  ', '172.16.0.241'),
+    ('10.0.0.241', '10.0.0.241'),
+    ('  HTTPS://10.0.0.241/rest/v1  ', '10.0.0.241'),
     ('cluster.example.com:8443/', 'cluster.example.com:8443'),
     ('http://Cluster.Example.COM', 'cluster.example.com'),
 ])
@@ -95,7 +95,7 @@ def test_duplicate_groups_by_hypercore_uuid():
 # --- multi-node awareness: node records, addresses that follow the seed, usability ---------
 
 @pytest.mark.parametrize('host,expected', [
-    ('172.16.0.241', True), ('172.16.0.241:8443', True), ('[fe80::1]', True), ('[fe80::1]:443', True),
+    ('10.0.0.241', True), ('10.0.0.241:8443', True), ('[fe80::1]', True), ('[fe80::1]:443', True),
     ('hc-node1.example.net', False), ('https://hc.example.net/rest/v1', False), ('', False),
 ])
 def test_is_ip(host, expected):
@@ -104,7 +104,7 @@ def test_is_ip(host, expected):
 
 
 def _api_node(**over):
-    base = {'uuid': 'ba566cf9-0000-0000-0000-000000000001', 'peerID': 1, 'lanIP': '172.16.0.241',
+    base = {'uuid': 'ba566cf9-0000-0000-0000-000000000001', 'peerID': 1, 'lanIP': '10.0.0.241',
             'backplaneIP': '10.20.30.241', 'networkStatus': 'ONLINE', 'currentDisposition': 'IN',
             'allowRunningVMs': True, 'virtualizationOnline': True, 'supportsVirtualization': True,
             'drives': [], 'cpuUsage': 3.2}
@@ -115,7 +115,7 @@ def _api_node(**over):
 def test_node_from_api_keeps_the_fields_we_store():
     import cluster_registry as cr
     n = cr.node_from_api(_api_node())
-    assert n == {'node_uuid': 'ba566cf9-0000-0000-0000-000000000001', 'peer_id': 1, 'lan_ip': '172.16.0.241',
+    assert n == {'node_uuid': 'ba566cf9-0000-0000-0000-000000000001', 'peer_id': 1, 'lan_ip': '10.0.0.241',
                  'backplane_ip': '10.20.30.241', 'network_status': 'ONLINE', 'disposition': 'IN',
                  'allow_running_vms': True, 'virtualization_online': True, 'supports_virtualization': True}
     sparse = cr.node_from_api({'uuid': 'x'})
@@ -130,15 +130,15 @@ def test_node_address_follows_the_seed():
         calls.append(ip)
         return ('node2.lab.example.net', [], [ip])
     # registered by IP: the LAN IP as it is, no lookup
-    assert cr.resolve_node_address('172.16.0.241', '172.16.0.242', lookup=lookup) == '172.16.0.242'
+    assert cr.resolve_node_address('10.0.0.241', '10.0.0.242', lookup=lookup) == '10.0.0.242'
     assert calls == []
     # registered by name: the reverse-resolved name
-    assert cr.resolve_node_address('hc.lab.example.net', '172.16.0.242', lookup=lookup) == 'node2.lab.example.net'
-    assert calls == ['172.16.0.242']
+    assert cr.resolve_node_address('hc.lab.example.net', '10.0.0.242', lookup=lookup) == 'node2.lab.example.net'
+    assert calls == ['10.0.0.242']
     # lookup fails: keep the IP
     def broken(ip):
         raise OSError('no PTR')
-    assert cr.resolve_node_address('hc.lab.example.net', '172.16.0.243', lookup=broken) == '172.16.0.243'
+    assert cr.resolve_node_address('hc.lab.example.net', '10.0.0.243', lookup=broken) == '10.0.0.243'
     assert cr.resolve_node_address('hc.lab.example.net', '', lookup=lookup) == ''
 
 

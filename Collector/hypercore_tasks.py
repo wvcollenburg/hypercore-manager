@@ -4,7 +4,7 @@ hypercore_tasks.py — HyperCore REST v2 task feed (GET /rest/v2/TaskTag), share
 
 v2 is experimental on HyperCore 9.8; it only adds to v1. A task record looks like
   {taskTag, state, progressPercent, formattedDescription: "Move Virtual Machine %@ from %@ to %@",
-   descriptionParameters: ["vm", "172.16.0.241", "172.16.0.244"], objectUUID, nodeUUIDs,
+   descriptionParameters: ["vm", "10.0.0.241", "10.0.0.244"], objectUUID, nodeUUIDs,
    created, modified, completed}
 Everything here is pure except fetch_tasks(), which takes a logged-in requests.Session.
 """

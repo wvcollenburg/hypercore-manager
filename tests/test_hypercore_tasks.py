@@ -5,13 +5,13 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'shared'))
 import hypercore_tasks as ht  # noqa: E402
 
-MOVE = {'taskTag': '1792', 'formattedDescription': 'Move Virtual Machine %@ from %@ to %@', 'descriptionParameters': ['DigitalPlayground', '172.16.0.241', '172.16.0.244'],
+MOVE = {'taskTag': '1792', 'formattedDescription': 'Move Virtual Machine %@ from %@ to %@', 'descriptionParameters': ['webserver01', '10.0.0.241', '10.0.0.244'],
         'objectUUID': 'a54f93da', 'nodeUUIDs': [''], 'state': 'COMPLETE', 'progressPercent': 100, 'created': 1767945531, 'completed': 1767945644}
-SNAP = {'taskTag': '1796', 'formattedDescription': 'Create Snapshot %@ Virtual Machine %@', 'descriptionParameters': ['', 'MaxDemo'], 'objectUUID': 'dd2628fd',
+SNAP = {'taskTag': '1796', 'formattedDescription': 'Create Snapshot %@ Virtual Machine %@', 'descriptionParameters': ['', 'fileserver01'], 'objectUUID': 'dd2628fd',
         'nodeUUIDs': ['f3d2bc6d'], 'state': 'RUNNING', 'progressPercent': 40, 'created': 1767955143, 'completed': 0}
 EXPORT = {'taskTag': '2000', 'formattedDescription': "Export Virtual Machine '%@' to '%@'", 'descriptionParameters': ['exptest', 'smb://nas/share'], 'objectUUID': '3cf115a9',
           'state': 'RUNNING', 'progressPercent': 10}
-CLONE_DEV = {'taskTag': '1819', 'formattedDescription': 'Create clone of block device %@ from %@ serial %@ for Virtual Machine %@', 'descriptionParameters': ['1040f341', '5e1da7da', '1', 'MaxDemo'],
+CLONE_DEV = {'taskTag': '1819', 'formattedDescription': 'Create clone of block device %@ from %@ serial %@ for Virtual Machine %@', 'descriptionParameters': ['1040f341', '5e1da7da', '1', 'fileserver01'],
              'objectUUID': 'b5bcad3c', 'state': 'QUEUED', 'progressPercent': 0}
 START = {'taskTag': '1789', 'formattedDescription': 'Start Virtual Machine %@', 'descriptionParameters': ['MineC01'], 'objectUUID': 'd8521a00', 'state': 'RUNNING', 'progressPercent': 50}
 
@@ -19,16 +19,16 @@ START = {'taskTag': '1789', 'formattedDescription': 'Start Virtual Machine %@', 
 def test_kind_description_and_vm_name():
     assert ht.kind_of(MOVE) == 'move' and ht.kind_of(SNAP) == 'snapshot' and ht.kind_of(EXPORT) == 'export' and ht.kind_of(CLONE_DEV) == 'disk'
     assert ht.kind_of({'formattedDescription': 'Force Rollout'}) == 'other'
-    assert ht.describe(MOVE) == 'Move Virtual Machine DigitalPlayground from 172.16.0.241 to 172.16.0.244'
-    assert ht.describe(SNAP) == 'Create Snapshot  Virtual Machine MaxDemo'
-    assert ht.vm_name_of(MOVE) == 'DigitalPlayground' and ht.vm_name_of(SNAP) == 'MaxDemo' and ht.vm_name_of(EXPORT) == 'exptest'
-    assert ht.vm_name_of(CLONE_DEV) == 'MaxDemo' and ht.vm_name_of({'formattedDescription': 'Force Rollout'}) is None
+    assert ht.describe(MOVE) == 'Move Virtual Machine webserver01 from 10.0.0.241 to 10.0.0.244'
+    assert ht.describe(SNAP) == 'Create Snapshot  Virtual Machine fileserver01'
+    assert ht.vm_name_of(MOVE) == 'webserver01' and ht.vm_name_of(SNAP) == 'fileserver01' and ht.vm_name_of(EXPORT) == 'exptest'
+    assert ht.vm_name_of(CLONE_DEV) == 'fileserver01' and ht.vm_name_of({'formattedDescription': 'Force Rollout'}) is None
 
 
 def test_normalise_row():
     row = ht.normalise(MOVE)
-    assert row['task_tag'] == '1792' and row['kind'] == 'move' and row['vm_name'] == 'DigitalPlayground' and row['progress'] == 100
-    assert row['node_uuids'] == [] and row['completed_at'].year == 2026 and row['params'][1] == '172.16.0.241'
+    assert row['task_tag'] == '1792' and row['kind'] == 'move' and row['vm_name'] == 'webserver01' and row['progress'] == 100
+    assert row['node_uuids'] == [] and row['completed_at'].year == 2026 and row['params'][1] == '10.0.0.241'
     assert ht.normalise(SNAP)['completed_at'] is None
 
 
@@ -44,10 +44,10 @@ def test_busy_reason_blocks_moves_and_busy_vms_only():
 
 def test_move_event_and_v2_base():
     ev = ht.move_event(MOVE)
-    assert ev['vm_name'] == 'DigitalPlayground' and ev['source_ip'] == '172.16.0.241' and ev['target_ip'] == '172.16.0.244' and ev['task_tag'] == '1792'
+    assert ev['vm_name'] == 'webserver01' and ev['source_ip'] == '10.0.0.241' and ev['target_ip'] == '10.0.0.244' and ev['task_tag'] == '1792'
     assert ev['time'].timestamp() == 1767945644
     assert ht.move_event(SNAP) is None and ht.move_event(dict(MOVE, state='RUNNING')) is None
-    assert ht.v2_base('https://172.16.0.241/rest/v1') == 'https://172.16.0.241/rest/v2'
+    assert ht.v2_base('https://10.0.0.241/rest/v1') == 'https://10.0.0.241/rest/v2'
     assert ht.v2_base('https://h:443/rest/v1/') == 'https://h:443/rest/v2'
 
 

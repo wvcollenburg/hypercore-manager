@@ -34,7 +34,7 @@ def _vm(machine_type, os_name, with_nvram=True, with_vtpm=True):
     return {'name': 'exptest', 'description': 'demo & test', 'mem': 4294967296, 'numVCPU': 2,
             'machineType': machine_type, 'operatingSystem': os_name, 'cpuType': 'intel-core-cascadelake-amd64-9.4',
             'tags': 'test,dnd', 'bootDevices': [DISK, CD], 'blockDevs': devs,
-            'netDevs': [{'uuid': 'n1', 'type': 'VIRTIO', 'macAddress': '7C:4C:58:4B:5C:5E', 'vlan': 0}]}
+            'netDevs': [{'uuid': 'n1', 'type': 'VIRTIO', 'macAddress': '02:00:5E:4B:5C:5E', 'vlan': 0}]}
 
 
 FILES = {DISK: str(uuid.uuid4()), NVRAM: str(uuid.uuid4()), VTPM: str(uuid.uuid4())}
@@ -58,7 +58,7 @@ def test_render_is_well_formed_and_complete(machine_type, profile):
     disks = [d for d in root.iter('disk') if d.get('device') == 'disk']
     assert len(disks) == 1 and disks[0].find('source').get('name') == f'scribe/{FILES[DISK]}'
     assert disks[0].find('boot').get('order') == '1' and root.find('.//disk[@device="cdrom"]/boot').get('order') == '2'
-    assert root.find('.//interface/mac').get('address') == '7C:4C:58:4B:5C:5E'
+    assert root.find('.//interface/mac').get('address') == '02:00:5E:4B:5C:5E'
     ns = {'s': 'http://www.scalecomputing.com/scaled'}
     assert root.find('.//s:machine', ns).get('name') == machine_type
     assert root.find('.//s:os', ns).get('uuid') == os_name

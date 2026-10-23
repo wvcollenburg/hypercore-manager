@@ -1,7 +1,7 @@
 """config_db.seed_from_env fills the Defaults template once and never overwrites what is stored.
 The earlier rule re-applied the env var whenever the stored value equalled the hardcoded default,
 so a node exclusion cleared in the dashboard, dry-run switched back on, or predictive balancing
-switched off came back from .env at every restart (William, 2026-10-23)."""
+switched off came back from .env at every restart."""
 import importlib.util
 import os
 import sys

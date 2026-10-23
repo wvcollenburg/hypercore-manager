@@ -143,7 +143,7 @@ def test_manifest_names_and_verify(tmp_path):
     assert P.manifest.point_dirname('full', 0) == 'base'
     assert P.manifest.point_dirname('delta', 3) == 'delta-0003'
     assert P.manifest.point_dirname('full', 14) == 'full-0014'
-    assert P.manifest.chain_dirname('My VM (prod)', '3cf115a9-8208-41b2-a67d-0ed5421441c2') == 'My_VM__prod__3cf115a9.chain'
+    assert P.manifest.chain_dirname('My VM (prod)', '3cf115a9-1111-4111-8111-111111111111') == 'My_VM__prod__3cf115a9.chain'
     pd = tmp_path / 'base'; pd.mkdir()
     (pd / 'x.qcow2').write_bytes(b'abc')
     P.manifest.write_json(str(pd / 'manifest.json'), {'devices': [{'file': 'x.qcow2', 'sha256': P.manifest.sha256_file(str(pd / 'x.qcow2'))}]})
@@ -153,9 +153,9 @@ def test_manifest_names_and_verify(tmp_path):
 
 
 def test_identity_reads_host_macs(tmp_path):
-    for n, mac in (('enp3s0', '7c:4c:58:4b:5c:5e'), ('lo', '00:00:00:00:00:00'), ('docker0', '02:42:ac:11:00:02'), ('veth1', '12:34:56:78:9a:bc')):
+    for n, mac in (('enp3s0', '02:00:5e:4b:5c:5e'), ('lo', '00:00:00:00:00:00'), ('docker0', '02:42:ac:11:00:02'), ('veth1', '12:34:56:78:9a:bc')):
         (tmp_path / n).mkdir(); (tmp_path / n / 'address').write_text(mac + '\n')
-    assert P.identity.host_macs(str(tmp_path)) == [{'ifname': 'enp3s0', 'mac': '7C:4C:58:4B:5C:5E'}]
+    assert P.identity.host_macs(str(tmp_path)) == [{'ifname': 'enp3s0', 'mac': '02:00:5E:4B:5C:5E'}]
     assert P.identity.host_macs(str(tmp_path / 'nope')) == []
 
 
@@ -214,11 +214,11 @@ def test_backup_full_then_delta_then_flatten_verify_sweep(stack):
     (stack.dev / 'virtio-bbbb2222').write_bytes(b'N' * MiB)
     full_map = [{'lower': 0, 'upper': 1}, {'lower': 4, 'upper': 4}]
     req = {'target': {'uri': 'smb://nas/share/hcm', 'username': 'u', 'password': 'p'}, 'folder': 'Amsterdam',
-           'vm': {'uuid': '3cf115a9-8208-41b2-a67d-0ed5421441c2', 'name': 'exptest'},
+           'vm': {'uuid': '3cf115a9-1111-4111-8111-111111111111', 'name': 'exptest'},
            'point': {'kind': 'full', 'seq': 0}, 'plan_id': 4, 'run_id': 20,
            'devices': [{'uuid': disk, 'type': 'VIRTIO_DISK', 'clone_uuid': clone_a, 'size': 6 * MiB, 'map': full_map},
                        {'uuid': nvram, 'type': 'NVRAM', 'clone_uuid': clone_n, 'size': MiB, 'map': [{'lower': 0, 'upper': 0}]}],
-           'definition': {'name': 'exptest', 'mem': 4294967296, 'netDevs': [{'macAddress': '7C:4C:58:4B:5C:5E'}]}}
+           'definition': {'name': 'exptest', 'mem': 4294967296, 'netDevs': [{'macAddress': '02:00:5E:4B:5C:5E'}]}}
     jid = stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id']
     j = _wait(stack, jid)
     assert j['state'] == 'done', j
@@ -227,7 +227,7 @@ def test_backup_full_then_delta_then_flatten_verify_sweep(stack):
     base_img = os.path.join(chain, 'base', f'{disk}.qcow2')
     assert os.path.getsize(base_img) == 6 * MiB and os.path.exists(os.path.join(chain, 'base', f'nvram-{nvram}.qcow2'))
     pm = json.load(open(os.path.join(chain, 'base', 'manifest.json')))
-    assert pm['definition']['netDevs'][0]['macAddress'] == '7C:4C:58:4B:5C:5E' and pm['devices'][0]['blocks'] == 3
+    assert pm['definition']['netDevs'][0]['macAddress'] == '02:00:5E:4B:5C:5E' and pm['devices'][0]['blocks'] == 3
     assert j['result']['bytes_written'] == 4 * MiB and stack.mounter.released == [req['target']['uri']]
     a = open(str(src_a), 'rb').read(); b = open(base_img, 'rb').read()
     assert b[:2 * MiB] == a[:2 * MiB] and b[4 * MiB:5 * MiB] == a[4 * MiB:5 * MiB] and b[2 * MiB:4 * MiB] == bytes(2 * MiB)
@@ -635,7 +635,7 @@ def test_resized_device_gets_a_full_inside_a_delta_point(stack):
     disk = 'd0dd5d2c-9c7a-44ec-b6bc-d4ce06bb204d'
     src_a = stack.dev / 'virtio-aaaa1111'; _random_file(str(src_a), 4, 1)
     req = {'target': {'uri': 'smb://nas/share/hcm', 'username': 'u', 'password': 'p'}, 'folder': 'Amsterdam', 'chain_dir': 'Amsterdam/r.chain',
-           'vm': {'uuid': '3cf115a9-8208-41b2-a67d-0ed5421441c2', 'name': 'exptest'}, 'point': {'kind': 'full', 'seq': 0}, 'plan_id': 4, 'run_id': 30,
+           'vm': {'uuid': '3cf115a9-1111-4111-8111-111111111111', 'name': 'exptest'}, 'point': {'kind': 'full', 'seq': 0}, 'plan_id': 4, 'run_id': 30,
            'devices': [{'uuid': disk, 'type': 'VIRTIO_DISK', 'clone_uuid': 'aaaa1111-0000-0000-0000-000000000000', 'size': 4 * MiB, 'map': [{'lower': 0, 'upper': 3}]}],
            'definition': {'name': 'exptest'}}
     assert _wait(stack, stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id'])['state'] == 'done'
