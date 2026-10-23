@@ -10,6 +10,8 @@ HyperCore Manager is a containerized stack that automatically distributes virtua
 
 One installation manages any number of HyperCore clusters. Clusters are registered in the dashboard, grouped into folders, and shown to each user according to the folders they belong to, so a service provider can run one stack for all its customers.
 
+![Infraviewer: nodes and drives of a cluster](docs/manual/img/infraviewer-nodes.png)
+
 The optional **Foresight** module extends the platform with long-range capacity intelligence: multi-horizon forecasting, VM right-sizing recommendations, cluster health scoring, scenario modelling. The optional **Backup** module schedules VM backups to SMB or NFS targets, with retention and import back into any registered cluster.
 
 ---
@@ -249,6 +251,19 @@ The left-hand **cluster rail** lists folders and clusters (collapsible, colour-c
 | **Settings** | Clusters, Tunables (per cluster / Defaults / all), Users, Targets | admins |
 | **Account** | Own password and TOTP two-factor | everyone |
 | **Manual** | This user manual, served by the dashboard at `/manual` (opens in a new tab; works offline) | everyone |
+
+<table>
+<tr>
+<td width="50%"><img src="docs/manual/img/clusterbalancer-miglog.png" alt="Clusterbalancer: migration log"></td>
+<td width="50%"><img src="docs/manual/img/foresight-overview.png" alt="Foresight: capacity overview"></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/manual/img/backup-points.png" alt="Backup: restore points of a VM"></td>
+<td width="50%"><img src="docs/manual/img/settings-clusters.png" alt="Settings: registered clusters"></td>
+</tr>
+</table>
+
+Screenshots were taken on a three-node lab cluster; the [user manual](docs/manual/README.md) has one per panel.
 
 Users have one of two roles. **Administrators** see every cluster and manage clusters, folders,
 users and shares. **Users** see the clusters in the folders they are members of and can operate
