@@ -26,7 +26,6 @@ window.LANG = {
   'sentinel.tab.reports':     'Rapporten',
   'sentinel.tab.whatif':      'Wat-als',
   'sentinel.tab.settings':    'Instellingen',
-  'sentinel.tab.datasharing': 'Datadeling',
 
   // time range / grouping controls
   'time.range':           'Bereik:',
@@ -277,44 +276,7 @@ window.LANG = {
   'reports.contents_rightsizing':"\u25c6 VM-aanbevelingen voor rechtsizing",
   'reports.contents_resize':     '\u25c6 Concreet vergrotingsadvies met risicoklassificatie',
 
-  // data sharing panel
-  'sharing.connection_title':   'Verbinding',
-  'sharing.connection_desc':    'Configureer het Foresight-Central viewer-eindpunt om geplande snapshot-pushes in te schakelen.',
-  'sharing.enabled':            'Delen ingeschakeld',
-  'sharing.viewer_url':         'Viewer URL',
-  'sharing.bearer_token':       'Bearer Token',
-  'sharing.save_connection':    'Verbinding opslaan',
-  'sharing.anon_title':         'Anonimisering',
-  'sharing.anon_desc':          'Anonimisering gebruikt stabiele pseudoniemen \u2014 trends blijven intact.',
-  'sharing.anon_vm_names':      'VM-namen anonimiseren',
-  'sharing.anon_node_ids':      'Node-identificatoren anonimiseren',
-  'sharing.anon_cluster':       'Clusternaam anonimiseren',
-  'sharing.save_anon':          'Anonimisering opslaan',
-  'sharing.manual_title':       'Handmatige acties',
-  'sharing.test_push':          'Test Push',
-  'sharing.download_hcb':       'Snapshot downloaden (.hcb)',
-  'sharing.preview_snapshot':   'Snapshot voorvertonen (JSON)',
-  'sharing.last_sync_never':    'Laatste synchronisatie: nooit',
-  'sharing.last_sync':          'Laatste synchronisatie:',
-  'sharing.token_hint_saved':   'Token is opgeslagen. Voer een nieuwe waarde in om het te vervangen.',
-  'sharing.token_placeholder_saved': '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022  (opgeslagen \u2014 leeg laten om te behouden)',
-  'sharing.connection_saved':   'Verbindingsinstellingen opgeslagen',
-  'sharing.anon_saved':         'Anonimiseringsinstellingen opgeslagen',
-  'sharing.load_failed':        'Kan delingsinstellingen niet laden',
-  'sharing.test_push_sending':  'Testpush verzenden\u2026',
-  'sharing.test_push_ok':       'Testpush geslaagd (HTTP {code})',
-  'sharing.test_push_failed':   'Testpush mislukt:',
-  'sharing.test_push_error':    'Testpush fout:',
 
-  // HCB export modal
-  'hcb.title':     'Snapshot exporteren (.hcb)',
-  'hcb.desc':      'Stel een wachtwoordzin in om dit bestand te versleutelen. U moet dezelfde wachtwoordzin invoeren bij het importeren in Foresight-Central.',
-  'hcb.passphrase':'Wachtwoordzin',
-  'hcb.confirm':   'Wachtwoordzin bevestigen',
-  'hcb.cancel':    'Annuleren',
-  'hcb.download':  'Downloaden',
-  'hcb.required':  'Wachtwoordzin is vereist.',
-  'hcb.mismatch':  'Wachtwoordzinnen komen niet overeen.',
 
   // modules tab
   'modules.discovered_title':'Ontdekte datamodules',

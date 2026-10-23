@@ -164,6 +164,11 @@ release is tagged.
   `exports` profile keep working for one release. Migration `025_backup_rename.sql`.
 
 ### Removed
+- **Foresight-Central integration (data sharing).** The push of signed capacity snapshots to a
+  central viewer, the anonymiser, the encrypted `.hcb` export and the Data Sharing tab are
+  gone, with their API routes, the `config.sharing_prefs` table (migration `034`) and the
+  setup guide. The central viewer is retired; a service provider runs one HyperCore Manager
+  with a folder per customer instead.
 - **Grafana.** The optional `tools` profile shipped a bare Grafana without a datasource or a
   dashboard; the dashboard covers the metrics. Point your own Grafana at InfluxDB (Flux, bucket
   `metrics`, a read token) if you want one. `GF_SECURITY_ADMIN_PASSWORD` is no longer read.

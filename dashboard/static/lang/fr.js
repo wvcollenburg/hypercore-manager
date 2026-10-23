@@ -26,7 +26,6 @@ window.LANG = {
   'sentinel.tab.reports':     'Rapports',
   'sentinel.tab.whatif':      'Simulation',
   'sentinel.tab.settings':    'Param\u00e8tres',
-  'sentinel.tab.datasharing': 'Partage de donn\u00e9es',
 
   // time range / grouping controls
   'time.range':           'Plage\u00a0:',
@@ -277,44 +276,7 @@ window.LANG = {
   'reports.contents_rightsizing':'\u25c6 Recommandations de redimensionnement des MV',
   'reports.contents_resize':     '\u25c6 Conseils concrets de redimensionnement avec classification des risques',
 
-  // data sharing panel
-  'sharing.connection_title':   'Connexion',
-  'sharing.connection_desc':    'Configurez le point de terminaison du visualiseur Foresight-Central pour activer les envois de snapshots planifi\u00e9s.',
-  'sharing.enabled':            'Partage activ\u00e9',
-  'sharing.viewer_url':         'URL du visualiseur',
-  'sharing.bearer_token':       'Token Bearer',
-  'sharing.save_connection':    'Sauvegarder la connexion',
-  'sharing.anon_title':         'Anonymisation',
-  'sharing.anon_desc':          'L\u2019anonymisation utilise des pseudonymes stables \u2014 les tendances restent intactes.',
-  'sharing.anon_vm_names':      'Anonymiser les noms de MV',
-  'sharing.anon_node_ids':      'Anonymiser les identifiants de n\u0153uds',
-  'sharing.anon_cluster':       'Anonymiser le nom du cluster',
-  'sharing.save_anon':          "Sauvegarder l'anonymisation",
-  'sharing.manual_title':       'Actions manuelles',
-  'sharing.test_push':          'Test Push',
-  'sharing.download_hcb':       'T\u00e9l\u00e9charger le snapshot (.hcb)',
-  'sharing.preview_snapshot':   'Aper\u00e7u du snapshot (JSON)',
-  'sharing.last_sync_never':    'Derni\u00e8re sync\u00a0: jamais',
-  'sharing.last_sync':          'Derni\u00e8re sync\u00a0:',
-  'sharing.token_hint_saved':   'Token enregistr\u00e9. Entrez une nouvelle valeur pour le remplacer.',
-  'sharing.token_placeholder_saved': '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022  (enregistr\u00e9 \u2014 laisser vide pour conserver)',
-  'sharing.connection_saved':   'Param\u00e8tres de connexion sauvegard\u00e9s',
-  'sharing.anon_saved':         "Param\u00e8tres d'anonymisation sauvegard\u00e9s",
-  'sharing.load_failed':        'Impossible de charger les param\u00e8tres de partage',
-  'sharing.test_push_sending':  'Envoi du test push\u2026',
-  'sharing.test_push_ok':       'Test push r\u00e9ussi (HTTP {code})',
-  'sharing.test_push_failed':   'Test push \u00e9chou\u00e9\u00a0:',
-  'sharing.test_push_error':    'Erreur de test push\u00a0:',
 
-  // HCB export modal
-  'hcb.title':     'Exporter le snapshot (.hcb)',
-  'hcb.desc':      "D\u00e9finissez une phrase secr\u00e8te pour chiffrer ce fichier. Vous devrez entrer la m\u00eame phrase secr\u00e8te lors de l'importation dans Foresight-Central.",
-  'hcb.passphrase':'Phrase secr\u00e8te',
-  'hcb.confirm':   'Confirmer la phrase secr\u00e8te',
-  'hcb.cancel':    'Annuler',
-  'hcb.download':  'T\u00e9l\u00e9charger',
-  'hcb.required':  'La phrase secr\u00e8te est obligatoire.',
-  'hcb.mismatch':  'Les phrases secr\u00e8tes ne correspondent pas.',
 
   // modules tab
   'modules.discovered_title':'Modules de donn\u00e9es d\u00e9couverts',

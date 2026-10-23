@@ -26,7 +26,6 @@ window.LANG = {
   'sentinel.tab.reports':     'Reports',
   'sentinel.tab.whatif':      'What-If',
   'sentinel.tab.settings':    'Settings',
-  'sentinel.tab.datasharing': 'Data Sharing',
 
   // time range / grouping controls
   'time.range':           'Range:',
@@ -277,44 +276,7 @@ window.LANG = {
   'reports.contents_rightsizing':'\u25c6 VM right-sizing recommendations',
   'reports.contents_resize':     '\u25c6 Concrete resize advice with risk classification',
 
-  // data sharing panel
-  'sharing.connection_title':   'Connection',
-  'sharing.connection_desc':    'Configure the Foresight-Central viewer endpoint to enable scheduled snapshot pushes.',
-  'sharing.enabled':            'Sharing enabled',
-  'sharing.viewer_url':         'Viewer URL',
-  'sharing.bearer_token':       'Bearer Token',
-  'sharing.save_connection':    'Save Connection',
-  'sharing.anon_title':         'Anonymisation',
-  'sharing.anon_desc':          'Anonymisation uses stable pseudonyms \u2014 trends remain intact.',
-  'sharing.anon_vm_names':      'Anonymise VM names',
-  'sharing.anon_node_ids':      'Anonymise node identifiers',
-  'sharing.anon_cluster':       'Anonymise cluster name',
-  'sharing.save_anon':          'Save Anonymisation',
-  'sharing.manual_title':       'Manual Actions',
-  'sharing.test_push':          'Test Push',
-  'sharing.download_hcb':       'Download Snapshot (.hcb)',
-  'sharing.preview_snapshot':   'Preview Snapshot (JSON)',
-  'sharing.last_sync_never':    'Last sync: never',
-  'sharing.last_sync':          'Last sync:',
-  'sharing.token_hint_saved':   'Token is stored. Enter a new value to replace it.',
-  'sharing.token_placeholder_saved': '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022  (saved \u2014 leave blank to keep)',
-  'sharing.connection_saved':   'Connection settings saved',
-  'sharing.anon_saved':         'Anonymisation settings saved',
-  'sharing.load_failed':        'Could not load sharing settings',
-  'sharing.test_push_sending':  'Sending test push\u2026',
-  'sharing.test_push_ok':       'Test push succeeded (HTTP {code})',
-  'sharing.test_push_failed':   'Test push failed:',
-  'sharing.test_push_error':    'Test push error:',
 
-  // HCB export modal
-  'hcb.title':     'Export Snapshot (.hcb)',
-  'hcb.desc':      'Set a passphrase to encrypt this file. You will need to enter the same passphrase when importing into Foresight-Central.',
-  'hcb.passphrase':'Passphrase',
-  'hcb.confirm':   'Confirm passphrase',
-  'hcb.cancel':    'Cancel',
-  'hcb.download':  'Download',
-  'hcb.required':  'Passphrase is required.',
-  'hcb.mismatch':  'Passphrases do not match.',
 
   // modules tab
   'modules.discovered_title':'Discovered Data Modules',

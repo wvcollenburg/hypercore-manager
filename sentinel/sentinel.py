@@ -49,7 +49,6 @@ import api
 import config
 import health
 import log
-import sync_push
 import tunables
 
 logger = logging.getLogger('sentinel.main')
@@ -297,15 +296,12 @@ class ClusterEngine:
         self.trigger = threading.Event()
         self.threads: list = []
         self.reader = None
-        self.sync_loop = None
 
     def start(self) -> None:
         from influx_client import InfluxReader
         cfg = self.cfg
         tunables.set_cluster_id(cfg.cluster_id)          # copy template tunables the cluster lacks
         self.reader = InfluxReader(cfg)
-        self.sync_loop = sync_push.SyncPushLoop(cfg)
-        self.sync_loop.start()
         self.threads = [
             threading.Thread(target=connectivity_loop, args=(cfg, self.stop, self.reader), name=f'connectivity-{self.cluster.name}', daemon=True),
             threading.Thread(target=analysis_loop,     args=(cfg, self.stop, self.reader, self.trigger), name=f'analysis-{self.cluster.name}', daemon=True),
@@ -320,11 +316,6 @@ class ClusterEngine:
     def shutdown(self, timeout: float = 60) -> None:
         self.stop.set()
         self.trigger.set()   # wake the analysis loop so it notices the stop flag
-        if self.sync_loop:
-            try:
-                self.sync_loop.stop()
-            except Exception:
-                pass
         for t in self.threads:
             t.join(timeout=timeout)
         if self.reader:

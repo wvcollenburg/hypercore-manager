@@ -35,7 +35,7 @@ def test_resolve_accepts_chapters_index_and_guides_only(tmp_path):
     (tmp_path / 'README.md').write_text('# idx'); (tmp_path / '01-a.md').write_text('# a')
     (tmp_path / 'extra').mkdir(); (tmp_path / 'extra' / 'administration.md').write_text('# d')
     assert manual.resolve(tmp_path, '').name == 'README.md' and manual.resolve(tmp_path, '01-a').name == '01-a.md'
-    assert manual.resolve(tmp_path, 'administration').name == 'administration.md' and manual.resolve(tmp_path, 'data-sharing') is None
+    assert manual.resolve(tmp_path, 'administration').name == 'administration.md' and manual.resolve(tmp_path, 'nope-guide') is None
     assert manual.resolve(tmp_path, 'deploy') is None, 'the deployment guide was folded into the installing chapter'
     assert manual.resolve(tmp_path, '../etc/passwd') is None and manual.resolve(tmp_path, 'nope') is None
 

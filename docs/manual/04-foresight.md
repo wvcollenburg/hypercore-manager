@@ -69,14 +69,3 @@ what is gained or lost. Nothing is changed on the cluster.
 Foresight's own thresholds and toggles: the analysis cadence, confidence floors, the
 right-sizing signals and their limits, retention of findings. They apply at runtime. The
 defaults suit most clusters; change one when you know why, and read the explanation next to it.
-
-## Data Sharing
-
-![Data sharing](img/foresight-datasharing.png)
-
-Optionally push signed capacity snapshots of this cluster to a Foresight-Central viewer, the
-multi-tenant counterpart for service providers. Connection holds the viewer URL and token;
-Anonymisation decides which fields leave the cluster under stable pseudonyms (VM names, node
-identifiers, the cluster name); Manual Actions lets you test the push, preview the snapshot as
-JSON, or download it as an encrypted file for offline transfer. Sharing is per cluster and off
-until you enable it. See [phase4-data-sharing.md](../phase4-data-sharing.md) for the setup.

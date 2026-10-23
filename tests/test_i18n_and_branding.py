@@ -49,7 +49,7 @@ def test_community_notice_present_in_all_languages(repo):
 # CHANGELOG.md is history and may legitimately name the old prefix
 USER_FACING = [
     'README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'docs/manual/08-installing-and-updating.md',
-    'docs/phase4-data-sharing.md', '.env.template', 'docker-compose.yaml', 'install.py',
+    '.env.template', 'docker-compose.yaml', 'install.py',
     'dashboard/static/index.html', 'dashboard/templates/login.html',
     'dashboard/static/lang/en.js', 'dashboard/static/lang/nl.js',
     'dashboard/static/lang/fr.js', 'dashboard/static/lang/de.js',

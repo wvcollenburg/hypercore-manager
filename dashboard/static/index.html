@@ -1196,7 +1196,6 @@
       <div class="sentinel-sub-tab"        data-spanel="reports"      data-i18n="sentinel.tab.reports"     onclick="switchSentinelPanel('reports')">Reports</div>
       <div class="sentinel-sub-tab"        data-spanel="whatif"       data-i18n="sentinel.tab.whatif"      onclick="switchSentinelPanel('whatif')">What-If</div>
       <div class="sentinel-sub-tab"        data-spanel="sentsettings" data-i18n="sentinel.tab.settings"    onclick="switchSentinelPanel('sentsettings')">Settings</div>
-      <div class="sentinel-sub-tab"        data-spanel="datasharing"  data-i18n="sentinel.tab.datasharing" onclick="switchSentinelPanel('datasharing')">Data Sharing</div>
     </div>
 
     <!-- overview panel -->
@@ -1394,104 +1393,6 @@
         <span data-i18n="settings.restart_required" style="color:var(--text-secondary)">Restart-required settings</span><span data-i18n="settings.restart_note"> — collection interval, trend interval, outcome check interval, ports, InfluxDB / PostgreSQL / HyperCore credentials, webhook URL, secret and delivery parameters must be set via environment variables in docker-compose and require a container restart.</span>
       </div>
     </div>
-
-    <!-- data sharing and external export panel -->
-    <div class="sentinel-panel" id="spanel-datasharing">
-
-      <!-- section 1: connection -->
-      <div class="chart-container" style="margin-bottom:16px;">
-        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span data-i18n="sharing.connection_title">Connection</span></div>
-        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="sharing.connection_desc">
-          Configure the Foresight-Central viewer endpoint to enable scheduled snapshot pushes.
-        </p>
-        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:20px;">
-          <div style="display:flex;align-items:center;gap:12px;">
-            <label class="toggle-switch">
-              <input type="checkbox" id="sharingEnabled" onchange="_sharingSyncDirty()">
-              <span class="toggle-slider"></span>
-            </label>
-            <span data-i18n="sharing.enabled" style="font-size:13px;color:var(--text-primary);">Sharing enabled</span>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:6px;">
-            <label for="sharingViewerUrl" data-i18n="sharing.viewer_url" style="font-size:11px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;">Viewer URL</label>
-            <input id="sharingViewerUrl" type="text" placeholder="https://your-viewer.example.com"
-              oninput="_sharingSyncDirty()"
-              style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:7px 10px;border-radius:6px;font-size:13px;max-width:480px;" />
-          </div>
-          <div style="display:flex;flex-direction:column;gap:6px;">
-            <label for="sharingBearerToken" data-i18n="sharing.bearer_token" style="font-size:11px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;">Bearer Token</label>
-            <input id="sharingBearerToken" type="password" placeholder="••••••••"
-              oninput="_sharingSyncDirty()"
-              style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:7px 10px;border-radius:6px;font-size:13px;max-width:480px;" />
-            <div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;" id="sharingTokenHint"></div>
-          </div>
-        </div>
-        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
-          <button onclick="saveSharingConnection()" data-i18n="sharing.save_connection"
-            style="padding:8px 20px;background:var(--accent-cyan);border:none;border-radius:6px;color:#fff;font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;">
-            Save Connection
-          </button>
-          <div id="sharingSyncStatus" style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-muted);"></div>
-        </div>
-      </div>
-
-      <!-- section 2: anonymisation -->
-      <div class="chart-container" style="margin-bottom:16px;">
-        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-purple)"></div><span data-i18n="sharing.anon_title">Anonymisation</span></div>
-        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;" data-i18n="sharing.anon_desc">
-          Anonymisation uses stable pseudonyms — trends remain intact.
-        </p>
-        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px;">
-          <div style="display:flex;align-items:center;gap:12px;">
-            <label class="toggle-switch">
-              <input type="checkbox" id="anonVmNames" onchange="_sharingAnonDirty()">
-              <span class="toggle-slider"></span>
-            </label>
-            <span data-i18n="sharing.anon_vm_names" style="font-size:13px;color:var(--text-primary);">Anonymise VM names</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:12px;">
-            <label class="toggle-switch">
-              <input type="checkbox" id="anonNodeUuids" onchange="_sharingAnonDirty()">
-              <span class="toggle-slider"></span>
-            </label>
-            <span data-i18n="sharing.anon_node_ids" style="font-size:13px;color:var(--text-primary);">Anonymise node identifiers</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:12px;">
-            <label class="toggle-switch">
-              <input type="checkbox" id="anonClusterName" onchange="_sharingAnonDirty()">
-              <span class="toggle-slider"></span>
-            </label>
-            <span data-i18n="sharing.anon_cluster" style="font-size:13px;color:var(--text-primary);">Anonymise cluster name</span>
-          </div>
-        </div>
-        <button onclick="saveSharingAnon()" data-i18n="sharing.save_anon"
-          style="padding:8px 20px;background:var(--accent-purple);border:none;border-radius:6px;color:#fff;font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;">
-          Save Anonymisation
-        </button>
-      </div>
-
-      <!-- section 3: manual actions -->
-      <div class="chart-container">
-        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-amber)"></div><span data-i18n="sharing.manual_title">Manual Actions</span></div>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
-          <button onclick="sharingTestPush()" data-i18n="sharing.test_push"
-            style="padding:8px 20px;background:var(--bg-nested);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;">
-            Test Push
-          </button>
-          <button onclick="sharingDownloadHcb()" data-i18n="sharing.download_hcb"
-            style="padding:8px 20px;background:var(--bg-nested);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;">
-            Download Snapshot (.hcb)
-          </button>
-          <button onclick="sharingPreviewSnapshot()" data-i18n="sharing.preview_snapshot"
-            style="padding:8px 20px;background:var(--bg-nested);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;">
-            Preview Snapshot (JSON)
-          </button>
-        </div>
-      </div>
-
-    </div>
-
-  </div>
 
   <!-- ─── settings tab ─── -->
   <!-- ─── Exports tab (optional `exports` profile) ─── -->
@@ -3033,7 +2934,6 @@ function switchSentinelPanel(p) {
   if (p === 'rightsizing')  loadSentinelRightsizing();
   if (p === 'exhaustion')   loadSentinelExhaustion();
   if (p === 'sentsettings') loadSentinelSettings();
-  if (p === 'datasharing')  loadSharingSettings();
 }
 
 async function loadSentinel() {
@@ -3600,13 +3500,6 @@ document.addEventListener('DOMContentLoaded', () => {
   apiFetch('/api/users/me').then(me => {
     _currentUser = me || null;
     _maybeShowCommunityNotice(me);
-    if (_currentUser?.role !== 'admin') {
-      // hide the Data Sharing tab and its panel entirely for non-admins
-      const sharingTab = document.querySelector('[data-spanel="datasharing"]');
-      if (sharingTab) sharingTab.style.display = 'none';
-      const sharingPanel = document.getElementById('spanel-datasharing');
-      if (sharingPanel) sharingPanel.style.display = 'none';
-    }
   }).catch(() => {});
 });
 
@@ -4629,211 +4522,6 @@ async function loadBalancerSettings() {
   const groups = CTRL_GROUPS.filter(g => g.tab === 'balancer');
   const isAdmin = _currentUser?.role === 'admin';
   document.getElementById('balancerSettingsContent').innerHTML = _settingsTargetBar(isAdmin) + _renderGroups(groups, vals, isAdmin);
-}
-
-// =============================================================================
-// Foresight — Data Sharing
-// =============================================================================
-
-let _bearerTokenSaved = false;
-let _sharingSyncDirtyFlag  = false;
-let _sharingAnonDirtyFlag  = false;
-
-function _sharingSyncDirty()  { _sharingSyncDirtyFlag = true; }
-function _sharingAnonDirty()  { _sharingAnonDirtyFlag = true; }
-
-async function loadSharingSettings() {
-  if (_currentUser && _currentUser.role !== 'admin') return;
-  try {
-    const data = await apiFetch('/api/sentinel/sharing');
-    if (!data) { showToast(t('sharing.load_failed'), 'err'); return; }
-
-    document.getElementById('sharingEnabled').checked     = !!data.sharing_enabled;
-    document.getElementById('sharingViewerUrl').value     = data.viewer_url || '';
-    document.getElementById('anonVmNames').checked        = !!data.anon_vm_names;
-    document.getElementById('anonNodeUuids').checked      = !!data.anon_node_uuids;
-    document.getElementById('anonClusterName').checked    = !!data.anon_cluster_name;
-
-    // bearer token: show placeholder if a token has been saved server-side
-    // we infer "saved" by the viewer_url being set (token would have been saved together),
-    // or if the _bearerTokenSaved flag was set during this session
-    const tokenHint = document.getElementById('sharingTokenHint');
-    if (_bearerTokenSaved || data.viewer_url) {
-      document.getElementById('sharingBearerToken').placeholder = t('sharing.token_placeholder_saved');
-      tokenHint.textContent = t('sharing.token_hint_saved');
-    } else {
-      document.getElementById('sharingBearerToken').placeholder = '••••••••';
-      tokenHint.textContent = '';
-    }
-
-    // sync status row
-    _updateSyncStatusBadge(data);
-
-    _sharingSyncDirtyFlag = false;
-    _sharingAnonDirtyFlag = false;
-  } catch(e) {
-    showToast(t('empty.settings_load_failed', {msg: e.message}), 'err');
-  }
-}
-
-function _updateSyncStatusBadge(data) {
-  const el = document.getElementById('sharingSyncStatus');
-  if (!el) return;
-  const status = data.last_sync_status;
-  const at     = data.last_sync_at;
-  if (!status && !at) {
-    el.innerHTML = `<span style="color:var(--text-muted)">${t('sharing.last_sync_never')}</span>`;
-    return;
-  }
-  const timeStr = at ? new Date(at).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
-  let badge = '';
-  if (status === 'ok') {
-    badge = `<span style="color:var(--accent-green);font-weight:600;">● ok</span>`;
-  } else if (status === 'error') {
-    const errTip = data.last_sync_error ? ` — ${data.last_sync_error}` : '';
-    badge = `<span style="color:var(--accent-red);font-weight:600;" title="${errTip}">● error</span>`;
-  } else {
-    badge = `<span style="color:var(--text-secondary);">● ${status || 'pending'}</span>`;
-  }
-  el.innerHTML = `${t('sharing.last_sync')} ${timeStr} &nbsp; ${badge}`;
-}
-
-async function saveSharingConnection() {
-  const body = {
-    sharing_enabled: document.getElementById('sharingEnabled').checked,
-    viewer_url:      document.getElementById('sharingViewerUrl').value.trim() || null,
-  };
-  const tokenVal = document.getElementById('sharingBearerToken').value;
-  if (tokenVal) {
-    body.bearer_token = tokenVal;
-  }
-
-  try {
-    const r = await fetch(`${API_BASE}/api/sentinel/sharing`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${r.status}`);
-    }
-    const updated = await r.json();
-    if (tokenVal) {
-      _bearerTokenSaved = true;
-      document.getElementById('sharingBearerToken').value = '';
-      document.getElementById('sharingBearerToken').placeholder = t('sharing.token_placeholder_saved');
-      document.getElementById('sharingTokenHint').textContent = t('sharing.token_hint_saved');
-    }
-    _updateSyncStatusBadge(updated);
-    _sharingSyncDirtyFlag = false;
-    showToast(t('sharing.connection_saved'), 'ok');
-  } catch(e) {
-    showToast(t('settings.save_failed', {msg: e.message}), 'err');
-  }
-}
-
-async function saveSharingAnon() {
-  const body = {
-    anon_vm_names:    document.getElementById('anonVmNames').checked,
-    anon_node_uuids:  document.getElementById('anonNodeUuids').checked,
-    anon_cluster_name: document.getElementById('anonClusterName').checked,
-  };
-
-  try {
-    const r = await fetch(`${API_BASE}/api/sentinel/sharing`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${r.status}`);
-    }
-    _sharingAnonDirtyFlag = false;
-    showToast(t('sharing.anon_saved'), 'ok');
-  } catch(e) {
-    showToast(t('settings.save_failed', {msg: e.message}), 'err');
-  }
-}
-
-async function sharingTestPush() {
-  showToast(t('sharing.test_push_sending'), 'ok');
-  try {
-    const r = await fetch(`${API_BASE}/api/sentinel/export/test-push`, { method: 'POST' });
-    const data = await r.json().catch(() => ({}));
-    if (data.success) {
-      showToast(t('sharing.test_push_ok', {code: data.status_code}), 'ok');
-    } else {
-      showToast(`${t('sharing.test_push_failed')} ${data.error || 'unknown error'}`, 'err');
-    }
-  } catch(e) {
-    showToast(`${t('sharing.test_push_error')} ${e.message}`, 'err');
-  }
-}
-
-function sharingDownloadHcb() {
-  // show passphrase modal — no viewer registration needed for offline export
-  const modal = document.createElement('div');
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
-  modal.innerHTML = `
-    <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:28px 32px;min-width:380px;max-width:480px;">
-      <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">${t('hcb.title')}</div>
-      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px;line-height:1.6;">
-        ${t('hcb.desc')}
-      </p>
-      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;">
-        <input id="hcbPassphrase1" type="password" placeholder="${t('hcb.passphrase')}"
-          style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);
-                 padding:8px 12px;border-radius:6px;font-size:13px;width:100%;box-sizing:border-box;" />
-        <input id="hcbPassphrase2" type="password" placeholder="${t('hcb.confirm')}"
-          style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);
-                 padding:8px 12px;border-radius:6px;font-size:13px;width:100%;box-sizing:border-box;" />
-        <div id="hcbPassphraseErr" style="font-size:11px;color:var(--accent-red);display:none;"></div>
-      </div>
-      <div style="display:flex;gap:12px;justify-content:flex-end;">
-        <button id="hcbCancelBtn"
-          style="padding:8px 18px;background:var(--bg-primary);border:1px solid var(--border);
-                 border-radius:6px;color:var(--text-secondary);font-size:13px;cursor:pointer;">
-          ${t('hcb.cancel')}
-        </button>
-        <button id="hcbDownloadBtn"
-          style="padding:8px 18px;background:var(--accent-cyan);border:none;
-                 border-radius:6px;color:#fff;font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;">
-          ${t('hcb.download')}
-        </button>
-      </div>
-    </div>`;
-  document.body.appendChild(modal);
-  document.getElementById('hcbPassphrase1').focus();
-
-  document.getElementById('hcbCancelBtn').onclick = () => document.body.removeChild(modal);
-  modal.addEventListener('click', e => { if (e.target === modal) document.body.removeChild(modal); });
-
-  document.getElementById('hcbDownloadBtn').onclick = () => {
-    const p1  = document.getElementById('hcbPassphrase1').value;
-    const p2  = document.getElementById('hcbPassphrase2').value;
-    const err = document.getElementById('hcbPassphraseErr');
-    if (!p1) {
-      err.textContent = t('hcb.required'); err.style.display = 'block'; return;
-    }
-    if (p1 !== p2) {
-      err.textContent = t('hcb.mismatch'); err.style.display = 'block'; return;
-    }
-    err.style.display = 'none';
-    document.body.removeChild(modal);
-    // trigger download via a temporary link — passphrase sent as query param over the existing session
-    const a = document.createElement('a');
-    a.href = `${API_BASE}/api/sentinel/export/hcb?passphrase=${encodeURIComponent(p1)}`;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  };
-}
-
-function sharingPreviewSnapshot() {
-  window.open(`${API_BASE}/api/sentinel/export/snapshot`, '_blank');
 }
 
 // =============================================================================

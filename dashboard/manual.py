@@ -2,7 +2,7 @@
 manual.py — the user manual served by the dashboard at /manual.
 
 The chapters are the Markdown files under docs/manual (copied into the image as /app/manual);
-the guides they link (administration, data sharing) sit under manual/extra. They are
+the guide it links (administration) sits under manual/extra. They are
 rendered server-side with the markdown package so a dark-site installation needs nothing from
 the internet, and wrapped in a page that follows the dashboard's dark theme with a chapter list.
 Links between chapters keep working: `01-getting-around.md` becomes `/manual/01-getting-around`,
@@ -16,8 +16,8 @@ import os
 import re
 from pathlib import Path
 
-EXTRA = {'administration': 'administration.md', 'data-sharing': 'phase4-data-sharing.md'}
-_GUIDES = {'README.md': '', 'administration.md': 'administration', 'phase4-data-sharing.md': 'data-sharing'}
+EXTRA = {'administration': 'administration.md'}
+_GUIDES = {'README.md': '', 'administration.md': 'administration'}
 
 
 def chapters(root: str | os.PathLike) -> list[dict]:

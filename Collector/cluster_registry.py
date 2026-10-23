@@ -215,8 +215,7 @@ def create(name: str, host: str, username: str, password: str,
            verify_tls: bool = False, colour: Optional[str] = None,
            hc_cluster_uuid: Optional[str] = None, api_version: str = 'auto',
            api_v2_available: Optional[bool] = None, hc_version: Optional[str] = None) -> str:
-    """Register a cluster. Copies the template's tunables and creates its sharing
-    preferences row. Returns the new cluster_id."""
+    """Register a cluster. Copies the template's tunables. Returns the new cluster_id."""
     name = (name or '').strip()
     host = normalize_host(host)
     if not name or not host or not username:
@@ -241,10 +240,6 @@ def create(name: str, host: str, username: str, password: str,
                    SELECT %s, key, value, type FROM config.tunables WHERE cluster_id = %s
                    ON CONFLICT (cluster_id, key) DO NOTHING''',
                 (cid, TEMPLATE_CLUSTER_ID),
-            )
-            cur.execute(
-                'INSERT INTO config.sharing_prefs (cluster_id) VALUES (%s) ON CONFLICT DO NOTHING',
-                (cid,),
             )
         conn.commit()
         return cid
@@ -317,7 +312,6 @@ def delete(cluster_id: str, purge: bool = False) -> None:
     try:
         with conn.cursor() as cur:
             cur.execute('DELETE FROM config.tunables WHERE cluster_id = %s', (cluster_id,))
-            cur.execute('DELETE FROM config.sharing_prefs WHERE cluster_id = %s', (cluster_id,))
             cur.execute('DELETE FROM config.threshold_overrides WHERE cluster_id = %s', (cluster_id,))
             cur.execute('DELETE FROM config.module_toggles WHERE cluster_id = %s', (cluster_id,))
             cur.execute('DELETE FROM config.branding WHERE cluster_id = %s', (cluster_id,))

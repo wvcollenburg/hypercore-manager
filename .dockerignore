@@ -14,7 +14,6 @@ influxdb
 docs/*.json
 *.md
 !docs/administration.md
-!docs/phase4-data-sharing.md
 !docs/manual/**
 .env
 .env.*

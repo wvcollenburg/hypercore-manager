@@ -11,7 +11,7 @@ users, backup targets and proxies) are in [administration.md](../administration.
 | [Getting around](01-getting-around.md) | the cluster rail, folders, tabs, roles, language, the first-login notice |
 | [Infraviewer](02-infraviewer.md) | nodes, drives, VMs and storage performance; the cluster activity panel |
 | [Clusterbalancer](03-clusterbalancer.md) | the migration log, the balancer's settings, the Oracle's forecast log, placement tags |
-| [Foresight](04-foresight.md) | capacity forecasts, right-sizing, exhaustion alerts, reports, what-if, data sharing |
+| [Foresight](04-foresight.md) | capacity forecasts, right-sizing, exhaustion alerts, reports, what-if |
 | [Backup](05-backup.md) | plans, restore points, restoring a VM, recovering files, imports, runs |
 | [Settings](06-settings.md) | clusters, tunables, users, targets and proxies (overview; details in the administration guide) |
 | [Modules and Account](07-modules-and-account.md) | the data-module view and your own account |

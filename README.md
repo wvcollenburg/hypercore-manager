@@ -10,7 +10,7 @@ HyperCore Manager is a containerized stack that automatically distributes virtua
 
 One installation manages any number of HyperCore clusters. Clusters are registered in the dashboard, grouped into folders, and shown to each user according to the folders they belong to, so a service provider can run one stack for all its customers.
 
-The optional **Foresight** module extends the platform with long-range capacity intelligence: multi-horizon forecasting, VM right-sizing recommendations, cluster health scoring, scenario modelling, and data sharing with a central capacity viewer. The optional **Backup** module schedules VM backups to SMB or NFS targets, with retention and import back into any registered cluster.
+The optional **Foresight** module extends the platform with long-range capacity intelligence: multi-horizon forecasting, VM right-sizing recommendations, cluster health scoring, scenario modelling. The optional **Backup** module schedules VM backups to SMB or NFS targets, with retention and import back into any registered cluster.
 
 ---
 
@@ -44,7 +44,6 @@ The optional **Foresight** module extends the platform with long-range capacity 
 - **PDF Reports** — Downloadable capacity reports with optional branding (logo, accent colour, company name).
 - **Webhook Alerts** — HMAC-SHA256 signed HTTPS alerts for CRITICAL and EMERGENCY events, with automatic retry.
 - **Live Tunables** — All analysis thresholds and toggles are editable from the dashboard at runtime, without restarting Sentinel.
-- **Data Sharing** — Optionally push signed capacity snapshots to a Foresight-Central viewer. Includes customer-controlled field anonymisation and AES-256-GCM encrypted offline export.
 
 ---
 
@@ -244,7 +243,7 @@ The left-hand **cluster rail** lists folders and clusters (collapsible, colour-c
 |------|----------|-----|
 | **Infraviewer** | Node CPU/RAM history, drive health and temperature, VM metrics, VSD read/write I/O | everyone (own folders) |
 | **Clusterbalancer** | Migration event log (last 7 days, including moves made outside the balancer when REST v2 is in use), reactive and predictive engine settings | everyone (own folders) |
-| **Foresight** | Capacity forecasts, right-sizing recommendations, cluster health, reports, what-if modelling, live Sentinel tunables, data sharing | everyone (own folders) |
+| **Foresight** | Capacity forecasts, right-sizing recommendations, cluster health, reports, what-if modelling, live Sentinel tunables | everyone (own folders) |
 | **Backup** | Backup plans, restore points, restores, file recovery and run history for the selected cluster | folder members |
 | **Modules** | Auto-discovered InfluxDB measurements for ad-hoc data exploration | admins |
 | **Settings** | Clusters, Tunables (per cluster / Defaults / all), Users, Targets | admins |
@@ -289,17 +288,6 @@ Sentinel exposes a REST API on port 8081 (internal to the Docker network; proxie
 | `GET /api/v1/outcomes` | Right-sizing outcome history |
 | `GET /api/v1/tunables` | Live analysis settings |
 | `PUT /api/v1/tunables` | Update live analysis settings |
-| `GET /api/v1/export/snapshot` | Signed capacity snapshot (JSON) |
-| `GET /api/v1/export/hcb` | AES-256-GCM encrypted offline export |
-
-### Data Sharing
-
-Sentinel can push signed capacity snapshots to a Foresight-Central viewer instance every 4 hours. Sharing is configured per registered cluster; each cluster is enrolled separately. Customers control which fields are anonymised before data leaves the cluster. Snapshots can also be exported manually as an AES-256-GCM encrypted `.hcb` file for offline transfer.
-
-See [docs/phase4-data-sharing.md](docs/phase4-data-sharing.md) for the setup guide.
-
-The central viewer that receives these snapshots is a separate deployment:
-**[Foresight-Central](https://github.com/wvcollenburg/sc-foresight-central)** — multi-tenant MSP capacity viewer.
 
 ---
 
@@ -364,7 +352,7 @@ docker load -i hypercore-balancer-images.tar
 docker compose up -d
 ```
 
-The entire stack runs fully offline once images are built. No outbound connections are required unless data sharing is explicitly configured.
+The entire stack runs fully offline once images are built. No outbound connections are required.
 
 ---
 
@@ -436,7 +424,6 @@ carries a `cluster_id` tag.
 ├── .github/                         # CI workflow and issue templates
 ├── docs/
 │   ├── administration.md            # Clusters, folders, users, targets, backup: the admin guide
-│   ├── phase4-data-sharing.md       # Data sharing setup guide
 │   ├── hypercore-openapi-v1.json    # HyperCore REST v1 spec (contract-tested)
 │   └── hypercore-openapi-v2.json    # HyperCore REST v2 spec (experimental)
 ├── influxdb/
@@ -495,7 +482,6 @@ carries a `cluster_id` tag.
 | [docs/manual/README.md](docs/manual/README.md) | User manual: one chapter per module (Infraviewer, Clusterbalancer, Foresight, Backup, Settings, Modules and Account) with screenshots |
 | [docs/manual/08-installing-and-updating.md](docs/manual/08-installing-and-updating.md) | Installing and updating: prerequisites, the installer, every `.env` variable, the backup proxy's host, hardening, backing up the installation, upgrading (including from 0.9.x), health checks, troubleshooting |
 | [docs/administration.md](docs/administration.md) | Day-to-day administration: registering clusters, folders and members, users and roles, backup targets and layout |
-| [docs/phase4-data-sharing.md](docs/phase4-data-sharing.md) | Data sharing setup: enrollment, anonymisation, `.hcb` file format, troubleshooting |
 | [docs/hypercore-openapi-v1.json](docs/hypercore-openapi-v1.json) | Scale Computing HyperCore REST API v1 OpenAPI spec (the API every service uses); `tests/test_hypercore_spec_contract.py` checks our calls against it |
 | [docs/hypercore-openapi-v2.json](docs/hypercore-openapi-v2.json) | HyperCore REST API v2 (experimental) spec; adds task listing used for the planned activity feed |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Filing good issues, running the stack locally, how code contributions are handled |
@@ -509,7 +495,6 @@ carries a `cluster_id` tag.
 
 | Repository | Description |
 |------------|-------------|
-| [Foresight-Central](https://github.com/wvcollenburg/sc-foresight-central) | Multi-tenant MSP viewer — aggregates capacity snapshots pushed by Sentinel across all enrolled customer clusters |
 
 ---
 

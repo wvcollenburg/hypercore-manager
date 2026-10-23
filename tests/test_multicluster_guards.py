@@ -82,7 +82,7 @@ def test_compose_passes_secret_key_to_every_service(repo):
 def test_dashboard_sentinel_proxies_pass_the_cluster(repo):
     src = (repo / 'dashboard' / 'app.py').read_text()
     urls = re.findall(r"f'\{sentinel_api_url\}/api/v1/[^'\n]*'", src)
-    assert len(urls) >= 10
+    assert len(urls) >= 5           # vms, whatif, tunables (2), trend/run; the sharing proxies are gone
     missing = [u for u in urls if 'cluster={_cluster_id()}' not in u]
     assert missing == [], missing
 

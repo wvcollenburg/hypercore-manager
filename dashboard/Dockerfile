@@ -31,7 +31,7 @@ COPY dashboard/static/ static/
 COPY dashboard/templates/ templates/
 # the user manual and the guides it links, served by the dashboard at /manual
 COPY docs/manual/ manual/
-COPY docs/administration.md docs/phase4-data-sharing.md manual/extra/
+COPY docs/administration.md manual/extra/
 
 # Download external dependencies for offline/dark-site support
 RUN mkdir -p static/vendor && \
