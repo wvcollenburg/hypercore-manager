@@ -51,7 +51,9 @@ the cluster's target through each path a backup can use and reports the rates, a
 proxy VM**, which creates the proxy VM for you from a cloud image and pushes this installation's
 proxy image onto it. The version column compares each proxy with the installation; a proxy that
 lags shows **Update**, which pushes the current image and restarts the proxy on it (the backup
-service does this on its own after a stack update, for every idle proxy). **Remove** takes the
+service does this on its own after a stack update, for every idle proxy). The deployment log under
+the form keeps its finished rows for 30 days, except the last successful row of each registered
+proxy; **Clear finished** empties it right away. **Remove** takes the
 registration away and, for a proxy with a VM behind it, asks whether that VM goes too: the
 VM is then powered off and deleted from the cluster. Only a VM the dashboard deployed is
 deleted (it carries the `hcm-proxy` tag); a proxy container you put on a VM of your own is

@@ -133,6 +133,12 @@ def sweep_all() -> None:
                 log.info('sweep %s: %s', c.name, out)
         except Exception:        # noqa: BLE001
             log.exception('sweep failed for %s', c.name)
+    try:
+        n = db.prune_deployments(30)
+        if n:
+            log.info('deployment log: %s finished rows older than 30 days removed', n)
+    except Exception:            # noqa: BLE001
+        log.exception('deployment log pruning failed')
 
 
 def verify_all() -> None:

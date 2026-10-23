@@ -572,6 +572,32 @@ def get_deployments(cluster_id: Optional[str] = None, limit: int = 20) -> list[d
     return _all(sql, params)
 
 
+def delete_finished_deployments(cluster_id: Optional[str] = None) -> int:
+    """Drop every deployment row that is no longer running (the panel's Clear)."""
+    sql = "DELETE FROM backup.deployments WHERE status <> 'RUNNING'"
+    params: list[Any] = []
+    if cluster_id:
+        sql += ' AND cluster_id = %s'; params.append(cluster_id)
+    r = _one(f'WITH d AS ({sql} RETURNING 1) SELECT count(*) AS n FROM d', params)
+    return int(r['n']) if r else 0
+
+
+def prune_deployments(days: int = 30) -> int:
+    """Daily housekeeping: finished deployment rows older than `days` go, except the latest
+    successful row of a VM that still backs a registered proxy (when it was built stays visible)."""
+    r = _one('''WITH keep AS (
+                    SELECT DISTINCT ON (d.vm_uuid) d.id
+                    FROM backup.deployments d JOIN backup.proxies p ON p.vm_uuid = d.vm_uuid
+                    WHERE d.status = 'COMPLETE' ORDER BY d.vm_uuid, d.id DESC),
+                  gone AS (
+                    DELETE FROM backup.deployments
+                    WHERE status <> 'RUNNING' AND COALESCE(finished_at, started_at) < NOW() - make_interval(days => %s)
+                      AND id NOT IN (SELECT id FROM keep)
+                    RETURNING 1)
+               SELECT count(*) AS n FROM gone''', (int(days),))
+    return int(r['n']) if r else 0
+
+
 def update_deployment(dep_id: int, **fields) -> None:
     allowed = {'status', 'message', 'vm_uuid', 'proxy_id', 'finished_at'}
     items = [(k, v) for k, v in fields.items() if k in allowed]

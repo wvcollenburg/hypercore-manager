@@ -807,6 +807,14 @@ def deployments_list():
     return jsonify([_ser(d) for d in db.get_deployments(None if request.args.get('all') else _cluster_arg())])
 
 
+@app.delete('/api/v1/proxies/deployments')
+@_require_token
+def deployments_clear():
+    """Remove the finished rows of the deployment log (all clusters with ?all=1, else the selected one)."""
+    n = db.delete_finished_deployments(None if request.args.get('all') else _cluster_arg())
+    return jsonify({'ok': True, 'removed': n})
+
+
 @app.post('/api/v1/proxies/deploy')
 @_require_token
 def deployments_start():

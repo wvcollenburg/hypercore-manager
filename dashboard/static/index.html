@@ -3768,10 +3768,15 @@ async function _loadDeployments() {
   const el = document.getElementById('pxd-list'); if (!el) return;
   const rows = (await apiFetch('/api/backup/proxies/deployments?all=1')) || [];
   if (!rows.length) { el.innerHTML = ''; return; }
-  el.innerHTML = `<table class="um-table"><thead><tr><th>${t('proxies.d_name')}</th><th>${t('proxies.cluster')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead><tbody>${rows.map(d => `
+  const finished = rows.filter(d => d.status !== 'RUNNING').length;
+  el.innerHTML = (finished ? `<div style="display:flex;justify-content:flex-end;margin-bottom:4px;"><button class="um-action-btn" onclick="pxClearDeployments()" title="${_clEsc(t('proxies.deploy_clear_hint'))}">${t('proxies.deploy_clear')}</button><div class="cl-msg" id="pxd-clear-msg"></div></div>` : '') + `<table class="um-table"><thead><tr><th>${t('proxies.d_name')}</th><th>${t('proxies.cluster')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead><tbody>${rows.map(d => `
     <tr><td class="um-username">${_clEsc(d.name)}</td><td>${_clEsc(d.cluster_name)}</td><td style="font-family:'JetBrains Mono',monospace;font-size:11px;">${_exFmt(d.started_at)}</td>
     <td>${_exStatusBadge(d.status, d.message)}</td><td style="font-size:11px;color:var(--text-muted);max-width:420px;">${d.status === 'RUNNING' ? '' : _clEsc(d.message || '')}</td></tr>`).join('')}</tbody></table>`;
   if (rows.some(d => d.status === 'RUNNING')) setTimeout(() => { if (document.getElementById('pxd-list')) _loadDeployments(); }, 8000);
+}
+async function pxClearDeployments() {
+  try { const r = await _exCall('DELETE', '/api/backup/proxies/deployments?all=1'); showToast(t('proxies.deploy_cleared', {n: r.removed}), 'ok'); await _loadDeployments(); }
+  catch (e) { showToast(e.message, 'err'); }
 }
 async function pxDeploy() {
   const g = id => document.getElementById(`pxd-${id}`);
