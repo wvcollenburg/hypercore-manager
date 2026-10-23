@@ -182,6 +182,24 @@ def _invalidate_registry_cache():
 _membership_cache: dict = {}
 
 
+class BadRequest(Exception):
+    pass
+
+
+def _hours_arg(default: int = 1) -> int:
+    """?hours= as a whole number of hours, clamped to a year; anything else is the caller's mistake (400), not a 500."""
+    raw = request.args.get('hours', str(default))
+    try:
+        return max(1, min(int(raw), 8760))
+    except (TypeError, ValueError):
+        raise BadRequest(f'hours must be a whole number of hours, not {raw!r}')
+
+
+@app.errorhandler(BadRequest)
+def _bad_request(e):
+    return jsonify({'error': str(e)}), 400
+
+
 def _is_admin_request() -> bool:
     return (not _AUTH_ENABLED) or session.get('role') == 'admin'
 
@@ -261,7 +279,7 @@ def is_stale(history_list, stale_secs=None):
 @app.route('/api/nodes')
 @require_auth
 def get_nodes():
-    range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+    range_hours = _hours_arg()
     client = get_influx_client()
     try:
         query = f'''
@@ -356,7 +374,7 @@ def get_nodes():
 @app.route('/api/vms')
 @require_auth
 def get_vms():
-    range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+    range_hours = _hours_arg()
     client = get_influx_client()
     try:
         query = f'''
@@ -430,7 +448,7 @@ def get_vms():
 @app.route('/api/drives')
 @require_auth
 def get_drives():
-    range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+    range_hours = _hours_arg()
     include_stale = request.args.get('include_stale', 'false').lower() == 'true'
     client = get_influx_client()
     try:
@@ -493,7 +511,7 @@ def get_drives():
 def get_vsds():
     """Per-disk history. With ?vm=<uuid> only that VM's disks (the VM detail panel); the overview
     views use /api/storage/summary instead, which carries no per-disk history."""
-    range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+    range_hours = _hours_arg()
     vm_filter = (request.args.get('vm') or '').strip()
     vm_flux = f'|> filter(fn: (r) => r["vm_uuid"] == "{vm_filter}")' if re.fullmatch(r'[0-9a-fA-F-]{1,64}', vm_filter) else ''
     client = get_influx_client()
@@ -556,7 +574,7 @@ def get_storage_summary():
     throughput summed over its disks, latency of the worst disk), a cluster total series, and
     each disk's newest sample for the VM cards. InfluxDB does the aggregation per VM per window,
     so the payload and the Python work scale with VMs x points, not disks x points."""
-    range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+    range_hours = _hours_arg()
     client = get_influx_client()
     try:
         stale_secs = _stale_seconds()
@@ -775,7 +793,7 @@ def get_modules():
 @require_admin
 def query_measurement(measurement):
     try:
-        range_hours = max(1, min(int(request.args.get('hours', '1')), 8760))
+        range_hours = _hours_arg()
         limit       = max(1, min(int(request.args.get('limit', '100')), 10000))
     except (ValueError, TypeError):
         return jsonify({'error': 'Invalid hours or limit parameter'}), 400

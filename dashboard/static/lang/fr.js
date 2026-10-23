@@ -833,5 +833,5 @@ window.LANG = {
   'community.body':         "HyperCore Manager est un logiciel open source maintenu sur une base communautaire. Il ne s'agit pas d'un produit officiel de Scale Computing et il est fourni sans support officiel ni SLA. Utilisez-le \u00e0 vos propres risques.",
   'community.issues_hint':  "En cas de probl\u00e8me, veuillez ouvrir une issue sur la page GitHub du projet\u00a0:",
   'community.issues_link':  'Ouvrir le suivi des issues',
-  'community.ack':          'J'ai compris',
+  'community.ack':          "J'ai compris",
 };

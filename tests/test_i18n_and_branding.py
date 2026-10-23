@@ -39,6 +39,24 @@ def test_lang_files_are_valid_js_objects(repo):
                 pytest.fail(f'{c}.js: entry without trailing comma: {s[:60]}')
 
 
+@pytest.mark.parametrize('code', LANGS)
+def test_every_translation_is_a_well_formed_js_string(repo, code):
+    """A quote inside a same-quoted value breaks the whole file in the browser and every screen in
+    that language falls back to raw keys (fr.js had 'J'ai compris' before 1.0)."""
+    import re
+    bad = []
+    for i, line in enumerate((repo / 'dashboard' / 'static' / 'lang' / f'{code}.js').read_text(encoding='utf-8').splitlines(), 1):
+        m = re.match(r"^\s*'([^']+)':\s*(.*),\s*$", line)
+        if not m:
+            continue
+        v = m.group(2)
+        ok = (v.startswith('"') and v.endswith('"') and not re.search(r'(?<!\\)"', v[1:-1])) or \
+             (v.startswith("'") and v.endswith("'") and not re.search(r"(?<!\\)'", v[1:-1]))
+        if not ok:
+            bad.append(f'{code}.js:{i}: {line.strip()[:100]}')
+    assert not bad, '\n'.join(bad)
+
+
 def test_community_notice_present_in_all_languages(repo):
     for c in LANGS:
         keys = lang_keys(repo, c)
