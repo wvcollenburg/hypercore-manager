@@ -99,6 +99,11 @@ def require_auth(f):
             if request.path.startswith('/api/'):
                 return jsonify({'error': 'Authentication required'}), 401
             return redirect(url_for('login_page'))
+        if not request.path.startswith('/api/') and not user_db.get_by_username(session.get('username') or ''):
+            # a cookie signed before the users table was recreated (a reinstall that kept the
+            # secret key): the session passes but its user is gone, so it is treated as logged out
+            session.clear()
+            return redirect(url_for('login_page'))
         return f(*args, **kwargs)
     return decorated
 
@@ -2201,7 +2206,8 @@ def api_me():
                         'otp_enabled': False, 'dev_mode': True, 'community_ack': None})
     u = user_db.get_by_username(session['username'])
     if not u:
-        return jsonify({'error': 'User not found'}), 404
+        session.clear()                     # see require_auth: the session outlived its user
+        return jsonify({'error': 'Authentication required'}), 401
     return jsonify({
         'user_id':     str(u['user_id']),
         'username':    u['username'],

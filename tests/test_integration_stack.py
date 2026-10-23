@@ -190,3 +190,47 @@ def test_backup_proxy_hides_paths_from_non_admins(session, creds):
                 assert not leaked, (path, leaked)
     finally:
         session(f'/api/users/{name}', 'DELETE')
+
+
+
+def test_a_session_whose_user_is_gone_is_sent_back_to_login(repo, session):
+    """A reinstall that keeps SC_DASHBOARD_SECRET_KEY leaves browsers with valid cookies for users
+    that no longer exist; the dashboard must treat them as logged out, not as a user without rights
+    (seen on the online install after a volume wipe: the onboarding said 'ask an administrator')."""
+    from flask.sessions import SecureCookieSessionInterface
+    status, me, _ = session('/api/users/me')
+    assert status == 200
+    if me.get('dev_mode'):
+        pytest.skip('auth disabled on this stack')
+    key = ''
+    for line in (repo / '.env').read_text().splitlines():
+        if line.startswith('SC_DASHBOARD_SECRET_KEY='):
+            key = line.partition('=')[2].strip()
+    if not key:
+        pytest.skip('SC_DASHBOARD_SECRET_KEY not in .env')
+
+    cookie = SecureCookieSessionInterface().get_signing_serializer(_flask_app(key)).dumps(
+        {'user_id': '00000000-0000-0000-0000-000000000000', 'username': 'ghost', 'role': 'admin'})
+    req = urllib.request.Request(BASE + '/api/users/me', headers={'Cookie': f'session={cookie}'})
+    try:
+        urllib.request.urlopen(req, timeout=10); code = 200
+    except urllib.error.HTTPError as e:
+        code = e.code
+    assert code == 401, 'the API treats the ghost session as logged out'
+    req = urllib.request.Request(BASE + '/', headers={'Cookie': f'session={cookie}'})
+    try:
+        urllib.request.build_opener(_NoRedirect()).open(req, timeout=10); code, loc = 200, ''
+    except urllib.error.HTTPError as e:
+        code, loc = e.code, e.headers.get('Location', '')
+    assert code in (302, 303) and 'login' in loc, 'the page redirects the ghost session to login'
+
+
+def _flask_app(key):
+    from flask import Flask
+    app = Flask('probe'); app.secret_key = key
+    return app
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
