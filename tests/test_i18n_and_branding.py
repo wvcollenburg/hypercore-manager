@@ -154,7 +154,13 @@ def test_tests_dir_not_gitignored(repo):
 def test_root_holds_only_readme_license_and_notice(repo):
     """Every other document lives under docs/ or .github/."""
     import subprocess
-    tracked = subprocess.run(['git', '-C', str(repo), 'ls-files'], capture_output=True, text=True).stdout.splitlines()
+    try:
+        r = subprocess.run(['git', '-C', str(repo), 'ls-files'], capture_output=True, text=True)
+    except FileNotFoundError:
+        pytest.skip('git is not installed')
+    if r.returncode != 0:
+        pytest.skip('not a git checkout')
+    tracked = r.stdout.splitlines()
     root_docs = sorted(f for f in tracked if '/' not in f and (f.endswith('.md') or f in ('LICENSE', 'NOTICE')))
     assert root_docs == ['LICENSE', 'NOTICE', 'README.md'], root_docs
     assert (repo / '.github' / 'CONTRIBUTING.md').exists() and (repo / '.github' / 'SECURITY.md').exists()
