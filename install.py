@@ -40,6 +40,7 @@ from installer.core import (
     TEMPLATE_PATH,
     apply_easy_autogen,
     validate_timezone,
+    validate_env_literal,
     timezone_regions,
     timezone_cities,
     autofill_paths,
@@ -537,6 +538,10 @@ def screen_easy(stdscr, state: dict) -> bool:
         err = validate_timezone(staged["TZ"])
         if err:
             message_box(stdscr, "Invalid time zone", [err], color_pair=C_WARN)
+            return False
+        err = validate_env_literal(staged["SC_DASHBOARD_PASSWORD"])
+        if err:
+            message_box(stdscr, "Dashboard password", [err], color_pair=C_WARN)
             return False
         values["SC_DASHBOARD_PASSWORD"] = staged["SC_DASHBOARD_PASSWORD"]
         values["TZ"] = staged["TZ"].strip()

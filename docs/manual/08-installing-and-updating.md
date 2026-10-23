@@ -86,6 +86,12 @@ docker compose up --build -d
 docker compose ps
 ```
 
+A warning that Compose "is configured to build using Bake, but buildx isn't installed" is
+harmless; install the `docker-buildx-plugin` package to make it go away. A warning that a
+variable "is not set" names a `$` inside an `.env` value: Compose reads `$NAME` as a variable
+there, so a password with a dollar sign reaches the containers with a piece cut out. The
+installer never generates one and refuses a typed one; in a hand-written file, write `$$`.
+
 Every service should show `healthy` or `running` within a minute; one that keeps restarting
 is explained by `docker compose logs <service> --tail=50`, usually a missing `.env` value or a
 database that is not healthy yet.

@@ -83,11 +83,13 @@ class Section:
 # ============================================================================
 
 def gen_password(length: int = 24) -> str:
-    """Strong password: alphanumeric + symbols, no ambiguous chars (0/O/1/l/I)."""
+    """Strong password: alphanumeric + symbols, no ambiguous chars (0/O/1/l/I) and no '$':
+    Docker Compose reads $NAME inside an .env value as a variable and substitutes an empty
+    string, which cut a generated password in half on a real install."""
     alphabet = (
         string.ascii_letters
         + string.digits
-        + "!@#$%^&*-_=+?"
+        + "!@#%^&*-_=+?"
     )
     alphabet = alphabet.translate(str.maketrans("", "", "0O1lI"))
     while True:
@@ -1359,6 +1361,21 @@ def validate_value(field_def: Field, value: str) -> Optional[str]:
             return f"Must be one of: {', '.join(field_def.choices)}"
     elif field_def.type == "timezone":
         return validate_timezone(value)
+    elif field_def.type in ("password", "token"):
+        return validate_env_literal(value)
+    return None
+
+
+def validate_env_literal(value: str) -> Optional[str]:
+    """None when Docker Compose will hand the value to the containers unchanged. '$' starts a
+    variable reference in a compose .env file, a leading quote starts a quoted value, and
+    whitespace ends an unquoted one."""
+    if "$" in value:
+        return "Must not contain '$': Docker Compose reads $NAME in .env as a variable."
+    if value[:1] in ("'", '"'):
+        return "Must not start with a quote: Docker Compose would parse it as a quoted value."
+    if any(ch.isspace() for ch in value):
+        return "Must not contain spaces."
     return None
 
 

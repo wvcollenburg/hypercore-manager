@@ -97,6 +97,18 @@ def test_easy_autogen_fills_secrets_but_not_operator_keys(schema):
         assert len(values[key]) >= 24
 
 
+def test_generated_passwords_survive_a_compose_env_file():
+    """Docker Compose substitutes $NAME inside .env values; a generated password containing '$'
+    reached the containers with a piece cut out (seen on the online install)."""
+    for _ in range(300):
+        pw = core.gen_password(24)
+        assert '$' not in pw and pw[0] not in '\'"' and not any(c.isspace() for c in pw)
+    f = core.Field(key='P', label='p', type='password')
+    assert core.validate_value(f, 'abc$KmGjxim7TD7zLA') is not None
+    assert core.validate_value(f, '"quoted') is not None and core.validate_value(f, 'has space') is not None
+    assert core.validate_value(f, 'Fine-Pass-1!') is None
+
+
 def test_gen_password_strength():
     for _ in range(20):
         pw = core.gen_password(24)
