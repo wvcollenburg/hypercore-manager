@@ -336,6 +336,7 @@ The dashboard includes an in-app updater that detects new releases and applies t
 - Versioning follows [Semantic Versioning 2.0.0](https://semver.org/): MAJOR when configuration, stored data or the upgrade path change incompatibly, MINOR for features, PATCH for fixes and documentation. The changelog lists upgrade notes per release; read them before clicking Apply Update across a MAJOR boundary.
 - Releases are tagged in git as `vMAJOR.MINOR.PATCH` and announced on [GitHub Releases](https://github.com/wvcollenburg/hypercore-manager/releases). Untagged commits don't trigger update prompts — only deliberate releases do, so customers are never bombarded with "update available" for in-flight development.
 - Database migrations under `postgres/init/` are applied automatically on dashboard startup; every script is idempotent (`CREATE TABLE IF NOT EXISTS` and similar guards) so existing installs never lose data when a new migration ships.
+- The updater works against the checkout's own git origin; nothing about the repository location is built in. It recreates the application services only and leaves InfluxDB and PostgreSQL running.
 - Manual update path (equivalent to clicking Apply Update in the dashboard): `git pull && docker compose up --build -d`.
 
 ---

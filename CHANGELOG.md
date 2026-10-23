@@ -181,6 +181,11 @@ release is tagged.
 - Cluster credentials in `.env`.
 
 ### Fixed
+- **The in-app updater** recreates the application services only; InfluxDB and PostgreSQL keep
+  running through an update (the restart container's own compose version used to hash the
+  config differently and recreated everything). Files git touched inside the container are
+  handed back to the checkout's owner, so the host user's next `git pull` no longer fails on
+  root-owned refs. The repository link in the dashboard follows the checkout's git origin.
 - **Infraviewer storage graphs were slow and could kill dashboard workers.** The nodes and VMs
   views each fetched every disk's full history (`/api/vsds`, 1 MB and several seconds at the
   24-hour window) every 30 seconds, and the stale-data check opened a PostgreSQL connection per

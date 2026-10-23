@@ -59,7 +59,7 @@ import cluster_registry
 import hypercore_tasks
 import hcm_crypto
 import storage_summary
-from versioning import latest_semver_tag, is_newer
+from versioning import latest_semver_tag, is_newer, origin_to_web_url
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
@@ -2223,6 +2223,44 @@ def _git(*args, timeout=10):
     return r.stdout.strip() if r.returncode == 0 else ''
 
 
+# the services an update recreates: everything but the two databases, whose volumes and
+# config do not change on a release. Recreating them too is what the restart container did
+# when its own compose version hashed the config differently from the host's.
+_APP_SERVICES = ('collector', 'balancer', 'dashboard', 'sentinel', 'backup', 'proxy')
+
+
+def _origin_url() -> str:
+    """The browsable URL of the checkout's origin; nothing about the repository is hardcoded."""
+    return origin_to_web_url(_git('remote', 'get-url', 'origin'))
+
+
+def _restore_ownership(log=None) -> None:
+    """git runs as root inside the container on the bind-mounted checkout and leaves root-owned
+    files behind (seen 2026-10-22: the host user's next git pull failed with 'cannot lock ref:
+    Permission denied'). Give everything back to the owner of the checkout's root."""
+    try:
+        if os.geteuid() != 0:
+            return
+        st = os.stat(_REPO_PATH)
+        if st.st_uid == 0 and st.st_gid == 0:
+            return
+        changed = 0
+        for root, dirs, files in os.walk(_REPO_PATH):
+            for name in dirs + files:
+                p = os.path.join(root, name)
+                try:
+                    cur = os.lstat(p)
+                    if cur.st_uid != st.st_uid or cur.st_gid != st.st_gid:
+                        os.lchown(p, st.st_uid, st.st_gid); changed += 1
+                except OSError:
+                    pass
+        if changed and log:
+            log(f'Restored ownership of {changed} file(s) to uid {st.st_uid}.')
+    except Exception as exc:  # noqa: BLE001
+        if log:
+            log(f'Warning: could not restore ownership: {exc}')
+
+
 def _read_version_file() -> str:
     """Return the project version from <repo>/VERSION, or '' if unreadable."""
     try:
@@ -2269,6 +2307,7 @@ def _check_for_update():
             })
             return
 
+        _restore_ownership()
         remote_tag      = _latest_remote_tag()
         # tag conventionally has a leading 'v'; the version string itself does not
         remote_version  = remote_tag.lstrip('v') if remote_tag else ''
@@ -2286,6 +2325,7 @@ def _check_for_update():
             'current_label':    f'v{current_version}' if current_version else None,
             'remote_label':     f'v{remote_version}'  if remote_version  else None,
             'changelog':        changelog,
+            'repo_url':         _origin_url() or None,
             'last_checked':     datetime.now(timezone.utc).isoformat(),
             'error':            None,
         })
@@ -2393,6 +2433,8 @@ def _do_apply_update():
                 log(f'Warning: stash pop had conflicts — manual resolve needed on server.')
                 log('Run: git -C /path/to/repo stash pop')
 
+        _restore_ownership(log)
+
         log('Building new images (no downtime yet)...')
         r = subprocess.run(
             ['docker-compose', 'build'],
@@ -2438,7 +2480,7 @@ def _do_apply_update():
                 '--env-file', f'{_REPO_PATH}/.env',
                 '-w', '/repo',
                 f'{project}-dashboard',
-                'docker-compose', 'up', '-d', '--remove-orphans',
+                'docker-compose', 'up', '-d', '--no-deps', *_APP_SERVICES,
             ],
             capture_output=True, text=True, timeout=30,
         )
@@ -2446,7 +2488,7 @@ def _do_apply_update():
             log(f'docker run failed: {(r.stderr or r.stdout).strip()}')
             _write_update_patch({'apply_in_progress': False})
             return
-        log(f'Restart container spawned ({r.stdout.strip()[:12]}). Page will reload shortly.')
+        log(f'Restart container spawned ({r.stdout.strip()[:12]}); the databases keep running. Page will reload shortly.')
         _write_update_patch({'apply_in_progress': False})
     except Exception as exc:
         log(f'Error: {exc}')
@@ -2464,6 +2506,7 @@ def api_update_status():
         'current_label':     state.get('current_label'),
         'remote_label':      state.get('remote_label'),
         'changelog':         state.get('changelog', []),
+        'repo_url':          state.get('repo_url'),
         'last_checked':      state.get('last_checked'),
         'error':             state.get('error'),
         'apply_in_progress': state.get('apply_in_progress', False),

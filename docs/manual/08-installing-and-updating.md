@@ -326,8 +326,10 @@ docker compose up -d
 ## Updating
 
 **From the dashboard.** The header shows **Update** when a newer release is available. Apply it
-and the stack pulls the release, rebuilds and restarts itself. Expect a short outage of every
-service, including the database containers.
+and the stack pulls the release from the checkout's own git origin, rebuilds and restarts the
+application services. InfluxDB and PostgreSQL keep running; expect a short outage of the
+dashboard and the other services. Files the update touched are handed back to the owner of the
+checkout, so a `git pull` by hand afterwards keeps working.
 
 **By hand.** The same thing from a shell on the host:
 

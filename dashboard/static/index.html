@@ -5595,8 +5595,9 @@ async function exDeleteChain(id, name) {
 // =============================================================================
 // community-support notice
 // =============================================================================
-// single place that knows the project location; update when the repo moves
-const REPO_URL = 'https://github.com/wvcollenburg/hypercore-manager';
+// the project location comes from the checkout's git origin (/api/update/status → repo_url);
+// this is only the fallback until the first status read
+let REPO_URL = 'https://github.com/wvcollenburg/hypercore-manager';
 const COMMUNITY_ACK_LS_KEY = 'hcm.communityAck';
 
 function _maybeShowCommunityNotice(me) {
@@ -5644,6 +5645,7 @@ function _applyUpdateState(d) {
   const lastChecked = document.getElementById('updateLastChecked');
   const changelogEl = document.getElementById('updateChangelog');
 
+  if (d.repo_url) { REPO_URL = d.repo_url; const l = document.getElementById('communityIssuesLink'); if (l) l.href = REPO_URL + '/issues'; }
   if (d.current_label || d.current_sha) currentSha.textContent = d.current_label || d.current_sha;
   if (d.remote_label  || d.remote_sha)  remoteSha.textContent  = d.remote_label  || d.remote_sha;
   if (d.last_checked) lastChecked.textContent = 'checked ' + _timeAgo(new Date(d.last_checked));

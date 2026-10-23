@@ -41,3 +41,19 @@ def is_newer(remote: str, current: str) -> bool:
     """True when *remote* parses as a strictly higher version than *current*."""
     rk, ck = semver_key(remote or ''), semver_key(current or '')
     return bool(rk and ck and rk > ck)
+
+
+def origin_to_web_url(origin: str) -> str:
+    """The browsable URL of a git remote: 'git@github.com:org/repo.git' and
+    'ssh://git@github.com/org/repo.git' become 'https://github.com/org/repo'; an https
+    remote loses its '.git' and any credentials. '' when the remote is empty."""
+    o = (origin or '').strip()
+    if not o:
+        return ''
+    m = re.match(r'^(?:ssh://)?(?:[\w.-]+@)?([\w.-]+)[:/](.+?)(?:\.git)?/?$', o) if '://' not in o or o.startswith('ssh://') else None
+    if m:
+        return f'https://{m.group(1)}/{m.group(2)}'
+    m = re.match(r'^(https?)://(?:[^@/]+@)?([^/]+)/(.+?)(?:\.git)?/?$', o)
+    if m:
+        return f'{m.group(1)}://{m.group(2)}/{m.group(3)}'
+    return o
