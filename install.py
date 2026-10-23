@@ -447,7 +447,7 @@ def screen_mode(stdscr) -> Optional[str]:
         (
             "easy",
             "Easy mode  (recommended)",
-            "Just enter your HyperCore IP, credentials, and a dashboard password.",
+            "Just enter a dashboard password; clusters are registered in the dashboard.",
             "Strong secrets are auto-generated; everything else uses sensible defaults.",
         ),
         (
