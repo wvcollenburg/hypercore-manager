@@ -514,8 +514,21 @@ def proxies_update(pid):
 @app.delete('/api/v1/proxies/<int:pid>')
 @_require_token
 def proxies_delete(pid):
+    """Remove a proxy registration; with ?vm=delete also power off and delete the VM it ran on
+    (only a VM this service deployed, see incremental.remove_proxy_vm). A proxy of kind 'local'
+    runs in the stack itself and never has a VM to delete."""
+    p = db.get_proxy(pid)
+    if not p:
+        return _err('proxy not found', 404)
+    vm = 'kept'
+    if request.args.get('vm') == 'delete' and p.get('vm_uuid') and p.get('kind') != 'local':
+        try:
+            vm = incremental.remove_proxy_vm(jobs.client_for(p['cluster_id']), p['vm_uuid'])
+        except (incremental.IncrementalError, HyperCoreError) as e:
+            db.delete_proxy(pid)
+            return _err(f'proxy removed, VM kept: {e}', 502)
     db.delete_proxy(pid)
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, 'vm': vm, 'vm_uuid': p.get('vm_uuid')})
 
 
 @app.post('/api/v1/proxies/<int:pid>/test')
@@ -792,6 +805,14 @@ def deployments_start():
                   'authorized_key': (b.get('authorized_key') or '').strip(), 'tz': (b.get('tz') or os.environ.get('TZ') or 'UTC')}
     except (TypeError, ValueError):
         return _err('sizes and vlan must be numbers')
+    if not params['proxy_image_tar_url']:
+        # the VM pulls anonymously; a private or missing image is the usual reason a deployed proxy never answers
+        chk = deploy.image_pullable(params['proxy_image'])
+        if chk['ok'] is False:
+            return _err(f"the proxy image {params['proxy_image']} cannot be pulled by the VM: {chk['detail']}. "
+                        'Publish it as a public image, name another image, or give a tarball URL')
+        if chk['ok'] is None:
+            log.warning('proxy image %s not checked: %s', params['proxy_image'], chk['detail'])
     did = db.add_deployment(cid, name, params, b.get('requested_by'))
     scheduler.run_deployment(did)
     return jsonify({'ok': True, 'id': did}), 201

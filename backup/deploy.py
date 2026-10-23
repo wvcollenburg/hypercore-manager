@@ -17,9 +17,14 @@ so it can be reviewed and tested without a cluster.
 from __future__ import annotations
 
 import base64
+import json
 import logging
+import re
 import secrets
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid as uuidlib
 from datetime import datetime, timezone
 
@@ -53,6 +58,86 @@ def netplan(ip: dict) -> str | None:
     return '\n'.join(lines) + '\n'
 
 
+_MANIFEST_TYPES = ', '.join(('application/vnd.oci.image.index.v1+json', 'application/vnd.oci.image.manifest.v1+json',
+                             'application/vnd.docker.distribution.manifest.list.v2+json',
+                             'application/vnd.docker.distribution.manifest.v2+json'))
+
+
+def parse_image_ref(ref: str) -> dict:
+    """'ghcr.io/org/hcm-proxy:1.2' -> registry host, repository and tag/digest, with Docker Hub's rules
+    for bare names ('nginx' is docker.io/library/nginx:latest)."""
+    ref = (ref or '').strip()
+    if not ref or any(c.isspace() for c in ref):
+        raise ValueError(f'not an image reference: {ref!r}')
+    digest = None
+    if '@' in ref:
+        ref, digest = ref.split('@', 1)
+    first, _, rest = ref.partition('/')
+    if rest and ('.' in first or ':' in first or first == 'localhost'):
+        registry, path = first, rest
+    else:
+        registry, path = 'docker.io', ref
+    tag = 'latest'
+    if ':' in path.rsplit('/', 1)[-1]:
+        path, tag = path.rsplit(':', 1)
+    if registry == 'docker.io' and '/' not in path:
+        path = 'library/' + path
+    host = 'registry-1.docker.io' if registry == 'docker.io' else registry
+    return {'registry': registry, 'host': host, 'repository': path, 'reference': digest or tag}
+
+
+def _http_get(url: str, headers: dict, timeout: float) -> tuple[int, dict, bytes]:
+    req = urllib.request.Request(url, headers=headers, method='GET')
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:      # noqa: S310 (https registry URL built above)
+            return r.status, dict(r.headers), r.read(65536)
+    except urllib.error.HTTPError as e:
+        return e.code, dict(e.headers), e.read(65536)
+
+
+def image_pullable(ref: str, *, fetch=_http_get, timeout: float = 8.0) -> dict:
+    """Ask the registry whether the image can be pulled without credentials, the way the VM will.
+
+    ok True: the manifest is served. ok False: the registry refuses an anonymous pull (private or
+    missing image), 'detail' says so. ok None: no answer from here (the backup container may sit
+    behind a stricter firewall than the VM), so the deployment goes ahead."""
+    try:
+        r = parse_image_ref(ref)
+    except ValueError as e:
+        return {'ok': False, 'detail': str(e)}
+    url = f"https://{r['host']}/v2/{r['repository']}/manifests/{r['reference']}"
+    headers = {'Accept': _MANIFEST_TYPES}
+    try:
+        status, hdrs, _ = fetch(url, headers, timeout)
+        if status == 401:
+            challenge = next((v for k, v in hdrs.items() if k.lower() == 'www-authenticate'), '')
+            m = dict(re.findall(r'(\w+)="([^"]*)"', challenge))
+            if challenge.lower().startswith('bearer') and m.get('realm'):
+                q = {'scope': m.get('scope') or f"repository:{r['repository']}:pull"}
+                if m.get('service'):
+                    q['service'] = m['service']
+                ts, _, body = fetch(f"{m['realm']}?{urllib.parse.urlencode(q)}", {}, timeout)
+                token = ''
+                if ts == 200:
+                    try:
+                        j = json.loads(body or b'{}')
+                        token = j.get('token') or j.get('access_token') or ''
+                    except ValueError:
+                        token = ''
+                if not token:
+                    return {'ok': False, 'detail': f"{r['host']} hands out no anonymous pull token for {r['repository']} "
+                                                   f"(HTTP {ts}): the image is private or does not exist"}
+                status, hdrs, _ = fetch(url, {**headers, 'Authorization': f'Bearer {token}'}, timeout)
+    except (OSError, ValueError) as e:                        # URLError, timeouts, bad JSON
+        return {'ok': None, 'detail': f"registry {r['host']} not reachable from the backup service ({e}); the VM may still reach it"}
+    if status == 200:
+        return {'ok': True, 'detail': None}
+    if status in (401, 403, 404):
+        return {'ok': False, 'detail': f"{r['host']} refuses an anonymous pull of {r['repository']}:{r['reference']} "
+                                       f"(HTTP {status}): the image is private or does not exist"}
+    return {'ok': None, 'detail': f"unexpected HTTP {status} from {r['host']}"}
+
+
 def cloud_init_userdata(*, token: str, proxy_image: str, tz: str = 'UTC', hostname: str = 'hcm-proxy',
                         ip: dict | None = None, authorized_key: str | None = None, image_tar_url: str | None = None) -> str:
     """#cloud-config for a proxy VM. Idempotent on reboot (docker --restart, module files)."""
@@ -62,8 +147,10 @@ def cloud_init_userdata(*, token: str, proxy_image: str, tz: str = 'UTC', hostna
         ('/etc/modules-load.d/nbd.conf', 'nbd\n'),
         ('/etc/hcm-proxy.env', f'PROXY_API_TOKEN={token}\nPROXY_TLS=auto\nPROXY_HOST_NET=/host/sys/class/net\nTZ={tz}\n'),
         ('/usr/local/sbin/hcm-proxy-start.sh',
-         '#!/bin/sh\nset -e\nmodprobe nbd max_part=0 || true\n'
-         + (f'curl -fsSL "{image_tar_url}" | docker load\n' if image_tar_url else f'docker pull {proxy_image} || true\n') +
+         '#!/bin/sh\nset -e\nexec >>/var/log/hcm-proxy-start.log 2>&1\nmodprobe nbd max_part=0 || true\n'
+         # the pull is retried: right after boot DNS and the default route can lag the package install
+         + (f'curl -fsSL "{image_tar_url}" | docker load\n' if image_tar_url else
+            f'for i in 1 2 3 4 5 6; do docker pull {proxy_image} && break; echo "pull failed (attempt $i)"; sleep 20; done\n') +
          'docker rm -f hcm-proxy >/dev/null 2>&1 || true\n'
          'exec docker run -d --name hcm-proxy --restart unless-stopped --privileged --memory 1g -p 8083:8083 '
          '-v /dev:/dev -v /sys:/host/sys:ro -v hcm-proxy-data:/var/lib/hcm-proxy --env-file /etc/hcm-proxy.env '
@@ -222,7 +309,10 @@ def run_deployment(dep_id: int) -> None:
             db.update_proxy(pid, tls_fingerprint=None)      # a failed TOFU attempt must not pin a half-started service
             time.sleep(20)
         if not result.get('ok'):
-            raise IncrementalError(f"proxy registered but not reachable yet at {url}: {result.get('error') or result.get('detail')}")
+            raise IncrementalError(f"proxy registered but not reachable at {url} after 20 minutes ({result.get('error') or result.get('detail')}). "
+                                   'The VM is up but nothing answers on port 8083, so the proxy container did not start: '
+                                   '/var/log/hcm-proxy-start.log on the VM says why (usually the image could not be pulled). '
+                                   'Fix the cause and run /usr/local/sbin/hcm-proxy-start.sh on the VM, or delete the VM and deploy again.')
         # 6. the cloud-init ISO holds the token in clear: get it off the VM now that the proxy runs
         db.update_deployment(dep_id, message='removing the cloud-init data from the VM')
         try:

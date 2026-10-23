@@ -61,3 +61,67 @@ def test_vm_body_and_metadata():
     assert body['dom']['cloudInitData'] == {'userData': 'dWQ=', 'metaData': 'bWQ='} and body['options']['machineTypeKeyword'] == 'uefi'   # base64, as HyperCore requires
     md = dp.cloud_init_metadata('px')
     assert md.startswith('instance-id: px-') and 'local-hostname: px' in md
+
+
+@pytest.mark.parametrize('ref, host, repo, reference', [
+    ('ghcr.io/scale/hcm-proxy:1.2', 'ghcr.io', 'scale/hcm-proxy', '1.2'),
+    ('ghcr.io/scale/hcm-proxy', 'ghcr.io', 'scale/hcm-proxy', 'latest'),
+    ('nginx', 'registry-1.docker.io', 'library/nginx', 'latest'),
+    ('scale/hcm-proxy:dev', 'registry-1.docker.io', 'scale/hcm-proxy', 'dev'),
+    ('localhost:5000/hcm-proxy:1', 'localhost:5000', 'hcm-proxy', '1'),
+    ('ghcr.io/scale/hcm-proxy@sha256:abc', 'ghcr.io', 'scale/hcm-proxy', 'sha256:abc'),
+])
+def test_parse_image_ref(ref, host, repo, reference):
+    r = dp.parse_image_ref(ref)
+    assert (r['host'], r['repository'], r['reference']) == (host, repo, reference)
+
+
+def test_parse_image_ref_rejects_junk():
+    with pytest.raises(ValueError):
+        dp.parse_image_ref('not an image')
+
+
+class _Registry:
+    """A registry that challenges anonymous pulls with a Bearer token flow, like ghcr.io and Docker Hub."""
+    def __init__(self, token_status=200, token=b'{"token":"t0k"}', manifest_status=200):
+        self.calls, self.token_status, self.token, self.manifest_status = [], token_status, token, manifest_status
+
+    def __call__(self, url, headers, timeout):
+        self.calls.append((url, headers.get('Authorization')))
+        if url.startswith('https://ghcr.io/token?'):
+            return self.token_status, {}, self.token
+        if headers.get('Authorization') == 'Bearer t0k':
+            return self.manifest_status, {}, b'{}'
+        return 401, {'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:scale/hcm-proxy:pull"'}, b''
+
+
+def test_image_pullable_public_image_passes_the_token_flow():
+    reg = _Registry()
+    assert dp.image_pullable('ghcr.io/scale/hcm-proxy:1', fetch=reg) == {'ok': True, 'detail': None}
+    assert [u for u, _ in reg.calls] == ['https://ghcr.io/v2/scale/hcm-proxy/manifests/1',
+                                         'https://ghcr.io/token?scope=repository%3Ascale%2Fhcm-proxy%3Apull&service=ghcr.io',
+                                         'https://ghcr.io/v2/scale/hcm-proxy/manifests/1']
+    assert reg.calls[-1][1] == 'Bearer t0k'
+
+
+def test_image_pullable_private_or_missing_image_is_refused():
+    r = dp.image_pullable('ghcr.io/scale/hcm-proxy:1', fetch=_Registry(token_status=403, token=b'{"errors":[{"code":"DENIED"}]}'))
+    assert r['ok'] is False and 'private or does not exist' in r['detail'] and 'HTTP 403' in r['detail']
+    r = dp.image_pullable('ghcr.io/scale/hcm-proxy:1', fetch=_Registry(manifest_status=404))
+    assert r['ok'] is False and 'HTTP 404' in r['detail']
+    assert dp.image_pullable('two words', fetch=_Registry())['ok'] is False
+
+
+def test_image_pullable_unreachable_registry_does_not_block():
+    def down(url, headers, timeout):
+        raise OSError('no route to host')
+    r = dp.image_pullable('ghcr.io/scale/hcm-proxy:1', fetch=down)
+    assert r['ok'] is None and 'not reachable from the backup service' in r['detail']
+
+
+def test_start_script_retries_the_pull_and_logs():
+    ud = dp.cloud_init_userdata(token='t', proxy_image='ghcr.io/x/hcm-proxy:1')
+    start = next(f['content'] for f in yaml.safe_load(ud)['write_files'] if f['path'].endswith('hcm-proxy-start.sh'))
+    assert 'exec >>/var/log/hcm-proxy-start.log' in start
+    assert 'for i in 1 2 3 4 5 6; do docker pull ghcr.io/x/hcm-proxy:1 && break;' in start
+    assert start.index('docker pull') < start.index('docker run')

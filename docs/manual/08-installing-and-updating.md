@@ -169,10 +169,12 @@ done for them.
 (24.04 by default; the URL can point at a local mirror), uploads it to the cluster once as a
 virtual disk named `hcm-ubuntu-noble-cloudimg.img` and reuses it for later proxies. The backup
 container only needs to reach that URL and the cluster. The new VM needs DHCP or a correct
-static address on its VLAN and the Docker registry that holds the proxy image; on a site
-without registry access, point *Proxy image tarball URL* at a `docker save` archive on a web
-server the VM can reach, with the image name in the form matching the tag inside the archive.
-The default sizes are 2 vCPU, 2 GiB and 20 GiB; the second core keeps the SMB client and the
+static address on its VLAN and the Docker registry that holds the proxy image. The VM pulls
+the image without credentials, so it must be public; the deployment checks that with the
+registry before it creates anything and refuses a private or missing image outright. On a
+site without registry access, point *Proxy image tarball URL* at a `docker save` archive on a
+web server the VM can reach, with the image name in the form matching the tag inside the
+archive. The default sizes are 2 vCPU, 2 GiB and 20 GiB; the second core keeps the SMB client and the
 data path off one core. The whole thing takes five to ten minutes.
 
 Two things to know when it goes wrong. Cloud-init installs its packages on the first boot
@@ -181,8 +183,11 @@ the guest agent or Docker and will not recover by being moved later: delete it a
 on the right VLAN. And when the backup service runs behind a VPN on a Docker Desktop host, the
 image upload can stall and be closed by the node after about a minute while the API itself
 works; upload the image through the HyperCore UI under the exact name above and the deployment
-finds and uses it. A Linux Docker host does not have this problem. A deployment that fails
-after the VM was created leaves the VM in place for inspection; delete it in HyperCore or
+finds and uses it. A Linux Docker host does not have this problem. A VM that comes up but
+never answers on port 8083 did not start its container: `/var/log/hcm-proxy-start.log` on
+the VM holds the pull and start output, and `/usr/local/sbin/hcm-proxy-start.sh` runs the
+same steps again once the cause is fixed. A deployment that fails after the VM was created
+leaves the VM in place for inspection; delete it in HyperCore or
 register it by hand once it is up.
 
 **Several proxies per cluster.** Register more than one and the backup service spreads jobs
