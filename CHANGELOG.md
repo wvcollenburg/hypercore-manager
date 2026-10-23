@@ -103,11 +103,6 @@ release is tagged.
   Account; it works on dark sites. The administration guide is served with it. The former
   `DEPLOY.md` is folded into the manual's installing chapter, which now holds everything about
   the installation itself, without repeating the administration guide.
-- **Adopt 0.9.x history.** Metrics written before the multi-cluster release carry no cluster tag
-  and were invisible after an upgrade. Settings → Clusters now offers to adopt them for the
-  registered cluster: a background job re-tags them per measurement and bucket (scratch copy,
-  delete, copy back; idempotent, resumes after an interruption), so Foresight and the balancer
-  keep their history across the upgrade.
 - **Plan times are local to the cluster** (migration `033`). The cluster's time zone is read from
   HyperCore on every connection test and shown under Settings → Clusters, with an override; a
   plan's daily time is scheduled in that zone, and every place a plan time appears adds the

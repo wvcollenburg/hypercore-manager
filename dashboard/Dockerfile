@@ -21,7 +21,6 @@ COPY dashboard/config_db.py .
 COPY dashboard/user_db.py .
 COPY dashboard/versioning.py .
 COPY dashboard/storage_summary.py .
-COPY dashboard/legacy_metrics.py .
 COPY dashboard/manual.py .
 COPY dashboard/cluster_registry.py .
 COPY dashboard/hypercore_tasks.py .

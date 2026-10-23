@@ -360,14 +360,10 @@ dashboard:
    were in `.env`. The collector, balancer and Sentinel pick it up within a minute, the
    balancer in dry-run; its tunables were copied from your `.env` values, so check them and
    switch it back to live.
-4. Metrics written by 0.9.x carry no cluster tag and are not shown until they are adopted. Once
-   the cluster is registered, Settings → Clusters offers **Adopt history** when such points
-   exist. It re-tags them in the background, in windows of a week that shrink when InfluxDB
-   refuses a query under its memory cap; months of data take an hour or more, and the panel
-   shows the progress. Foresight and the balancer then keep their history. Skip it and they
-   start from scratch; the old data stays in InfluxDB until its retention expires. A fresh
-   install instead of an in-place upgrade is fine too: the only things an upgrade keeps are
-   the user accounts, the tunables and, with the adoption, the metrics.
+4. Metrics written by 0.9.x carry no cluster tag and are not shown: Foresight and the balancer
+   start from scratch after the upgrade, and the old points stay in InfluxDB until their
+   retention expires. A fresh install instead of an in-place upgrade is therefore just as good;
+   the only things an upgrade keeps are the user accounts and the tunables.
 5. Schedules of the former standalone export manager are not migrated: create a target,
    assign it, and re-create the plans in the Backup tab.
 
