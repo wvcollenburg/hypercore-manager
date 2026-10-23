@@ -1393,6 +1393,7 @@
         <span data-i18n="settings.restart_required" style="color:var(--text-secondary)">Restart-required settings</span><span data-i18n="settings.restart_note"> — collection interval, trend interval, outcome check interval, ports, InfluxDB / PostgreSQL / HyperCore credentials, webhook URL, secret and delivery parameters must be set via environment variables in docker-compose and require a container restart.</span>
       </div>
     </div>
+  </div>
 
   <!-- ─── settings tab ─── -->
   <!-- ─── Exports tab (optional `exports` profile) ─── -->
@@ -4946,7 +4947,7 @@ function _clusterFormHtml(prefix, c) {
   return `
     <div class="cl-form">
       <div><label>${t('clusters.name')}</label><input type="text" id="${prefix}-name" value="${_clEsc(c.name)}" placeholder="prod-amsterdam"></div>
-      <div><label>${t('clusters.host')}</label><input type="text" id="${prefix}-host" value="${_clEsc(c.host)}" placeholder="172.16.0.241">
+      <div><label>${t('clusters.host')}</label><input type="text" id="${prefix}-host" value="${_clEsc(c.host)}" placeholder="10.0.0.241">
         <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${t('clusters.host_hint')}</div></div>
       <div><label>${t('clusters.username')}</label><input type="text" id="${prefix}-username" value="${_clEsc(c.username)}" autocomplete="off"></div>
       <div><label>${t('clusters.password')}</label><input type="password" id="${prefix}-password" autocomplete="new-password" placeholder="${c.cluster_id ? _clEsc(t('clusters.password_keep')) : ''}"></div>
