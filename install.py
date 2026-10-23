@@ -39,7 +39,6 @@ from installer.core import (
     Section,
     TEMPLATE_PATH,
     apply_easy_autogen,
-    regenerate_secrets,
     autofill_paths,
     build_schema,
     collect_path_warnings,
@@ -1081,25 +1080,28 @@ def run(stdscr) -> None:
     }
 
     if existing:
-        keep = confirm_box(
+        start_from_existing = confirm_box(
             stdscr,
             "Existing .env detected",
             [
-                f"Found existing {ENV_PATH.resolve()}; its values are pre-loaded.",
+                f"Found existing {ENV_PATH.resolve()}.",
                 "The current file is backed up to .env.bak.<timestamp> when you write.",
                 "",
-                "Keep the existing secrets and tokens?",
+                "Start from its values?",
                 "",
-                "  Yes: upgrading a running installation. The database keeps working:",
+                "  Yes: upgrading or reconfiguring a running installation. Every value,",
+                "       secrets included, is pre-filled. The database keeps working:",
                 "       HCM_SECRET_KEY encrypts the stored cluster passwords, and the",
                 "       PostgreSQL and InfluxDB passwords only apply to new volumes.",
-                "  No:  fresh install after 'docker compose down -v'. Every secret and",
-                "       token is regenerated; the dashboard password is kept as entered.",
+                "  No:  fresh install after 'docker compose down -v'. The file is ignored",
+                "       and everything starts blank, as if it were not there.",
             ],
             default_yes=True,
         )
-        if not keep:
-            regenerate_secrets(sections, values)
+        if not start_from_existing:
+            values = seed_default_values(sections)
+            state["values"] = values
+            state["existing"] = False
 
     mode = screen_mode(stdscr)
     if mode is None:

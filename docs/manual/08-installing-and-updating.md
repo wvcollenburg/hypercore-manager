@@ -48,9 +48,9 @@ Two ways to write `.env`; the rest is the same.
 through every setting: what it does, why the default is what it is, when to change it. Easy
 mode asks only for the dashboard password and generates every secret; advanced mode shows them
 all. It warns when the wrong Compose is on the host and ends with the commands to start the
-stack. Run it again later and it pre-fills the existing `.env` and asks whether to keep the
-secrets: yes for an upgrade of a running installation, no for a fresh install after
-`docker compose down -v`, which regenerates every secret and token.
+stack. Run it again later and it finds the existing `.env` and asks whether to start from
+its values: yes for an upgrade of a running installation, no for a fresh install after
+`docker compose down -v`, which ignores the file and starts blank.
 
 ```
 git clone <repository>
