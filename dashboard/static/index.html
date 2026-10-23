@@ -3727,7 +3727,7 @@ async function _loadProxiesPanel() {
         <button class="um-action-btn" onclick="pxTest(${p.id})">${t('clusters.test')}</button>
         <button class="um-action-btn" onclick="pxToggle(${p.id}, ${p.enabled ? 'false' : 'true'})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
         <button class="um-action-btn" onclick="pxBench(${p.id})" title="${_clEsc(t('proxies.bench_hint'))}">${t('proxies.bench')}</button>
-        <button class="um-action-btn danger" onclick="pxRemove(${p.id}, '${_clEsc(p.name)}')">${t('clusters.remove')}</button>
+        <button class="um-action-btn danger" onclick="pxRemove(${p.id}, '${_clEsc(p.name)}', '${_clEsc(p.vm_uuid || '')}', '${_clEsc(p.kind || '')}')">${t('clusters.remove')}</button>
         <div class="cl-msg" id="px-${p.id}-msg"></div>
       </td>
     </tr>`).join('');
@@ -3818,9 +3818,16 @@ async function pxBench(id) {
   } catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
 }
 async function pxToggle(id, enabled) { try { await _exCall('PUT', `/api/backup/proxies/${id}`, {enabled}); await _loadProxiesPanel(); } catch (e) { showToast(e.message, 'err'); } }
-async function pxRemove(id, name) {
+async function pxRemove(id, name, vmUuid, kind) {
   if (!confirm(t('proxies.confirm_remove', {name}))) return;
-  try { await _exCall('DELETE', `/api/backup/proxies/${id}`); await _loadProxiesPanel(); } catch (e) { showToast(e.message, 'err'); }
+  // a deployed proxy's VM goes with it unless the admin keeps it; the stack's own container has no VM
+  const vm = vmUuid ? vmUuid.slice(0, 8) : '';
+  const withVm = !!vmUuid && kind !== 'local' && confirm(t('proxies.confirm_remove_vm', {vm}));
+  try {
+    const r = await _exCall('DELETE', `/api/backup/proxies/${id}${withVm ? '?vm=delete' : ''}`);
+    if (r && r.vm === 'deleted') showToast(t('proxies.removed_vm', {vm}), 'ok');
+    await _loadProxiesPanel();
+  } catch (e) { showToast(e.message, 'err'); await _loadProxiesPanel(); }
 }
 function _shareFormHtml(prefix, sh) {
   sh = sh || {};

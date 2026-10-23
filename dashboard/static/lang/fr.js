@@ -749,6 +749,8 @@ window.LANG = {
   'proxies.bench_running': "Mesure {mode}… {done}/{total} Mio",
   'proxies.bench_result': "Débit vers {target} ({size} Mio par mode, Mio/s) : {detail}",
   'proxies.confirm_remove': "Supprimer le proxy '{name}' ? Les plans incrémentaux de ce cluster ne pourront s'exécuter qu'après l'enregistrement d'un autre proxy.",
+  'proxies.confirm_remove_vm': "Éteindre et supprimer aussi sa VM ({vm}) du cluster ? OK supprime la VM ; Annuler conserve la VM et retire seulement l'enregistrement.",
+  'proxies.removed_vm': "Proxy supprimé ; sa VM ({vm}) a été éteinte et supprimée du cluster.",
 
   'ex.col_churn': "Modifié",
   'ex.col_churn_hint': "Blocs modifiés entre les deux instantanés les plus récents de la VM (ceux de HyperCore ou les nôtres) : ce qu'une sauvegarde incrémentale copierait.",

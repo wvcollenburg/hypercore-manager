@@ -133,6 +133,30 @@ def probe_proxy(proxy_id: int, hc: HyperCoreClient | None = None) -> dict:
 
 
 # ------------------------------------------------------------------ helpers
+def remove_proxy_vm(hc: HyperCoreClient, vm_uuid: str) -> str:
+    """Power off and delete the VM a proxy ran on, as part of removing the proxy.
+
+    Only a VM that HyperCore Manager deployed goes (it carries the hcm-proxy tag): a proxy
+    container on a VM that does other things is the administrator's to delete. The stop is a
+    hard power-off; the VM holds nothing but the container and its certificate, and the
+    dashboard waits for the answer. Returns 'deleted', or 'not_found' when the VM is gone already."""
+    vm = next((v for v in hc.list_vms_full() if v.get('uuid') == vm_uuid), None)
+    if not vm:
+        return 'not_found'
+    tags = [t.strip() for t in str(vm.get('tags') or '').split(',')]
+    if 'hcm-proxy' not in tags:
+        raise IncrementalError(f"VM '{vm.get('name')}' has no hcm-proxy tag, so HyperCore Manager did not deploy it and it may do "
+                               "more than run the proxy; the registration is removed, delete the VM in HyperCore yourself")
+    if (vm.get('state') or '').upper() != 'SHUTOFF':
+        tag = hc.vm_action(vm_uuid, 'STOP')
+        if tag:
+            wait_task(hc, tag, 'power off', 25)
+    tag = hc.delete_vm(vm_uuid)
+    if tag:
+        wait_task(hc, tag, 'delete VM', 25)
+    return 'deleted'
+
+
 def wait_task(hc: HyperCoreClient, task_tag: str, what: str, timeout: float = 600) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:

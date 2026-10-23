@@ -442,3 +442,36 @@ def test_daily_sweep_removes_cloud_init_isos_of_registered_proxies(world, monkey
     out = inc.sweep_cluster('c1')
     assert out == {'snapshots': 0, 'clones': 0, 'cloud_init': 1} and ('patch', 'cd', {'path': ''}) in hc.calls
     assert inc.sweep_cluster('c1')['cloud_init'] == 0, 'idempotent'
+
+
+class _VmHC:
+    """Just enough cluster for remove_proxy_vm: an inventory, actions and tasks that complete."""
+    def __init__(self, vms):
+        self.vms, self.calls = vms, []
+    def list_vms_full(self): return list(self.vms)
+    def vm_action(self, u, a): self.calls.append(('action', u, a)); return 't1'
+    def delete_vm(self, u): self.calls.append(('delete', u)); return 't2'
+    def task_status(self, tag): return {'state': 'COMPLETE'}
+
+
+def test_remove_proxy_vm_powers_off_and_deletes_a_deployed_vm():
+    hc = _VmHC([{'uuid': 'pv', 'name': 'hcm-proxy-01', 'tags': 'hcm-proxy,anti_other', 'state': 'RUNNING'}])
+    assert inc.remove_proxy_vm(hc, 'pv') == 'deleted'
+    assert hc.calls == [('action', 'pv', 'STOP'), ('delete', 'pv')]
+
+
+def test_remove_proxy_vm_skips_the_power_off_when_already_off():
+    hc = _VmHC([{'uuid': 'pv', 'name': 'hcm-proxy-01', 'tags': 'hcm-proxy', 'state': 'SHUTOFF'}])
+    assert inc.remove_proxy_vm(hc, 'pv') == 'deleted' and hc.calls == [('delete', 'pv')]
+
+
+def test_remove_proxy_vm_leaves_a_vm_it_did_not_deploy():
+    hc = _VmHC([{'uuid': 'pv', 'name': 'fileserver', 'tags': 'prod', 'state': 'RUNNING'}])
+    with pytest.raises(inc.IncrementalError, match='no hcm-proxy tag'):
+        inc.remove_proxy_vm(hc, 'pv')
+    assert hc.calls == [], 'nothing is stopped or deleted'
+
+
+def test_remove_proxy_vm_reports_a_vm_that_is_gone():
+    hc = _VmHC([])
+    assert inc.remove_proxy_vm(hc, 'pv') == 'not_found' and hc.calls == []

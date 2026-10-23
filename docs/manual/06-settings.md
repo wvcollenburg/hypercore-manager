@@ -48,4 +48,8 @@ by a VM on the same cluster is a copy, not a backup.
 Below the targets, **Backup proxies**: the proxies registered per cluster with their state and
 version, **Test connection**, **Measure throughput**, which writes a few hundred megabytes onto
 the cluster's target through each path a backup can use and reports the rates, and **Deploy a
-proxy VM**, which creates the proxy VM for you from a cloud image.
+proxy VM**, which creates the proxy VM for you from a cloud image. **Remove** takes the
+registration away and, for a proxy with a VM behind it, asks whether that VM goes too: the
+VM is then powered off and deleted from the cluster. Only a VM the dashboard deployed is
+deleted (it carries the `hcm-proxy` tag); a proxy container you put on a VM of your own is
+left for you to clean up.

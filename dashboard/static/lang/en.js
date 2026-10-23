@@ -750,6 +750,8 @@ window.LANG = {
   'proxies.bench_running': "Measuring {mode}… {done}/{total} MiB",
   'proxies.bench_result': "Throughput to {target} ({size} MiB per mode, MiB/s): {detail}",
   'proxies.confirm_remove': "Remove proxy '{name}'? Incremental plans on its cluster cannot run until another proxy is registered.",
+  'proxies.confirm_remove_vm': "Also power off and delete its VM ({vm}) from the cluster? OK deletes the VM; Cancel keeps the VM and only removes the registration.",
+  'proxies.removed_vm': "Proxy removed; its VM ({vm}) was powered off and deleted from the cluster.",
 
   'ex.col_churn': "Changed",
   'ex.col_churn_hint': "Blocks changed between the VM's two newest snapshots (HyperCore's own or ours): what an incremental would copy.",

@@ -749,6 +749,8 @@ window.LANG = {
   'proxies.bench_running': "Meten {mode}… {done}/{total} MiB",
   'proxies.bench_result': "Doorvoer naar {target} ({size} MiB per modus, MiB/s): {detail}",
   'proxies.confirm_remove': "Proxy '{name}' verwijderen? Incrementele plannen op dat cluster kunnen pas weer draaien als er een andere proxy is geregistreerd.",
+  'proxies.confirm_remove_vm': "Ook zijn VM ({vm}) uitschakelen en van het cluster verwijderen? OK verwijdert de VM; Annuleren laat de VM staan en verwijdert alleen de registratie.",
+  'proxies.removed_vm': "Proxy verwijderd; zijn VM ({vm}) is uitgeschakeld en van het cluster verwijderd.",
 
   'ex.col_churn': "Gewijzigd",
   'ex.col_churn_hint': "Gewijzigde blokken tussen de twee nieuwste snapshots van de VM (van HyperCore of van ons): wat een incrementele back-up zou kopiëren.",
