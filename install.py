@@ -455,7 +455,7 @@ def screen_mode(stdscr) -> Optional[str]:
             "advanced",
             "Advanced mode",
             "Walk through every setting in .env with full descriptions and defaults.",
-            "Use this if you want to tune thresholds, intervals, retention, or paths.",
+            "Use this for InfluxDB retention, Foresight thresholds, webhooks or paths.",
         ),
     ]
     cursor = 0

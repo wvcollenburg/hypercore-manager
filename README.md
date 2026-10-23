@@ -186,26 +186,14 @@ are.
 `HCM_SECRET_KEY` protects the stored passwords. Back it up with the database; if it is lost the
 clusters keep working until the next restart, after which their passwords must be re-entered.
 
-### Key Parameters
+### Balancer tunables
 
-Values in `.env` seed the **Defaults** template on first start. After that, change them per
-cluster (or for the template, or for all clusters at once) under Settings → Tunables.
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `SC_DRY_RUN` | `true` | **Start here.** Logs decisions without executing migrations. |
-| `SC_CPU_UPPER_THRESHOLD_PERCENT` | `50.0` | Node CPU % that triggers reactive balancing |
-| `SC_RAM_UPPER_THRESHOLD_PERCENT` | `65.0` | Node RAM % that triggers reactive balancing |
-| `SC_RAM_LIMIT_PERCENT` | `85.0` | Hard ceiling — never overload a target node beyond this |
-| `SC_CPU_TARGET_TOLERANCE_PERCENT` | `5.0` | Re-balancing stops when all node CPU values are within this % of the target |
-| `SC_MAX_VCPU_RATIO` | `2.0` | Max vCPU-to-thread overcommit ratio |
-| `SC_VM_MOVE_COOLDOWN_MINUTES` | `30` | Minimum time between moves of the same VM |
-| `SC_MIGRATION_COOLDOWN_MINUTES` | `5` | Minimum time between any migration events |
-| `SC_PREDICTIVE_BALANCING_ENABLED` | `true` | Enable/disable the Oracle |
-| `SC_PREDICTIVE_INTERVAL_SECONDS` | `43200` | How often the Oracle runs (default: 12 hours) |
-| `SC_PREDICTIVE_MAX_WORKERS` | `8` | Parallel threads for VM forecasting |
-
-See [the installing chapter of the manual](docs/manual/08-installing-and-updating.md#settings-in-env) for the full configuration reference.
+Dry-run, thresholds, cooldowns, the Oracle's schedule and the poll intervals are not in `.env`.
+They ship with defaults and are edited per cluster under Settings → Tunables, where the
+**Defaults** template sets what a newly registered cluster starts with and "apply to all
+clusters" pushes a value everywhere. Every cluster starts in dry-run. The settings chapter of
+the manual describes each one; the installing chapter has the `.env` reference for everything
+that does live there.
 
 ### Foresight Tunables
 
@@ -527,7 +515,7 @@ carries a `cluster_id` tag.
 
 ## Disclaimer
 
-**USE AT YOUR OWN RISK.** HyperCore Manager is community-supported software, not an official Scale Computing product. It is provided "as is" without warranty of any kind, express or implied, and without any official support or service-level commitment. Neither the authors nor Scale Computing accept responsibility or liability for any damage, data loss, downtime, or other consequences resulting from its use. The balancer live-migrates virtual machines using cluster credentials you provide: always run in dry-run mode (`SC_DRY_RUN=true`) for an extended observation period before enabling live migrations.
+**USE AT YOUR OWN RISK.** HyperCore Manager is community-supported software, not an official Scale Computing product. It is provided "as is" without warranty of any kind, express or implied, and without any official support or service-level commitment. Neither the authors nor Scale Computing accept responsibility or liability for any damage, data loss, downtime, or other consequences resulting from its use. Every cluster starts in dry-run; test the balancer there before switching it to live in the dashboard.
 
 ## License
 

@@ -26,8 +26,8 @@
 # spike) and Sentinel analysis runs never overlap — outside those windows the
 # entire stack uses well under 0.5 cores combined
 #
-# the balancer's CPU limit should match or exceed SC_PREDICTIVE_MAX_WORKERS
-# in your .env file. if you reduce the CPU limit below the worker count,
+# the balancer's CPU limit should match or exceed the PREDICTIVE_MAX_WORKERS tunable
+# (Settings -> Tunables). if you reduce the CPU limit below the worker count,
 # Prophet workers will compete for cores and predictive runs will take longer
 # =============================================================================
 
@@ -84,8 +84,6 @@ services:
       - INFLUX_TOKEN=${INFLUX_TOKEN}
       - INFLUX_ORG=${INFLUX_ORG}
       - INFLUX_BUCKET=${INFLUX_BUCKET}
-      - SC_POLL_INTERVAL=${SC_POLL_INTERVAL}
-      - SC_SLOW_POLL_INTERVAL=${SC_SLOW_POLL_INTERVAL}
       - INFLUX_PRIMARY_RETENTION=${INFLUX_PRIMARY_RETENTION}
       # PostgreSQL config store
       - PG_HOST=postgres
@@ -110,32 +108,7 @@ services:
       # encrypts cluster credentials stored in PostgreSQL; shared by every service that talks to HyperCore
       - HCM_SECRET_KEY=${HCM_SECRET_KEY}
       - TZ=${TZ:-UTC}
-      # HyperCore credentials
-
-      # master toggles
-      - SC_DRY_RUN=${SC_DRY_RUN}
-      - SC_VERBOSITY=${SC_VERBOSITY}
-
-      # --- reactive engine tuning ---
-      - SC_AVG_WINDOW_MINUTES=${SC_AVG_WINDOW_MINUTES}
-      - SC_SAMPLE_INTERVAL_SECONDS=${SC_SAMPLE_INTERVAL_SECONDS}
-      - SC_RAM_LIMIT_PERCENT=${SC_RAM_LIMIT_PERCENT}
-      - SC_RAM_UPPER_THRESHOLD_PERCENT=${SC_RAM_UPPER_THRESHOLD_PERCENT}
-      - SC_CPU_UPPER_THRESHOLD_PERCENT=${SC_CPU_UPPER_THRESHOLD_PERCENT}
-      - SC_MAX_VCPU_RATIO=${SC_MAX_VCPU_RATIO}
-      - SC_VM_MOVE_COOLDOWN_MINUTES=${SC_VM_MOVE_COOLDOWN_MINUTES}
-      - SC_MIGRATION_COOLDOWN_MINUTES=${SC_MIGRATION_COOLDOWN_MINUTES}
-      - SC_CPU_TARGET_TOLERANCE_PERCENT=${SC_CPU_TARGET_TOLERANCE_PERCENT}
-
-      # --- predictive engine tuning (the Oracle) ---
-      - SC_PREDICTIVE_BALANCING_ENABLED=${SC_PREDICTIVE_BALANCING_ENABLED}
-      - SC_PREDICTIVE_INTERVAL_SECONDS=${SC_PREDICTIVE_INTERVAL_SECONDS}
-      - SC_PREDICTIVE_THRESHOLD=${SC_PREDICTIVE_THRESHOLD}
-      - SC_PREDICTIVE_MIN_HISTORY_HOURS=${SC_PREDICTIVE_MIN_HISTORY_HOURS}
-      - SC_PREDICTIVE_LEAD_TIME_HOURS=${SC_PREDICTIVE_LEAD_TIME_HOURS}
-      - SC_PREDICTIVE_LOOKBACK_DAYS=${SC_PREDICTIVE_LOOKBACK_DAYS}
-      - SC_PREDICTIVE_MAX_WORKERS=${SC_PREDICTIVE_MAX_WORKERS}
-      - SC_PREDICTIVE_RESERVATION_MINUTES=${SC_PREDICTIVE_RESERVATION_MINUTES}
+      # tunables (dry-run, thresholds, the Oracle) come from PostgreSQL, set in the dashboard
 
       # Oracle InfluxDB connection — internal to the Docker network
       - INFLUX_URL=http://influxdb:8086
@@ -173,7 +146,6 @@ services:
       - INFLUX_TOKEN=${INFLUX_TOKEN}
       - INFLUX_ORG=${INFLUX_ORG}
       - INFLUX_BUCKET=${INFLUX_BUCKET}
-      - SC_DASHBOARD_STALE_SECONDS=${SC_DASHBOARD_STALE_SECONDS}
       - SC_DASHBOARD_USER=${SC_DASHBOARD_USER}
       - SC_DASHBOARD_PASSWORD=${SC_DASHBOARD_PASSWORD}
       - SC_DASHBOARD_SECRET_KEY=${SC_DASHBOARD_SECRET_KEY}

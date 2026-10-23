@@ -144,6 +144,12 @@ release is tagged.
   SECURITY, NOTICE, a dashboard favicon, and an administration guide (`docs/administration.md`).
 
 ### Changed
+- **Tunables live in the dashboard only.** The balancer, collector and dashboard tunables
+  (dry-run, thresholds, cooldowns, the Oracle, poll intervals, the stale threshold, excluded
+  nodes) are no longer in `.env`, the compose file or the installer. They ship with defaults,
+  seed the Defaults template once, and are edited per cluster under Settings → Tunables. The
+  earlier seed re-applied `.env` values at every restart to any tunable set back to its default
+  in the dashboard, which could switch dry-run off again; it now never overwrites a stored value.
 - Released as community-supported open-source software under the Apache License 2.0.
   Copyright Scale Computing. The source-available "all rights reserved" terms are withdrawn.
 - Scale Computing logos removed from the dashboard and login page; replaced by a text wordmark.

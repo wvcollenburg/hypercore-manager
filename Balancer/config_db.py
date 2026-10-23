@@ -39,6 +39,9 @@ TEMPLATE_CLUSTER_ID = '00000000-0000-0000-0000-000000000001'
 DEFAULT_CLUSTER_ID = TEMPLATE_CLUSTER_ID   # backwards-compatible name
 
 # registry: key → (env_var_name, hardcoded_default, type_hint)
+# The defaults below are the shipped values; the env var names remain only as a fallback
+# while PostgreSQL is unreachable. Tunables are not set in .env: the Defaults template is
+# seeded from these values on first start and edited in the dashboard afterwards.
 TUNABLES = {
     # ── balancer: reactive ──────────────────────────────────────────────────
     'DRY_RUN':                        ('SC_DRY_RUN',                        True,   'bool'),
@@ -46,7 +49,7 @@ TUNABLES = {
     'AVG_WINDOW_MINUTES':             ('SC_AVG_WINDOW_MINUTES',              5,      'int'),
     'SAMPLE_INTERVAL_SECONDS':        ('SC_SAMPLE_INTERVAL_SECONDS',         30,     'int'),
     'RAM_LIMIT_PERCENT':              ('SC_RAM_LIMIT_PERCENT',               85.0,   'float'),
-    'RAM_UPPER_THRESHOLD_PERCENT':    ('SC_RAM_UPPER_THRESHOLD_PERCENT',     80.0,   'float'),
+    'RAM_UPPER_THRESHOLD_PERCENT':    ('SC_RAM_UPPER_THRESHOLD_PERCENT',     65.0,   'float'),
     'CPU_UPPER_THRESHOLD_PERCENT':    ('SC_CPU_UPPER_THRESHOLD_PERCENT',     50.0,   'float'),
     'MAX_VCPU_RATIO':                 ('SC_MAX_VCPU_RATIO',                  2.0,    'float'),
     'VM_MOVE_COOLDOWN_MINUTES':       ('SC_VM_MOVE_COOLDOWN_MINUTES',        30,     'int'),
@@ -54,7 +57,7 @@ TUNABLES = {
     'EXCLUDE_NODE_IPS':               ('SC_EXCLUDE_NODE_IPS',                '',     'list'),
     'CPU_TARGET_TOLERANCE_PERCENT':   ('SC_CPU_TARGET_TOLERANCE_PERCENT',    5.0,    'float'),
     # ── balancer: predictive ────────────────────────────────────────────────
-    'PREDICTIVE_BALANCING_ENABLED':   ('SC_PREDICTIVE_BALANCING_ENABLED',    False,  'bool'),
+    'PREDICTIVE_BALANCING_ENABLED':   ('SC_PREDICTIVE_BALANCING_ENABLED',    True,   'bool'),
     'PREDICTIVE_INTERVAL_SECONDS':    ('SC_PREDICTIVE_INTERVAL_SECONDS',     43200,  'int'),
     'PREDICTIVE_LEAD_TIME_HOURS':     ('SC_PREDICTIVE_LEAD_TIME_HOURS',      1,      'int'),
     'PREDICTIVE_THRESHOLD':           ('SC_PREDICTIVE_THRESHOLD',            80.0,   'float'),

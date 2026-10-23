@@ -206,20 +206,13 @@ time zone, read from the cluster; backup plans are scheduled in that one.
 | `INFLUX_LONGTERM_BUCKET`, `INFLUX_LONGTERM_RETENTION` | Downsampled bucket and its retention in days (1825) |
 | `INFLUXD_QUERY_MAX_MEMORY_BYTES`, `INFLUXD_QUERY_MEMORY_BYTES`, `INFLUXD_QUERY_INITIAL_MEMORY_BYTES`, `INFLUXD_QUERY_CONCURRENCY`, `INFLUXD_STORAGE_CACHE_MAX_MEMORY_SIZE` | InfluxDB's own memory caps: 384 MB for all queries together, 256 MB per query, 192 MB write cache, set below the container's 768 MB so a heavy query is refused with an error instead of Docker killing the database. Raise them together with the container limit on a big installation |
 
-**Balancer.** The `SC_*` values seed the **Defaults** template on first start. Afterwards they
-are edited per cluster in the dashboard (Settings → Tunables, which also offers "apply to all
-clusters"); changing them in `.env` later does not alter clusters that already exist.
+**Balancer, collector and dashboard tunables** are not in `.env`. Dry-run, thresholds,
+cooldowns, the Oracle, the poll intervals and the stale threshold ship with defaults and are
+edited per cluster in the dashboard under Settings → Tunables; the **Defaults** template there
+is what a newly registered cluster starts with, and "apply to all clusters" pushes a value
+everywhere. Nothing you set there is touched by a restart or an update.
 
-| Variable | Description |
-|---|---|
-| `SC_DRY_RUN` | `true` = log only, no migrations. Every cluster starts here |
-| `SC_VERBOSITY` | Log verbosity 1 to 5 (3) |
-| `SC_RAM_LIMIT_PERCENT` | Hard RAM ceiling per node (85) |
-| `SC_CPU_UPPER_THRESHOLD_PERCENT` | CPU percentage that triggers reactive balancing (50) |
-| `SC_PREDICTIVE_BALANCING_ENABLED`, `SC_PREDICTIVE_INTERVAL_SECONDS` | The Oracle predictive engine and how often it runs (43200, twelve hours) |
-
-**Dashboard.** `SC_DASHBOARD_USER` and `SC_DASHBOARD_PASSWORD` seed the admin account;
-`SC_DASHBOARD_STALE_SECONDS` is the age at which metrics are shown as stale.
+**Dashboard.** `SC_DASHBOARD_USER` and `SC_DASHBOARD_PASSWORD` seed the admin account.
 
 **Foresight.**
 
