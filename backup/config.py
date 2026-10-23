@@ -39,6 +39,8 @@ class Config:
 
     api_port:    int = field(default_factory=lambda: _int('BACKUP_API_PORT', 8082))
     api_token:   str = field(default_factory=lambda: _str('BACKUP_API_TOKEN', ''))
+    # the dashboard exports the stack's own proxy image for deployments and proxy updates; same bearer token
+    dashboard_url: str = field(default_factory=lambda: _str('DASHBOARD_URL', 'http://dashboard:5000'))
 
     # how long a HyperCore export/import task may run before the job gives up
     task_timeout_hours:    int = field(default_factory=lambda: _int('BACKUP_TASK_TIMEOUT_HOURS', 8))

@@ -5,10 +5,13 @@ What the panel does for an administrator:
   1. make sure the cluster holds the cloud image as an uploaded VirtualDisk (uploaded once from a
      URL the backup container can reach, or already present under a known name)
   2. create a UEFI VM with cloud-init user-data that installs Docker and the guest agent, sets the
-     nbd and LVM host settings, and starts the proxy container with PROXY_TLS=auto and a token
+     nbd and LVM host settings, and starts a bootstrap receiver on port 8083 that waits for the
+     proxy image
   3. attach the image as the VM's disk (grown to the requested size), set the boot order, start
   4. wait for the VM's IP address (static from the form, or reported by the guest agent)
-  5. register the proxy (https://<ip>:8083) and probe it until the container answers
+  5. push this installation's proxy image to the receiver (the VM loads it and starts the proxy
+     container with PROXY_TLS=auto and the token), register the proxy (https://<ip>:8083) and
+     probe it until it answers
   6. remove the cloud-init ISO from the VM (it carries the token; the daily sweep retries)
 
 Everything here is plain API calls; the cloud-init document is rendered by cloud_init_userdata()
@@ -17,27 +20,23 @@ so it can be reviewed and tested without a cluster.
 from __future__ import annotations
 
 import base64
-import json
 import logging
-import re
 import secrets
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid as uuidlib
 from datetime import datetime, timezone
 
 import db
 import incremental
 import jobs
+import proxy_image
 from hypercore import HyperCoreError, LengthStream
 from incremental import IncrementalError, wait_task
+from proxy_client import ProxyClient, ProxyError, certificate_fingerprint
 
 log = logging.getLogger('backup.deploy')
 DEFAULT_IMAGE_URL = 'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img'
 DEFAULT_IMAGE_NAME = 'hcm-ubuntu-noble-cloudimg.img'
-DEFAULT_PROXY_IMAGE = 'ghcr.io/wvcollenburg/hcm-proxy:latest'
 
 
 def _now() -> datetime:
@@ -58,122 +57,242 @@ def netplan(ip: dict) -> str | None:
     return '\n'.join(lines) + '\n'
 
 
-_MANIFEST_TYPES = ', '.join(('application/vnd.oci.image.index.v1+json', 'application/vnd.oci.image.manifest.v1+json',
-                             'application/vnd.docker.distribution.manifest.list.v2+json',
-                             'application/vnd.docker.distribution.manifest.v2+json'))
+BOOTSTRAP_PY = r"""#!/usr/bin/env python3
+# First contact of a freshly deployed proxy VM. Listens on the proxy port for HyperCore Manager
+# to push the proxy image (POST /update, bearer token, X-Image-Tag), drops it where
+# hcm-proxy-update.service picks it up, and exits; the proxy container takes the port from here.
+import http.server, json, os, socket, ssl, subprocess, sys, threading
+
+ENV = os.environ.get('HCM_PROXY_ENV', '/etc/hcm-proxy.env')
+DROP = os.environ.get('HCM_PROXY_UPDATE_DIR', '/var/lib/hcm-proxy-update')
+TLS_DIR = os.environ.get('HCM_PROXY_TLS_DIR', '/etc/hcm-proxy/tls')
+PORT = int(os.environ.get('HCM_PROXY_BOOTSTRAP_PORT', '8083'))
+TOKEN = ''
+for line in open(ENV):
+    if line.startswith('PROXY_API_TOKEN='):
+        TOKEN = line.split('=', 1)[1].strip()
 
 
-def parse_image_ref(ref: str) -> dict:
-    """'ghcr.io/org/hcm-proxy:1.2' -> registry host, repository and tag/digest, with Docker Hub's rules
-    for bare names ('nginx' is docker.io/library/nginx:latest)."""
-    ref = (ref or '').strip()
-    if not ref or any(c.isspace() for c in ref):
-        raise ValueError(f'not an image reference: {ref!r}')
-    digest = None
-    if '@' in ref:
-        ref, digest = ref.split('@', 1)
-    first, _, rest = ref.partition('/')
-    if rest and ('.' in first or ':' in first or first == 'localhost'):
-        registry, path = first, rest
-    else:
-        registry, path = 'docker.io', ref
-    tag = 'latest'
-    if ':' in path.rsplit('/', 1)[-1]:
-        path, tag = path.rsplit(':', 1)
-    if registry == 'docker.io' and '/' not in path:
-        path = 'library/' + path
-    host = 'registry-1.docker.io' if registry == 'docker.io' else registry
-    return {'registry': registry, 'host': host, 'repository': path, 'reference': digest or tag}
-
-
-def _http_get(url: str, headers: dict, timeout: float) -> tuple[int, dict, bytes]:
-    req = urllib.request.Request(url, headers=headers, method='GET')
+def ensure_certificate():
+    # The same self-signed certificate serves this receiver and, mounted into the container, the
+    # proxy afterwards: HyperCore Manager pins it on first contact and the pin holds through the
+    # handover. Ten years, RSA 2048, hostname and addresses as SANs, like the proxy's own tls.py.
+    os.makedirs(TLS_DIR, exist_ok=True)
+    crt, key = os.path.join(TLS_DIR, 'proxy.crt'), os.path.join(TLS_DIR, 'proxy.key')
+    if os.path.exists(crt) and os.path.exists(key):
+        return crt, key
+    host = socket.gethostname()
+    sans = ['DNS:' + host, 'DNS:localhost', 'IP:127.0.0.1']
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:      # noqa: S310 (https registry URL built above)
-            return r.status, dict(r.headers), r.read(65536)
-    except urllib.error.HTTPError as e:
-        return e.code, dict(e.headers), e.read(65536)
+        for ip in {i[4][0] for i in socket.getaddrinfo(host, None, socket.AF_INET)}:
+            sans.append('IP:' + ip)
+    except socket.gaierror:
+        pass
+    base = ['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '3650', '-keyout', key, '-out', crt, '-subj', '/CN=' + host]
+    r = subprocess.run(base + ['-addext', 'subjectAltName=' + ','.join(sans)], capture_output=True, text=True)
+    if r.returncode:
+        r = subprocess.run(base, capture_output=True, text=True)
+    if r.returncode:
+        sys.exit('certificate generation failed: ' + (r.stderr or r.stdout).strip()[:300])
+    os.chmod(key, 0o600)
+    return crt, key
 
 
-def image_pullable(ref: str, *, fetch=_http_get, timeout: float = 8.0) -> dict:
-    """Ask the registry whether the image can be pulled without credentials, the way the VM will.
+class Handler(http.server.BaseHTTPRequestHandler):
+    timeout = 120                     # a silent peer must not hold a thread forever
 
-    ok True: the manifest is served. ok False: the registry refuses an anonymous pull (private or
-    missing image), 'detail' says so. ok None: no answer from here (the backup container may sit
-    behind a stricter firewall than the VM), so the deployment goes ahead."""
+    def setup(self):
+        # the listening socket is wrapped with do_handshake_on_connect=False so a peer that
+        # connects and goes quiet (port scanners, probes) blocks only its own thread, not accept()
+        self.request.settimeout(20)
+        self.request.do_handshake()
+        super().setup()
+
+    def _json(self, code, body):
+        data = json.dumps(body).encode()
+        self.send_response(code); self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(data))); self.end_headers(); self.wfile.write(data)
+
+    def log_message(self, *a):
+        sys.stderr.write('%s - %s\n' % (self.address_string(), a[0] % a[1:]))
+
+    def do_GET(self):
+        if self.path == '/health':
+            return self._json(200, {'status': 'ok', 'service': 'hcm-proxy-bootstrap'})
+        self._json(404, {'error': 'not found'})
+
+    def do_POST(self):
+        if TOKEN and self.headers.get('Authorization', '') != 'Bearer ' + TOKEN:
+            return self._json(401, {'error': 'Unauthorized'})
+        if self.path != '/update':
+            return self._json(404, {'error': 'not found'})
+        tag = (self.headers.get('X-Image-Tag') or '').strip()
+        n = int(self.headers.get('Content-Length') or 0)
+        if not tag or not n:
+            return self._json(400, {'error': 'X-Image-Tag and a tarball body are required'})
+        os.makedirs(DROP, exist_ok=True)
+        part = os.path.join(DROP, 'image.tar.part')
+        with open(part, 'wb') as fh:
+            left = n
+            while left:
+                chunk = self.rfile.read(min(left, 1 << 20))
+                if not chunk:
+                    break
+                fh.write(chunk); left -= len(chunk)
+        if left:
+            os.unlink(part)
+            return self._json(400, {'error': 'short body'})
+        os.replace(part, os.path.join(DROP, 'image.tar'))
+        with open(os.path.join(DROP, 'image.tag'), 'w') as fh:
+            fh.write(tag + '\n')
+        self._json(202, {'accepted': True, 'tag': tag, 'bytes': n})
+        self.wfile.flush()
+        open(os.path.join(DROP, 'ready'), 'w').close()       # after the answer: the host acts on this
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
+
+
+class Server(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def handle_error(self, request, client_address):
+        # a failed handshake or a dropped connection is logged, never fatal
+        import traceback
+        sys.stderr.write('hcm-proxy-bootstrap: connection from %s failed: %s\n' % (client_address[0], traceback.format_exc().strip().splitlines()[-1]))
+
+
+crt, key = ensure_certificate()
+srv = Server(('0.0.0.0', PORT), Handler)
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ctx.load_cert_chain(crt, key)
+srv.socket = ctx.wrap_socket(srv.socket, server_side=True, do_handshake_on_connect=False)
+sys.stderr.write('hcm-proxy-bootstrap: waiting for the proxy image on port %d (TLS)\n' % PORT)
+while True:
     try:
-        r = parse_image_ref(ref)
-    except ValueError as e:
-        return {'ok': False, 'detail': str(e)}
-    url = f"https://{r['host']}/v2/{r['repository']}/manifests/{r['reference']}"
-    headers = {'Accept': _MANIFEST_TYPES}
-    try:
-        status, hdrs, _ = fetch(url, headers, timeout)
-        if status == 401:
-            challenge = next((v for k, v in hdrs.items() if k.lower() == 'www-authenticate'), '')
-            m = dict(re.findall(r'(\w+)="([^"]*)"', challenge))
-            if challenge.lower().startswith('bearer') and m.get('realm'):
-                q = {'scope': m.get('scope') or f"repository:{r['repository']}:pull"}
-                if m.get('service'):
-                    q['service'] = m['service']
-                ts, _, body = fetch(f"{m['realm']}?{urllib.parse.urlencode(q)}", {}, timeout)
-                token = ''
-                if ts == 200:
-                    try:
-                        j = json.loads(body or b'{}')
-                        token = j.get('token') or j.get('access_token') or ''
-                    except ValueError:
-                        token = ''
-                if not token:
-                    return {'ok': False, 'detail': f"{r['host']} hands out no anonymous pull token for {r['repository']} "
-                                                   f"(HTTP {ts}): the image is private or does not exist"}
-                status, hdrs, _ = fetch(url, {**headers, 'Authorization': f'Bearer {token}'}, timeout)
-    except (OSError, ValueError) as e:                        # URLError, timeouts, bad JSON
-        return {'ok': None, 'detail': f"registry {r['host']} not reachable from the backup service ({e}); the VM may still reach it"}
-    if status == 200:
-        return {'ok': True, 'detail': None}
-    if status in (401, 403, 404):
-        return {'ok': False, 'detail': f"{r['host']} refuses an anonymous pull of {r['repository']}:{r['reference']} "
-                                       f"(HTTP {status}): the image is private or does not exist"}
-    return {'ok': None, 'detail': f"unexpected HTTP {status} from {r['host']}"}
+        srv.serve_forever()
+        break
+    except Exception as e:            # the loop itself must survive anything a peer can do
+        sys.stderr.write('hcm-proxy-bootstrap: serve loop error, continuing: %r\n' % (e,))
+sys.stderr.write('hcm-proxy-bootstrap: image received, handing over\n')
+"""
+
+RUN_SH = """#!/bin/sh
+# Runs the proxy container from the image the last push loaded (hcm-proxy.service).
+set -e
+image=$(cat /etc/hcm-proxy/image)
+modprobe nbd max_part=0 || true
+docker rm -f hcm-proxy >/dev/null 2>&1 || true
+exec docker run -d --name hcm-proxy --restart unless-stopped --privileged --memory 1g -p 8083:8083 \\
+  -v /dev:/dev -v /sys:/host/sys:ro -v hcm-proxy-data:/var/lib/hcm-proxy -v /var/lib/hcm-proxy-update:/update \\
+  -v /etc/hcm-proxy/tls:/etc/hcm-proxy/tls:ro --env-file /etc/hcm-proxy.env "$image"
+"""
+
+UPDATE_SH = """#!/bin/sh
+# Loads the image HyperCore Manager pushed into /var/lib/hcm-proxy-update and restarts the proxy on it
+# (hcm-proxy-update.service, fired by the path unit when the 'ready' marker appears).
+set -e
+exec >>/var/log/hcm-proxy-update.log 2>&1
+d=/var/lib/hcm-proxy-update
+[ -f "$d/ready" ] || exit 0
+mv "$d/ready" "$d/working"
+tag=$(cat "$d/image.tag")
+echo "$(date -Is) loading $tag"
+docker load < "$d/image.tar"
+mkdir -p /etc/hcm-proxy && echo "$tag" > /etc/hcm-proxy/image
+rm -f "$d/image.tar" "$d/working"
+systemctl stop hcm-proxy-bootstrap.service 2>/dev/null || true
+systemctl restart hcm-proxy.service
+docker image prune -f >/dev/null 2>&1 || true
+echo "$(date -Is) proxy restarted on $tag"
+"""
+
+UNITS = {
+    '/etc/systemd/system/hcm-proxy.service': """[Unit]
+Description=HyperCore Manager backup proxy container
+After=docker.service
+Requires=docker.service
+ConditionPathExists=/etc/hcm-proxy/image
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/hcm-proxy-run.sh
+
+[Install]
+WantedBy=multi-user.target
+""",
+    '/etc/systemd/system/hcm-proxy-bootstrap.service': """[Unit]
+Description=HyperCore Manager proxy bootstrap: waits for the proxy image to be pushed
+After=network-online.target docker.service
+Wants=network-online.target
+ConditionPathExists=!/etc/hcm-proxy/image
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/sbin/hcm-proxy-bootstrap.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+""",
+    '/etc/systemd/system/hcm-proxy-update.path': """[Unit]
+Description=HyperCore Manager proxy image drop
+
+[Path]
+PathExists=/var/lib/hcm-proxy-update/ready
+Unit=hcm-proxy-update.service
+
+[Install]
+WantedBy=multi-user.target
+""",
+    '/etc/systemd/system/hcm-proxy-update.service': """[Unit]
+Description=HyperCore Manager proxy image update
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hcm-proxy-update.sh
+""",
+}
 
 
-def cloud_init_userdata(*, token: str, proxy_image: str, tz: str = 'UTC', hostname: str = 'hcm-proxy',
-                        ip: dict | None = None, authorized_key: str | None = None, image_tar_url: str | None = None) -> str:
-    """#cloud-config for a proxy VM. Idempotent on reboot (docker --restart, module files)."""
+def cloud_init_userdata(*, token: str, tz: str = 'UTC', hostname: str = 'hcm-proxy',
+                        ip: dict | None = None, authorized_key: str | None = None) -> str:
+    """#cloud-config for a proxy VM. The VM pulls nothing: it comes up with a bootstrap receiver
+    on port 8083 (TLS, a self-signed certificate it generates and the proxy container keeps
+    using), the backup service pushes the installation's proxy image to it, and the same drop
+    directory takes every later update. Idempotent on reboot (systemd units, module files)."""
     np = netplan(ip or {})
     files = [
         ('/etc/modprobe.d/nbd.conf', 'options nbd max_part=0\n'),
         ('/etc/modules-load.d/nbd.conf', 'nbd\n'),
-        ('/etc/hcm-proxy.env', f'PROXY_API_TOKEN={token}\nPROXY_TLS=auto\nPROXY_HOST_NET=/host/sys/class/net\nTZ={tz}\n'),
-        ('/usr/local/sbin/hcm-proxy-start.sh',
-         '#!/bin/sh\nset -e\nexec >>/var/log/hcm-proxy-start.log 2>&1\nmodprobe nbd max_part=0 || true\n'
-         # the pull is retried: right after boot DNS and the default route can lag the package install
-         + (f'curl -fsSL "{image_tar_url}" | docker load\n' if image_tar_url else
-            f'for i in 1 2 3 4 5 6; do docker pull {proxy_image} && break; echo "pull failed (attempt $i)"; sleep 20; done\n') +
-         'docker rm -f hcm-proxy >/dev/null 2>&1 || true\n'
-         'exec docker run -d --name hcm-proxy --restart unless-stopped --privileged --memory 1g -p 8083:8083 '
-         '-v /dev:/dev -v /sys:/host/sys:ro -v hcm-proxy-data:/var/lib/hcm-proxy --env-file /etc/hcm-proxy.env '
-         f'{proxy_image}\n'),
-    ]
+        ('/etc/hcm-proxy.env', f'PROXY_API_TOKEN={token}\nPROXY_TLS=cert\nPROXY_TLS_CERT=/etc/hcm-proxy/tls/proxy.crt\n'
+                               f'PROXY_TLS_KEY=/etc/hcm-proxy/tls/proxy.key\nPROXY_HOST_NET=/host/sys/class/net\n'
+                               f'PROXY_UPDATE_DIR=/update\nTZ={tz}\n'),
+        ('/usr/local/sbin/hcm-proxy-run.sh', RUN_SH),
+        ('/usr/local/sbin/hcm-proxy-update.sh', UPDATE_SH),
+        ('/usr/local/sbin/hcm-proxy-bootstrap.py', BOOTSTRAP_PY),
+    ] + sorted(UNITS.items())
     if np:
         files.append(('/etc/netplan/60-hcm-proxy.yaml', np))
     doc = ['#cloud-config', f'hostname: {hostname}', 'manage_etc_hosts: true', 'package_update: true',
            'packages:', '  - docker.io', '  - qemu-guest-agent', '  - lvm2', 'write_files:']
     for path, content in files:
-        mode = '0755' if path.endswith('.sh') else ('0600' if path.endswith('.env') else '0644')
+        mode = '0755' if path.endswith(('.sh', '.py')) else ('0600' if path.endswith('.env') else '0644')
         doc += [f'  - path: {path}', f'    permissions: "{mode}"', '    content: |']
-        doc += ['      ' + line for line in content.rstrip('\n').split('\n')]
+        doc += [('      ' + line).rstrip() for line in content.rstrip('\n').split('\n')]
     if authorized_key:
         doc += ['ssh_authorized_keys:', f'  - {authorized_key}']
     doc += ['runcmd:',
             "  - sed -i 's#^devices {#devices {\\n    global_filter = [ \"a|^/dev/vda|\", \"r|.*|\" ]#' /etc/lvm/lvm.conf",
+            '  - mkdir -p /var/lib/hcm-proxy-update /etc/hcm-proxy/tls',
             '  - systemctl enable --now qemu-guest-agent',
             '  - systemctl enable --now docker']
     if np:
         doc += ['  - chmod 600 /etc/netplan/60-hcm-proxy.yaml', '  - netplan apply']
-    doc += ['  - /usr/local/sbin/hcm-proxy-start.sh',
-            'final_message: "HyperCore Manager backup proxy ready after $UPTIME seconds"']
+    doc += ['  - systemctl daemon-reload',
+            '  - systemctl enable --now hcm-proxy-update.path hcm-proxy.service hcm-proxy-bootstrap.service',
+            'final_message: "HyperCore Manager backup proxy VM ready for its image after $UPTIME seconds"']
     return '\n'.join(doc) + '\n'
 
 
@@ -250,6 +369,42 @@ def wait_for_ip(hc, vm_uuid: str, timeout: float = 900) -> str | None:
     return None
 
 
+def push_image(ip: str, token: str, on_message=None, timeout: float = 1200, poll: float = 15, sleep=time.sleep,
+               fingerprint_of=certificate_fingerprint) -> dict:
+    """Wait for the VM's bootstrap receiver (cloud-init installs Docker first, minutes), pin the
+    certificate it presents and push the installation's proxy image over that connection. The
+    proxy container serves the same certificate afterwards, so the pin taken here is the one the
+    registration keeps: no second trust-on-first-use after the handover. A VM that already runs
+    the proxy is left alone. Returns the receiver's answer plus 'tls_fingerprint'."""
+    say = on_message or (lambda m: None)
+    url = f'https://{ip}:8083'
+    deadline = time.monotonic() + timeout
+    service, fp, client = None, None, None
+    while time.monotonic() < deadline:
+        try:
+            fp = fingerprint_of(url)
+            client = ProxyClient(url, token, tls_fingerprint=fp, timeout=20)
+            service = (client.health() or {}).get('service')
+        except (ProxyError, OSError):
+            service = None
+        if service == 'hcm-proxy-bootstrap':
+            break
+        if service == 'hcm-proxy':
+            return {'skipped': 'the proxy already runs', 'tls_fingerprint': fp}
+        sleep(poll)
+    if service != 'hcm-proxy-bootstrap':
+        raise IncrementalError(f'the VM at {ip} did not come up with its bootstrap receiver within {timeout / 60:.0f} minutes; '
+                               'cloud-init may have failed (no DHCP, no route for apt): check the VM console')
+    info = proxy_image.stack_image()
+    if not info.get('available'):
+        raise IncrementalError(info.get('detail') or 'the installation has no proxy image to push')
+    say(f"pushing proxy image {info['version']} to the VM at {ip} (certificate {fp[:16]}… pinned)")
+    answer = proxy_image.push(client)
+    answer['tls_fingerprint'] = fp
+    say(f"proxy image {answer.get('tag')} loaded on the VM ({(answer.get('bytes') or 0) >> 20} MiB); the VM starts the container")
+    return answer
+
+
 # ------------------------------------------------------------------ the deployment
 def run_deployment(dep_id: int) -> None:
     d = db.get_deployment(dep_id)
@@ -270,9 +425,8 @@ def run_deployment(dep_id: int) -> None:
                                on_progress=lambda n, s: db.update_deployment(dep_id, message=f'uploading cloud image: {n >> 20}/{s >> 20} MiB'))
         # 2. VM with cloud-init
         token = p.get('token') or secrets.token_hex(24)
-        userdata = cloud_init_userdata(token=token, proxy_image=p.get('proxy_image') or DEFAULT_PROXY_IMAGE, tz=p.get('tz') or 'UTC',
-                                       hostname=name, ip=p.get('ip'), authorized_key=p.get('authorized_key'),
-                                       image_tar_url=p.get('proxy_image_tar_url') or None)
+        userdata = cloud_init_userdata(token=token, tz=p.get('tz') or 'UTC', hostname=name, ip=p.get('ip'),
+                                       authorized_key=p.get('authorized_key'))
         db.update_deployment(dep_id, message='creating the proxy VM')
         r = hc._request('POST', '/VirDomain', json=vm_body(name, p.get('vcpu') or 1, p.get('mem_gb') or 2, p.get('vlan') or 0, userdata, cloud_init_metadata(name))) or {}
         if not r.get('createdUUID'):
@@ -296,24 +450,25 @@ def run_deployment(dep_id: int) -> None:
             ip = wait_for_ip(hc, vm_uuid)
         if not ip:
             raise IncrementalError('the VM did not report an IP address within 15 minutes; register the proxy by hand once it is up')
-        # 5. register + probe until the container answers
+        # 5. push the installation's proxy image to the VM's bootstrap receiver
+        db.update_deployment(dep_id, message=f'VM at {ip}; waiting for it to finish installing (cloud-init)')
+        pushed = push_image(ip, token, on_message=lambda m: db.update_deployment(dep_id, message=m))
+        # 6. register with the pin taken at first contact, probe until the container answers
         url = f'https://{ip}:8083'
-        pid = db.add_proxy(d['cluster_id'], name, url, token, kind='remote', vm_uuid=vm_uuid)
-        db.update_deployment(dep_id, proxy_id=pid, message=f'VM at {ip}; waiting for the proxy container to come up')
-        deadline = time.monotonic() + 1200
+        pid = db.add_proxy(d['cluster_id'], name, url, token, kind='remote', vm_uuid=vm_uuid, tls_fingerprint=pushed.get('tls_fingerprint'))
+        db.update_deployment(dep_id, proxy_id=pid, message=f'image loaded on the VM; waiting for the proxy container to come up')
+        deadline = time.monotonic() + 600
         result = {'ok': False}
         while time.monotonic() < deadline:
             result = incremental.probe_proxy(pid, hc)
             if result.get('ok'):
                 break
-            db.update_proxy(pid, tls_fingerprint=None)      # a failed TOFU attempt must not pin a half-started service
-            time.sleep(20)
+            time.sleep(20)                                  # the pin stays: it was taken from the receiver, not from a half-started service
         if not result.get('ok'):
-            raise IncrementalError(f"proxy registered but not reachable at {url} after 20 minutes ({result.get('error') or result.get('detail')}). "
-                                   'The VM is up but nothing answers on port 8083, so the proxy container did not start: '
-                                   '/var/log/hcm-proxy-start.log on the VM says why (usually the image could not be pulled). '
-                                   'Fix the cause and run /usr/local/sbin/hcm-proxy-start.sh on the VM, or delete the VM and deploy again.')
-        # 6. the cloud-init ISO holds the token in clear: get it off the VM now that the proxy runs
+            raise IncrementalError(f"proxy registered but not reachable at {url} after 10 minutes ({result.get('error') or result.get('detail')}). "
+                                   'The image was pushed but the proxy container did not come up: /var/log/hcm-proxy-update.log '
+                                   'on the VM says why. Fix the cause and run `systemctl restart hcm-proxy` there, or delete the VM and deploy again.')
+        # 7. the cloud-init ISO holds the token in clear: get it off the VM now that the proxy runs
         db.update_deployment(dep_id, message='removing the cloud-init data from the VM')
         try:
             removed = incremental.remove_cloud_init_disk(hc, vm_uuid)
@@ -324,7 +479,7 @@ def run_deployment(dep_id: int) -> None:
                              message=f'proxy {name} running at {url} and registered; cloud-init data '
                                      + ({'deleted': 'removed from the VM', 'ejected': 'ejected from the VM'}.get(removed) or 'still attached, the daily sweep retries'))
         log.info('[deploy %s] done: %s at %s', dep_id, name, url)
-    except (IncrementalError, HyperCoreError, KeyError, ValueError) as e:
+    except (IncrementalError, HyperCoreError, ProxyError, KeyError, ValueError) as e:
         db.update_deployment(dep_id, status='ERROR', message=str(e), finished_at=_now())
         log.error('[deploy %s] %s', dep_id, e)
     except Exception as e:                                  # noqa: BLE001

@@ -74,6 +74,20 @@ def run_deployment(dep_id: int) -> None:
     _scheduler.add_job(deploy.run_deployment, args=[dep_id], id=f'deploy-{dep_id}', replace_existing=True)
 
 
+def run_proxy_update(proxy_id: int) -> None:
+    import proxy_image
+    _scheduler.add_job(proxy_image.update_proxy, args=[proxy_id], id=f'proxy-update-{proxy_id}', replace_existing=True)
+
+
+def update_proxies() -> None:
+    """The service restarts with every stack update: bring the remote proxies to the new version."""
+    import proxy_image
+    try:
+        proxy_image.update_all()
+    except Exception:                                   # noqa: BLE001
+        log.exception('proxy update pass failed')
+
+
 def run_import(import_id: int) -> None:
     _scheduler.add_job(jobs.run_import, args=[import_id], id=f'import-{import_id}', replace_existing=True)
 
@@ -142,6 +156,8 @@ def start(sync_interval_seconds: int = 60) -> None:
     # first sweep a little after start: the dashboard applies new migrations at the same moment
     from datetime import datetime, timedelta
     _scheduler.add_job(sweep_all, trigger='date', run_date=datetime.now() + timedelta(seconds=120), id='sweep-start', replace_existing=True)
+    # proxies follow the stack's version: one pass shortly after every (re)start, when the dashboard is up again
+    _scheduler.add_job(update_proxies, trigger='date', run_date=datetime.now() + timedelta(seconds=180), id='proxy-update-start', replace_existing=True)
     n = sync_jobs()
     reconcile_interrupted()
     log.info('Scheduler started with %d active schedule(s)', n)

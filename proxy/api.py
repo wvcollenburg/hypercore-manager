@@ -19,7 +19,9 @@ Authentication: Bearer token (PROXY_API_TOKEN). An empty token disables auth, fo
 from __future__ import annotations
 
 import logging
+import os
 import threading
+import time
 from functools import wraps
 
 from flask import Flask, jsonify, request
@@ -67,6 +69,44 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
         ident = identity_mod.identity(cfg, engine.backend.name, free)
         ident['tls_fingerprint'] = app.config.get('TLS_FINGERPRINT')
         return jsonify(ident)
+
+    @app.post('/update')
+    @require_token
+    def update_image():
+        """HyperCore Manager pushes its proxy image (a docker-save tarball; X-Image-Tag names the tag
+        inside). It lands in the update directory the VM watches: the host loads it and restarts
+        this container on the new tag, so the answer here is 'accepted', not 'done'."""
+        d = cfg.update_dir
+        if not d or not os.path.isdir(d):
+            return jsonify({'error': 'this proxy has no update hook (PROXY_UPDATE_DIR); update the container by hand'}), 501
+        tag = (request.headers.get('X-Image-Tag') or '').strip()
+        if not tag:
+            return jsonify({'error': 'X-Image-Tag is required'}), 400
+        if any(j.get('state') in ('queued', 'running') for j in engine.list()):
+            return jsonify({'error': 'a job is running on this proxy; retry when it is idle'}), 409
+        part = os.path.join(d, 'image.tar.part')
+        n = 0
+        with open(part, 'wb') as fh:
+            while True:
+                chunk = request.stream.read(1 << 20)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                n += len(chunk)
+        if not n:
+            os.unlink(part)
+            return jsonify({'error': 'a tarball body is required'}), 400
+        os.replace(part, os.path.join(d, 'image.tar'))
+        with open(os.path.join(d, 'image.tag'), 'w') as fh:
+            fh.write(tag + '\n')
+        # the host's path unit restarts this container the moment the marker appears, so the marker
+        # is armed after the answer has left; the caller polls for the new version anyway
+        def _arm():
+            time.sleep(1.5)
+            open(os.path.join(d, 'ready'), 'w').close()
+        threading.Thread(target=_arm, name='update-arm', daemon=True).start()
+        log.info('image update accepted', extra={'tag': tag, 'bytes': n})
+        return jsonify({'accepted': True, 'tag': tag, 'bytes': n}), 202
 
     @app.post('/jobs/<kind>')
     @require_token

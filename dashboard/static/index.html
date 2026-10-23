@@ -3715,14 +3715,14 @@ async function _loadSharesPanel() {
 }
 async function _loadProxiesPanel() {
   const el = document.getElementById('proxiesPanel'); if (!el) return;
-  const proxies = (await apiFetch('/api/backup/proxies?all=1')) || [];
+  const [proxies, stackImage] = await Promise.all([apiFetch('/api/backup/proxies?all=1').then(v => v || []), apiFetch('/api/backup/proxies/image').then(v => v || {})]);
   const clusterOpts = CLUSTERS.filter(c => !c.is_template).map(c => `<option value="${_clEsc(c.cluster_id)}" ${c.cluster_id === currentCluster ? 'selected' : ''}>${_clEsc(c.name)}</option>`).join('');
   const rows = proxies.map(p => `
     <tr>
       <td class="um-username">${_clEsc(p.name)}<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(p.url)}</div></td>
       <td>${_clEsc(p.cluster_name)}</td>
-      <td><span class="ex-badge ${p.status === 'ok' ? 'ok' : 'err'}">${_clEsc(p.status || '—')}</span>${p.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}<div style="font-size:10px;color:var(--text-muted);">${p.vm_uuid ? t('proxies.vm_detected') : t('proxies.vm_missing')}${p.status_detail ? ' · ' + _clEsc(p.status_detail) : ''}</div></td>
-      <td style="font-size:11px;">${_clEsc(p.version || '—')}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(p.last_seen_at)}</div></td>
+      <td><span class="ex-badge ${p.status === 'ok' ? 'ok' : (p.status === 'updating' ? 'off' : 'err')}">${_clEsc(p.status === 'updating' ? t('proxies.updating') : (p.status || '—'))}</span>${p.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}<div style="font-size:10px;color:var(--text-muted);">${p.vm_uuid ? t('proxies.vm_detected') : t('proxies.vm_missing')}${p.status_detail ? ' · ' + _clEsc(p.status_detail) : ''}</div></td>
+      <td style="font-size:11px;">${_clEsc(p.version || '—')}${_pxUpdateCell(p, stackImage)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(p.last_seen_at)}</div></td>
       <td style="white-space:nowrap;">
         <button class="um-action-btn" onclick="pxTest(${p.id})">${t('clusters.test')}</button>
         <button class="um-action-btn" onclick="pxToggle(${p.id}, ${p.enabled ? 'false' : 'true'})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
@@ -3756,8 +3756,6 @@ async function _loadProxiesPanel() {
           <div><label>${t('proxies.d_ip')}</label><select id="pxd-ipmode" onchange="document.getElementById('pxd-static').style.display=this.value==='static'?'':'none'"><option value="dhcp">DHCP</option><option value="static">${t('proxies.d_static')}</option></select></div>
           <div id="pxd-static" style="display:none;"><label>${t('proxies.d_static_fields')}</label><div style="display:flex;gap:6px;flex-wrap:wrap;"><input type="text" id="pxd-ip" placeholder="10.0.0.5" style="width:120px"><input type="number" id="pxd-prefix" placeholder="24" value="24" style="width:60px"><input type="text" id="pxd-gw" placeholder="10.0.0.1" style="width:120px"><input type="text" id="pxd-dns" placeholder="10.0.0.2, 1.1.1.1" style="width:160px"></div></div>
           <div><label>${t('proxies.d_image')}</label><input type="text" id="pxd-image-url" placeholder="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"><div class="ex-hint">${t('proxies.d_image_hint')}</div></div>
-          <div><label>${t('proxies.d_proxy_image')}</label><input type="text" id="pxd-proxy-image" placeholder="ghcr.io/wvcollenburg/hcm-proxy:latest"><div class="ex-hint">${t('proxies.d_proxy_image_hint')}</div></div>
-          <div><label>${t('proxies.d_tar')}</label><input type="text" id="pxd-tar" placeholder="http://…/hcm-proxy.tar"></div>
           <div><label>${t('proxies.d_key')}</label><input type="text" id="pxd-key" placeholder="ssh-ed25519 AAAA… admin@site"></div>
         </div>
         <div class="cl-actions"><button class="update-apply-btn" onclick="pxDeploy()">${t('proxies.deploy_go')}</button><div class="cl-msg" id="pxd-msg"></div></div>
@@ -3780,7 +3778,7 @@ async function pxDeploy() {
   const body = { cluster_id: g('cluster').value, name: g('name').value.trim(), vlan: parseInt(g('vlan').value || '0', 10), vcpu: parseInt(g('vcpu').value || '1', 10),
                  mem_gb: parseInt(g('mem').value || '2', 10), disk_gb: parseInt(g('disk').value || '20', 10),
                  ip: g('ipmode').value === 'static' ? {mode: 'static', address: g('ip').value.trim(), prefix: parseInt(g('prefix').value || '24', 10), gateway: g('gw').value.trim(), dns: g('dns').value.trim()} : {mode: 'dhcp'},
-                 image_url: g('image-url').value.trim(), proxy_image: g('proxy-image').value.trim(), proxy_image_tar_url: g('tar').value.trim(), authorized_key: g('key').value.trim() };
+                 image_url: g('image-url').value.trim(), authorized_key: g('key').value.trim() };
   if (!body.name) { _shMsg('pxd-msg', t('proxies.d_name_required'), 'err'); return; }
   if (!confirm(t('proxies.deploy_confirm', {name: body.name}))) return;
   _shMsg('pxd-msg', t('ex.i_starting'), '');
@@ -3818,6 +3816,18 @@ async function pxBench(id) {
   } catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
 }
 async function pxToggle(id, enabled) { try { await _exCall('PUT', `/api/backup/proxies/${id}`, {enabled}); await _loadProxiesPanel(); } catch (e) { showToast(e.message, 'err'); } }
+function _pxUpdateCell(p, stackImage) {
+  // a remote proxy behind the installation's version: offer the push, or say it needs a hand
+  if (!stackImage || !stackImage.available || p.kind === 'local' || !p.version || p.version === stackImage.version || p.status === 'updating') return '';
+  const can = p.capabilities && p.capabilities.update;
+  if (!can) return `<div class="ex-hint" style="margin-top:2px;" title="${_clEsc(t('proxies.update_manual', {version: stackImage.version}))}">${_clEsc(t('proxies.update_available', {version: stackImage.version}))} ✋</div>`;
+  return `<div style="margin-top:2px;"><span class="ex-badge off">${_clEsc(t('proxies.update_available', {version: stackImage.version}))}</span> <button class="um-action-btn" onclick="pxUpdate(${p.id})">${t('proxies.update')}</button></div>`;
+}
+async function pxUpdate(id) {
+  _shMsg(`px-${id}-msg`, t('ex.i_starting'), '');
+  try { await _exCall('POST', `/api/backup/proxies/${id}/update`); _shMsg(`px-${id}-msg`, t('proxies.update_started'), 'ok'); setTimeout(() => { if (document.getElementById('proxiesPanel')) _loadProxiesPanel(); }, 60000); await _loadProxiesPanel(); }
+  catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
+}
 async function pxRemove(id, name, vmUuid, kind) {
   if (!confirm(t('proxies.confirm_remove', {name}))) return;
   // a deployed proxy's VM goes with it unless the admin keeps it; the stack's own container has no VM

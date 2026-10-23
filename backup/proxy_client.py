@@ -54,17 +54,21 @@ class ProxyClient:
     # ------------------------------------------------------------------ transport
     def _check_pin(self) -> None:
         if self.fingerprint and not self._pinned_ok:
-            seen = certificate_fingerprint(self.url)
+            try:
+                seen = certificate_fingerprint(self.url)
+            except OSError as e:                 # refused, reset, or a TLS EOF while the proxy (re)starts: retryable
+                raise ProxyError(f'proxy unreachable at {self.url}: {e}') from e
             if seen != self.fingerprint:
                 raise ProxyError(f'proxy certificate fingerprint {seen[:16]}… does not match the pinned {self.fingerprint[:16]}…')
             self._pinned_ok = True
 
-    def _request(self, method: str, path: str, **kw):
+    def _request(self, method: str, path: str, extra_headers: dict | None = None, **kw):
         if self.url.startswith('https://'):
             if not self.fingerprint and not self.tls_verify:
                 raise ProxyError('https proxy without a pinned certificate fingerprint or CA verification; probe it first')
             self._check_pin()
         headers = {'Authorization': f'Bearer {self.token}'} if self.token else {}
+        headers.update(extra_headers or {})
         verify = self.tls_verify if self.url.startswith('https://') else True
         try:
             r = requests.request(method, f'{self.url}{path}', headers=headers, timeout=kw.pop('timeout', self.timeout),
@@ -87,6 +91,15 @@ class ProxyClient:
 
     def identity(self) -> dict:
         return self._request('GET', '/identity') or {}
+
+    def active_jobs(self) -> list[dict]:
+        return [j for j in (self._request('GET', '/jobs') or []) if j.get('state') in ('queued', 'running')]
+
+    def push_image(self, tag: str, chunks, timeout: float = 900) -> dict:
+        """Stream a docker-save tarball to the proxy's update hook; the VM loads it and restarts the
+        container on `tag`. Works against the bootstrap receiver of a fresh VM as well."""
+        return self._request('POST', '/update', extra_headers={'X-Image-Tag': tag, 'Content-Type': 'application/x-tar'},
+                             data=chunks, timeout=timeout) or {}
 
     def submit(self, kind: str, body: dict) -> str:
         return self._request('POST', f'/jobs/{kind}', json=body)['id']

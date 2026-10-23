@@ -819,3 +819,31 @@ def test_nbd_stage_into_runs_one_convert_with_direct_io_and_reports_progress(tmp
     monkeypatch.setattr(P.images.subprocess, 'Popen', _Bad)
     with pytest.raises(RuntimeError, match='Could not open'):
         be.stage_into(str(img), str(dev), [{'lower': 0, 'upper': 0}], 4)
+
+
+# ----------------------------------------------------------------------------- image update hook
+def test_update_hook_takes_a_pushed_image(tmp_path):
+    drop = tmp_path / 'update'; drop.mkdir()
+    cfg = P.config.Config(api_token='t0k', data_dir=str(tmp_path / 'data'), dev_dir=str(tmp_path / 'dev'), backend='file', update_dir=str(drop))
+    engine = P.jobs.Engine(cfg, P.images.FileBackend(), _FakeMounter(str(tmp_path / 'targets')))
+    client = P.api.create_app(cfg, engine).test_client()
+    H = {'Authorization': 'Bearer t0k'}
+    assert client.get('/identity', headers=H).get_json()['capabilities']['update'] is True
+    assert client.post('/update', data=b'x', headers=H).status_code == 400, 'the tag is required'
+    assert client.post('/update', data=b'', headers={**H, 'X-Image-Tag': 't'}).status_code == 400, 'a body is required'
+    r = client.post('/update', data=b'tarball bytes', headers={**H, 'X-Image-Tag': 'hcm-proxy:0.5.0'})
+    assert r.status_code == 202 and r.get_json() == {'accepted': True, 'tag': 'hcm-proxy:0.5.0', 'bytes': 13}
+    assert (drop / 'image.tar').read_bytes() == b'tarball bytes' and (drop / 'image.tag').read_text() == 'hcm-proxy:0.5.0\n'
+    import time as _t
+    for _ in range(60):
+        if (drop / 'ready').exists(): break
+        _t.sleep(0.1)
+    assert (drop / 'ready').exists(), 'the marker is armed after the answer, so the host restart cannot cut the answer off'
+    assert not (drop / 'image.tar.part').exists()
+
+
+def test_update_hook_absent_without_a_directory(stack):
+    H = {'Authorization': 'Bearer t0k'}
+    assert stack.client.get('/identity', headers=H).get_json()['capabilities']['update'] is False
+    r = stack.client.post('/update', data=b'x', headers={**H, 'X-Image-Tag': 't'})
+    assert r.status_code == 501 and 'no update hook' in r.get_json()['error']

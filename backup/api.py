@@ -20,6 +20,7 @@ import db
 import jobs
 import flr
 import incremental
+import proxy_image
 import scheduler
 from hypercore import HyperCoreError
 from proxy_client import ProxyError, certificate_fingerprint, normalise_fingerprint
@@ -531,6 +532,31 @@ def proxies_delete(pid):
     return jsonify({'ok': True, 'vm': vm, 'vm_uuid': p.get('vm_uuid')})
 
 
+@app.get('/api/v1/proxies/image')
+@_require_token
+def proxies_image():
+    """The proxy image this installation can push: {version, tag, available, detail}."""
+    return jsonify(proxy_image.stack_image())
+
+
+@app.post('/api/v1/proxies/<int:pid>/update')
+@_require_token
+def proxies_update_image(pid):
+    """Push the installation's proxy image to a registered proxy; the VM restarts the container on
+    it. Runs in the background (the transfer and restart take minutes); the proxy's status shows
+    'updating' until it answers on the new version."""
+    if not db.get_proxy(pid):
+        return _err('proxy not found', 404)
+    try:
+        pre = proxy_image.prepare(pid, info=lambda: proxy_image.stack_image(max_age=0))
+    except ProxyError as e:
+        return _err(str(e), 409 if 'job is running' in str(e) else 400)
+    if pre.get('skipped'):
+        return jsonify({'ok': True, 'skipped': pre['skipped'], 'version': pre.get('version')})
+    scheduler.run_proxy_update(pid)
+    return jsonify({'ok': True, 'version': pre['stack'].get('version')}), 202
+
+
 @app.post('/api/v1/proxies/<int:pid>/test')
 @_require_token
 def proxies_test(pid):
@@ -785,7 +811,7 @@ def deployments_list():
 @_require_token
 def deployments_start():
     """Create a proxy VM on a cluster from a cloud image. body: {cluster_id, name, vcpu, mem_gb, disk_gb, vlan,
-    ip:{mode, address, prefix, gateway, dns}, image_url, image_name, proxy_image, proxy_image_tar_url, authorized_key, tz}"""
+    ip:{mode, address, prefix, gateway, dns}, image_url, image_name, authorized_key, tz}"""
     import deploy
     b = request.get_json(silent=True) or {}
     cid = (b.get('cluster_id') or '').strip()
@@ -801,18 +827,15 @@ def deployments_start():
         params = {'name': name, 'vcpu': max(1, int(b.get('vcpu') or 2)), 'mem_gb': max(1, int(b.get('mem_gb') or 2)),
                   'disk_gb': max(10, int(b.get('disk_gb') or 20)), 'vlan': int(b.get('vlan') or 0), 'ip': ip,
                   'image_url': (b.get('image_url') or deploy.DEFAULT_IMAGE_URL).strip(), 'image_name': (b.get('image_name') or deploy.DEFAULT_IMAGE_NAME).strip(),
-                  'proxy_image': (b.get('proxy_image') or deploy.DEFAULT_PROXY_IMAGE).strip(), 'proxy_image_tar_url': (b.get('proxy_image_tar_url') or '').strip(),
                   'authorized_key': (b.get('authorized_key') or '').strip(), 'tz': (b.get('tz') or os.environ.get('TZ') or 'UTC')}
     except (TypeError, ValueError):
         return _err('sizes and vlan must be numbers')
-    if not params['proxy_image_tar_url']:
-        # the VM pulls anonymously; a private or missing image is the usual reason a deployed proxy never answers
-        chk = deploy.image_pullable(params['proxy_image'])
-        if chk['ok'] is False:
-            return _err(f"the proxy image {params['proxy_image']} cannot be pulled by the VM: {chk['detail']}. "
-                        'Publish it as a public image, name another image, or give a tarball URL')
-        if chk['ok'] is None:
-            log.warning('proxy image %s not checked: %s', params['proxy_image'], chk['detail'])
+    info = proxy_image.stack_image(max_age=0)
+    if not info.get('available'):
+        return _err(f"this installation has no proxy image to push: {info.get('detail') or 'the dashboard did not report one'}", 502)
+    if info.get('arch') not in (None, 'amd64'):
+        return _err(f"this installation's proxy image is built for {info['arch']}; a HyperCore VM needs amd64. "
+                    'Build the stack on an x86_64 host, or build the proxy image with --platform linux/amd64')
     did = db.add_deployment(cid, name, params, b.get('requested_by'))
     scheduler.run_deployment(did)
     return jsonify({'ok': True, 'id': did}), 201

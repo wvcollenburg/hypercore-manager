@@ -33,6 +33,9 @@ class Config:
     # /dev of the host (hot-added disks appear here) and the host's network interfaces (identity)
     dev_dir:     str = field(default_factory=lambda: _str('PROXY_DEV_DIR', '/dev'))
     host_net:    str = field(default_factory=lambda: _str('PROXY_HOST_NET', '/host/sys/class/net'))
+    # a directory the VM watches: an image tarball HyperCore Manager pushes lands here and the host
+    # loads it and restarts the container on it (empty = no update hook, e.g. the stack's own proxy)
+    update_dir:  str = field(default_factory=lambda: _str('PROXY_UPDATE_DIR', ''))
     # how long to wait for a hot-added device to show up
     device_wait_seconds: int = field(default_factory=lambda: _int('PROXY_DEVICE_WAIT_SECONDS', 120))
     nbd_slots:   int = field(default_factory=lambda: _int('PROXY_NBD_SLOTS', 8))

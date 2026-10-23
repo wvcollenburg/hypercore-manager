@@ -1334,6 +1334,77 @@ def _backup_env():
     return url, token
 
 
+# ─── proxy image export: the backup service pushes this installation's proxy image to proxy VMs ───
+_PROXY_IMAGE_NAME = 'hcm-proxy'
+
+
+def _proxy_image_source() -> str:
+    """The image compose built for the `proxy` service of this project."""
+    return f"{os.getenv('COMPOSE_PROJECT_NAME', 'drsproject')}-proxy"
+
+
+def _proxy_image_version() -> str | None:
+    """The proxy version in the checkout the images were built from (proxy/identity.py)."""
+    try:
+        with open(os.path.join(_REPO_PATH, 'proxy', 'identity.py'), encoding='utf-8') as fh:
+            m = re.search(r"^VERSION = '([^']+)'", fh.read(), re.M)
+        return m.group(1) if m else None
+    except OSError:
+        return None
+
+
+def _internal_token_ok() -> bool:
+    _, token = _backup_env()
+    auth = request.headers.get('Authorization', '')
+    return not token or auth == f'Bearer {token}'
+
+
+@app.route('/internal/proxy-image/version')
+def proxy_image_version():
+    """{version, tag, available, detail}: what a push would carry. Bearer BACKUP_API_TOKEN."""
+    if not _internal_token_ok():
+        return jsonify({'error': 'Unauthorized'}), 401
+    version = _proxy_image_version()
+    src = _proxy_image_source()
+    r = subprocess.run(['docker', 'image', 'inspect', src, '--format', '{{.Id}} {{.Architecture}}'], capture_output=True, text=True, timeout=20)
+    if r.returncode != 0 or not version:
+        detail = f'image {src} not built on this host' if r.returncode != 0 else 'proxy version not readable from the checkout'
+        return jsonify({'version': version, 'tag': None, 'available': False, 'detail': detail})
+    arch = (r.stdout.split() + ['', ''])[1]
+    return jsonify({'version': version, 'tag': f'{_PROXY_IMAGE_NAME}:{version}', 'available': True, 'image': src, 'arch': arch})
+
+
+@app.route('/internal/proxy-image')
+def proxy_image_export():
+    """Stream `docker save` of the stack's proxy image, tagged hcm-proxy:<version>, to the backup
+    service. Nothing is spooled; the tag travels in the X-Image-Tag header."""
+    if not _internal_token_ok():
+        return jsonify({'error': 'Unauthorized'}), 401
+    version = _proxy_image_version()
+    src = _proxy_image_source()
+    if not version:
+        return jsonify({'error': 'proxy version not readable from the checkout'}), 500
+    tag = f'{_PROXY_IMAGE_NAME}:{version}'
+    r = subprocess.run(['docker', 'tag', src, tag], capture_output=True, text=True, timeout=20)
+    if r.returncode != 0:
+        return jsonify({'error': f'image {src} not built on this host: {(r.stderr or r.stdout).strip()}'}), 500
+    proc = subprocess.Popen(['docker', 'save', tag], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def stream():
+        try:
+            while True:
+                chunk = proc.stdout.read(1 << 20)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            proc.stdout.close()
+            proc.wait()
+            if proc.returncode != 0:
+                app.logger.error('docker save %s failed: %s', tag, proc.stderr.read().decode(errors='replace').strip())
+    return Response(stream(), mimetype='application/x-tar', headers={'X-Image-Tag': tag, 'X-Image-Version': version})
+
+
 @app.route('/api/backup/status')
 @require_auth
 def backup_status():

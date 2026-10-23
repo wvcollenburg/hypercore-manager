@@ -72,6 +72,17 @@ def test_device_capacity_and_definition_subset():
     assert client.snapshot_serials({'deviceSnapshots': [{'uuid': 'd', 'serialNumber': 7}, {'uuid': 'n', 'serialNumber': 7}]}) == {'d': 7, 'n': 7}
 
 
+def test_pinned_client_reports_a_restarting_proxy_as_unreachable(monkeypatch):
+    """Docker's port forwarder accepts the connection before the container listens; the raw TLS EOF
+    must surface as a ProxyError so probe loops retry instead of dying."""
+    import ssl
+    def eof(url, timeout=10):
+        raise ssl.SSLEOFError('EOF occurred in violation of protocol')
+    monkeypatch.setattr(pcm, 'certificate_fingerprint', eof)
+    with pytest.raises(pcm.ProxyError, match='unreachable'):
+        pcm.ProxyClient('https://10.0.0.5:8083', 't', tls_fingerprint='ab' * 32).identity()
+
+
 def test_proxy_client_fingerprint_and_mac_match():
     assert pcm.normalise_fingerprint('AB:CD ef') == 'abcdef' and pcm.normalise_fingerprint(None) is None
     vms = [{'uuid': '1', 'name': 'a', 'netDevs': [{'macAddress': '02:00:5e:4b:5c:5e'}]}, {'uuid': '2', 'name': 'b', 'netDevs': []}]

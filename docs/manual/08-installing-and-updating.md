@@ -154,7 +154,7 @@ Docker, and the two host settings above. Then:
 docker run -d --name hcm-proxy --restart unless-stopped --privileged --memory 1g -p 8083:8083 \
   -v /dev:/dev -v /sys:/host/sys:ro -v hcm-proxy-data:/var/lib/hcm-proxy \
   -e PROXY_API_TOKEN=<token> -e PROXY_HOST_NET=/host/sys/class/net -e PROXY_TLS=auto -e TZ=<zone> \
-  ghcr.io/<org>/hcm-proxy:<version>      # or build it: docker build -t hcm-proxy ./proxy
+  hcm-proxy:<version>                    # built from the checkout: docker build -t hcm-proxy:<version> ./proxy
 ```
 
 With `PROXY_TLS=auto` the proxy generates a self-signed certificate on first start and keeps it
@@ -169,13 +169,18 @@ done for them.
 (24.04 by default; the URL can point at a local mirror), uploads it to the cluster once as a
 virtual disk named `hcm-ubuntu-noble-cloudimg.img` and reuses it for later proxies. The backup
 container only needs to reach that URL and the cluster. The new VM needs DHCP or a correct
-static address on its VLAN and the Docker registry that holds the proxy image. The VM pulls
-the image without credentials, so it must be public; the deployment checks that with the
-registry before it creates anything and refuses a private or missing image outright. On a
-site without registry access, point *Proxy image tarball URL* at a `docker save` archive on a
-web server the VM can reach, with the image name in the form matching the tag inside the
-archive. The default sizes are 2 vCPU, 2 GiB and 20 GiB; the second core keeps the SMB client and the
-data path off one core. The whole thing takes five to ten minutes.
+static address on its VLAN, and that is all: it pulls nothing. Cloud-init installs Docker and a
+small receiver on port 8083, the backup service pushes this installation's own proxy image to
+it over that port, and the VM loads the image and starts the container. No registry, no
+internet from the VM, and the proxy is always the version the stack was built with. The
+receiver speaks TLS from the first byte: it generates the self-signed certificate the proxy
+container keeps serving afterwards, the backup service pins that certificate at first contact,
+and the same pin is checked on every later connection, so the token and the image never
+travel in clear and the handover from receiver to proxy changes nothing the backup service
+trusts. The
+default sizes are 2 vCPU, 2 GiB and 20 GiB; the second core keeps the SMB client and the data
+path off one core. The whole thing takes five to ten minutes, most of it the package install
+on the VM.
 
 Two things to know when it goes wrong. Cloud-init installs its packages on the first boot
 only, so a VM that comes up on a VLAN without DHCP, or with a wrong static address, never gets
@@ -183,12 +188,20 @@ the guest agent or Docker and will not recover by being moved later: delete it a
 on the right VLAN. And when the backup service runs behind a VPN on a Docker Desktop host, the
 image upload can stall and be closed by the node after about a minute while the API itself
 works; upload the image through the HyperCore UI under the exact name above and the deployment
-finds and uses it. A Linux Docker host does not have this problem. A VM that comes up but
-never answers on port 8083 did not start its container: `/var/log/hcm-proxy-start.log` on
-the VM holds the pull and start output, and `/usr/local/sbin/hcm-proxy-start.sh` runs the
-same steps again once the cause is fixed. A deployment that fails after the VM was created
-leaves the VM in place for inspection; delete it in HyperCore or
-register it by hand once it is up.
+finds and uses it. A Linux Docker host does not have this problem. A VM that received the image
+but never answers on port 8083 did not start its container: `/var/log/hcm-proxy-update.log` on
+the VM holds the load and start output, and `systemctl restart hcm-proxy` there runs the start
+again once the cause is fixed. A deployment that fails after the VM was created leaves the VM
+in place for inspection; delete it in HyperCore or register it by hand once it is up.
+
+**Proxy updates.** Every deployed proxy VM carries an update hook: a directory the proxy
+container shares with the VM. After a stack update the backup service pushes the new proxy
+image to every registered proxy that is idle, and the VM swaps the container; the proxies panel
+shows the version of each proxy against the installation's and offers **Update** for one that
+lags or was busy. A proxy you built by hand gets the same hook by running the container with
+`-v /var/lib/hcm-proxy-update:/update -e PROXY_UPDATE_DIR=/update` and installing the two
+systemd units a deployed VM has (`hcm-proxy-update.path` and `.service`, which load the dropped
+tarball and restart the container); without the hook the panel marks it for a manual update.
 
 **Several proxies per cluster.** Register more than one and the backup service spreads jobs
 over them, least recently used first, one job per proxy at a time. Each proxy VM reads through
@@ -335,6 +348,9 @@ and the stack pulls the release from the checkout's own git origin, rebuilds and
 application services. InfluxDB and PostgreSQL keep running; expect a short outage of the
 dashboard and the other services. Files the update touched are handed back to the owner of the
 checkout, so a `git pull` by hand afterwards keeps working.
+
+Deployed proxy VMs follow: a few minutes after the restart the backup service pushes the new
+proxy image to every idle proxy (see *Proxy updates* above).
 
 **By hand.** The same thing from a shell on the host:
 

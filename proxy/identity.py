@@ -9,7 +9,7 @@ import shutil
 import socket
 import subprocess
 
-VERSION = '0.3.1'
+VERSION = '0.4.0'
 _SKIP_PREFIXES = ('lo', 'docker', 'veth', 'br-', 'virbr', 'cni', 'flannel', 'tun', 'tap', 'wg')
 
 
@@ -66,6 +66,8 @@ def identity(cfg, backend_name: str, nbd_free: int | None) -> dict:
             'stage_convert': True,
             'selfcheck': SELFCHECK.get('ok'),
             'mounts': True,
+            # accepts a pushed image tarball on POST /update; the host swaps the container (needs PROXY_UPDATE_DIR)
+            'update': bool(cfg.update_dir and os.path.isdir(cfg.update_dir)),
             'filesystems': ['ext4', 'ext3', 'ext2', 'xfs', 'btrfs', 'vfat', 'ntfs', 'exfat', 'lvm'],
         },
     }
