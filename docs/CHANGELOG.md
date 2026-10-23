@@ -4,11 +4,11 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.0.0]
 
-This is the community release: one installation for many clusters, folders and users, scheduled
-exports, and an Apache-2.0 licence. It is 1.0.0 material; the version number is set when the
-release is tagged.
+The community release: one installation for many clusters, folders and users, incremental
+backups through a backup proxy, and an Apache-2.0 licence. First release on the Scale Computing
+public GitHub.
 
 ### Upgrade notes (from 0.9.x)
 - Add `HCM_SECRET_KEY` to `.env` before starting; it encrypts the cluster and share passwords now
@@ -18,7 +18,7 @@ release is tagged.
 - Metrics written before this release have no cluster tag and are no longer shown. Forecast history
   restarts from the moment a cluster is registered.
 - New migrations `019`–`024` apply automatically on the first dashboard start.
-- Step-by-step instructions: DEPLOY.md, "Upgrading from 0.9.x".
+- Step-by-step instructions: the manual's *Installing and updating* chapter, "Upgrading from 0.9.x".
 
 ### Added
 - **Multi-node awareness** (migration `030`). The nodes of every registered cluster are discovered
@@ -47,12 +47,12 @@ release is tagged.
   share. Settings has sub-tabs (Clusters, Tunables, Users, Shares); the users panel searches,
   sorts A–Z or by folder, and edits a user's folders. Modules and Settings are admin-only and
   live in the rail footer; everyone gets an Account page. Breadcrumbs in the header.
-- **Backup module** (`backup` profile, port 8082; named Exports during development): the former hypercore-export-manager,
+- **Backup module** (`backup` container, port 8082; named Exports during development): the former hypercore-export-manager,
   rebuilt on the cluster registry and PostgreSQL. Daily VM exports to SMB or NFS in timestamped
   folders with retention pruning (SMB over the protocol, NFS via a mount), import into any
   registered cluster with a duplicate-name guard, live task progress, and re-attachment of runs
   interrupted by a restart. Dashboard tab with Schedules, VMs, Import and Runs per cluster.
-- **Shares managed by administrators** (Settings → Shares) and assigned per folder, so users
+- **Backup targets managed by administrators** (Settings → Targets) and assigned per folder, so users
   create backup plans and run imports without seeing paths or credentials. Copies are written
   under `<share>/<folder>/<vm>_<timestamp>/` and imports are scoped to the cluster's folder;
   spaces in folder names become underscores. Clusters without a folder use the share flagged
@@ -133,8 +133,18 @@ release is tagged.
   VM, reached over HTTPS with a pinned self-signed certificate (or a customer certificate),
   several proxies per cluster with rotation and one job per proxy. An administrator can deploy
   such a VM from the dashboard: an Ubuntu cloud image is uploaded to the cluster once and the VM
-  is created with a cloud-init document that installs Docker and the proxy container and
-  registers itself (migration 028).
+  is created with a cloud-init document that installs Docker and a small receiver (migration 028).
+- **The proxy image is pushed, never pulled.** The backup service pushes this installation's own
+  proxy image (exported by the dashboard) to a new proxy VM over TLS, pinning the certificate
+  the receiver generates; the proxy container keeps serving that certificate, so the pin holds
+  through the handover. No registry and no internet access from the VM, and a proxy always runs
+  the version the stack was built with. After every stack update the backup service pushes the
+  new image to each idle proxy and the VM swaps the container; the proxies panel shows each
+  proxy's version and offers **Update** for one that lags.
+- **Removing a proxy can delete its VM.** Remove asks whether the proxy's VM goes too and then
+  powers it off and deletes it; only a VM the dashboard deployed (tag `hcm-proxy`) is deleted.
+- The proxy deployment log keeps finished rows for 30 days, except the last successful one of
+  each registered proxy; **Clear finished** empties it at once.
 - Per-cluster data-quality banner that shows how much history a cluster has since registration.
 - HyperCore REST OpenAPI specs (v1 and v2) under `docs/`, with contract tests that pin the
   calls this project makes.
@@ -153,15 +163,14 @@ release is tagged.
 - Released as community-supported open-source software under the Apache License 2.0.
   Copyright Scale Computing. The source-available "all rights reserved" terms are withdrawn.
 - Scale Computing logos removed from the dashboard and login page; replaced by a text wordmark.
-- Product names lose the `SC//` prefix: Foresight, Infraviewer, Clusterbalancer, Foresight-Central.
+- Product names lose the `SC//` prefix: Foresight, Infraviewer, Clusterbalancer.
 - Dashboard shows a one-time community-support notice per user after login
   (migration `019_community_ack.sql`).
-- Data sharing with Foresight-Central is configured per registered cluster.
 - Dashboard, Balancer, Collector and Backup Python dependencies are pinned.
 - `TZ` in `.env` sets the timezone for scheduled jobs and log timestamps.
-- The module is called **Backup** everywhere (tab, `backup` container and profile, `/api/backup`,
-  `BACKUP_*` variables, schema `backup` with `targets` and `plans`); `EXPORTS_*` variables and the
-  `exports` profile keep working for one release. Migration `025_backup_rename.sql`.
+- The module is called **Backup** everywhere (tab, `backup` container, `/api/backup`,
+  `BACKUP_*` variables, schema `backup` with `targets` and `plans`); `EXPORTS_*` variables keep
+  working for one release. Migration `025_backup_rename.sql`.
 
 ### Removed
 - **Foresight-Central integration (data sharing).** The push of signed capacity snapshots to a
