@@ -4,7 +4,7 @@
 
 > **Community supported · Apache-2.0**
 >
-> HyperCore Manager is open-source software maintained on a community-supported basis. It is **not** an official Scale Computing product: there is no official support, no SLA, and no guarantee of future releases. Use it at your own risk. Questions, bug reports and feature requests go through [GitHub Issues](https://github.com/wvcollenburg/hypercore-manager/issues). See [CONTRIBUTING.md](CONTRIBUTING.md) for how contributions are handled.
+> HyperCore Manager is open-source software maintained on a community-supported basis. It is **not** an official Scale Computing product: there is no official support, no SLA, and no guarantee of future releases. Use it at your own risk. Questions, bug reports and feature requests go through [GitHub Issues](https://github.com/wvcollenburg/hypercore-manager/issues). See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for how contributions are handled.
 
 HyperCore Manager is a containerized stack that automatically distributes virtual machine workloads across Scale Computing HyperCore cluster nodes. It monitors resource usage in real time, enforces VM placement rules, and — optionally — uses machine learning to predict and prevent future overloads before they happen.
 
@@ -424,9 +424,7 @@ carries a `cluster_id` tag.
 ├── LICENSE                          # Apache License 2.0
 ├── NOTICE
 ├── README.md
-├── CONTRIBUTING.md                  # How issues and contributions are handled
-├── SECURITY.md                      # How to report a vulnerability
-├── CHANGELOG.md
+├── .github/                         # CONTRIBUTING.md, SECURITY.md, issue templates, workflows
 ├── install.py                       # Interactive curses installer (Linux/macOS)
 ├── installer/
 │   └── core.py                      # .env schema, validation, autogen helpers
@@ -440,6 +438,7 @@ carries a `cluster_id` tag.
 ├── .github/                         # CI workflow and issue templates
 ├── docs/
 │   ├── administration.md            # Clusters, folders, users, targets, backup: the admin guide
+│   ├── CHANGELOG.md                 # Release history
 │   ├── hypercore-openapi-v1.json    # HyperCore REST v1 spec (contract-tested)
 │   └── hypercore-openapi-v2.json    # HyperCore REST v2 spec (experimental)
 ├── influxdb/
@@ -500,9 +499,9 @@ carries a `cluster_id` tag.
 | [docs/administration.md](docs/administration.md) | Day-to-day administration: registering clusters, folders and members, users and roles, backup targets and layout |
 | [docs/hypercore-openapi-v1.json](docs/hypercore-openapi-v1.json) | Scale Computing HyperCore REST API v1 OpenAPI spec (the API every service uses); `tests/test_hypercore_spec_contract.py` checks our calls against it |
 | [docs/hypercore-openapi-v2.json](docs/hypercore-openapi-v2.json) | HyperCore REST API v2 (experimental) spec; adds task listing used for the planned activity feed |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Filing good issues, running the stack locally, how code contributions are handled |
-| [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
-| [CHANGELOG.md](CHANGELOG.md) | Release history |
+| [CONTRIBUTING.md](.github/CONTRIBUTING.md) | Filing good issues, running the stack locally, how code contributions are handled |
+| [SECURITY.md](.github/SECURITY.md) | Reporting a vulnerability |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Release history |
 | [LICENSE](LICENSE) | Apache License 2.0 |
 
 ---

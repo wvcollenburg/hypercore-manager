@@ -46,9 +46,9 @@ def test_community_notice_present_in_all_languages(repo):
             assert k in keys, f'{c}.js missing {k}'
 
 
-# CHANGELOG.md is history and may legitimately name the old prefix
+# docs/CHANGELOG.md is history and may legitimately name the old prefix
 USER_FACING = [
-    'README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'docs/manual/08-installing-and-updating.md',
+    'README.md', '.github/CONTRIBUTING.md', '.github/SECURITY.md', 'docs/manual/08-installing-and-updating.md',
     '.env.template', 'docker-compose.yaml', 'install.py',
     'dashboard/static/index.html', 'dashboard/templates/login.html',
     'dashboard/static/lang/en.js', 'dashboard/static/lang/nl.js',
@@ -72,7 +72,7 @@ def test_no_logo_image_assets(repo):
 
 
 def test_no_personal_contact_email(repo):
-    for rel in ('README.md', 'LICENSE', 'NOTICE', 'CONTRIBUTING.md', 'SECURITY.md'):
+    for rel in ('README.md', 'LICENSE', 'NOTICE', '.github/CONTRIBUTING.md', '.github/SECURITY.md'):
         assert '@scalecomputing.com' not in (repo / rel).read_text(), f'{rel} contains a contact email'
 
 
@@ -131,3 +131,13 @@ def test_dockerfile_fetches_compose_for_image_arch(repo):
 def test_tests_dir_not_gitignored(repo):
     lines = [l.strip() for l in (repo / '.gitignore').read_text().splitlines()]
     assert 'tests/' not in lines
+
+
+def test_root_holds_only_readme_license_and_notice(repo):
+    """Every other document lives under docs/ or .github/ (William, 2026-10-23)."""
+    import subprocess
+    tracked = subprocess.run(['git', '-C', str(repo), 'ls-files'], capture_output=True, text=True).stdout.splitlines()
+    root_docs = sorted(f for f in tracked if '/' not in f and (f.endswith('.md') or f in ('LICENSE', 'NOTICE')))
+    assert root_docs == ['LICENSE', 'NOTICE', 'README.md'], root_docs
+    assert (repo / '.github' / 'CONTRIBUTING.md').exists() and (repo / '.github' / 'SECURITY.md').exists()
+    assert (repo / 'docs' / 'CHANGELOG.md').exists()
