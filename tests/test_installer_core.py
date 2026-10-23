@@ -155,3 +155,30 @@ def test_env_template_installer_and_compose_agree():
     assert template <= compose, sorted(template - compose)
     assert compose - template <= fallbacks, sorted(compose - template - fallbacks)
 
+
+
+@pytest.mark.parametrize('value, ok', [
+    ('UTC', True), ('Europe/Amsterdam', True), ('US/Eastern', True), ('America/Indiana/Indianapolis', True),
+    ('', False), ('CET+1', False), ('Amsterdam', False), ('europe/amsterdam', False), ('Europe/Amsterdam ', True),
+])
+def test_timezone_validation(value, ok):
+    f = core.Field(key='TZ', label='tz', type='timezone')
+    assert (core.validate_value(f, value) is None) == ok, value
+
+
+def test_timezone_validation_hints_at_the_right_case():
+    assert 'Europe/Amsterdam' in core.validate_timezone('europe/amsterdam')
+
+
+def test_easy_mode_covers_every_module_and_asks_for_the_time_zone(schema):
+    """Every module starts with the stack, so easy mode must generate the backup and proxy tokens
+    too (an empty token disables that API's authentication); the time zone is operator input."""
+    assert core.EASY_PROFILES == {core.PROFILE_CORE, core.PROFILE_SENTINEL, core.PROFILE_BACKUP}
+    assert 'TZ' in core.EASY_REQUIRED_KEYS
+    values = core.seed_default_values(schema)
+    core.apply_easy_autogen(schema, values, core.EASY_PROFILES)
+    for key in ('BACKUP_API_TOKEN', 'PROXY_API_TOKEN'):
+        assert values[key] not in core.PLACEHOLDERS and len(values[key]) >= 32, key
+    src = (Path(__file__).resolve().parents[1] / 'install.py').read_text()
+    assert '"backup",   "Backup",' in src and '"Backup (optional)"' not in src, 'every module is on by default in advanced mode'
+    assert '"key": "TZ",' in src, 'easy mode asks for the time zone'

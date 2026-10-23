@@ -39,6 +39,7 @@ from installer.core import (
     Section,
     TEMPLATE_PATH,
     apply_easy_autogen,
+    validate_timezone,
     autofill_paths,
     build_schema,
     collect_path_warnings,
@@ -383,7 +384,7 @@ def screen_profiles(stdscr, state: dict) -> bool:
     items = [
         ("core",     "Core stack (always on)",                 "InfluxDB, Postgres, Collector, Balancer, Dashboard", True),
         ("sentinel", "Sentinel — Foresight (recommended)", "Capacity forecasting, right-sizing, REST API",       True),
-        ("backup",   "Backup (optional)",                      "Scheduled VM backups/exports to SMB/NFS and imports", False),
+        ("backup",   "Backup",                                 "Scheduled VM backups/exports to SMB/NFS and imports", True),
     ]
     selected = {key for key, _, _, default in items if default}
     selected.add("core")  # always on, locked
@@ -447,7 +448,7 @@ def screen_mode(stdscr) -> Optional[str]:
         (
             "easy",
             "Easy mode  (recommended)",
-            "Just enter a dashboard password; clusters are registered in the dashboard.",
+            "Just enter a dashboard password and your time zone; clusters are registered in the dashboard.",
             "Strong secrets are auto-generated; everything else uses sensible defaults.",
         ),
         (
@@ -498,7 +499,7 @@ def screen_mode(stdscr) -> Optional[str]:
 
 
 def screen_easy(stdscr, state: dict) -> bool:
-    """Easy-mode: one field (dashboard password); every secret is generated.
+    """Easy-mode: two fields (dashboard password, time zone); every secret is generated.
     Clusters are registered in the dashboard once the stack is running."""
     values: dict[str, str] = state["values"]
 
@@ -509,10 +510,17 @@ def screen_easy(stdscr, state: dict) -> bool:
             "hint": "Initial admin password for the web UI on port 5000 — clusters are registered there afterwards",
             "type": "password",
         },
+        {
+            "key": "TZ",
+            "label": "Time zone",
+            "hint": "IANA name for log timestamps and the default of scheduled jobs, e.g. Europe/Amsterdam or US/Eastern",
+            "type": "timezone",
+        },
     ]
 
     staged: dict[str, str] = {
         "SC_DASHBOARD_PASSWORD": "" if values.get("SC_DASHBOARD_PASSWORD", "") in PLACEHOLDERS else values.get("SC_DASHBOARD_PASSWORD", ""),
+        "TZ": values.get("TZ", "") or "UTC",
     }
 
     cursor = 0
@@ -524,7 +532,12 @@ def screen_easy(stdscr, state: dict) -> bool:
         if not staged["SC_DASHBOARD_PASSWORD"]:
             message_box(stdscr, "Missing dashboard password", ["Please enter (or generate) a dashboard admin password."], color_pair=C_WARN)
             return False
+        err = validate_timezone(staged["TZ"])
+        if err:
+            message_box(stdscr, "Invalid time zone", [err], color_pair=C_WARN)
+            return False
         values["SC_DASHBOARD_PASSWORD"] = staged["SC_DASHBOARD_PASSWORD"]
+        values["TZ"] = staged["TZ"].strip()
 
         autofill_paths(state["sections"], values)
         apply_easy_autogen(state["sections"], values, state["profiles"])
@@ -538,8 +551,8 @@ def screen_easy(stdscr, state: dict) -> bool:
 
         intro = [
             "Strong secrets for InfluxDB, Postgres, dashboard sessions and the",
-            "Sentinel API will be generated automatically. Repo + SSH paths are",
-            "auto-detected. Re-run this installer any time to switch modes.",
+            "Sentinel, backup and proxy APIs are generated automatically. Repo and",
+            "SSH paths are auto-detected. Re-run this installer any time to switch modes.",
         ]
         y = 3
         for line in intro:
@@ -580,7 +593,7 @@ def screen_easy(stdscr, state: dict) -> bool:
             for f in easy_fields
         )
         save_attr = curses.color_pair(C_SELECTED) if cursor == save_idx else curses.color_pair(C_DEFAULT)
-        save_label = " W   Generate secrets and write .env" if all_set else " W   (enter the dashboard password first)"
+        save_label = " W   Generate secrets and write .env" if all_set else " W   (enter the dashboard password and time zone first)"
         addstr_safe(stdscr, y, 4, " " * (w - 8), save_attr)
         addstr_safe(stdscr, y, 4, save_label, save_attr | curses.A_BOLD)
 
@@ -614,7 +627,11 @@ def screen_easy(stdscr, state: dict) -> bool:
                     generator=generator,
                 )
                 if new is not None:
-                    staged[cur_field["key"]] = new
+                    err = validate_timezone(new) if cur_field["type"] == "timezone" else None
+                    if err:
+                        message_box(stdscr, "Invalid time zone", [err, "", f"You entered: {new}"], color_pair=C_ERR)
+                    else:
+                        staged[cur_field["key"]] = new.strip() if cur_field["type"] == "timezone" else new
             else:
                 if commit():
                     return True

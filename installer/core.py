@@ -42,10 +42,10 @@ PROFILE_SENTINEL = "sentinel"
 PROFILE_BACKUP = "backup"
 
 # easy-mode required keys — filled by the operator, never autogen'd
-EASY_REQUIRED_KEYS = {"SC_DASHBOARD_PASSWORD"}
+EASY_REQUIRED_KEYS = {"SC_DASHBOARD_PASSWORD", "TZ"}
 
 # easy-mode default profile set
-EASY_PROFILES = {PROFILE_CORE, PROFILE_SENTINEL}
+EASY_PROFILES = {PROFILE_CORE, PROFILE_SENTINEL, PROFILE_BACKUP}   # every module starts with the stack
 
 
 # ============================================================================
@@ -56,7 +56,7 @@ EASY_PROFILES = {PROFILE_CORE, PROFILE_SENTINEL}
 class Field:
     key: str                                # env var name
     label: str                              # short human-readable label
-    type: str = "text"                      # text|password|token|int|float|bool|choice|path
+    type: str = "text"                      # text|password|token|int|float|bool|choice|path|timezone
     default: str = ""
     description: str = ""                   # what it does
     why_default: str = ""                   # why this value is the default
@@ -237,6 +237,7 @@ def build_schema() -> list[Section]:
                 Field(
                     key="TZ",
                     label="Timezone",
+                    type="timezone",
                     default="UTC",
                     description="IANA timezone used for scheduled jobs and log timestamps (e.g. Europe/Amsterdam).",
                     why_default="UTC is unambiguous for logs shared across sites.",
@@ -1356,6 +1357,38 @@ def validate_value(field_def: Field, value: str) -> Optional[str]:
     elif field_def.type == "choice":
         if field_def.choices and value not in field_def.choices:
             return f"Must be one of: {', '.join(field_def.choices)}"
+    elif field_def.type == "timezone":
+        return validate_timezone(value)
+    return None
+
+
+def validate_timezone(value: str) -> Optional[str]:
+    """None when value is an IANA zone the host's tz database knows (Europe/Amsterdam,
+    US/Eastern, UTC); an error message otherwise. Case matters: 'europe/amsterdam' is not a
+    zone and would make every container fall back to UTC without a word."""
+    value = (value or "").strip()
+    if not value:
+        return "Enter an IANA time zone, e.g. Europe/Amsterdam or US/Eastern."
+    try:
+        from zoneinfo import ZoneInfo, available_timezones
+        if value not in available_timezones():
+            raise KeyError(value)
+        ZoneInfo(value)
+    except KeyError:
+        hint = ""
+        try:
+            from zoneinfo import available_timezones
+            lower = {z.lower(): z for z in available_timezones()}
+            if value.lower() in lower:
+                hint = f" Did you mean {lower[value.lower()]}?"
+        except Exception:  # noqa: BLE001
+            pass
+        return f"'{value}' is not an IANA time zone (e.g. Europe/Amsterdam, US/Eastern, UTC).{hint}"
+    except Exception as exc:  # noqa: BLE001 — no tz database on this host: accept the shape only
+        import re
+        if not re.fullmatch(r"[A-Za-z_]+(/[A-Za-z0-9_+\-]+)*", value):
+            return f"'{value}' does not look like an IANA time zone (e.g. Europe/Amsterdam)."
+        return None
     return None
 
 
