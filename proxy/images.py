@@ -210,6 +210,11 @@ class NbdBackend:
     def flatten(self, src: str, dst: str) -> None:
         _run(['qemu-img', 'convert', '-q', '-f', 'qcow2', '-O', 'qcow2', '-o', 'cluster_size=2M', src, dst])
 
+    def synthesize(self, src: str, dst: str) -> None:
+        """A point's image (through its backing chain) as a standalone base of a new chain, in the
+        chain's own cluster size so the deltas written on top keep one snapDiff block per cluster."""
+        _run(['qemu-img', 'convert', '-q', '-f', 'qcow2', '-O', 'qcow2', '-o', f'cluster_size={self.CLUSTER}', src, dst])
+
     def commit(self, delta: str) -> None:
         """Merge a delta into its backing file (retention)."""
         _run(['qemu-img', 'commit', '-q', '-f', 'qcow2', delta])
@@ -373,6 +378,9 @@ class FileBackend:
 
     def flatten(self, src: str, dst: str) -> None:
         shutil.copyfile(src, dst)
+
+    def synthesize(self, src: str, dst: str) -> None:
+        shutil.copyfile(src, dst)                         # raw files are complete
 
     def commit(self, delta: str) -> None:
         pass                              # raw 'deltas' are complete; prune copies them over the base itself

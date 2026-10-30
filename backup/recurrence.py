@@ -175,6 +175,25 @@ def next_allowed(policy: dict, dt: datetime) -> datetime:
     return dt
 
 
+def rule_hits_day(policy: dict, rule: str | None, day: date) -> bool:
+    """Whether a second rule of the schedule (the full rule) has an occurrence on this local day."""
+    if not rule:
+        return False
+    start = policy.get('starts_on') or date(2026, 1, 1)
+    if isinstance(start, str):
+        start = date.fromisoformat(start[:10])
+    r = rrulestr(rule, dtstart=datetime.combine(start, time(0, 0)))
+    return bool(r.between(datetime.combine(day, time(0, 0)), datetime.combine(day, time(23, 59, 59)), inc=True))
+
+
+def full_mode(policy: dict, occurrence: date) -> str | None:
+    """What the full rule says for an occurrence: None (no rule: every N runs as before), 'none'
+    (not a full day), or the schedule's full kind ('real' | 'synthetic')."""
+    if policy.get('kind') != 'incremental' or not policy.get('full_rrule'):
+        return None
+    return (policy.get('full_kind') or 'real') if rule_hits_day(policy, policy['full_rrule'], occurrence) else 'none'
+
+
 def preview(policy: dict, now: datetime, count: int = 10) -> list[dict]:
     """The next windows for the schedule form: opening, first allowed start, preferred finish."""
     out = []
@@ -184,5 +203,6 @@ def preview(policy: dict, now: datetime, count: int = 10) -> list[dict]:
         w = window_for(policy, o)
         start = next_allowed(policy, w.opens)
         out.append({'opens': w.opens.isoformat(), 'first_start': start.isoformat() if start < w.closes else None,
-                    'finish': w.finish.isoformat(), 'closes': w.closes.isoformat(), 'occurrence': w.occurrence.isoformat()})
+                    'finish': w.finish.isoformat(), 'closes': w.closes.isoformat(), 'occurrence': w.occurrence.isoformat(),
+                    'full': full_mode(policy, w.occurrence) in ('real', 'synthetic')})
     return out

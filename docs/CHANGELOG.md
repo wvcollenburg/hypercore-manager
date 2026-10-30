@@ -17,6 +17,14 @@ All notable changes to this project are documented here. The format follows
   its chain (no new full); the newest assignment wins. A run that ran into a blackout or finished
   after the preferred finish gets a **notice**, a new level between information and warning.
   Existing per-VM plans keep running on their own time.
+- **Full backups on chosen days, real or synthetic** (migration `037`, proxy `0.5.0`). A backup
+  schedule can take its fulls on a rule (for example the first Sunday of the month) instead of every
+  N runs. A *real* full reads the whole VM again; a *synthetic* full runs the normal incremental,
+  verifies the chain up to it and has the proxy build a new chain from it on the target (new
+  `synthesize` job), so the cluster sees only the incremental. The anchor snapshot moves to the new
+  chain and the old chain retires. When the chain fails its verification or the proxy cannot build
+  the full, the old chain stays as it is, the run gets a notice and the next run reads the VM in
+  full. Restore points show which fulls were synthetic.
 - **Run timing** (migration `035`). Every backup and export run records where its time went: when
   the work began after the pre-flight wait, the wait for a free proxy, the copy itself and the
   remaining overhead. Backup schedules learn their durations from these columns.

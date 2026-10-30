@@ -292,8 +292,9 @@ def _policy_in_scope(pid: int):
     return pol, None
 
 
-def _policy_fields(b: dict, creating: bool) -> dict:
-    """Validated policy fields from a request body; raises recurrence.RecurrenceError (or ValueError)."""
+def _policy_fields(b: dict, creating: bool, kind: str | None = None) -> dict:
+    """Validated policy fields from a request body; raises recurrence.RecurrenceError (or ValueError).
+    `kind`: the existing policy's kind on an update."""
     f = {}
     if creating or 'name' in b:
         name = (b.get('name') or '').strip()
@@ -330,6 +331,14 @@ def _policy_fields(b: dict, creating: bool) -> dict:
     for k in ('compress', 'enabled'):
         if k in b:
             f[k] = bool(b[k])
+    if 'full_rrule' in b:
+        f['full_rrule'] = recurrence.normalise_rule(b['full_rrule']) if (b['full_rrule'] or '').strip() else None
+    if 'full_kind' in b:
+        if b['full_kind'] not in ('real', 'synthetic'):
+            raise ValueError("full_kind must be 'real' or 'synthetic'")
+        f['full_kind'] = b['full_kind']
+    if f.get('full_rrule') and f.get('kind', kind) == 'export':
+        raise ValueError('export schedules have no full rule: every export is a full copy')
     return f
 
 
@@ -401,7 +410,7 @@ def policies_update(pid):
     if err:
         return err
     try:
-        f = _policy_fields(request.get_json(silent=True) or {}, False)
+        f = _policy_fields(request.get_json(silent=True) or {}, False, pol['kind'])
     except (ValueError, TypeError) as e:
         return _err(str(e))
     db.update_policy(pid, **f)

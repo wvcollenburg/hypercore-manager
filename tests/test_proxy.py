@@ -320,6 +320,42 @@ def test_prune_commits_forward_and_delete_chain(stack):
     assert d['result'] == {'removed': True} and not os.path.exists(chain)
 
 
+def test_synthesize_builds_a_new_chain_from_a_point_without_touching_the_old_one(stack):
+    """A synthetic full: point 1 (a delta) becomes the base of a new chain with the same files,
+    devices and definition and fresh checksums; the source chain is left as it was."""
+    H = {'Authorization': 'Bearer t0k'}
+    disk = 'd0dd5d2c-9c7a-44ec-b6bc-d4ce06bb204d'
+    tgt = {'uri': 'smb://nas/share/hcm'}
+    base_req = {'target': tgt, 'folder': 'F', 'vm': {'uuid': 'vm-s', 'name': 's'}, 'chain_dir': 'F/s_old.chain', 'definition': {'name': 's'}}
+    srcs = []
+    for i, seed in enumerate((31, 32)):
+        cu = f'{i + 50:08d}-0000-0000-0000-000000000000'; pth = stack.dev / f'virtio-{cu[:8]}'; _random_file(str(pth), 3, seed); srcs.append(str(pth))
+        point = {'kind': 'full', 'seq': 0} if i == 0 else {'kind': 'delta', 'seq': 1, 'previous_seq': 0}
+        req = dict(base_req, point=point, devices=[{'uuid': disk, 'type': 'VIRTIO_DISK', 'clone_uuid': cu, 'size': 3 * MiB, 'map': [{'lower': 0, 'upper': 2}], 'serial': 7 + i}])
+        assert _wait(stack, stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id'])['state'] == 'done'
+    root = os.path.join(stack.mounter.root, P.targets.parse_uri(tgt['uri']).key, 'hcm', 'F')
+    before = json.load(open(os.path.join(root, 's_old.chain', 'chain.json')))
+    assert stack.client.post('/jobs/synthesize', json={'target': tgt, 'chain_dir': 'F/s_old.chain'}, headers=H).status_code == 400
+    j = _wait(stack, stack.client.post('/jobs/synthesize', json={'target': tgt, 'chain_dir': 'F/s_old.chain', 'seq': 1, 'new_chain_dir': 'F/s_new.chain',
+                                                                 'run_id': 99}, headers=H).get_json()['id'])
+    assert j['state'] == 'done', j
+    assert j['result']['point_dir'] == 'base' and j['result']['chain_dir'] == 'F/s_new.chain' and j['result']['bytes_written'] == 3 * MiB
+    new = os.path.join(root, 's_new.chain')
+    assert open(os.path.join(new, 'base', f'{disk}.qcow2'), 'rb').read() == open(srcs[1], 'rb').read()
+    pm = json.load(open(os.path.join(new, 'base', 'manifest.json')))
+    assert pm['kind'] == 'full' and pm['seq'] == 0 and pm['synthetic_from'] == {'chain_dir': 'F/s_old.chain', 'seq': 1}
+    assert pm['definition'] == {'name': 's'} and pm['devices'][0]['serial'] == 8 and pm['run_id'] == 99
+    assert [p['dir'] for p in json.load(open(os.path.join(new, 'chain.json')))['points']] == ['base']
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/s_new.chain'}, headers=H).get_json()['id'])
+    assert v['result']['ok'], v
+    after = json.load(open(os.path.join(root, 's_old.chain', 'chain.json')))
+    assert after['points'] == before['points'], 'the source chain is untouched'
+    again = _wait(stack, stack.client.post('/jobs/synthesize', json={'target': tgt, 'chain_dir': 'F/s_old.chain', 'seq': 1, 'new_chain_dir': 'F/s_new.chain'}, headers=H).get_json()['id'])
+    assert again['state'] == 'failed' and 'already has a base' in again['error']
+    bad = _wait(stack, stack.client.post('/jobs/synthesize', json={'target': tgt, 'chain_dir': 'F/s_old.chain', 'seq': 1, 'new_chain_dir': '../x'}, headers=H).get_json()['id'])
+    assert bad['state'] == 'failed'
+
+
 def test_extents_to_intervals_merges_and_rounds():
     f = P.images.extents_to_intervals
     assert f([(0, MiB), (MiB, MiB)]) == [{'lower': 0, 'upper': 1}]

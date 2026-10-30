@@ -45,6 +45,12 @@ def test_plan_point_decisions():
     assert kind == 'full' and 'reference snapshot missing' in note
     kind, _, _, note = inc.plan_point(dict(chain, runs_since_full=3), plan, {'seq': 3})
     assert kind == 'full' and 'scheduled full' in note
+    # a schedule's full rule replaces the count: its other days stay deltas, its full days are fulls
+    assert inc.plan_point(dict(chain, runs_since_full=3), plan, {'seq': 3}, 'none')[0] == 'delta'
+    assert inc.plan_point(dict(chain, runs_since_full=3), plan, {'seq': 3}, 'synthetic')[0] == 'delta'
+    assert inc.plan_point(chain, plan, {'seq': 1}, 'real')[0] == 'full'
+    kind, _, _, note = inc.plan_point(chain, dict(plan, force_full=True), {'seq': 1}, 'none')
+    assert kind == 'full' and 'synthetic full' in note
 
 
 def test_retention_by_count_and_age_never_drops_the_newest():
@@ -153,8 +159,14 @@ class _FakePC:
                                                 'bytes_written': 4 << 20, 'duration_s': 1.5, 'devices': [], 'chain_dir': 'x'}}
         if kind == 'verify':
             return {'state': 'done', 'result': dict(self.verify_result)}
+        if kind == 'synthesize':
+            if self.synth_error:
+                raise inc.ProxyError(self.synth_error)
+            return {'state': 'done', 'result': {'chain_dir': body['new_chain_dir'], 'point_dir': 'base', 'bytes_written': 6 << 20,
+                                                'duration_s': 2.0, 'devices': [{'uuid': 'disk-1'}]}}
         return {'state': 'done', 'result': {'dirs': {}}}
     verify_result = {'ok': True, 'points': {'base': {'ok': True, 'mismatches': []}}, 'bytes': 4 << 20, 'duration_s': 0.1}
+    synth_error = None
 
 
 class _FakeDB:
@@ -179,9 +191,10 @@ class _FakeDB:
     def get_chain(self, cid): return self.chains.get(cid)
     def get_chains(self, cid, include_deleted=False): return [c for c in self.chains.values() if c['cluster_id'] == cid]
     def get_share(self, sid, with_secret=False): return {'id': 9, 'uri_base': 'smb://nas/share', 'username': 'u', 'password': 'p'}
-    def add_point(self, chain_id, seq, kind, dir_, serials, blocks, bw, dur, files, definition, run_id, quiesced=None):
+    def add_point(self, chain_id, seq, kind, dir_, serials, blocks, bw, dur, files, definition, run_id, quiesced=None, synthetic=False):
         pid = 100 + len(self.points); self.points.append({'id': pid, 'chain_id': chain_id, 'seq': seq, 'kind': kind, 'dir': dir_, 'status': 'ok',
-                                                          'created_at': NOW, 'serials': serials, 'definition': definition, 'quiesced': quiesced}); return pid
+                                                          'created_at': NOW, 'serials': serials, 'definition': definition, 'quiesced': quiesced,
+                                                          'synthetic': synthetic}); return pid
     def points_for_plan_retention(self, pid):
         return [dict(p, chain_dir=self.chains[p['chain_id']]['chain_dir'], target_id=9) for p in self.points if p['status'] == 'ok']
     def get_points(self, cid, include_pruned=False): return [p for p in self.points if p['chain_id'] == cid and (include_pruned or p['status'] == 'ok')]
@@ -495,3 +508,57 @@ def test_run_records_where_the_time_went(world):
     run = world.db.runs[1]
     assert run['work_started_at'] is not None
     assert run['copy_seconds'] == 1.5 and run['lock_wait_seconds'] >= 0 and run['overhead_seconds'] >= 0
+
+
+def _next_run(world, full=None):
+    world.db.runs.clear(); world.db.start_run(4)
+    inc.run_incremental(4, full=full)
+    return world.db.runs[1]
+
+
+def test_synthetic_full_moves_the_chain_on_without_reading_the_vm(world):
+    """Tonight's delta is copied as usual; then the chain is verified up to it, the proxy builds a
+    new chain whose base is that point, the anchor moves to the new chain and the old one retires."""
+    world.db.update_schedule = lambda pid, **f: world.db.plan.update(f)
+    inc.run_incremental(4)                                                     # base of chain 1
+    run = _next_run(world, 'synthetic')
+    assert run['status'] == 'COMPLETE' and run['point_kind'] == 'delta', run
+    assert 'synthetic full built' in run['message'] and run['synth_seconds'] >= 0 and not run.get('notice')
+    kinds = [k for k, _ in world.pc.jobs]
+    assert kinds == ['backup', 'backup', 'verify', 'synthesize'], kinds
+    verify_body, synth_body = world.pc.jobs[2][1], world.pc.jobs[3][1]
+    assert verify_body['upto_seq'] == 1 and synth_body['seq'] == 1 and synth_body['chain_dir'] == world.db.chains[1]['chain_dir']
+    old, new = world.db.chains[1], world.db.chains[2]
+    assert old['status'] == 'retired' and old['anchor_snapshot_uuid'] is None, 'the old chain must never delete the anchor'
+    assert new['status'] == 'active' and new['anchor_snapshot_uuid'] == 'snap-4' and new['next_seq'] == 1 and new['chain_dir'] == synth_body['new_chain_dir']
+    syn = world.db.points[-1]
+    assert syn['chain_id'] == 2 and syn['kind'] == 'full' and syn['synthetic'] is True and syn['seq'] == 0
+    assert list(world.hc.snaps) == ['snap-4'], 'one anchor, held by the new chain'
+    # the next delta continues on the new chain against the same anchor: no full read
+    run = _next_run(world, 'none')
+    assert run['point_kind'] == 'delta' and world.pc.jobs[-1][1]['point'] == {'kind': 'delta', 'seq': 1, 'previous_seq': 0}
+    assert world.pc.jobs[-1][1]['chain_dir'] == new['chain_dir']
+
+
+def test_a_failed_synthetic_full_keeps_the_chain_and_asks_for_a_real_full(world):
+    world.db.update_schedule = lambda pid, **f: world.db.plan.update(f)
+    inc.run_incremental(4)
+    world.pc.verify_result = {'ok': False, 'points': {'delta-0001': {'ok': False, 'mismatches': ['x: checksum differs']}}}
+    run = _next_run(world, 'synthetic')
+    assert run['status'] == 'COMPLETE' and run['notice'] == 'synthetic_failed' and 'failed its verification' in run['message']
+    assert world.db.plan['force_full'] is True and world.db.chains[1]['status'] == 'active' and len(world.db.chains) == 1
+    assert 'synthesize' not in [k for k, _ in world.pc.jobs]
+    # the next run reads the VM in full and clears the request
+    run = _next_run(world, 'none')
+    assert run['point_kind'] == 'full' and 'synthetic full could not be built' in run['message']
+    assert world.db.plan['force_full'] is False
+
+
+def test_a_proxy_error_while_synthesizing_cleans_up_the_new_chain(world):
+    world.db.update_schedule = lambda pid, **f: world.db.plan.update(f)
+    inc.run_incremental(4)
+    world.pc.synth_error = 'disk full on target'
+    run = _next_run(world, 'synthetic')
+    assert run['status'] == 'COMPLETE' and run['notice'] == 'synthetic_failed' and 'disk full' in run['message']
+    assert world.pc.jobs[-1][0] == 'delete_chain' and world.pc.jobs[-1][1]['chain_dir'] == world.pc.jobs[-2][1]['new_chain_dir']
+    assert world.db.plan['force_full'] is True and len(world.db.chains) == 1 and world.db.chains[1]['anchor_snapshot_uuid'] == 'snap-4'

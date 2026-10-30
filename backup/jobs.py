@@ -241,23 +241,29 @@ def wait_for_task(hc: HyperCoreClient, task_tag: str, on_progress) -> None:
 
 
 # ----------------------------------------------------------------------- plan
-def run_timing(work_started: datetime, lock_wait: float = 0.0, copy: float = 0.0, end: datetime | None = None) -> dict:
+def run_timing(work_started: datetime, lock_wait: float = 0.0, copy: float = 0.0, end: datetime | None = None,
+               synth: float = 0.0) -> dict:
     """Timing columns of a finished run (what backup durations are learned from): the active time
-    since the cluster was clear, split into waiting for the proxy, copying and everything else."""
+    since the cluster was clear, split into waiting for the proxy, copying, building a synthetic
+    full and everything else."""
     active = max(0.0, ((end or _now()) - work_started).total_seconds())
-    return {'lock_wait_seconds': round(lock_wait, 1), 'copy_seconds': round(copy, 1),
-            'overhead_seconds': round(max(0.0, active - lock_wait - copy), 1)}
+    out = {'lock_wait_seconds': round(lock_wait, 1), 'copy_seconds': round(copy, 1),
+           'overhead_seconds': round(max(0.0, active - lock_wait - copy - synth), 1)}
+    if synth:
+        out['synth_seconds'] = round(synth, 1)
+    return out
 
 
-def run_plan(plan_id: int, policy_id: int | None = None, occurrence=None) -> None:
-    """Scheduler entry point: dispatch on the plan's mode. A policy run names its policy and occurrence."""
+def run_plan(plan_id: int, policy_id: int | None = None, occurrence=None, full: str | None = None) -> None:
+    """Scheduler entry point: dispatch on the plan's mode. A policy run names its policy and occurrence,
+    and for backups what its full rule says (see incremental.plan_point)."""
     plan = db.get_schedule(plan_id)
     if plan is None:
         log.warning('Plan %s no longer exists, skipping', plan_id)
         return
     if plan.get('mode') == 'incremental':
         import incremental
-        incremental.run_incremental(plan_id, policy_id, occurrence)
+        incremental.run_incremental(plan_id, policy_id, occurrence, full)
     else:
         run_export(plan_id, policy_id, occurrence)
 

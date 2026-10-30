@@ -121,7 +121,7 @@ def add_schedule(cluster_id: str, vm_uuid: str, vm_name: str, path_uri_base: str
 
 def update_schedule(schedule_id: int, **fields) -> None:
     allowed = {'path_uri_base', 'smb_user', 'prune_path', 'retention', 'run_time', 'compress', 'enabled', 'mode',
-               'full_every_n', 'retention_days', 'policy_id'}
+               'full_every_n', 'retention_days', 'policy_id', 'force_full'}
     sets, params = [], []
     for k, v in fields.items():
         if k == 'smb_password':
@@ -181,7 +181,7 @@ def start_run(schedule_id: int, policy_id: Optional[int] = None, occurrence=None
 def update_run(run_id: int, **fields) -> None:
     allowed = {'finished_at', 'status', 'task_tag', 'export_path', 'message', 'mode', 'point_kind', 'chain_id', 'point_id',
                'proxy_id', 'blocks_changed', 'bytes_written', 'work_started_at', 'lock_wait_seconds', 'copy_seconds',
-               'overhead_seconds', 'notice'}
+               'overhead_seconds', 'notice', 'synth_seconds'}
     items = [(k, v) for k, v in fields.items() if k in allowed]
     if not items:
         return
@@ -230,7 +230,8 @@ def count_active_runs(cluster_id: str, mode: str, exclude_plans=()) -> int:
 
 # ------------------------------------------------------------------- policies
 _POLICY_FIELDS = ('name', 'kind', 'enabled', 'timezone', 'rrule', 'starts_on', 'window_open', 'preferred_finish',
-                  'buffer_minutes', 'blackouts', 'retention', 'retention_days', 'full_every_n', 'compress')
+                  'buffer_minutes', 'blackouts', 'retention', 'retention_days', 'full_every_n', 'compress',
+                  'full_rrule', 'full_kind')
 # the plan settings a policy decides for its members
 _POLICY_PLAN_FIELDS = ('retention', 'retention_days', 'full_every_n', 'compress')
 
@@ -623,12 +624,15 @@ def chains_with_clones() -> list[dict]:
 
 # --------------------------------------------------------------------- points
 def add_point(chain_id: int, seq: int, kind: str, dir_: str, serials: dict, blocks: int, bytes_written: int,
-              duration_s: float, files: list, definition: dict, run_id: Optional[int], quiesced: Optional[bool] = None) -> int:
+              duration_s: float, files: list, definition: dict, run_id: Optional[int], quiesced: Optional[bool] = None,
+              synthetic: bool = False) -> int:
     """quiesced: what the anchor snapshot reported (True = the guest flushed, False = crash-consistent,
-    None = unknown); the restore UI shows it per point."""
-    return _one('''INSERT INTO backup.points (chain_id, seq, kind, dir, serials, blocks, bytes_written, duration_s, files, definition, run_id, quiesced)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
-                (chain_id, seq, kind, dir_, _json(serials), blocks, bytes_written, duration_s, _json(files), _json(definition), run_id, quiesced))['id']
+    None = unknown); the restore UI shows it per point. synthetic: a full built on the target from a chain."""
+    return _one('''INSERT INTO backup.points (chain_id, seq, kind, dir, serials, blocks, bytes_written, duration_s, files, definition, run_id,
+                                              quiesced, synthetic)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
+                (chain_id, seq, kind, dir_, _json(serials), blocks, bytes_written, duration_s, _json(files), _json(definition), run_id,
+                 quiesced, bool(synthetic)))['id']
 
 
 def get_points(chain_id: int, include_pruned: bool = False) -> list[dict]:

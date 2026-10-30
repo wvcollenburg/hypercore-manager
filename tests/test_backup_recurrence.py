@@ -93,3 +93,12 @@ def test_preview_lists_the_current_window_first_and_the_first_allowed_start():
     pv = rec.preview(p, datetime(2026, 10, 20, 22, 30, tzinfo=AMS), 3)
     assert [x['occurrence'] for x in pv] == ['2026-10-20', '2026-10-21', '2026-10-22']
     assert pv[0]['first_start'] == datetime(2026, 10, 20, 23, 0, tzinfo=AMS).isoformat()
+
+
+def test_full_mode_per_occurrence():
+    p = _pol(kind='incremental', full_rrule='FREQ=MONTHLY;BYDAY=-1SU', full_kind='real')
+    assert rec.full_mode(p, date(2026, 10, 25)) == 'real' and rec.full_mode(p, date(2026, 10, 24)) == 'none'
+    assert rec.full_mode(dict(p, full_rrule=None), date(2026, 10, 25)) is None
+    assert rec.full_mode(dict(p, kind='export'), date(2026, 10, 25)) is None
+    pv = rec.preview(dict(p, full_kind='synthetic'), datetime(2026, 10, 24, 12, tzinfo=AMS), 3)
+    assert [(x['occurrence'], x['full']) for x in pv] == [('2026-10-23', False), ('2026-10-24', False), ('2026-10-25', True)]

@@ -40,7 +40,7 @@ def due_members(policy: dict, window: recurrence.Window, pending: set) -> list[d
 
 
 def tick(dispatch, pending: dict, now: datetime | None = None) -> int:
-    """Start what is due. dispatch(plan_id, policy_id, occurrence, cluster_id, kind) queues a run;
+    """Start what is due. dispatch(plan_id, policy_id, occurrence, cluster_id, kind, full) queues a run;
     pending maps the plan ids dispatched and not finished to (cluster id, kind). Returns the number
     of runs dispatched."""
     now = now or _now()
@@ -61,6 +61,7 @@ def _tick_policy(policy: dict, dispatch, pending: dict, now: datetime) -> int:
     if window is None or now < window.opens or recurrence.in_blackout(policy, now):
         return 0
     kind = policy['kind']
+    full = recurrence.full_mode(policy, window.occurrence)
     free: dict[str, int] = {}
     started = 0
     for m in due_members(policy, window, set(pending)):
@@ -70,7 +71,7 @@ def _tick_policy(policy: dict, dispatch, pending: dict, now: datetime) -> int:
             free[cid] = capacity(cid, kind) - db.count_active_runs(cid, kind, exclude_plans=mine) - len(mine)
         if free[cid] <= 0:
             continue
-        dispatch(m['id'], policy['id'], window.occurrence, cid, kind)
+        dispatch(m['id'], policy['id'], window.occurrence, cid, kind, full)
         pending[m['id']] = (cid, kind)
         free[cid] -= 1
         started += 1
@@ -79,15 +80,17 @@ def _tick_policy(policy: dict, dispatch, pending: dict, now: datetime) -> int:
     return started
 
 
-def run_member(plan_id: int, policy_id: int, occurrence) -> None:
-    """Scheduler entry point for a policy run: the plan's normal run, then the notices."""
-    jobs.run_plan(plan_id, policy_id=policy_id, occurrence=occurrence)
+def run_member(plan_id: int, policy_id: int, occurrence, full: str | None = None) -> None:
+    """Scheduler entry point for a policy run: the plan's normal run (with what the full rule says
+    for this occurrence), then the notices."""
+    jobs.run_plan(plan_id, policy_id=policy_id, occurrence=occurrence, full=full)
     try:
         run = db.last_run_for(plan_id)
         policy = db.get_policy(policy_id)
         if run and policy and run.get('policy_id') == policy_id:
-            codes = notices_for(policy, run)
-            if codes:
+            have = [c for c in (run.get('notice') or '').split(',') if c]      # the run may have set its own
+            codes = have + [c for c in notices_for(policy, run) if c not in have]
+            if codes != have:
                 db.update_run(run['id'], notice=','.join(codes))
     except Exception:                                   # noqa: BLE001 — a notice is never worth failing a run over
         log.exception('notice check for plan %s failed', plan_id)

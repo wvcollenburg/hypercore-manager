@@ -263,20 +263,27 @@ def device_capacity(dev: dict) -> int:
     return int(dev['capacity']) if dev['type'] in HyperCoreClient.DISK_TYPES else MiB
 
 
-def plan_point(chain: dict | None, plan: dict, prev_point: dict | None) -> tuple[str, int, int | None, str | None]:
+def plan_point(chain: dict | None, plan: dict, prev_point: dict | None, full: str | None = None) -> tuple[str, int, int | None, str | None]:
     """(kind, seq, previous_seq, note). A full when there is no chain, no previous point, no anchor,
-    or the chain reached full_every_n runs since its base."""
+    a failed synthetic full asked for one, or the full rule of the plan's schedule says so (`full`:
+    'real'). Without a full rule (`full` None) the chain takes a full after full_every_n runs; with
+    one ('none', 'synthetic') the count does not apply. A synthetic full is a delta plus a new chain
+    built afterwards (see synthesize_full)."""
     if chain is None or prev_point is None:
         return 'full', 0, None, None
     if not chain.get('anchor_snapshot_uuid'):
         return 'full', 0, None, 'reference snapshot missing: taking a full instead of an incremental'
-    if int(chain.get('runs_since_full') or 0) >= max(1, int(plan.get('full_every_n') or 14)):
+    if plan.get('force_full'):
+        return 'full', 0, None, 'the last synthetic full could not be built: taking a real full'
+    if full == 'real':
+        return 'full', 0, None, 'full day of the backup schedule'
+    if full is None and int(chain.get('runs_since_full') or 0) >= max(1, int(plan.get('full_every_n') or 14)):
         return 'full', 0, None, f'scheduled full after {chain.get("runs_since_full")} incrementals'
     return 'delta', int(chain['next_seq']), int(prev_point['seq']), None
 
 
 # ------------------------------------------------------------------ the run
-def run_incremental(plan_id: int, policy_id: int | None = None, occurrence=None) -> None:
+def run_incremental(plan_id: int, policy_id: int | None = None, occurrence=None, full: str | None = None) -> None:
     plan = db.get_schedule(plan_id)
     if plan is None or not plan['enabled'] or not plan.get('cluster_enabled', True):
         log.info('plan %s skipped (missing, disabled or cluster disabled)', plan_id)
@@ -297,7 +304,7 @@ def run_incremental(plan_id: int, policy_id: int | None = None, occurrence=None)
         with vm_lock(plan['cluster_id'], plan['vm_uuid']):
             work_started = _now()
             db.update_run(run_id, work_started_at=work_started)
-            _run(plan, run_id, hc, work_started)
+            _run(plan, run_id, hc, work_started, full)
     except (IncrementalError, HyperCoreError, ProxyError) as e:
         db.update_run(run_id, status='ERROR', message=str(e), finished_at=_now())
         log.error('[run %s] %s', run_id, e)
@@ -306,7 +313,8 @@ def run_incremental(plan_id: int, policy_id: int | None = None, occurrence=None)
         log.exception('[run %s] unexpected error', run_id)
 
 
-def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_started: datetime | None = None) -> None:
+def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_started: datetime | None = None,
+         full: str | None = None) -> None:
     hc = hc or jobs.client_for(plan['cluster_id'])
     work_started = work_started or _now()
     proxy = pick_proxy(plan['cluster_id'])
@@ -327,7 +335,7 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_starte
         if not anchor_obj or anchor_obj.get('state') != 'CREATED':
             db.update_chain(chain['id'], anchor_snapshot_uuid=None)
             chain['anchor_snapshot_uuid'] = None
-    kind, seq, prev_seq, note = plan_point(chain, plan, prev_point)
+    kind, seq, prev_seq, note = plan_point(chain, plan, prev_point, full)
     if kind == 'full' and chain is not None:
         # a new full starts a new chain; the old one retires and expires through retention
         db.update_chain(chain['id'], status='retired')
@@ -429,6 +437,8 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_starte
     db.update_chain(chain['id'], anchor_snapshot_uuid=snap_uuid, last_serials=serials, next_seq=seq + 1,
                     runs_since_full=0 if kind == 'full' else int(chain.get('runs_since_full') or 0) + 1, active_clones=leftover)
     _safe_delete_snapshot(hc, old_anchor, 'previous anchor')
+    if kind == 'full' and plan.get('force_full'):
+        db.update_schedule(plan['id'], force_full=False)
     msg = f'{kind} point {result["point_dir"]}: {blocks} MiB changed, {result.get("bytes_written", 0) // MiB} MiB written in {result.get("duration_s", 0):.0f}s'
     if quiesced is False:
         msg += ' (crash-consistent: the guest did not quiesce)'
@@ -436,12 +446,71 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_starte
         msg = f'{note}. {msg}'
     if leftover:
         msg += f'; {len(leftover)} clone(s) could not be detached yet (the daily sweep retries)'
+    synth_s, notice = 0.0, None
+    if full == 'synthetic' and kind == 'delta':
+        t_syn = time.monotonic()
+        syn_msg, notice = synthesize_full(plan, run_id, dict(chain, anchor_snapshot_uuid=snap_uuid), seq, proxy, pc, share, loc,
+                                          vm, serials, definition, quiesced)
+        synth_s = time.monotonic() - t_syn
+        msg = f'{msg}; {syn_msg}'
     retention_msg = apply_retention(plan, pc, share)
     end = _now()
     db.update_run(run_id, status='COMPLETE', finished_at=end, point_id=point_id, bytes_written=result.get('bytes_written', 0),
-                  message=f'{msg}. {retention_msg}'.strip(),
-                  **jobs.run_timing(work_started, lock_wait, float(result.get('duration_s') or 0), end))
+                  message=f'{msg}. {retention_msg}'.strip(), **({'notice': notice} if notice else {}),
+                  **jobs.run_timing(work_started, lock_wait, float(result.get('duration_s') or 0), end, synth_s))
     log.info('[run %s] %s %s', run_id, msg, retention_msg)
+
+
+def synthesize_full(plan: dict, run_id: int, chain: dict, seq: int, proxy: dict, pc: ProxyClient, share: dict, loc: dict,
+                    vm: dict, serials: dict, definition: dict, quiesced) -> tuple[str, str | None]:
+    """A synthetic full after tonight's delta: verify the chain up to that point, have the proxy
+    build a new chain whose base is that point (no read from the VM), then move the anchor over and
+    retire the old chain. When the proxy cannot, or the chain fails its verification, the old chain
+    stays as it is and the plan takes a real full on its next run. Returns (message, notice code)."""
+    if 'synthesize' not in ((proxy.get('capabilities') or {}).get('jobs') or ['synthesize']):
+        db.update_schedule(plan['id'], force_full=True)
+        return f'synthetic full not built: proxy {proxy["name"]} is too old for it; the next run takes a real full', 'synthetic_failed'
+    db.update_run(run_id, message='synthetic full: verifying the chain')
+    try:
+        v = verify_chain(chain, share, pc, upto_seq=seq,
+                         on_progress=lambda p: _quiet(db.update_run, run_id, message=f'synthetic full: {verify_progress_text(p)}'))
+    except ProxyError as e:
+        db.update_schedule(plan['id'], force_full=True)
+        return f'synthetic full not built: verifying the chain failed ({e}); the next run takes a real full', 'synthetic_failed'
+    if not v['ok']:
+        db.update_schedule(plan['id'], force_full=True)
+        return (f'synthetic full not built: the chain failed its verification ({", ".join(v.get("failed") or []) or "see restore points"}); '
+                'the next run takes a real full'), 'synthetic_failed'
+    new_dir = f"{loc['tenant']}/{manifest_names.chain_dirname(vm['name'], vm['uuid'], time.strftime('%Y%m%d-%H%M%S'))}"
+    target = {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')}
+    db.update_run(run_id, message='synthetic full: building the new base')
+    try:
+        res = pc.wait(pc.submit('synthesize', {'target': target, 'chain_dir': chain['chain_dir'], 'seq': seq, 'new_chain_dir': new_dir,
+                                               'plan_id': plan['id'], 'run_id': run_id}),
+                      lambda p: _quiet(db.update_run, run_id, message=f'synthetic full: device {min(p.get("devices_done", 0) + 1, p.get("devices_total") or 1)}/{p.get("devices_total") or 1}'),
+                      timeout=CFG.task_timeout_hours * 3600)['result']
+    except ProxyError as e:
+        try:
+            pc.wait(pc.submit('delete_chain', {'target': target, 'chain_dir': new_dir}), timeout=3600)
+        except ProxyError:
+            log.warning('[run %s] leftover %s on the target after a failed synthetic full', run_id, new_dir)
+        db.update_schedule(plan['id'], force_full=True)
+        return f'synthetic full not built: {e}; the next run takes a real full', 'synthetic_failed'
+    new_id = db.add_chain(plan, share['id'], loc['tenant'], new_dir)
+    db.add_point(new_id, 0, 'full', res['point_dir'], serials, 0, res.get('bytes_written', 0), res.get('duration_s', 0),
+                 res.get('devices', []), definition, run_id, quiesced=quiesced, synthetic=True)
+    # the anchor now belongs to the new chain: the old one must never delete it when it expires
+    db.update_chain(new_id, anchor_snapshot_uuid=chain['anchor_snapshot_uuid'], last_serials=serials, next_seq=1, runs_since_full=0)
+    db.update_chain(chain['id'], status='retired', anchor_snapshot_uuid=None)
+    return f'synthetic full built: new chain, {res.get("bytes_written", 0) // MiB} MiB in {res.get("duration_s", 0):.0f}s', None
+
+
+def _quiet(fn, *a, **k):
+    """Progress text is cosmetic: a db hiccup must not abort a long proxy job."""
+    try:
+        fn(*a, **k)
+    except Exception as e:                      # noqa: BLE001
+        log.warning('progress update failed: %s', e)
 
 
 def jobs_blocks(intervals) -> int:

@@ -63,10 +63,10 @@ _policy_runs: dict = {}
 _policy_runs_lock = threading.Lock()
 
 
-def _policy_run(plan_id: int, policy_id: int, occurrence) -> None:
+def _policy_run(plan_id: int, policy_id: int, occurrence, full: str | None = None) -> None:
     import policies
     try:
-        policies.run_member(plan_id, policy_id, occurrence)
+        policies.run_member(plan_id, policy_id, occurrence, full)
     finally:
         with _policy_runs_lock:
             _policy_runs.pop(plan_id, None)
@@ -76,11 +76,11 @@ def policy_tick() -> None:
     """Every minute: start the members of open backup schedules (see policies.tick)."""
     import policies
 
-    def dispatch(plan_id, policy_id, occurrence, cluster_id, kind):
+    def dispatch(plan_id, policy_id, occurrence, cluster_id, kind, full=None):
         with _policy_runs_lock:
             _policy_runs[plan_id] = (cluster_id, kind)
         try:
-            _scheduler.add_job(_policy_run, args=[plan_id, policy_id, occurrence], id=f'policy-run-{plan_id}',
+            _scheduler.add_job(_policy_run, args=[plan_id, policy_id, occurrence, full], id=f'policy-run-{plan_id}',
                                replace_existing=True)
         except Exception:
             with _policy_runs_lock:

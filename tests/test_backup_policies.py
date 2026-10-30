@@ -81,7 +81,7 @@ def test_runs_start_per_cluster_up_to_its_proxies(fdb):
     now = datetime(2026, 10, 20, 22, 0, tzinfo=AMS)
     calls, pending = _tick(fdb, now)
     assert [c[0] for c in calls] == [10, 11, 20], 'two proxies on c1, one slot minimum on c2'
-    assert calls[0][1:] == (1, date(2026, 10, 20), 'c1', 'incremental')
+    assert calls[0][1:] == (1, date(2026, 10, 20), 'c1', 'incremental', None)
     # next minute: the dispatched ones are still pending, nothing else fits
     calls, _ = _tick(fdb, now + timedelta(minutes=1), pending)
     assert calls == []
@@ -144,7 +144,7 @@ def test_notices_for_blackout_and_late_finish(fdb):
 
 def test_run_member_records_the_notice(fdb, monkeypatch):
     seen = []
-    monkeypatch.setattr(pol.jobs, 'run_plan', lambda pid, policy_id=None, occurrence=None: seen.append((pid, policy_id, occurrence)))
+    monkeypatch.setattr(pol.jobs, 'run_plan', lambda pid, policy_id=None, occurrence=None, full=None: seen.append((pid, policy_id, occurrence)))
     fdb.runs[10] = _run(datetime(2026, 10, 21, 5, 0, tzinfo=AMS), datetime(2026, 10, 21, 6, 30, tzinfo=AMS))
     pol.run_member(10, 1, date(2026, 10, 20))
     assert seen == [(10, 1, date(2026, 10, 20))] and fdb.updates == [(5, {'notice': 'late'})]
@@ -169,3 +169,26 @@ def test_policy_fields_validation():
         with pytest.raises(ValueError):
             api._policy_fields(bad, True)
     assert 'kind' not in api._policy_fields({'kind': 'export', 'enabled': False}, False), 'kind is fixed after creation'
+    f = api._policy_fields({'full_rrule': 'freq=monthly;byday=1su', 'full_kind': 'synthetic'}, False, 'incremental')
+    assert f == {'full_rrule': 'FREQ=MONTHLY;BYDAY=1SU', 'full_kind': 'synthetic'}
+    assert api._policy_fields({'full_rrule': ''}, False, 'incremental') == {'full_rrule': None}
+    for bad, kind in (({'full_rrule': 'FREQ=MONTHLY;BYDAY=1SU'}, 'export'), ({'full_kind': 'virtual'}, 'incremental')):
+        with pytest.raises(ValueError):
+            api._policy_fields(bad, False, kind)
+
+
+def test_run_member_keeps_a_notice_the_run_set_itself(fdb, monkeypatch):
+    monkeypatch.setattr(pol.jobs, 'run_plan', lambda *a, **k: None)
+    fdb.runs[10] = dict(_run(datetime(2026, 10, 21, 5, 0, tzinfo=AMS), datetime(2026, 10, 21, 6, 30, tzinfo=AMS)), notice='synthetic_failed')
+    pol.run_member(10, 1, date(2026, 10, 20), 'synthetic')
+    assert fdb.updates == [(5, {'notice': 'synthetic_failed,late'})]
+
+
+def test_full_rule_days_are_passed_to_the_runs(fdb):
+    fdb.policies[0].update(full_rrule='FREQ=MONTHLY;BYDAY=1SU', full_kind='synthetic', rrule='FREQ=DAILY')
+    sunday = _tick(fdb, datetime(2026, 11, 1, 22, 0, tzinfo=AMS))[0]          # first Sunday of November
+    assert {c[5] for c in sunday} == {'synthetic'}
+    monday = _tick(fdb, datetime(2026, 11, 2, 22, 0, tzinfo=AMS))[0]
+    assert {c[5] for c in monday} == {'none'}, 'with a full rule, other days never count up to a full'
+    fdb.policies[0]['full_rrule'] = None
+    assert {c[5] for c in _tick(fdb, datetime(2026, 11, 2, 22, 0, tzinfo=AMS))[0]} == {None}

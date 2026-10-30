@@ -33,6 +33,19 @@ run incremental backups and **export schedules** run exports; a schedule never m
 - **Time zone**: every time of the schedule is read in this zone, for every cluster in it. It
   defaults to the zone of the cluster the schedule was created on.
 
+**Full backups** (backup schedules): every N runs, as for a plan of its own, or **on chosen days**,
+such as the first Sunday of the month; on the other days every run is incremental. A full day only
+counts when the schedule runs that day (the preview marks those windows *full*). Choose the kind:
+
+- **Real** reads the whole VM again: the most independent copy, and the heaviest night for the
+  cluster.
+- **Synthetic** runs the normal incremental, checks the chain up to it, and then builds a new full
+  from it on the target, without reading the VM again. The new full starts a new chain, so damage in
+  the old chain can no longer reach later restore points; it costs one more full's worth of space
+  on the target. If the chain fails its check, or the proxy cannot build the full, nothing is
+  changed, the run gets a notice and the next run reads the VM in full. Restore points mark these
+  fulls *synthetic*.
+
 When a window opens, the members start one after the other: at most one backup per proxy of a
 cluster at a time (one export per cluster), the longest previous run first. A VM is taken only once
 per occurrence. **Preview** in the form lists the next windows.
@@ -43,7 +56,7 @@ moves it there. Removing a VM from a schedule, or deleting the schedule, leaves 
 with its backups. VMs that keep a plan of their own run on their own time as before.
 
 A **notice** (blue) is more than information and less than a warning: the run succeeded, but ran
-into a blackout period or past the preferred finish.
+into a blackout period, finished past the preferred finish, or could not build its synthetic full.
 
 ## Plans
 

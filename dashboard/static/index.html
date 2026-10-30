@@ -5409,7 +5409,7 @@ function _polCard(p) {
   const last = p.last_occurrence;
   const st = last ? last.by_status || {} : {};
   const lastLine = last ? `${t('ex.pol_last_night', {date: _exEsc(last.occurrence)})}: ${st.COMPLETE ? `<span class="ex-badge ok">${st.COMPLETE} ${t('ex.status_ok')}</span> ` : ''}${st.ERROR ? `<span class="ex-badge err">${st.ERROR} ${t('ex.status_failed')}</span> ` : ''}${st.SKIPPED ? `<span class="ex-badge warn">${st.SKIPPED} ${t('ex.status_deferred')}</span> ` : ''}${st.RUNNING ? `<span class="ex-badge run">${st.RUNNING} ${t('ex.status_running')}</span> ` : ''}${last.notices ? `<span class="ex-badge notice">${t('ex.pol_notices', {n: last.notices})}</span>` : ''}` : t('ex.pol_not_run_yet');
-  const next = (p.next || []).slice(0, 3).map(w => _polWhen(w.first_start || w.opens, p.timezone)).join(' · ');
+  const next = (p.next || []).slice(0, 3).map(w => _polWhen(w.first_start || w.opens, p.timezone) + (w.full ? ` <span class="ex-badge ok">${t('ex.pol_full_night')}</span>` : '')).join(' · ');
   return `<div class="pol-card">
     <div class="pol-head">
       <span class="pol-name">${_exEsc(p.name)}</span>
@@ -5426,7 +5426,7 @@ function _polCard(p) {
     <div class="pol-meta">
       <b>${_exEsc(_polDescribe(p.rrule))}</b> · ${t('ex.pol_window', {open: _exTimeLabel(p.window_open, p.timezone), finish: _exEsc(p.preferred_finish)})} · ${t('ex.pol_buffer', {n: p.buffer_minutes})}
       ${(p.blackouts || []).length ? `<br>${t('ex.pol_blackouts')}: ${p.blackouts.map(_polBlackoutText).join('; ')}` : ''}
-      <br>${t('ex.pol_keeps', {n: p.retention})}${p.retention_days ? ` / ${p.retention_days}d` : ''}${p.kind === 'incremental' ? ` · ${t('ex.full_every', {n: p.full_every_n})}` : ''}${p.compress ? ' · zip' : ''}
+      <br>${t('ex.pol_keeps', {n: p.retention})}${p.retention_days ? ` / ${p.retention_days}d` : ''}${p.kind !== 'incremental' ? '' : p.full_rrule ? ` · ${t('ex.pol_full_rule', {rule: _exEsc(_polDescribe(p.full_rrule)), kind: t('ex.pol_full_kind_' + p.full_kind)})}` : ` · ${t('ex.full_every', {n: p.full_every_n})}`}${p.compress ? ' · zip' : ''}
       <br>${t('ex.pol_next')}: ${next || '—'}
       <br>${lastLine}
     </div>
@@ -5475,9 +5475,9 @@ function _polForm(p, kind) {
     <div class="ex-form">
       <div><label>${t('ex.f_retention')}</label><input type="number" id="${f}-retention" min="1" max="365" value="${v.retention}"></div>
       <div><label>${t('ex.f_retention_days')}</label><input type="number" id="${f}-retention_days" min="0" max="3650" value="${v.retention_days || ''}" placeholder="—"></div>
-      ${kind === 'incremental' ? `<div><label>${t('ex.f_full_every')}</label><input type="number" id="${f}-full_every_n" min="1" max="365" value="${v.full_every_n}"></div>`
-                               : `<div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="${f}-compress" ${v.compress ? 'checked' : ''}><label for="${f}-compress" style="margin:0;">${t('ex.f_compress')}</label></div>`}
+      ${kind === 'incremental' ? '' : `<div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="${f}-compress" ${v.compress ? 'checked' : ''}><label for="${f}-compress" style="margin:0;">${t('ex.f_compress')}</label></div>`}
     </div>
+    ${kind === 'incremental' ? _polFullFields(v) : ''}
     <div class="cl-actions">
       <button class="update-apply-btn" onclick="exPolicySave(${p ? p.id : `'${kind}'`})">${p ? t('ex.pol_save') : t('ex.pol_create')}</button>
       <button class="refresh-btn" onclick="exPolicyPreview()">${t('ex.pol_preview')}</button>
@@ -5485,6 +5485,32 @@ function _polForm(p, kind) {
       <span class="cl-msg" id="${f}-msg"></span></div>
     <div class="pol-preview" id="${f}-preview"></div>
   </div>`;
+}
+const _POL_FULL_PRESETS = ['FREQ=WEEKLY;BYDAY=SU', 'FREQ=MONTHLY;BYDAY=1SU', 'FREQ=MONTHLY;BYDAY=-1SU', 'FREQ=MONTHLY;BYDAY=1SA'];
+function _polFullFields(v) {
+  const preset = !v.full_rrule ? _POL_FULL_PRESETS[1] : _POL_FULL_PRESETS.includes(v.full_rrule) ? v.full_rrule : 'custom';
+  return `<div class="ex-form">
+      <div><label>${t('ex.pol_f_fulls')}</label><select id="polf-full_mode" onchange="_polFullChanged()">
+        <option value="every_n" ${v.full_rrule ? '' : 'selected'}>${t('ex.pol_f_fulls_every_n')}</option>
+        <option value="rule" ${v.full_rrule ? 'selected' : ''}>${t('ex.pol_f_fulls_rule')}</option></select></div>
+      <div class="polfull-n"><label>${t('ex.f_full_every')}</label><input type="number" id="polf-full_every_n" min="1" max="365" value="${v.full_every_n}"></div>
+      <div class="polfull-rule"><label>${t('ex.pol_f_full_days')}</label><select id="polf-full_preset" onchange="_polFullChanged()">
+        ${_POL_FULL_PRESETS.map(r => `<option value="${r}" ${preset === r ? 'selected' : ''}>${_exEsc(_polDescribe(r))}</option>`).join('')}
+        <option value="custom" ${preset === 'custom' ? 'selected' : ''}>${t('ex.pol_preset_custom')}</option></select>
+        <input type="text" id="polf-full_rrule" style="margin-top:4px;" value="${_exEsc(preset === 'custom' ? v.full_rrule : '')}" placeholder="FREQ=MONTHLY;BYDAY=1SU">
+        <div class="ex-hint">${t('ex.pol_f_full_days_hint')}</div></div>
+      <div class="polfull-rule"><label>${t('ex.pol_f_full_kind')}</label><select id="polf-full_kind">
+        <option value="real" ${v.full_kind === 'synthetic' ? '' : 'selected'}>${t('ex.pol_full_kind_real')}</option>
+        <option value="synthetic" ${v.full_kind === 'synthetic' ? 'selected' : ''}>${t('ex.pol_full_kind_synthetic')}</option></select>
+        <div class="ex-hint">${t('ex.pol_f_full_kind_hint')}</div></div>
+    </div>`;
+}
+function _polFullChanged() {
+  const mode = document.getElementById('polf-full_mode'); if (!mode) return;
+  document.querySelectorAll('.polfull-n').forEach(el => el.style.display = mode.value === 'every_n' ? '' : 'none');
+  document.querySelectorAll('.polfull-rule').forEach(el => el.style.display = mode.value === 'rule' ? '' : 'none');
+  const custom = document.getElementById('polf-full_rrule');
+  if (custom) custom.style.display = document.getElementById('polf-full_preset').value === 'custom' ? '' : 'none';
 }
 function _polBlackoutRow(b) {
   const days = (b && b.days) || ['mon', 'tue', 'wed', 'thu', 'fri'];
@@ -5497,7 +5523,7 @@ function _polPresetChanged() {
   const preset = document.getElementById('polf-preset')?.value;
   document.querySelectorAll('.polp').forEach(el => { el.style.display = el.classList.contains(`polp-${preset}`) ? '' : 'none'; });
 }
-function _polFormInit() { _polPresetChanged(); }
+function _polFormInit() { _polPresetChanged(); _polFullChanged(); }
 function _polReadForm() {
   const g = id => document.getElementById(`polf-${id}`);
   const preset = g('preset').value, interval = Math.max(1, parseInt(g('interval').value || '1', 10));
@@ -5516,16 +5542,22 @@ function _polReadForm() {
                  retention: parseInt(g('retention').value || '7', 10), retention_days: parseInt(g('retention_days').value || '0', 10) || null };
   if ((preset === 'daily' || preset === 'weekly') && g('starts_on').value.trim()) body.starts_on = g('starts_on').value.trim();
   if (g('full_every_n')) body.full_every_n = parseInt(g('full_every_n').value || '14', 10);
+  if (g('full_mode')) {
+    const rule = g('full_preset').value === 'custom' ? g('full_rrule').value.trim() : g('full_preset').value;
+    body.full_rrule = g('full_mode').value === 'rule' ? rule : '';
+    body.full_kind = g('full_kind').value;
+  }
   if (g('compress')) body.compress = g('compress').checked;
   return body;
 }
+function _polFormKind() { return document.getElementById('polf-full_mode') ? 'incremental' : 'export'; }
 async function exPolicyPreview() {
   const out = document.getElementById('polf-preview'), msg = document.getElementById('polf-msg');
   const body = _polReadForm();
   try {
-    const d = await _exCall('POST', '/api/backup/policies/preview', {...body, count: 6});
+    const d = await _exCall('POST', '/api/backup/policies/preview', {...body, kind: _polFormKind(), count: 6});
     msg.textContent = ''; msg.className = 'cl-msg';
-    out.innerHTML = `${t('ex.pol_preview_title')}<br>` + d.windows.map(w => `${_polWhen(w.opens, body.timezone)} → ${_polWhen(w.finish, body.timezone)}${w.first_start && w.first_start !== w.opens ? ` · ${t('ex.pol_first_start', {time: _polWhen(w.first_start, body.timezone)})}` : ''}${w.first_start ? '' : ` · ${t('ex.pol_fully_blacked_out')}`}`).join('<br>');
+    out.innerHTML = `${t('ex.pol_preview_title')}<br>` + d.windows.map(w => `${_polWhen(w.opens, body.timezone)} → ${_polWhen(w.finish, body.timezone)}${w.first_start && w.first_start !== w.opens ? ` · ${t('ex.pol_first_start', {time: _polWhen(w.first_start, body.timezone)})}` : ''}${w.first_start ? '' : ` · ${t('ex.pol_fully_blacked_out')}`}${w.full ? ` · ${t('ex.pol_full_night')}` : ''}`).join('<br>');
   } catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
 }
 async function exPolicySave(idOrKind) {
@@ -5772,7 +5804,7 @@ async function exTogglePoints(id) {
   try {
     const pts = await _exCall('GET', `/api/backup/chains/${id}/points`);
     body.innerHTML = pts.length ? `<table class="um-table"><thead><tr><th>#</th><th>${t('ex.col_kind')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_changed')}</th><th>${t('ex.col_written')}</th><th>${t('ex.col_verified')}</th><th></th></tr></thead><tbody>${pts.map(p => `
-      <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted)">${_exEsc(p.dir)}</span>${p.quiesced === true ? ` <span class="ex-badge off" title="${_exEsc(t('ex.quiesced_hint'))}">${t('ex.quiesced')}</span>` : p.quiesced === false ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.crash_consistent_hint'))}">${t('ex.crash_consistent')}</span>` : ''}</td>
+      <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted)">${_exEsc(p.dir)}</span>${p.synthetic ? ` <span class="ex-badge off" title="${_exEsc(t('ex.synthetic_hint'))}">${t('ex.synthetic')}</span>` : ''}${p.quiesced === true ? ` <span class="ex-badge off" title="${_exEsc(t('ex.quiesced_hint'))}">${t('ex.quiesced')}</span>` : p.quiesced === false ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.crash_consistent_hint'))}">${t('ex.crash_consistent')}</span>` : ''}</td>
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
       <td style="font-size:11px;color:var(--text-muted)">${p.verify_error ? `<span class="ex-badge err" title="${_exEsc(p.verify_error)}">${t('ex.point_corrupt')}</span>` : p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
       <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" onclick="exFilesOpen(${p.id})">${t('ex.files')}</button></td></tr>
