@@ -20,6 +20,7 @@ import db
 import jobs
 import flr
 import incremental
+import policies
 import proxy_image
 import recurrence
 import scheduler
@@ -52,6 +53,17 @@ def _ser(row):
             continue
         out[k] = v.isoformat() if isinstance(v, (datetime, date)) else v
     return out
+
+
+def _plain(v):
+    """Nested rows as JSON: datetimes and dates as ISO text."""
+    if isinstance(v, (datetime, date)):
+        return v.isoformat()
+    if isinstance(v, dict):
+        return {k: _plain(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_plain(x) for x in v]
+    return v
 
 
 def _cluster_arg():
@@ -358,6 +370,18 @@ def _policy_out(pol: dict, now: datetime) -> dict:
         d['next'], d['open_now'], d['rule_error'] = [], False, str(e)
     occ = db.last_occurrence(pol['id'])
     d['last_occurrence'] = dict(_ser(db.occurrence_summary(pol['id'], occ)), occurrence=occ.isoformat()) if occ else None
+    try:
+        night = policies.night_view(pol, now) if d['members'] and not d.get('rule_error') else None
+    except Exception:                                   # noqa: BLE001 — a summary is never worth failing the list over
+        log.exception('night summary of policy %s failed', pol['id'])
+        night = None
+    d['night'] = None if night is None else _plain({
+        'occurrence': night['occurrence'], 'open': night['open'], 'end': night['end'], 'target': night['target'],
+        'finish': night['finish'], 'overrun_seconds': night['overrun_seconds'], 'full': night['full'],
+        'learned': sum(1 for i in night['items'] if i['learned']), 'members': len(night['items'])})
+    for m in d['members']:
+        it = next((i for i in (night or {}).get('items', []) if i['plan_id'] == m['id']), None)
+        m['prediction'] = _plain({k: it[k] for k in ('learned', 'seconds', 'samples', 'needed', 'planned_start', 'predicted_finish')}) if it else None
     return d
 
 
@@ -370,6 +394,18 @@ def policies_list():
     now = datetime.now(timezone.utc)
     return jsonify({'folder_id': folder, 'folder_name': db.folder_name(folder) if folder else None,
                     'policies': [_policy_out(p, now) for p in db.get_policies(folder)]})
+
+
+@app.get('/api/v1/policies/<int:pid>/night')
+@_require_token
+def policies_night(pid):
+    """The plan of the open night (or of the next one, ?which=next): per member the slot, planned
+    start, predicted finish, whether it is learned, and what ran."""
+    pol, err = _policy_in_scope(pid)
+    if err:
+        return err
+    night = policies.night_view(pol, datetime.now(timezone.utc), 'next' if request.args.get('which') == 'next' else 'current')
+    return jsonify(_plain(night))
 
 
 @app.post('/api/v1/policies/preview')

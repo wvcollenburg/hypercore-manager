@@ -181,7 +181,7 @@ def start_run(schedule_id: int, policy_id: Optional[int] = None, occurrence=None
 def update_run(run_id: int, **fields) -> None:
     allowed = {'finished_at', 'status', 'task_tag', 'export_path', 'message', 'mode', 'point_kind', 'chain_id', 'point_id',
                'proxy_id', 'blocks_changed', 'bytes_written', 'work_started_at', 'lock_wait_seconds', 'copy_seconds',
-               'overhead_seconds', 'notice', 'synth_seconds'}
+               'overhead_seconds', 'notice', 'synth_seconds', 'planned_start', 'predicted_finish'}
     items = [(k, v) for k, v in fields.items() if k in allowed]
     if not items:
         return
@@ -358,6 +358,60 @@ def last_active_seconds(plan_ids: list[int]) -> dict:
                     FROM backup.runs WHERE schedule_id = ANY(%s) AND status = 'COMPLETE' AND copy_seconds IS NOT NULL
                    ORDER BY schedule_id, id DESC''', (list(plan_ids),))
     return {r['schedule_id']: float(r['s']) for r in rows}
+
+
+_HISTORY_COLS = '''r.id, r.schedule_id, r.status, r.mode, r.point_kind, r.started_at, r.work_started_at, r.blocks_changed,
+                   r.bytes_written, r.copy_seconds, r.overhead_seconds, r.synth_seconds, r.proxy_id'''
+
+
+def run_history(plan_ids: list[int], days: int = 90, per_plan: int = 30) -> dict:
+    """Plan id -> its newest finished runs (newest first), what predictions learn from."""
+    if not plan_ids:
+        return {}
+    rows = _all(f'''SELECT * FROM (SELECT {_HISTORY_COLS}, ROW_NUMBER() OVER (PARTITION BY r.schedule_id ORDER BY r.id DESC) AS n
+                                     FROM backup.runs r WHERE r.schedule_id = ANY(%s) AND r.status = 'COMPLETE'
+                                      AND r.started_at > NOW() - make_interval(days => %s)) x
+                    WHERE n <= %s ORDER BY schedule_id, id DESC''', ([int(x) for x in plan_ids], int(days), int(per_plan)))
+    out: dict = {}
+    for r in rows:
+        out.setdefault(r['schedule_id'], []).append(r)
+    return out
+
+
+def cluster_run_history(cluster_id: str, limit: int = 60) -> list[dict]:
+    """The cluster's newest finished incremental runs (any plan), for its read rate."""
+    return _all(f'''SELECT {_HISTORY_COLS} FROM backup.runs r JOIN backup.plans s ON s.id = r.schedule_id
+                     WHERE s.cluster_id = %s AND r.status = 'COMPLETE' AND r.copy_seconds IS NOT NULL
+                       AND COALESCE(r.mode, s.mode) = 'incremental'
+                     ORDER BY r.id DESC LIMIT %s''', (cluster_id, int(limit)))
+
+
+def save_night(policy_id: int, occurrence, items: list[dict]) -> None:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            for i in items:
+                cur.execute('''INSERT INTO backup.policy_nights (policy_id, occurrence, plan_id, cluster_id, slot, planned_start,
+                                                                  predicted_finish, predicted_seconds, learned)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (policy_id, occurrence, plan_id) DO NOTHING''',
+                            (policy_id, occurrence, i['plan_id'], i['cluster_id'], i['slot'], i['planned_start'], i['predicted_finish'],
+                             i['seconds'], i['learned']))
+
+
+def get_night(policy_id: int, occurrence) -> dict:
+    """Plan id -> the stored plan row of that night."""
+    return {r['plan_id']: r for r in _all('SELECT *, cluster_id::text AS cluster_id FROM backup.policy_nights WHERE policy_id = %s AND occurrence = %s',
+                                         (policy_id, occurrence))}
+
+
+def prune_nights(days: int = 90) -> int:
+    return _exec('DELETE FROM backup.policy_nights WHERE occurrence < CURRENT_DATE - %s', (int(days),))
+
+
+def runs_in_occurrence(policy_id: int, occurrence) -> dict:
+    """Plan id -> its newest run in that occurrence."""
+    rows = _all('''SELECT DISTINCT ON (schedule_id) * FROM backup.runs WHERE policy_id = %s AND occurrence = %s
+                    ORDER BY schedule_id, id DESC''', (policy_id, occurrence))
+    return {r['schedule_id']: r for r in rows}
 
 
 # -------------------------------------------------------------------- imports

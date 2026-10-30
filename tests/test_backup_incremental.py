@@ -562,3 +562,18 @@ def test_a_proxy_error_while_synthesizing_cleans_up_the_new_chain(world):
     assert run['status'] == 'COMPLETE' and run['notice'] == 'synthetic_failed' and 'disk full' in run['message']
     assert world.pc.jobs[-1][0] == 'delete_chain' and world.pc.jobs[-1][1]['chain_dir'] == world.pc.jobs[-2][1]['new_chain_dir']
     assert world.db.plan['force_full'] is True and len(world.db.chains) == 1 and world.db.chains[1]['anchor_snapshot_uuid'] == 'snap-4'
+
+
+def test_pick_proxy_prefers_an_idle_proxy(monkeypatch):
+    old = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    rows = [{'id': 71, 'vm_uuid': 'a', 'last_seen_at': old}, {'id': 72, 'vm_uuid': 'b', 'last_seen_at': old + timedelta(hours=1)}]
+    monkeypatch.setattr(inc, 'db', types.SimpleNamespace(get_proxies=lambda cid, enabled_only=False: rows,
+                                                         update_proxy=lambda *a, **k: None,
+                                                         get_proxy=lambda pid, with_secret=False: {'id': pid}))
+    assert inc.pick_proxy('c')['id'] == 71, 'least recently used first'
+    lock = inc.proxy_lock(71)
+    lock.acquire()
+    try:
+        assert inc.pick_proxy('c')['id'] == 72, 'a busy proxy goes last'
+    finally:
+        lock.release()

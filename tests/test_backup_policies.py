@@ -39,7 +39,7 @@ class _DB:
                           'preferred_finish': '06:00', 'buffer_minutes': 60, 'blackouts': [], 'timezone': 'Europe/Amsterdam'}]
         self.members = [self._m(10, 'c1', 'a'), self._m(11, 'c1', 'b'), self._m(12, 'c1', 'c'), self._m(20, 'c2', 'd')]
         self.ran = set(); self.active = {}; self.proxies = {'c1': 2, 'c2': 0}; self.took = {}; self.released = []
-        self.runs = {}; self.updates = []
+        self.runs = {}; self.updates = []; self.history = {}; self.nights = {}; self.saved = []
 
     @staticmethod
     def _m(i, c, n): return {'id': i, 'cluster_id': c, 'vm_name': n, 'enabled': True, 'cluster_enabled': True}
@@ -52,6 +52,12 @@ class _DB:
     def get_proxies(self, cid, enabled_only=False): return [{'id': n, 'vm_uuid': f'p{n}'} for n in range(self.proxies.get(cid, 0))]
     def count_active_runs(self, cid, kind, exclude_plans=()): return self.active.get(cid, 0)
     def last_run_for(self, pid): return self.runs.get(pid)
+    def run_history(self, ids, days=90, per_plan=30): return {i: self.history.get(i, []) for i in ids}
+    def cluster_run_history(self, cid, limit=60): return [r for i, rs in self.history.items() for r in rs if self._cluster(i) == cid]
+    def _cluster(self, pid): return next(m['cluster_id'] for m in self.members if m['id'] == pid)
+    def get_night(self, pid, occ): return dict(self.nights.get((pid, occ), {}))
+    def save_night(self, pid, occ, items):
+        self.saved.append((pid, occ)); self.nights[(pid, occ)] = {i['plan_id']: dict(i) for i in items}
     def update_run(self, rid, **f): self.updates.append((rid, f))
 
 
@@ -97,10 +103,27 @@ def test_runs_of_other_plans_on_the_cluster_take_slots(fdb):
     assert [c[0] for c in calls] == [10, 20]
 
 
-def test_longest_previous_run_goes_first_and_unknown_before_known(fdb):
-    fdb.took = {10: 60.0, 11: 600.0}
-    calls, _ = _tick(fdb, datetime(2026, 10, 20, 22, 0, tzinfo=AMS))
-    assert [c[0] for c in calls] == [12, 20, 11], 'unknown ones (12 on c1, 20 on c2) first, then the longest known'
+def _history(n, mib=600, copy=60.0, overhead=30.0, start=datetime(2026, 10, 1, 22, 0, tzinfo=AMS)):
+    return [{'status': 'COMPLETE', 'mode': 'incremental', 'point_kind': 'delta', 'blocks_changed': mib, 'copy_seconds': copy,
+             'overhead_seconds': overhead, 'work_started_at': start - timedelta(days=d)} for d in range(n)]
+
+
+def test_learned_members_wait_for_their_planned_start_and_learning_ones_go_first(fdb):
+    """10 and 11 are learned (10 MiB/s, 600 MiB deltas: 90 s each); 12 is still learning. The night is
+    planned once: 12 starts at the opening, 10 and 11 are placed to end at 06:00 - 60 min = 05:00."""
+    fdb.history = {10: _history(6), 11: _history(6)}
+    fdb.members = fdb.members[:3]
+    opens = datetime(2026, 10, 20, 22, 0, tzinfo=AMS)
+    calls, pending = _tick(fdb, opens)
+    assert [c[0] for c in calls] == [12] and fdb.saved == [(1, date(2026, 10, 20))]
+    night = fdb.nights[(1, date(2026, 10, 20))]
+    assert night[12]['learned'] is False and night[12]['planned_start'] == opens
+    ends = sorted(night[i]['predicted_finish'] for i in (10, 11))
+    assert ends[-1] == datetime(2026, 10, 21, 5, 0, tzinfo=AMS), ends
+    assert _tick(fdb, datetime(2026, 10, 21, 3, 0, tzinfo=AMS), pending)[0] == []
+    first = min(night[10]['planned_start'], night[11]['planned_start'])
+    calls, _ = _tick(fdb, first, pending)
+    assert len(calls) >= 1 and fdb.saved == [(1, date(2026, 10, 20))], 'planned once per night'
 
 
 def test_blackout_holds_every_start(fdb):
@@ -132,7 +155,7 @@ def _run(start, end, occ=date(2026, 10, 20), status='COMPLETE'):
 
 
 def test_notices_for_blackout_and_late_finish(fdb):
-    p = dict(fdb.policies[0], blackouts=[{'days': ['wed'], 'from': '05:00', 'to': '07:00'}])
+    p = dict(fdb.policies[0], blackouts=[{'days': ['wed'], 'from': '05:00', 'to': '07:00'}], buffer_minutes=0)
     ok = _run(datetime(2026, 10, 20, 22, 5, tzinfo=AMS), datetime(2026, 10, 21, 3, 0, tzinfo=AMS))
     assert pol.notices_for(p, ok) == []
     into = _run(datetime(2026, 10, 21, 4, 0, tzinfo=AMS), datetime(2026, 10, 21, 5, 30, tzinfo=AMS))
@@ -140,6 +163,13 @@ def test_notices_for_blackout_and_late_finish(fdb):
     late = _run(datetime(2026, 10, 21, 4, 0, tzinfo=AMS), datetime(2026, 10, 21, 6, 10, tzinfo=AMS))
     assert pol.notices_for(p, late) == ['blackout', 'late']
     assert pol.notices_for(p, dict(late, status='ERROR')) == [], 'only finished runs get notices'
+
+
+def test_finishing_inside_the_buffer_is_a_notice_of_its_own(fdb):
+    p = dict(fdb.policies[0], buffer_minutes=60)
+    assert pol.notices_for(p, _run(datetime(2026, 10, 21, 4, 0, tzinfo=AMS), datetime(2026, 10, 21, 4, 59, tzinfo=AMS))) == []
+    assert pol.notices_for(p, _run(datetime(2026, 10, 21, 4, 0, tzinfo=AMS), datetime(2026, 10, 21, 5, 30, tzinfo=AMS))) == ['buffer']
+    assert pol.notices_for(p, _run(datetime(2026, 10, 21, 4, 0, tzinfo=AMS), datetime(2026, 10, 21, 6, 30, tzinfo=AMS))) == ['late']
 
 
 def test_run_member_records_the_notice(fdb, monkeypatch):

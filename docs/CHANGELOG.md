@@ -17,6 +17,15 @@ All notable changes to this project are documented here. The format follows
   its chain (no new full); the newest assignment wins. A run that ran into a blackout or finished
   after the preferred finish gets a **notice**, a new level between information and warning.
   Existing per-VM plans keep running on their own time.
+- **Predicted finish for backup schedules** (migration `038`). Each VM's backup time is learned from
+  its own runs: the 80th percentile of what changes on that weekday, the cluster's measured read
+  rate and the fixed work around a copy (a small model, not the balancer's forecasting: one sample
+  per night is too little for that). When a window opens the night is planned once: VMs still
+  learning start right away, learned VMs (five timed incrementals) are placed backwards so the night
+  ends at the preferred finish minus the buffer; a VM behind plan starts as soon as a proxy is free.
+  **Night plan** shows the plan per VM next to what ran, the card shows the predicted end or the
+  predicted overrun, and runs that end inside the buffer get a notice. Proxy selection now prefers
+  an idle proxy.
 - **Full backups on chosen days, real or synthetic** (migration `037`, proxy `0.5.0`). A backup
   schedule can take its fulls on a rule (for example the first Sunday of the month) instead of every
   N runs. A *real* full reads the whole VM again; a *synthetic* full runs the normal incremental,

@@ -173,6 +173,10 @@ def sweep_all() -> None:
         except Exception:        # noqa: BLE001
             log.exception('sweep failed for %s', c.name)
     try:
+        db.prune_nights(90)
+    except Exception:            # noqa: BLE001
+        log.exception('pruning old schedule night plans failed')
+    try:
         n = db.prune_deployments(30)
         if n:
             log.info('deployment log: %s finished rows older than 30 days removed', n)

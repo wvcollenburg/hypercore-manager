@@ -633,6 +633,19 @@
   .pol-blackout input[type=time] { padding: 5px 8px; border-radius: 6px; font-size: 12px;
     background: var(--bg-input, var(--bg-primary)); border: 1px solid var(--border); color: var(--text-primary); }
   .pol-preview { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.7; }
+  .pol-tl { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .pol-tl-row { display: grid; grid-template-columns: 180px 1fr 150px; gap: 10px; align-items: center; font-size: 11px; padding: 3px 0; }
+  .pol-tl-track { position: relative; height: 14px; background: var(--bg-primary); border-radius: 3px; }
+  .pol-tl-bar { position: absolute; top: 2px; bottom: 2px; min-width: 3px; border-radius: 2px; background: var(--accent-cyan); opacity: 0.85; }
+  .pol-tl-bar.learning { background: var(--accent-purple); }
+  .pol-tl-bar.done { background: var(--accent-green); }
+  .pol-tl-bar.failed { background: var(--accent-red); }
+  .pol-tl-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; }
+  .pol-tl-mark.target { background: var(--accent-amber); }
+  .pol-tl-mark.finish { background: var(--accent-red); opacity: 0.7; }
+  .pol-tl-mark.now { background: var(--text-secondary); opacity: 0.6; }
+  .pol-tl-axis { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); }
+  @media (max-width: 760px) { .pol-tl-row { grid-template-columns: 1fr; } }
   .ex-preflight { display: none; margin: 0 0 12px 0; padding: 12px 16px; border-radius: 8px; font-size: 13px; line-height: 1.5; border: 1px solid; }
   .ex-preflight.visible { display: block; }
   .ex-preflight.update { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.5); color: var(--text-primary); }
@@ -5341,6 +5354,7 @@ const _POL_BDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 let _polData = { policies: [] };
 let _polEditing = null;            // policy id being edited, 'new-incremental' / 'new-export', or null
 let _polMembersOpen = null;
+let _polNightOpen = null;          // [policy id, 'current' | 'next'] whose night plan is shown
 
 const _polDayName = d => t(`ex.pol_day_${d}`);
 const _polNth = n => t(`ex.pol_nth_${n === '-1' ? 'last' : n}`);
@@ -5403,6 +5417,58 @@ async function exLoadPolicies() {
   el.innerHTML = `${_exLocationLine(null)}<div class="ex-hint" style="margin-bottom:10px;">${scope} ${t('ex.pol_intro')}</div>` + section('incremental') + section('export');
   if (_polEditing) _polFormInit(_polEditing);
   if (_polMembersOpen) exPolicyMembers(_polMembersOpen, true);
+  if (_polNightOpen) exPolicyNight(_polNightOpen[0], _polNightOpen[1], true);
+}
+const _polHM = (iso, tz) => iso ? new Date(iso).toLocaleTimeString('en-GB', {timeZone: tz || undefined, hour: '2-digit', minute: '2-digit'}) : '—';
+const _polDur = sec => sec == null ? '—' : sec < 90 ? `${Math.round(sec)} s` : sec < 5400 ? `${Math.round(sec / 60)} min` : `${(sec / 3600).toFixed(1)} h`;
+function _polNightLine(p) {
+  const n = p.night;
+  if (!n) return '';
+  const when = n.open ? t('ex.pol_night_tonight') : t('ex.pol_night_next', {date: _exEsc(n.occurrence)});
+  const learning = n.members - n.learned;
+  const state = n.learned === 0 ? t('ex.pol_night_learning_all')
+    : n.overrun_seconds > 0 ? `<span class="ex-badge notice">${t('ex.pol_night_overrun', {time: _polHM(n.end, p.timezone), n: Math.round(n.overrun_seconds / 60)})}</span>`
+    : t('ex.pol_night_done_by', {time: _polHM(n.end, p.timezone), buffer: p.buffer_minutes});
+  return `<br>${when}${n.full ? ` <span class="ex-badge ok">${t('ex.pol_full_night')}</span>` : ''}: ${state}${learning && n.learned ? ` · ${t('ex.pol_night_still_learning', {n: learning})}` : ''}`;
+}
+async function exPolicyNight(id, which, keep) {
+  const box = document.getElementById(`pol-night-${id}`);
+  if (!box) return;
+  if (!keep && _polNightOpen && _polNightOpen[0] === id && _polNightOpen[1] === which) { _polNightOpen = null; box.innerHTML = ''; return; }
+  _polNightOpen = [id, which];
+  const p = _polData.policies.find(x => x.id === id);
+  let n;
+  try { n = await _exCall('GET', `/api/backup/policies/${id}/night?which=${which}`); } catch (e) { box.innerHTML = `<div class="cl-msg err">${_exEsc(e.message)}</div>`; return; }
+  if (!n || !n.items.length) { box.innerHTML = `<div class="pol-tl" style="color:var(--text-muted);font-size:12px;">${t('ex.pol_no_members')}</div>`; return; }
+  const tz = p.timezone;
+  const t0 = new Date(n.opens).getTime();
+  const t1 = Math.max(new Date(n.finish).getTime(), new Date(n.end).getTime(), ...n.items.map(i => i.run && i.run.finished_at ? new Date(i.run.finished_at).getTime() : 0)) + 15 * 60000;
+  const pct = iso => Math.max(0, Math.min(100, (new Date(iso).getTime() - t0) / (t1 - t0) * 100));
+  const mark = (iso, cls, title) => `<div class="pol-tl-mark ${cls}" style="left:${pct(iso)}%" title="${_exEsc(title)}"></div>`;
+  const marks = mark(n.target, 'target', t('ex.pol_tl_target', {time: _polHM(n.target, tz)})) + mark(n.finish, 'finish', t('ex.pol_tl_finish', {time: _polHM(n.finish, tz)}))
+    + (n.open ? mark(new Date().toISOString(), 'now', t('ex.pol_tl_now')) : '');
+  const rows = n.items.map(i => {
+    const r = i.run;
+    const start = r && (r.work_started_at || r.started_at) ? (r.work_started_at || r.started_at) : i.planned_start;
+    const end = r && r.finished_at ? r.finished_at : (r ? new Date(Math.max(Date.now(), new Date(i.predicted_finish).getTime())).toISOString() : i.predicted_finish);
+    const cls = r ? (r.status === 'COMPLETE' ? 'done' : r.status === 'ERROR' ? 'failed' : '') : (i.learned ? '' : 'learning');
+    const status = r ? `${_exStatusBadge(r.status, '')}${r.notice ? ' ' + _exNoticeBadge(r.notice) : ''}`
+      : i.learned ? t('ex.pol_tl_planned', {start: _polHM(i.planned_start, tz), dur: _polDur(i.seconds)})
+      : t('ex.pol_tl_learning', {n: i.samples, of: i.needed || 5});
+    return `<div class="pol-tl-row"><div class="um-username" title="${_exEsc(i.cluster_name || '')}">${_exEsc(i.vm_name)} <span style="color:var(--text-muted);font-size:10px;">${_exEsc(i.cluster_name || '')} · ${t('ex.pol_tl_slot', {n: i.slot + 1})}</span></div>
+      <div class="pol-tl-track">${marks}<div class="pol-tl-bar ${cls}" style="left:${pct(start)}%;width:${Math.max(0.4, pct(end) - pct(start))}%" title="${_exEsc(_polHM(start, tz) + ' – ' + _polHM(end, tz))}"></div></div>
+      <div style="color:var(--text-muted);">${status}</div></div>`;
+  }).join('');
+  box.innerHTML = `<div class="pol-tl">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px;font-size:12px;">
+      <b>${n.open ? t('ex.pol_night_tonight') : t('ex.pol_night_next', {date: _exEsc(n.occurrence)})}</b>
+      <span style="color:var(--text-muted);font-size:11px;">${t('ex.pol_tl_legend', {target: _polHM(n.target, tz), finish: _polHM(n.finish, tz), end: _polHM(n.end, tz)})}</span>
+      <span style="margin-left:auto;display:flex;gap:4px;">
+        <button class="um-action-btn" onclick="exPolicyNight(${id}, 'current', true)" ${which === 'current' ? 'disabled' : ''}>${t('ex.pol_tl_current')}</button>
+        <button class="um-action-btn" onclick="exPolicyNight(${id}, 'next', true)" ${which === 'next' ? 'disabled' : ''}>${t('ex.pol_tl_next')}</button></span></div>
+    ${rows}
+    <div class="pol-tl-row"><div></div><div class="pol-tl-axis"><span>${_polHM(n.opens, tz)}</span><span>${_polHM(new Date((t0 + t1) / 2).toISOString(), tz)}</span><span>${_polHM(new Date(t1).toISOString(), tz)}</span></div><div></div></div>
+    <div class="ex-hint">${t('ex.pol_tl_hint')}</div></div>`;
 }
 
 function _polCard(p) {
@@ -5418,6 +5484,7 @@ function _polCard(p) {
       ${p.rule_error ? `<span class="ex-badge err" title="${_exEsc(p.rule_error)}">${t('ex.pol_rule_error')}</span>` : ''}
       <span class="pol-actions">
         <button class="um-action-btn" onclick="exPolicyMembers(${p.id})">${t('ex.pol_members', {n: p.members.length})}</button>
+        ${p.members.length ? `<button class="um-action-btn" onclick="exPolicyNight(${p.id}, 'current')">${t('ex.pol_night_plan')}</button>` : ''}
         <button class="um-action-btn" onclick="exPolicyEdit(${p.id})">${t('ex.pol_edit')}</button>
         <button class="um-action-btn" onclick="exPolicyToggle(${p.id})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
         <button class="um-action-btn danger" onclick="exPolicyDelete(${p.id}, '${_exEsc(p.name)}')">${t('ex.remove')}</button>
@@ -5427,15 +5494,16 @@ function _polCard(p) {
       <b>${_exEsc(_polDescribe(p.rrule))}</b> · ${t('ex.pol_window', {open: _exTimeLabel(p.window_open, p.timezone), finish: _exEsc(p.preferred_finish)})} · ${t('ex.pol_buffer', {n: p.buffer_minutes})}
       ${(p.blackouts || []).length ? `<br>${t('ex.pol_blackouts')}: ${p.blackouts.map(_polBlackoutText).join('; ')}` : ''}
       <br>${t('ex.pol_keeps', {n: p.retention})}${p.retention_days ? ` / ${p.retention_days}d` : ''}${p.kind !== 'incremental' ? '' : p.full_rrule ? ` · ${t('ex.pol_full_rule', {rule: _exEsc(_polDescribe(p.full_rrule)), kind: t('ex.pol_full_kind_' + p.full_kind)})}` : ` · ${t('ex.full_every', {n: p.full_every_n})}`}${p.compress ? ' · zip' : ''}
-      <br>${t('ex.pol_next')}: ${next || '—'}
+      <br>${t('ex.pol_next')}: ${next || '—'}${_polNightLine(p)}
       <br>${lastLine}
     </div>
     ${_polEditing === p.id ? _polForm(p, p.kind) : ''}
+    <div id="pol-night-${p.id}"></div>
     <div id="pol-members-${p.id}"></div>
   </div>`;
 }
 
-function exPolicyEdit(id) { _polEditing = _polEditing === id ? null : id; _polMembersOpen = null; exLoadPolicies(); }
+function exPolicyEdit(id) { _polEditing = _polEditing === id ? null : id; _polMembersOpen = null; _polNightOpen = null; exLoadPolicies(); }
 
 function _polForm(p, kind) {
   const f = `polf`;
@@ -5588,9 +5656,10 @@ async function exPolicyMembers(id, keepOpen) {
   const memberIds = new Set(p.members.map(m => m.vm_uuid + '@' + m.cluster_id));
   const candidates = vms.filter(vm => !memberIds.has(vm.uuid + '@' + currentCluster));
   box.innerHTML = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
-    ${p.members.length ? `<table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.pol_col_cluster')}</th><th>${t('ex.col_last_run')}</th><th></th></tr></thead><tbody>
+    ${p.members.length ? `<table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.pol_col_cluster')}</th><th>${t('ex.pol_col_duration')}</th><th>${t('ex.col_last_run')}</th><th></th></tr></thead><tbody>
       ${p.members.map(m => `<tr><td class="um-username">${_exEsc(m.vm_name)}${m.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}</td>
         <td style="font-size:11px;">${_exEsc(m.cluster_name)}</td>
+        <td style="font-size:11px;">${!m.prediction ? '—' : m.prediction.learned ? `<span title="${_exEsc(t('ex.pol_tl_planned', {start: _polHM(m.prediction.planned_start, p.timezone), dur: _polDur(m.prediction.seconds)}))}">~${_polDur(m.prediction.seconds)}</span>` : `<span class="ex-badge off" title="${_exEsc(t('ex.pol_learning_hint'))}">${t('ex.pol_tl_learning', {n: m.prediction.samples, of: m.prediction.needed || 5})}</span>`}</td>
         <td>${m.last_run ? `${_exStatusBadge(m.last_run.status, m.last_run.message)}${m.last_run.notice ? ' ' + _exNoticeBadge(m.last_run.notice) : ''}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(m.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
         <td style="white-space:nowrap;">${m.cluster_id === currentCluster ? `<button class="um-action-btn" onclick="exToggle(${m.id}).then(exLoadPolicies)">${m.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
           <button class="um-action-btn danger" onclick="exPolicyRemoveMember(${id}, ${m.id}, '${_exEsc(m.vm_name)}')">${t('ex.pol_remove_member')}</button></td></tr>`).join('')}

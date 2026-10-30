@@ -79,11 +79,12 @@ def proxy_client_for(proxy: dict) -> ProxyClient:
 
 
 def pick_proxy(cluster_id: str) -> dict:
-    """An enabled proxy of the cluster that knows its own VM. Least recently used first."""
+    """An enabled proxy of the cluster that knows its own VM: an idle one before a busy one, then
+    least recently used first."""
     candidates = [p for p in db.get_proxies(cluster_id, enabled_only=True) if p.get('vm_uuid')]
     if not candidates:
         raise IncrementalError('no enabled backup proxy with a known VM is registered for this cluster')
-    candidates.sort(key=lambda p: (p.get('last_seen_at') or datetime.min.replace(tzinfo=timezone.utc)))
+    candidates.sort(key=lambda p: (proxy_lock(p['id']).locked(), p.get('last_seen_at') or datetime.min.replace(tzinfo=timezone.utc)))
     chosen = candidates[0]
     db.update_proxy(chosen['id'], last_seen_at=_now())          # rotate: the next job goes to another proxy
     return db.get_proxy(chosen['id'], with_secret=True)
