@@ -177,7 +177,8 @@ def start_run(schedule_id: int) -> int:
 
 def update_run(run_id: int, **fields) -> None:
     allowed = {'finished_at', 'status', 'task_tag', 'export_path', 'message', 'mode', 'point_kind', 'chain_id', 'point_id',
-               'proxy_id', 'blocks_changed', 'bytes_written'}
+               'proxy_id', 'blocks_changed', 'bytes_written', 'work_started_at', 'lock_wait_seconds', 'copy_seconds',
+               'overhead_seconds'}
     items = [(k, v) for k, v in fields.items() if k in allowed]
     if not items:
         return

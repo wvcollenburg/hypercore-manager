@@ -486,3 +486,12 @@ def test_remove_proxy_vm_leaves_a_vm_it_did_not_deploy():
 def test_remove_proxy_vm_reports_a_vm_that_is_gone():
     hc = _VmHC([])
     assert inc.remove_proxy_vm(hc, 'pv') == 'not_found' and hc.calls == []
+
+
+def test_run_records_where_the_time_went(world):
+    """Learning backup durations needs the copy separated from the waits: the proxy's own copy time,
+    the wait for the proxy lock and the remaining overhead are stored on the run."""
+    inc.run_incremental(4)
+    run = world.db.runs[1]
+    assert run['work_started_at'] is not None
+    assert run['copy_seconds'] == 1.5 and run['lock_wait_seconds'] >= 0 and run['overhead_seconds'] >= 0

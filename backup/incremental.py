@@ -295,7 +295,9 @@ def run_incremental(plan_id: int) -> None:
             log.warning('[run %s] deferred: %s', run_id, pf['detail'])
             return
         with vm_lock(plan['cluster_id'], plan['vm_uuid']):
-            _run(plan, run_id, hc)
+            work_started = _now()
+            db.update_run(run_id, work_started_at=work_started)
+            _run(plan, run_id, hc, work_started)
     except (IncrementalError, HyperCoreError, ProxyError) as e:
         db.update_run(run_id, status='ERROR', message=str(e), finished_at=_now())
         log.error('[run %s] %s', run_id, e)
@@ -304,8 +306,9 @@ def run_incremental(plan_id: int) -> None:
         log.exception('[run %s] unexpected error', run_id)
 
 
-def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None) -> None:
+def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_started: datetime | None = None) -> None:
     hc = hc or jobs.client_for(plan['cluster_id'])
+    work_started = work_started or _now()
     proxy = pick_proxy(plan['cluster_id'])
     pc = proxy_client_for(proxy)
     db.update_run(run_id, proxy_id=proxy['id'])
@@ -355,7 +358,9 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None) -> None:
         log.warning('[run %s] %s', run_id, msg)
     clones: list[str] = []
     lock = proxy_lock(proxy['id'])
+    wait_t0 = time.monotonic()
     lock.acquire()
+    lock_wait = time.monotonic() - wait_t0
     try:
         # 2. clones + 3. maps
         req_devices = []
@@ -387,8 +392,10 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None) -> None:
             db.update_chain(chain['id'], active_clones=_delete_clones(hc, clones))
             lock.release()
             _safe_delete_snapshot(hc, snap_uuid, 'unneeded anchor')
-            db.update_run(run_id, status='COMPLETE', finished_at=_now(), blocks_changed=0, bytes_written=0,
-                          message='No blocks changed since the previous point; nothing written.')
+            end = _now()
+            db.update_run(run_id, status='COMPLETE', finished_at=end, blocks_changed=0, bytes_written=0,
+                          message='No blocks changed since the previous point; nothing written.',
+                          **jobs.run_timing(work_started, lock_wait, 0.0, end))
             log.info('[run %s] no changes, skipped', run_id)
             return
         db.update_run(run_id, blocks_changed=blocks, message=f'{kind}: {blocks} MiB to copy, proxy {proxy["name"]}')
@@ -430,8 +437,10 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None) -> None:
     if leftover:
         msg += f'; {len(leftover)} clone(s) could not be detached yet (the daily sweep retries)'
     retention_msg = apply_retention(plan, pc, share)
-    db.update_run(run_id, status='COMPLETE', finished_at=_now(), point_id=point_id, bytes_written=result.get('bytes_written', 0),
-                  message=f'{msg}. {retention_msg}'.strip())
+    end = _now()
+    db.update_run(run_id, status='COMPLETE', finished_at=end, point_id=point_id, bytes_written=result.get('bytes_written', 0),
+                  message=f'{msg}. {retention_msg}'.strip(),
+                  **jobs.run_timing(work_started, lock_wait, float(result.get('duration_s') or 0), end))
     log.info('[run %s] %s %s', run_id, msg, retention_msg)
 
 

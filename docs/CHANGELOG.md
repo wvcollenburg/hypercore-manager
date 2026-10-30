@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Run timing** (migration `035`). Every backup and export run records where its time went: when
+  the work began after the pre-flight wait, the wait for a free proxy, the copy itself and the
+  remaining overhead. Backup schedules learn their durations from these columns.
+
 ## [1.0.0]
 
 The community release: one installation for many clusters, folders and users, incremental

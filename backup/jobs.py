@@ -241,6 +241,14 @@ def wait_for_task(hc: HyperCoreClient, task_tag: str, on_progress) -> None:
 
 
 # ----------------------------------------------------------------------- plan
+def run_timing(work_started: datetime, lock_wait: float = 0.0, copy: float = 0.0, end: datetime | None = None) -> dict:
+    """Timing columns of a finished run (what backup durations are learned from): the active time
+    since the cluster was clear, split into waiting for the proxy, copying and everything else."""
+    active = max(0.0, ((end or _now()) - work_started).total_seconds())
+    return {'lock_wait_seconds': round(lock_wait, 1), 'copy_seconds': round(copy, 1),
+            'overhead_seconds': round(max(0.0, active - lock_wait - copy), 1)}
+
+
 def run_plan(plan_id: int) -> None:
     """Scheduler entry point: dispatch on the plan's mode."""
     plan = db.get_schedule(plan_id)
@@ -296,9 +304,13 @@ def run_export(schedule_id: int) -> None:
             ensure_smb_dir(base, loc['user'], loc['password'] or None)
         elif loc.get('prune_path'):
             Path(loc['prune_path']).mkdir(parents=True, exist_ok=True)
+        work_started = _now()
+        db.update_run(run_id, work_started_at=work_started)
         task_tag = retry_transient(lambda: hc.export_vm(sched['vm_uuid'], path_uri, compress=bool(sched['compress'])), 'export')
         db.update_run(run_id, task_tag=task_tag)
+        copy_t0 = time.monotonic()
         wait_for_task(hc, task_tag, lambda state, pct: db.update_run(run_id, message=f'{state} {pct}%'))
+        copy_s = time.monotonic() - copy_t0
     except HyperCoreError as e:
         db.update_run(run_id, status='ERROR', message=str(e), finished_at=_now())
         log.error('[run %s] Export failed: %s', run_id, e)
@@ -309,7 +321,9 @@ def run_export(schedule_id: int) -> None:
         return
 
     prune_msg = prune_old_exports(sched)
-    db.update_run(run_id, status='COMPLETE', finished_at=_now(), message=f'Export complete. {prune_msg}')
+    end = _now()
+    db.update_run(run_id, status='COMPLETE', finished_at=end, message=f'Export complete. {prune_msg}',
+                  **run_timing(work_started, copy=copy_s, end=end))
     log.info('[run %s] Done. %s', run_id, prune_msg)
 
 
