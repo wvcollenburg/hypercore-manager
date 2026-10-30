@@ -276,7 +276,7 @@ def plan_point(chain: dict | None, plan: dict, prev_point: dict | None) -> tuple
 
 
 # ------------------------------------------------------------------ the run
-def run_incremental(plan_id: int) -> None:
+def run_incremental(plan_id: int, policy_id: int | None = None, occurrence=None) -> None:
     plan = db.get_schedule(plan_id)
     if plan is None or not plan['enabled'] or not plan.get('cluster_enabled', True):
         log.info('plan %s skipped (missing, disabled or cluster disabled)', plan_id)
@@ -284,7 +284,7 @@ def run_incremental(plan_id: int) -> None:
     if db.is_run_active(plan_id):
         log.warning('plan %s (%s) still has a run in progress, skipping', plan_id, plan['vm_name'])
         return
-    run_id = db.start_run(plan_id)
+    run_id = db.start_run(plan_id, policy_id, occurrence)
     db.update_run(run_id, mode='incremental')
     try:
         hc = jobs.client_for(plan['cluster_id'])

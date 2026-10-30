@@ -249,21 +249,21 @@ def run_timing(work_started: datetime, lock_wait: float = 0.0, copy: float = 0.0
             'overhead_seconds': round(max(0.0, active - lock_wait - copy), 1)}
 
 
-def run_plan(plan_id: int) -> None:
-    """Scheduler entry point: dispatch on the plan's mode."""
+def run_plan(plan_id: int, policy_id: int | None = None, occurrence=None) -> None:
+    """Scheduler entry point: dispatch on the plan's mode. A policy run names its policy and occurrence."""
     plan = db.get_schedule(plan_id)
     if plan is None:
         log.warning('Plan %s no longer exists, skipping', plan_id)
         return
     if plan.get('mode') == 'incremental':
         import incremental
-        incremental.run_incremental(plan_id)
+        incremental.run_incremental(plan_id, policy_id, occurrence)
     else:
-        run_export(plan_id)
+        run_export(plan_id, policy_id, occurrence)
 
 
 # --------------------------------------------------------------------- export
-def run_export(schedule_id: int) -> None:
+def run_export(schedule_id: int, policy_id: int | None = None, occurrence=None) -> None:
     """Entry point for the scheduler and the 'Run now' button."""
     sched = db.get_schedule(schedule_id)
     if sched is None:
@@ -279,7 +279,7 @@ def run_export(schedule_id: int) -> None:
         log.warning('Schedule %s (%s) still has a run in progress, skipping', schedule_id, sched['vm_name'])
         return
 
-    run_id = db.start_run(schedule_id)
+    run_id = db.start_run(schedule_id, policy_id, occurrence)
     db.update_run(run_id, mode='export')
     folder = f"{safe_name(sched['vm_name'])}_{datetime.now().strftime(TIMESTAMP_FMT)}"
     try:

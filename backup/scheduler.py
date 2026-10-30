@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -28,7 +29,8 @@ def sync_jobs() -> int:
     clusters). Called on start, after every change through the API, and periodically."""
     wanted = {}
     for s in db.get_schedules():
-        if s['enabled'] and s.get('cluster_enabled', True):
+        # members of a backup schedule (policy) are started by the policy dispatcher instead
+        if s['enabled'] and s.get('cluster_enabled', True) and not s.get('policy_id'):
             wanted[_job_id(s['id'])] = s
     for job in _scheduler.get_jobs():
         if job.id.startswith('export-') and job.id not in wanted:
@@ -53,6 +55,43 @@ def plan_timezone(plan: dict) -> str:
             except Exception:  # noqa: BLE001
                 continue
     return 'UTC'
+
+
+# plan id -> (cluster id, kind) of every policy run from dispatch until it finished. APScheduler drops a job
+# from its store when it hands it to the thread pool, so the store alone would lose queued runs.
+_policy_runs: dict = {}
+_policy_runs_lock = threading.Lock()
+
+
+def _policy_run(plan_id: int, policy_id: int, occurrence) -> None:
+    import policies
+    try:
+        policies.run_member(plan_id, policy_id, occurrence)
+    finally:
+        with _policy_runs_lock:
+            _policy_runs.pop(plan_id, None)
+
+
+def policy_tick() -> None:
+    """Every minute: start the members of open backup schedules (see policies.tick)."""
+    import policies
+
+    def dispatch(plan_id, policy_id, occurrence, cluster_id, kind):
+        with _policy_runs_lock:
+            _policy_runs[plan_id] = (cluster_id, kind)
+        try:
+            _scheduler.add_job(_policy_run, args=[plan_id, policy_id, occurrence], id=f'policy-run-{plan_id}',
+                               replace_existing=True)
+        except Exception:
+            with _policy_runs_lock:
+                _policy_runs.pop(plan_id, None)
+            raise
+    with _policy_runs_lock:
+        pending = dict(_policy_runs)
+    try:
+        policies.tick(dispatch, pending)
+    except Exception:                                   # noqa: BLE001
+        log.exception('policy dispatch failed')
 
 
 def run_now(schedule_id: int) -> None:
@@ -157,6 +196,7 @@ def verify_all() -> None:
 def start(sync_interval_seconds: int = 60) -> None:
     _scheduler.start()
     _scheduler.add_job(sync_jobs, trigger='interval', seconds=sync_interval_seconds, id='sync', replace_existing=True)
+    _scheduler.add_job(policy_tick, trigger='cron', second=5, id='policy-tick', replace_existing=True)
     _scheduler.add_job(sweep_all, trigger='cron', hour=4, minute=30, id='sweep', replace_existing=True)
     _scheduler.add_job(verify_all, trigger='cron', day_of_week='sun', hour=5, minute=0, id='verify', replace_existing=True)
     # first sweep a little after start: the dashboard applies new migrations at the same moment

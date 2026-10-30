@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Backup schedules** (migration `036`). Create a schedule, then add VMs to it, from every cluster
+  in the folder. Backup schedules (incremental) and export schedules are separate kinds. A
+  schedule repeats on an RFC 5545 rule (every N days, chosen weekdays every N weeks, the Nth or last
+  weekday of the month, a day of the month, or any custom RRULE) and has an earliest start, a
+  preferred finish, a buffer, blackout periods and its own time zone. Members start when the window
+  opens, at most one backup per proxy (one export per cluster) at a time, so no run takes its
+  snapshot and then waits for a proxy. Adding a VM with a plan of its own takes that plan in with
+  its chain (no new full); the newest assignment wins. A run that ran into a blackout or finished
+  after the preferred finish gets a **notice**, a new level between information and warning.
+  Existing per-VM plans keep running on their own time.
 - **Run timing** (migration `035`). Every backup and export run records where its time went: when
   the work began after the pre-flight wait, the wait for a free proxy, the copy itself and the
   remaining overhead. Backup schedules learn their durations from these columns.

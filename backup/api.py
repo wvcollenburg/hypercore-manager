@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from datetime import datetime
+from datetime import date, datetime, timezone
 from functools import wraps
 
 from flask import Flask, jsonify, request
@@ -21,6 +21,7 @@ import jobs
 import flr
 import incremental
 import proxy_image
+import recurrence
 import scheduler
 from hypercore import HyperCoreError
 from proxy_client import ProxyError, certificate_fingerprint, normalise_fingerprint
@@ -49,7 +50,7 @@ def _ser(row):
         if k == 'smb_pass_enc':
             out['has_smb_password'] = bool(v)
             continue
-        out[k] = v.isoformat() if isinstance(v, datetime) else v
+        out[k] = v.isoformat() if isinstance(v, (datetime, date)) else v
     return out
 
 
@@ -231,9 +232,13 @@ def schedules_update(sid):
             fields['retention_days'] = int(b['retention_days']) if b['retention_days'] not in (None, '', 0, '0') else None
         except (TypeError, ValueError):
             return _err('retention_days must be a number')
+    plan = db.get_schedule(sid)
+    detached = bool(plan.get('policy_id')) and any(k != 'enabled' for k in fields)
+    if detached:
+        fields['policy_id'] = None          # editing a member's own schedule takes it out of its backup schedule
     db.update_schedule(sid, **fields)
     scheduler.sync_jobs()
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, 'detached': detached})
 
 
 @app.post('/api/v1/plans/<int:sid>/toggle')
@@ -260,6 +265,215 @@ def schedules_run(sid):
     if not db.get_schedule(sid):
         return _err('schedule not found', 404)
     scheduler.run_now(sid)
+    return jsonify({'ok': True})
+
+
+# --------------------------------------------------------- backup schedules
+# A backup schedule ("policy") belongs to the folder of the selected cluster and lists members from
+# every cluster in that folder. Members are added from the cluster they live on.
+def _scope():
+    """(folder_id, error response) for the selected cluster."""
+    cid = _cluster_arg()
+    if not cid:
+        return None, _err('cluster is required')
+    known, folder = db.folder_of_cluster(cid)
+    if not known:
+        return None, _err('unknown cluster')
+    return folder, None
+
+
+def _policy_in_scope(pid: int):
+    folder, err = _scope()
+    if err:
+        return None, err
+    pol = db.get_policy(pid)
+    if not pol or pol['folder_id'] != folder:
+        return None, _err('schedule not found', 404)
+    return pol, None
+
+
+def _policy_fields(b: dict, creating: bool) -> dict:
+    """Validated policy fields from a request body; raises recurrence.RecurrenceError (or ValueError)."""
+    f = {}
+    if creating or 'name' in b:
+        name = (b.get('name') or '').strip()
+        if not name or len(name) > 80:
+            raise ValueError('name is required (at most 80 characters)')
+        f['name'] = name
+    if creating:
+        if b.get('kind') not in ('incremental', 'export'):
+            raise ValueError("kind must be 'incremental' or 'export'")
+        f['kind'] = b['kind']
+    if 'timezone' in b and b['timezone']:
+        recurrence.zone(b['timezone'])
+        f['timezone'] = b['timezone']
+    if creating or 'rrule' in b:
+        f['rrule'] = recurrence.normalise_rule(b.get('rrule') or 'FREQ=DAILY')
+    if b.get('starts_on'):
+        f['starts_on'] = date.fromisoformat(str(b['starts_on'])[:10])
+    for k, default in (('window_open', '22:00'), ('preferred_finish', '06:00')):
+        if creating or k in b:
+            v = _valid_time(b.get(k) or default)
+            if not v:
+                raise ValueError(f'{k} must be HH:MM (24h)')
+            f[k] = v
+    if 'buffer_minutes' in b:
+        f['buffer_minutes'] = min(720, max(0, int(b['buffer_minutes'])))
+    if 'blackouts' in b:
+        f['blackouts'] = recurrence.normalise_blackouts(b['blackouts'])
+    if 'retention' in b:
+        f['retention'] = max(1, int(b['retention']))
+    if 'retention_days' in b:
+        f['retention_days'] = int(b['retention_days']) if b['retention_days'] not in (None, '', 0, '0') else None
+    if 'full_every_n' in b:
+        f['full_every_n'] = max(1, int(b['full_every_n']))
+    for k in ('compress', 'enabled'):
+        if k in b:
+            f[k] = bool(b[k])
+    return f
+
+
+def _policy_out(pol: dict, now: datetime) -> dict:
+    d = _ser(pol)
+    members = db.policy_members(pol['id'])
+    d['members'] = []
+    for m in members:
+        last = db.last_run_for(m['id'])
+        d['members'].append({'id': m['id'], 'vm_name': m['vm_name'], 'vm_uuid': m['vm_uuid'], 'cluster_id': m['cluster_id'],
+                             'cluster_name': m['cluster_name'], 'enabled': m['enabled'], 'last_run': _ser(last)})
+    try:
+        d['next'] = recurrence.preview(pol, now, 3)
+        w = recurrence.current_window(pol, now)
+        d['open_now'] = bool(w) and not recurrence.in_blackout(pol, now)
+    except recurrence.RecurrenceError as e:
+        d['next'], d['open_now'], d['rule_error'] = [], False, str(e)
+    occ = db.last_occurrence(pol['id'])
+    d['last_occurrence'] = dict(_ser(db.occurrence_summary(pol['id'], occ)), occurrence=occ.isoformat()) if occ else None
+    return d
+
+
+@app.get('/api/v1/policies')
+@_require_token
+def policies_list():
+    folder, err = _scope()
+    if err:
+        return err
+    now = datetime.now(timezone.utc)
+    return jsonify({'folder_id': folder, 'folder_name': db.folder_name(folder) if folder else None,
+                    'policies': [_policy_out(p, now) for p in db.get_policies(folder)]})
+
+
+@app.post('/api/v1/policies/preview')
+@_require_token
+def policies_preview():
+    b = request.get_json(silent=True) or {}
+    try:
+        f = _policy_fields(dict(b, name=b.get('name') or 'preview', kind=b.get('kind') or 'incremental'), True)
+    except (ValueError, TypeError) as e:
+        return _err(str(e))
+    f.setdefault('timezone', b.get('timezone') or 'UTC')
+    f.setdefault('blackouts', [])
+    return jsonify({'windows': recurrence.preview(f, datetime.now(timezone.utc), int(b.get('count') or 10))})
+
+
+@app.post('/api/v1/policies')
+@_require_token
+def policies_add():
+    folder, err = _scope()
+    if err:
+        return err
+    b = request.get_json(silent=True) or {}
+    try:
+        f = _policy_fields(b, True)
+    except (ValueError, TypeError) as e:
+        return _err(str(e))
+    if 'timezone' not in f:
+        c = cluster_registry.get(_cluster_arg())
+        f['timezone'] = scheduler.plan_timezone({'cluster_timezone': c.effective_timezone if c else None})
+    pid = db.add_policy(folder, **f)
+    return jsonify({'ok': True, 'id': pid}), 201
+
+
+@app.put('/api/v1/policies/<int:pid>')
+@_require_token
+def policies_update(pid):
+    pol, err = _policy_in_scope(pid)
+    if err:
+        return err
+    try:
+        f = _policy_fields(request.get_json(silent=True) or {}, False)
+    except (ValueError, TypeError) as e:
+        return _err(str(e))
+    db.update_policy(pid, **f)
+    return jsonify({'ok': True})
+
+
+@app.post('/api/v1/policies/<int:pid>/toggle')
+@_require_token
+def policies_toggle(pid):
+    pol, err = _policy_in_scope(pid)
+    if err:
+        return err
+    db.toggle_policy(pid)
+    return jsonify({'ok': True})
+
+
+@app.delete('/api/v1/policies/<int:pid>')
+@_require_token
+def policies_delete(pid):
+    pol, err = _policy_in_scope(pid)
+    if err:
+        return err
+    db.delete_policy(pid)
+    scheduler.sync_jobs()
+    return jsonify({'ok': True})
+
+
+@app.post('/api/v1/policies/<int:pid>/members')
+@_require_token
+def policies_add_member(pid):
+    """Add a VM of the selected cluster. Its existing plan joins the schedule (the chain continues;
+    the newest assignment wins, so it leaves any other schedule); otherwise a plan is created."""
+    pol, err = _policy_in_scope(pid)
+    if err:
+        return err
+    b = request.get_json(silent=True) or {}
+    cid = (b.get('cluster_id') or _cluster_arg() or '').strip()
+    if db.folder_of_cluster(cid) != (True, pol['folder_id']):
+        return _err("the VM's cluster is not in this schedule's folder")
+    vm_uuid, vm_name = (b.get('vm_uuid') or '').strip(), (b.get('vm_name') or '').strip()
+    if not vm_uuid or not vm_name:
+        return _err('vm_uuid and vm_name are required')
+    if not jobs.location_for_cluster(cid):
+        return _err("no share is assigned to this cluster's folder; an admin can add one under Settings → Shares and assign it from the folder menu")
+    if pol['kind'] == 'incremental' and not any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)):
+        return _err('backup schedules need a registered backup proxy on the cluster (Settings → Clusters → Proxies)')
+    plan = db.plan_for_vm(cid, vm_uuid)
+    moved_from = plan.get('policy_name') if plan and plan.get('policy_id') not in (None, pid) else None
+    if plan is None:
+        sid = db.add_schedule(cluster_id=cid, vm_uuid=vm_uuid, vm_name=vm_name, path_uri_base='', prune_path='',
+                              retention=pol['retention'], run_time=cfg_module.load().default_run_time, compress=pol['compress'],
+                              mode=pol['kind'], full_every_n=pol['full_every_n'], retention_days=pol['retention_days'])
+    else:
+        sid = plan['id']
+    db.assign_plan(sid, pid)
+    scheduler.sync_jobs()
+    return jsonify({'ok': True, 'plan_id': sid, 'adopted': plan is not None, 'moved_from': moved_from,
+                    'mode_changed': bool(plan and plan.get('mode') != pol['kind'])}), 201
+
+
+@app.delete('/api/v1/policies/<int:pid>/members/<int:sid>')
+@_require_token
+def policies_remove_member(pid, sid):
+    """The VM keeps its plan, paused, with its chain; it can be resumed as a plan of its own."""
+    pol, err = _policy_in_scope(pid)
+    if err:
+        return err
+    plan = db.get_schedule(sid)
+    if not plan or plan.get('policy_id') != pid:
+        return _err('not a member of this schedule', 404)
+    db.release_plan(sid)
+    scheduler.sync_jobs()
     return jsonify({'ok': True})
 
 

@@ -12,6 +12,39 @@ and old points are merged away by retention. **Export** mode uses HyperCore's ow
 run, into a timestamped folder; it needs no proxy and suits small VMs. A cluster with a
 registered proxy defaults to incremental.
 
+## Schedules
+
+![Schedules](img/backup-policies.png)
+
+A schedule backs up many VMs on one timetable: create the schedule first, then add VMs to it.
+Schedules belong to the folder of the selected cluster and can hold VMs of every cluster in that
+folder; select another cluster of the folder in the sidebar to add its VMs. **Backup schedules**
+run incremental backups and **export schedules** run exports; a schedule never mixes the two.
+
+- **Repeats** picks the days: every day or every N days, chosen weekdays every N weeks, the Nth or
+  last weekday of the month, a day of the month, or any RFC 5545 rule (RRULE) for anything else,
+  such as `FREQ=MONTHLY;BYDAY=-1SU` for the last Sunday of the month.
+- **Earliest start** is when backups of an occurrence may begin; **Preferred finish** is when the
+  night should be done (earlier than the start means the next day). Runs that finish later get a
+  notice.
+- **No backups start** lists weekly periods in which nothing of this schedule starts, such as
+  office hours. A run that is still busy when one begins is allowed to finish and gets a notice.
+- **Buffer** is the margin kept free before the preferred finish once durations are learned.
+- **Time zone**: every time of the schedule is read in this zone, for every cluster in it. It
+  defaults to the zone of the cluster the schedule was created on.
+
+When a window opens, the members start one after the other: at most one backup per proxy of a
+cluster at a time (one export per cluster), the longest previous run first. A VM is taken only once
+per occurrence. **Preview** in the form lists the next windows.
+
+A VM belongs to one schedule at a time. Adding a VM that has a plan of its own takes that plan
+into the schedule with its backups and chain kept (no new full); adding it to another schedule
+moves it there. Removing a VM from a schedule, or deleting the schedule, leaves its plan paused
+with its backups. VMs that keep a plan of their own run on their own time as before.
+
+A **notice** (blue) is more than information and less than a warning: the run succeeded, but ran
+into a blackout period or past the preferred finish.
+
 ## Plans
 
 ![Plans](img/backup-schedules.png)
@@ -19,8 +52,9 @@ registered proxy defaults to incremental.
 One row per plan: the VM, the destination (the target assigned to the cluster's folder and the
 folder on it), retention, the daily time, the last and the next run. Times are in the cluster's
 own time zone, read from HyperCore; where that differs from yours, the row shows your local
-equivalent next to it ("03:00 US/Eastern · 09:00 your time"). Run now starts a run outside the
-schedule, Pause stops the schedule without deleting anything, History opens the plan's runs.
+equivalent next to it ("03:00 US/Eastern · 09:00 your time"). A VM in a schedule shows the
+schedule's name instead of a time. Run now starts a run outside the schedule, Pause stops the
+schedule without deleting anything, History opens the plan's runs.
 
 ## VMs
 

@@ -619,6 +619,20 @@
   .ex-badge.run { background: rgba(6,182,212,0.15); color: var(--accent-cyan); }
   .ex-badge.off { background: rgba(148,163,184,0.15); color: var(--text-muted); }
   .ex-badge.warn { background: rgba(245,158,11,0.15); color: var(--accent-amber); }
+  /* notice: more than info, less than a warning (a run that ran into a blackout or past the preferred finish) */
+  .ex-badge.notice { background: rgba(59,130,246,0.15); color: var(--accent-blue); }
+  .pol-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: var(--bg-nested); }
+  .pol-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .pol-name { font-weight: 600; font-size: 14px; color: var(--text-primary); }
+  .pol-meta { font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.6; }
+  .pol-meta b { color: var(--text-secondary); font-weight: 500; }
+  .pol-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px; }
+  .pol-days { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+  .pol-days label { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; margin: 0; color: var(--text-secondary); }
+  .pol-blackout { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+  .pol-blackout input[type=time] { padding: 5px 8px; border-radius: 6px; font-size: 12px;
+    background: var(--bg-input, var(--bg-primary)); border: 1px solid var(--border); color: var(--text-primary); }
+  .pol-preview { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.7; }
   .ex-preflight { display: none; margin: 0 0 12px 0; padding: 12px 16px; border-radius: 8px; font-size: 13px; line-height: 1.5; border: 1px solid; }
   .ex-preflight.visible { display: block; }
   .ex-preflight.update { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.5); color: var(--text-primary); }
@@ -1403,14 +1417,16 @@
   <!-- ─── Exports tab (optional `exports` profile) ─── -->
   <div class="tab-content" id="tab-exports">
     <div class="exports-sub-nav">
-      <div class="exports-sub-tab active" data-expanel="schedules" data-i18n="ex.tab.schedules" onclick="switchExportsPanel('schedules')">Plans</div>
+      <div class="exports-sub-tab active" data-expanel="policies"  data-i18n="ex.tab.policies"  onclick="switchExportsPanel('policies')">Schedules</div>
+      <div class="exports-sub-tab"        data-expanel="schedules" data-i18n="ex.tab.schedules" onclick="switchExportsPanel('schedules')">Plans</div>
       <div class="exports-sub-tab"        data-expanel="vms"       data-i18n="ex.tab.vms"       onclick="switchExportsPanel('vms')">VMs</div>
       <div class="exports-sub-tab"        data-expanel="import"    data-i18n="ex.tab.import"    onclick="switchExportsPanel('import')">Import</div>
       <div class="exports-sub-tab"        data-expanel="points"    data-i18n="ex.tab.points"    onclick="switchExportsPanel('points')">Restore points</div>
       <div class="exports-sub-tab"        data-expanel="runs"      data-i18n="ex.tab.runs"      onclick="switchExportsPanel('runs')">Runs</div>
     </div>
     <div class="ex-preflight" id="exPreflightBanner" role="alert"></div>
-    <div class="exports-panel active" id="expanel-schedules"></div>
+    <div class="exports-panel active" id="expanel-policies"></div>
+    <div class="exports-panel" id="expanel-schedules"></div>
     <div class="exports-panel" id="expanel-points"></div>
     <div class="exports-panel" id="expanel-vms"></div>
     <div class="exports-panel" id="expanel-import"></div>
@@ -5264,6 +5280,7 @@ function switchExportsPanel(p) {
   document.querySelectorAll('.exports-panel').forEach(e => e.classList.remove('active'));
   document.querySelector(`[data-expanel="${p}"]`)?.classList.add('active');
   document.getElementById(`expanel-${p}`)?.classList.add('active');
+  if (p === 'policies')  exLoadPolicies();
   if (p === 'schedules') exLoadSchedules();
   if (p === 'vms')       exLoadVms();
   if (p === 'import')    exLoadImport();
@@ -5273,10 +5290,10 @@ function switchExportsPanel(p) {
 
 async function loadExports() {
   if (!(await _exProbe())) {
-    document.getElementById('expanel-schedules').innerHTML = `<div class="empty-state">${t('ex.unavailable')}</div>`;
+    document.getElementById('expanel-policies').innerHTML = `<div class="empty-state">${t('ex.unavailable')}</div>`;
     return;
   }
-  const p = document.querySelector('.exports-sub-tab.active')?.dataset.expanel || 'schedules';
+  const p = document.querySelector('.exports-sub-tab.active')?.dataset.expanel || 'policies';
   switchExportsPanel(p);
 }
 
@@ -5297,8 +5314,8 @@ async function exLoadSchedules() {
         <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="qcow2 compression">zip</span>` : ''}<div><span class="ex-badge ${s.mode === 'incremental' ? 'run' : 'off'}" title="${_exEsc(t('ex.f_mode'))}">${t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')}</span></div></td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_exLocation ? `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/` : _exEsc(s.effective_base || s.path_uri_base || '—')}</td>
         <td><span class="ex-slots">${'<i></i>'.repeat(Math.min(s.retention, 14))}</span><span style="font-size:11px;color:var(--text-muted)">×${s.retention}${s.retention_days ? ` / ${s.retention_days}d` : ''}${s.mode === 'incremental' ? ` · ${t('ex.full_every', {n: s.full_every_n})}` : ''}</span></td>
-        <td style="font-family:'JetBrains Mono',monospace;">${_exTimeLabel(s.run_time, s.timezone)}</td>
-        <td>${s.last_run ? `${_exStatusBadge(s.last_run.status, s.last_run.message)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(s.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
+        <td style="font-family:'JetBrains Mono',monospace;">${s.policy_id ? `<span class="ex-badge run" title="${_exEsc(t('ex.pol_member_hint'))}">${t('ex.pol_member_of', {name: _exEsc(s.policy_name || '')})}</span>` : _exTimeLabel(s.run_time, s.timezone)}</td>
+        <td>${s.last_run ? `${_exStatusBadge(s.last_run.status, s.last_run.message)}${s.last_run.notice ? ' ' + _exNoticeBadge(s.last_run.notice) : ''}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(s.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted)">${_exFmt(s.next_run)}</td>
         <td style="white-space:nowrap;">${admin ? `
           <button class="um-action-btn" onclick="exRunNow(${s.id})" ${s.enabled ? '' : 'disabled'}>${t('ex.run_now')}</button>
@@ -5315,6 +5332,268 @@ async function exRemove(id, name) {
   try { await _exCall('DELETE', `/api/backup/plans/${id}`); exLoadSchedules(); } catch (e) { showToast(e.message, 'err'); }
 }
 function exHistory(id) { _exRunsFilter = id; switchExportsPanel('runs'); }
+
+// ── backup schedules (policies) ─────────────────────────────────────────────
+// A schedule belongs to the folder of the selected cluster and holds VMs of every cluster in it;
+// VMs are added from the cluster they live on. Times are read in the schedule's own zone.
+const _POL_DAYS = ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su'];
+const _POL_BDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+let _polData = { policies: [] };
+let _polEditing = null;            // policy id being edited, 'new-incremental' / 'new-export', or null
+let _polMembersOpen = null;
+
+const _polDayName = d => t(`ex.pol_day_${d}`);
+const _polNth = n => t(`ex.pol_nth_${n === '-1' ? 'last' : n}`);
+// rule <-> builder: daily, weekly (interval + days), monthly on the nth weekday, monthly on a day, custom
+function _polParseRule(rule) {
+  const parts = Object.fromEntries((rule || '').split(';').filter(Boolean).map(x => x.split('=')));
+  const keys = Object.keys(parts).filter(k => k !== 'FREQ' && k !== 'INTERVAL' && k !== 'BYDAY' && k !== 'BYMONTHDAY');
+  const interval = parseInt(parts.INTERVAL || '1', 10);
+  if (keys.length) return { preset: 'custom' };
+  if (parts.FREQ === 'DAILY' && !parts.BYDAY && !parts.BYMONTHDAY) return { preset: 'daily', interval };
+  if (parts.FREQ === 'WEEKLY' && !parts.BYMONTHDAY) {
+    const days = (parts.BYDAY || '').toLowerCase().split(',').filter(d => _POL_DAYS.includes(d));
+    if (days.length === (parts.BYDAY || '').split(',').filter(Boolean).length) return { preset: 'weekly', interval, days };
+  }
+  if (parts.FREQ === 'MONTHLY' && interval === 1) {
+    const m = /^(-1|[1-4])(MO|TU|WE|TH|FR|SA|SU)$/.exec(parts.BYDAY || '');
+    if (m && !parts.BYMONTHDAY) return { preset: 'monthly_nth', nth: m[1], weekday: m[2].toLowerCase() };
+    if (!parts.BYDAY && /^\d+$/.test(parts.BYMONTHDAY || '')) return { preset: 'monthly_day', monthday: parseInt(parts.BYMONTHDAY, 10) };
+  }
+  return { preset: 'custom' };
+}
+function _polDescribe(rule) {
+  const r = _polParseRule(rule);
+  if (r.preset === 'daily') return r.interval > 1 ? t('ex.pol_desc_every_n_days', {n: r.interval}) : t('ex.pol_desc_daily');
+  if (r.preset === 'weekly') {
+    const days = r.days.length === 5 && !r.days.includes('sa') && !r.days.includes('su') ? t('ex.pol_weekdays') : r.days.map(_polDayName).join(', ');
+    return r.interval > 1 ? t('ex.pol_desc_every_n_weeks', {n: r.interval, days}) : t('ex.pol_desc_weekly', {days});
+  }
+  if (r.preset === 'monthly_nth') return t('ex.pol_desc_monthly_nth', {nth: _polNth(r.nth), day: _polDayName(r.weekday)});
+  if (r.preset === 'monthly_day') return t('ex.pol_desc_monthly_day', {n: r.monthday});
+  return rule;
+}
+function _polWhen(iso, tz) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const zone = d.toLocaleString('en-GB', {timeZone: tz, weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'});
+  return tz && tz !== _exViewerZone() ? `${_exEsc(zone)} <span style="opacity:0.7">(${t('ex.your_time', {time: d.toLocaleString('en-GB', {hour: '2-digit', minute: '2-digit'})})})</span>` : _exEsc(zone);
+}
+function _polBlackoutText(b) {
+  const days = b.days.length === 7 ? t('ex.pol_every_day') : b.days.map(d => _polDayName(d.slice(0, 2))).join(', ');
+  return `${days} ${_exEsc(b.from)}–${_exEsc(b.to)}`;
+}
+
+async function exLoadPolicies() {
+  const el = document.getElementById('expanel-policies');
+  try { _polData = await _exCall('GET', '/api/backup/policies'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  const scope = _polData.folder_name ? t('ex.pol_scope_folder', {folder: _exEsc(_polData.folder_name)}) : t('ex.pol_scope_unfiled');
+  const section = (kind) => {
+    const rows = _polData.policies.filter(p => p.kind === kind);
+    const title = kind === 'incremental' ? t('ex.pol_backup_schedules') : t('ex.pol_export_schedules');
+    const disabled = kind === 'incremental' && !_exDefaults.proxies;
+    return `<div class="settings-group">
+      <div class="settings-group-header"><div class="chart-title-dot" style="background:${kind === 'incremental' ? 'var(--accent-cyan)' : 'var(--accent-purple)'}"></div>
+        <span class="settings-group-title">${title}</span>
+        <button class="um-action-btn" onclick="exPolicyEdit('new-${kind}')" ${disabled ? `disabled title="${_exEsc(t('ex.mode_hint_no_proxy'))}"` : ''}>${t('ex.pol_new')}</button></div>
+      ${_polEditing === `new-${kind}` ? _polForm(null, kind) : ''}
+      ${rows.length ? rows.map(_polCard).join('') : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.pol_none')}</div>`}
+    </div>`;
+  };
+  el.innerHTML = `${_exLocationLine(null)}<div class="ex-hint" style="margin-bottom:10px;">${scope} ${t('ex.pol_intro')}</div>` + section('incremental') + section('export');
+  if (_polEditing) _polFormInit(_polEditing);
+  if (_polMembersOpen) exPolicyMembers(_polMembersOpen, true);
+}
+
+function _polCard(p) {
+  const last = p.last_occurrence;
+  const st = last ? last.by_status || {} : {};
+  const lastLine = last ? `${t('ex.pol_last_night', {date: _exEsc(last.occurrence)})}: ${st.COMPLETE ? `<span class="ex-badge ok">${st.COMPLETE} ${t('ex.status_ok')}</span> ` : ''}${st.ERROR ? `<span class="ex-badge err">${st.ERROR} ${t('ex.status_failed')}</span> ` : ''}${st.SKIPPED ? `<span class="ex-badge warn">${st.SKIPPED} ${t('ex.status_deferred')}</span> ` : ''}${st.RUNNING ? `<span class="ex-badge run">${st.RUNNING} ${t('ex.status_running')}</span> ` : ''}${last.notices ? `<span class="ex-badge notice">${t('ex.pol_notices', {n: last.notices})}</span>` : ''}` : t('ex.pol_not_run_yet');
+  const next = (p.next || []).slice(0, 3).map(w => _polWhen(w.first_start || w.opens, p.timezone)).join(' · ');
+  return `<div class="pol-card">
+    <div class="pol-head">
+      <span class="pol-name">${_exEsc(p.name)}</span>
+      ${p.enabled ? '' : `<span class="ex-badge off">${t('ex.paused')}</span>`}
+      ${p.open_now && p.enabled ? `<span class="ex-badge run">${t('ex.pol_window_open')}</span>` : ''}
+      ${p.rule_error ? `<span class="ex-badge err" title="${_exEsc(p.rule_error)}">${t('ex.pol_rule_error')}</span>` : ''}
+      <span class="pol-actions">
+        <button class="um-action-btn" onclick="exPolicyMembers(${p.id})">${t('ex.pol_members', {n: p.members.length})}</button>
+        <button class="um-action-btn" onclick="exPolicyEdit(${p.id})">${t('ex.pol_edit')}</button>
+        <button class="um-action-btn" onclick="exPolicyToggle(${p.id})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
+        <button class="um-action-btn danger" onclick="exPolicyDelete(${p.id}, '${_exEsc(p.name)}')">${t('ex.remove')}</button>
+      </span>
+    </div>
+    <div class="pol-meta">
+      <b>${_exEsc(_polDescribe(p.rrule))}</b> · ${t('ex.pol_window', {open: _exTimeLabel(p.window_open, p.timezone), finish: _exEsc(p.preferred_finish)})} · ${t('ex.pol_buffer', {n: p.buffer_minutes})}
+      ${(p.blackouts || []).length ? `<br>${t('ex.pol_blackouts')}: ${p.blackouts.map(_polBlackoutText).join('; ')}` : ''}
+      <br>${t('ex.pol_keeps', {n: p.retention})}${p.retention_days ? ` / ${p.retention_days}d` : ''}${p.kind === 'incremental' ? ` · ${t('ex.full_every', {n: p.full_every_n})}` : ''}${p.compress ? ' · zip' : ''}
+      <br>${t('ex.pol_next')}: ${next || '—'}
+      <br>${lastLine}
+    </div>
+    ${_polEditing === p.id ? _polForm(p, p.kind) : ''}
+    <div id="pol-members-${p.id}"></div>
+  </div>`;
+}
+
+function exPolicyEdit(id) { _polEditing = _polEditing === id ? null : id; _polMembersOpen = null; exLoadPolicies(); }
+
+function _polForm(p, kind) {
+  const f = `polf`;
+  const v = p || { name: '', rrule: 'FREQ=DAILY', window_open: '22:00', preferred_finish: '06:00', buffer_minutes: 60, blackouts: [],
+                   retention: kind === 'incremental' ? 14 : (_exDefaults.default_retention || 7), retention_days: null, full_every_n: 14,
+                   compress: false, timezone: _exClusterZone || _exViewerZone(), starts_on: '' };
+  const r = _polParseRule(v.rrule);
+  const dayBoxes = (cls, chosen) => `<span class="pol-days">${_POL_DAYS.map(d => `<label><input type="checkbox" class="${cls}" value="${d}" ${chosen.includes(d) ? 'checked' : ''}>${_polDayName(d)}</label>`).join('')}</span>`;
+  const zones = (Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : []).map(z => `<option value="${_exEsc(z)}">`).join('');
+  return `<div class="pol-form" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+    <div class="ex-form">
+      <div><label>${t('ex.pol_f_name')}</label><input type="text" id="${f}-name" maxlength="80" value="${_exEsc(v.name)}"></div>
+      <div><label>${t('ex.pol_f_repeat')}</label><select id="${f}-preset" onchange="_polPresetChanged()">
+        ${['daily', 'weekly', 'monthly_nth', 'monthly_day', 'custom'].map(x => `<option value="${x}" ${r.preset === x ? 'selected' : ''}>${t('ex.pol_preset_' + x)}</option>`).join('')}</select></div>
+      <div class="polp polp-daily polp-weekly"><label>${t('ex.pol_f_interval')}</label><input type="number" id="${f}-interval" min="1" max="52" value="${r.interval || 1}">
+        <div class="ex-hint">${t('ex.pol_f_interval_hint')}</div></div>
+      <div class="polp polp-weekly" style="grid-column:1/-1;"><label>${t('ex.pol_f_days')}</label>${dayBoxes('polf-day', r.days || ['mo', 'tu', 'we', 'th', 'fr'])}</div>
+      <div class="polp polp-monthly_nth"><label>${t('ex.pol_f_nth')}</label><select id="${f}-nth">${['1', '2', '3', '4', '-1'].map(n => `<option value="${n}" ${r.nth === n ? 'selected' : ''}>${_polNth(n)}</option>`).join('')}</select>
+        <select id="${f}-weekday" style="margin-top:4px;">${_POL_DAYS.map(d => `<option value="${d}" ${(r.weekday || 'su') === d ? 'selected' : ''}>${_polDayName(d)}</option>`).join('')}</select></div>
+      <div class="polp polp-monthly_day"><label>${t('ex.pol_f_monthday')}</label><input type="number" id="${f}-monthday" min="1" max="31" value="${r.monthday || 1}"></div>
+      <div class="polp polp-custom" style="grid-column:1/-1;"><label>${t('ex.pol_f_rrule')}</label><input type="text" id="${f}-rrule" value="${_exEsc(v.rrule)}" placeholder="FREQ=MONTHLY;BYDAY=-1SU">
+        <div class="ex-hint">${t('ex.pol_f_rrule_hint')}</div></div>
+      <div class="polp polp-daily polp-weekly"><label>${t('ex.pol_f_starts_on')}</label><input type="text" id="${f}-starts_on" placeholder="YYYY-MM-DD" value="${_exEsc(v.starts_on || '')}">
+        <div class="ex-hint">${t('ex.pol_f_starts_on_hint')}</div></div>
+    </div>
+    <div class="ex-form">
+      <div><label>${t('ex.pol_f_window_open')}</label><input type="time" id="${f}-window_open" value="${_exEsc(v.window_open)}"><div class="ex-hint">${t('ex.pol_f_window_open_hint')}</div></div>
+      <div><label>${t('ex.pol_f_finish')}</label><input type="time" id="${f}-preferred_finish" value="${_exEsc(v.preferred_finish)}"><div class="ex-hint">${t('ex.pol_f_finish_hint')}</div></div>
+      <div><label>${t('ex.pol_f_buffer')}</label><input type="number" id="${f}-buffer_minutes" min="0" max="720" value="${v.buffer_minutes}"><div class="ex-hint">${t('ex.pol_f_buffer_hint')}</div></div>
+      <div><label>${t('ex.pol_f_timezone')}</label><input type="text" id="${f}-timezone" list="polf-zones" value="${_exEsc(v.timezone)}"><datalist id="polf-zones">${zones}</datalist>
+        <div class="ex-hint">${t('ex.pol_f_timezone_hint')}</div></div>
+    </div>
+    <div style="margin:6px 0;"><label style="font-size:11px;color:var(--text-muted);">${t('ex.pol_blackouts')}</label>
+      <div class="ex-hint">${t('ex.pol_f_blackouts_hint')}</div>
+      <div id="${f}-blackouts">${(v.blackouts || []).map(_polBlackoutRow).join('')}</div>
+      <button class="um-action-btn" onclick="_polAddBlackout()">${t('ex.pol_f_add_blackout')}</button></div>
+    <div class="ex-form">
+      <div><label>${t('ex.f_retention')}</label><input type="number" id="${f}-retention" min="1" max="365" value="${v.retention}"></div>
+      <div><label>${t('ex.f_retention_days')}</label><input type="number" id="${f}-retention_days" min="0" max="3650" value="${v.retention_days || ''}" placeholder="—"></div>
+      ${kind === 'incremental' ? `<div><label>${t('ex.f_full_every')}</label><input type="number" id="${f}-full_every_n" min="1" max="365" value="${v.full_every_n}"></div>`
+                               : `<div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="${f}-compress" ${v.compress ? 'checked' : ''}><label for="${f}-compress" style="margin:0;">${t('ex.f_compress')}</label></div>`}
+    </div>
+    <div class="cl-actions">
+      <button class="update-apply-btn" onclick="exPolicySave(${p ? p.id : `'${kind}'`})">${p ? t('ex.pol_save') : t('ex.pol_create')}</button>
+      <button class="refresh-btn" onclick="exPolicyPreview()">${t('ex.pol_preview')}</button>
+      <button class="um-action-btn" onclick="exPolicyEdit(null)">${t('ex.pol_cancel')}</button>
+      <span class="cl-msg" id="${f}-msg"></span></div>
+    <div class="pol-preview" id="${f}-preview"></div>
+  </div>`;
+}
+function _polBlackoutRow(b) {
+  const days = (b && b.days) || ['mon', 'tue', 'wed', 'thu', 'fri'];
+  return `<div class="pol-blackout"><span class="pol-days">${_POL_BDAYS.map(d => `<label><input type="checkbox" class="polb-day" value="${d}" ${days.includes(d) ? 'checked' : ''}>${_polDayName(d.slice(0, 2))}</label>`).join('')}</span>
+    <input type="time" class="polb-from" value="${_exEsc((b && b.from) || '07:00')}"> – <input type="time" class="polb-to" value="${_exEsc((b && b.to) || '19:00')}">
+    <button class="um-action-btn danger" onclick="this.parentElement.remove()">×</button></div>`;
+}
+function _polAddBlackout() { document.getElementById('polf-blackouts')?.insertAdjacentHTML('beforeend', _polBlackoutRow(null)); }
+function _polPresetChanged() {
+  const preset = document.getElementById('polf-preset')?.value;
+  document.querySelectorAll('.polp').forEach(el => { el.style.display = el.classList.contains(`polp-${preset}`) ? '' : 'none'; });
+}
+function _polFormInit() { _polPresetChanged(); }
+function _polReadForm() {
+  const g = id => document.getElementById(`polf-${id}`);
+  const preset = g('preset').value, interval = Math.max(1, parseInt(g('interval').value || '1', 10));
+  let rrule;
+  if (preset === 'daily') rrule = 'FREQ=DAILY' + (interval > 1 ? `;INTERVAL=${interval}` : '');
+  else if (preset === 'weekly') {
+    const days = [...document.querySelectorAll('.polf-day:checked')].map(x => x.value.toUpperCase());
+    rrule = 'FREQ=WEEKLY' + (interval > 1 ? `;INTERVAL=${interval}` : '') + (days.length ? `;BYDAY=${days.join(',')}` : '');
+  } else if (preset === 'monthly_nth') rrule = `FREQ=MONTHLY;BYDAY=${g('nth').value}${g('weekday').value.toUpperCase()}`;
+  else if (preset === 'monthly_day') rrule = `FREQ=MONTHLY;BYMONTHDAY=${Math.min(31, Math.max(1, parseInt(g('monthday').value || '1', 10)))}`;
+  else rrule = g('rrule').value.trim();
+  const blackouts = [...document.querySelectorAll('#polf-blackouts .pol-blackout')].map(row => ({
+    days: [...row.querySelectorAll('.polb-day:checked')].map(x => x.value), from: row.querySelector('.polb-from').value, to: row.querySelector('.polb-to').value }));
+  const body = { name: g('name').value.trim(), rrule, window_open: g('window_open').value, preferred_finish: g('preferred_finish').value,
+                 buffer_minutes: parseInt(g('buffer_minutes').value || '60', 10), timezone: g('timezone').value.trim(), blackouts,
+                 retention: parseInt(g('retention').value || '7', 10), retention_days: parseInt(g('retention_days').value || '0', 10) || null };
+  if ((preset === 'daily' || preset === 'weekly') && g('starts_on').value.trim()) body.starts_on = g('starts_on').value.trim();
+  if (g('full_every_n')) body.full_every_n = parseInt(g('full_every_n').value || '14', 10);
+  if (g('compress')) body.compress = g('compress').checked;
+  return body;
+}
+async function exPolicyPreview() {
+  const out = document.getElementById('polf-preview'), msg = document.getElementById('polf-msg');
+  const body = _polReadForm();
+  try {
+    const d = await _exCall('POST', '/api/backup/policies/preview', {...body, count: 6});
+    msg.textContent = ''; msg.className = 'cl-msg';
+    out.innerHTML = `${t('ex.pol_preview_title')}<br>` + d.windows.map(w => `${_polWhen(w.opens, body.timezone)} → ${_polWhen(w.finish, body.timezone)}${w.first_start && w.first_start !== w.opens ? ` · ${t('ex.pol_first_start', {time: _polWhen(w.first_start, body.timezone)})}` : ''}${w.first_start ? '' : ` · ${t('ex.pol_fully_blacked_out')}`}`).join('<br>');
+  } catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
+}
+async function exPolicySave(idOrKind) {
+  const msg = document.getElementById('polf-msg');
+  const body = _polReadForm();
+  try {
+    if (typeof idOrKind === 'number') await _exCall('PUT', `/api/backup/policies/${idOrKind}`, body);
+    else await _exCall('POST', '/api/backup/policies', {...body, kind: idOrKind});
+    showToast(t('ex.pol_saved', {name: body.name}), 'ok'); _polEditing = null; exLoadPolicies();
+  } catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
+}
+async function exPolicyToggle(id) { try { await _exCall('POST', `/api/backup/policies/${id}/toggle`); exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); } }
+async function exPolicyDelete(id, name) {
+  if (!confirm(t('ex.pol_confirm_delete', {name}))) return;
+  try { await _exCall('DELETE', `/api/backup/policies/${id}`); _polEditing = null; _polMembersOpen = null; exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); }
+}
+
+async function exPolicyMembers(id, keepOpen) {
+  const box = document.getElementById(`pol-members-${id}`);
+  if (!box) return;
+  if (!keepOpen && _polMembersOpen === id) { _polMembersOpen = null; box.innerHTML = ''; return; }
+  if (!keepOpen) { _polMembersOpen = id; _polEditing = null; }
+  const p = _polData.policies.find(x => x.id === id);
+  const cur = CLUSTERS.find(c => c.cluster_id === currentCluster);
+  box.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+  let vms = [];
+  try { vms = await _exCall('GET', '/api/backup/vms'); } catch (e) { vms = []; }
+  const memberIds = new Set(p.members.map(m => m.vm_uuid + '@' + m.cluster_id));
+  const candidates = vms.filter(vm => !memberIds.has(vm.uuid + '@' + currentCluster));
+  box.innerHTML = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+    ${p.members.length ? `<table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.pol_col_cluster')}</th><th>${t('ex.col_last_run')}</th><th></th></tr></thead><tbody>
+      ${p.members.map(m => `<tr><td class="um-username">${_exEsc(m.vm_name)}${m.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}</td>
+        <td style="font-size:11px;">${_exEsc(m.cluster_name)}</td>
+        <td>${m.last_run ? `${_exStatusBadge(m.last_run.status, m.last_run.message)}${m.last_run.notice ? ' ' + _exNoticeBadge(m.last_run.notice) : ''}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(m.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
+        <td style="white-space:nowrap;">${m.cluster_id === currentCluster ? `<button class="um-action-btn" onclick="exToggle(${m.id}).then(exLoadPolicies)">${m.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
+          <button class="um-action-btn danger" onclick="exPolicyRemoveMember(${id}, ${m.id}, '${_exEsc(m.vm_name)}')">${t('ex.pol_remove_member')}</button></td></tr>`).join('')}
+    </tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.pol_no_members')}</div>`}
+    <div style="margin-top:10px;"><label style="font-size:11px;color:var(--text-muted);">${t('ex.pol_add_from', {cluster: _exEsc(cur ? cur.name : '')})}</label>
+      <div class="ex-hint">${t('ex.pol_add_hint')}</div>
+      ${candidates.length ? `<div class="ex-folder-list">${candidates.map(vm => {
+        const s = vm.schedule;
+        const note = !s ? '' : s.policy_id ? t('ex.pol_moves_from', {name: _exEsc(s.policy_name || '')}) : t('ex.pol_joins_own_plan', {mode: t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')});
+        return `<label><input type="checkbox" class="pol-add" value="${_exEsc(vm.uuid)}" data-name="${_exEsc(vm.name)}">${_exEsc(vm.name)}${note ? ` <span class="ex-hint" style="display:inline;">— ${note}</span>` : ''}</label>`;
+      }).join('')}</div>
+      <div class="cl-actions"><button class="update-apply-btn" onclick="exPolicyAddMembers(${id})">${t('ex.pol_add_selected')}</button><span class="cl-msg" id="pol-add-msg-${id}"></span></div>`
+      : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.pol_nothing_to_add')}</div>`}
+    </div></div>`;
+}
+async function exPolicyAddMembers(id) {
+  const msg = document.getElementById(`pol-add-msg-${id}`);
+  const picks = [...document.querySelectorAll('.pol-add:checked')];
+  if (!picks.length) return;
+  let added = 0;
+  for (const el of picks) {
+    try { await _exCall('POST', `/api/backup/policies/${id}/members`, {cluster_id: currentCluster, vm_uuid: el.value, vm_name: el.dataset.name}); added++; }
+    catch (e) { msg.textContent = `${el.dataset.name}: ${e.message}`; msg.className = 'cl-msg err'; }
+  }
+  if (added) { showToast(t('ex.pol_members_added', {n: added}), 'ok'); exLoadPolicies(); }
+}
+async function exPolicyRemoveMember(id, planId, name) {
+  if (!confirm(t('ex.pol_confirm_remove_member', {name}))) return;
+  try { await _exCall('DELETE', `/api/backup/policies/${id}/members/${planId}`); exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); }
+}
+function _exNoticeBadge(notice) {
+  const codes = (notice || '').split(',').filter(Boolean);
+  if (!codes.length) return '';
+  return `<span class="ex-badge notice" title="${_exEsc(codes.map(c => t('ex.notice_' + c + '_hint')).join(' '))}">${codes.map(c => _exEsc(t('ex.notice_' + c))).join(' · ')}</span>`;
+}
 
 // ── VMs ─────────────────────────────────────────────────────────────────────
 async function exLoadVms() {
@@ -5336,7 +5615,9 @@ async function exLoadVms() {
         <td>${vm.numVCPU}</td>
         <td>${(vm.mem / 1024 ** 3).toFixed(0)} GiB</td>
         <td style="font-size:11px;white-space:nowrap;">${vm.churn && vm.churn.mib != null ? `${_exMiB(vm.churn.mib)}<div style="font-size:10px;color:var(--text-muted);">${_exFmt(new Date(vm.churn.at * 1000).toISOString())}</div>` : '<span style="color:var(--text-muted)">—</span>'}</td>
-        <td style="white-space:nowrap;">${vm.schedule
+        <td style="white-space:nowrap;">${vm.schedule && vm.schedule.policy_id
+          ? `<span class="ex-badge run">${t('ex.pol_member_of', {name: _exEsc(vm.schedule.policy_name || '')})}</span>`
+          : vm.schedule
           ? `<span class="ex-badge run" title="${_exEsc(vm.schedule.timezone || '')}">${t('ex.daily_at', {time: vm.schedule.run_time + (vm.schedule.timezone && vm.schedule.timezone !== _exViewerZone() ? ' ' + vm.schedule.timezone : '')})}</span>`
           : (admin ? `<button class="um-action-btn" onclick="exToggleForm(${i})">${t('ex.schedule_export')}</button>` : `<span style="color:var(--text-muted);font-size:11px;">—</span>`)}</td>
       </tr>
@@ -5444,7 +5725,7 @@ async function exLoadRuns() {
         <tbody>${rows.map(r => `<tr>
           <td class="um-username">${_exEsc(kind === 'imp' ? r.source_uri : r.vm_name)}${(kind === 'imp' || kind === 'rst') && r.target_name ? ` → ${_exEsc(r.target_name)}` : ''}${kind === 'run' && r.export_path ? `<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(r.export_path)}</div>` : ''}</td>
           <td style="font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap;">${_exFmt(r.started_at)}</td>
-          <td>${_exStatusBadge(r.status, r.message)}</td>
+          <td>${_exStatusBadge(r.status, r.message)}${kind === 'run' && r.notice ? ' ' + _exNoticeBadge(r.notice) : ''}</td>
           <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${kind === 'run' && r.mode ? `<span class="ex-badge ${r.mode === 'incremental' ? 'run' : 'off'}">${r.mode === 'incremental' ? t(r.point_kind === 'full' ? 'ex.point_full' : 'ex.point_delta') : t('ex.mode_export')}</span> ` : ''}${kind === 'rst' && r.kind === 'files' ? `<span class="ex-badge off">${t('ex.files')}</span> ` : ''}${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${kind === 'rst' && r.kind === 'files' && r.created_uuid && r.status === 'COMPLETE' ? ` <button class="um-action-btn" onclick="exEjectIso(${r.id})">${t('ex.flr_eject')}</button>` : ''}${r.task_tag ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
         </tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.no_runs')}</div>`}
     </div>`;

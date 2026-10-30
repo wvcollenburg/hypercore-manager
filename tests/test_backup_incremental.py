@@ -164,7 +164,7 @@ class _FakeDB:
                      'mode': 'incremental', 'retention': 14, 'retention_days': None, 'full_every_n': 14}
     def get_schedule(self, pid): return self.plan
     def is_run_active(self, pid): return False
-    def start_run(self, pid): self.runs[1] = {'id': 1}; return 1
+    def start_run(self, pid, policy_id=None, occurrence=None): self.runs[1] = {'id': 1}; return 1
     def update_run(self, rid, **f): self.runs[rid].update(f)
     def share_for_cluster(self, cid): return {'id': 9, 'uri_base': 'smb://nas/share', 'username': 'u', 'password': 'p'}
     def get_active_chain(self, pid):
