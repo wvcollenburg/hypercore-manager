@@ -403,7 +403,10 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None) -> None:
         def on_progress(p):
             if p.get('blocks_total'):
                 total_dev = p.get('devices_total', 1)
-                db.update_run(run_id, message=f'{kind}: {p.get("blocks_done", 0)}/{p["blocks_total"]} MiB, device {min(p.get("devices_done", 0) + 1, total_dev)}/{total_dev}')
+                try:                                    # progress text is cosmetic: a db hiccup must not abort the copy
+                    db.update_run(run_id, message=f'{kind}: {p.get("blocks_done", 0)}/{p["blocks_total"]} MiB, device {min(p.get("devices_done", 0) + 1, total_dev)}/{total_dev}')
+                except Exception as e:                  # noqa: BLE001
+                    log.warning('[run %s] progress update failed: %s', run_id, e)
         result = pc.wait(job_id, on_progress, timeout=CFG.task_timeout_hours * 3600)['result']
     except Exception:
         db.update_chain(chain['id'], active_clones=_delete_clones(hc, clones))

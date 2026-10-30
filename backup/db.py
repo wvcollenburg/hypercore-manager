@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -32,9 +33,24 @@ def _dsn() -> dict:
     )
 
 
+_CONNECT_RETRY_DELAYS = (2, 5, 10, 15)   # seconds; rides out a postgres stall while a proxy copy hammers the disk
+
+
+def _open() -> psycopg2.extensions.connection:
+    """Connect, retrying only the connect itself: no statement has run yet,
+    so a retry can never apply a write twice."""
+    for delay in _CONNECT_RETRY_DELAYS:
+        try:
+            return psycopg2.connect(**_dsn())
+        except psycopg2.OperationalError as e:
+            log.warning('postgres connect failed (%s), retrying in %ss', str(e).strip(), delay)
+            time.sleep(delay)
+    return psycopg2.connect(**_dsn())
+
+
 @contextmanager
 def connect():
-    conn = psycopg2.connect(**_dsn())
+    conn = _open()
     try:
         yield conn
         conn.commit()
