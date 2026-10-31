@@ -52,9 +52,11 @@ All notable changes to this project are documented here. The format follows
   remaining overhead. Backup schedules learn their durations from these columns.
 
 ### Fixed
-- **File browsing opens in a window of fixed size.** It was inline in the restore points list, so the
-  page grew and shrank with every folder; now only the list inside the window scrolls, and closing
-  the window unmounts the point.
+- **Restore points and file browsing open in a window of fixed size.** Both were inline in the
+  restore points list, so the page grew and shrank with every folder. **Points** now opens a window
+  with the VM's points (restore forms open in it), **Files** turns it into the browser of a point with
+  a way back to the points, and only the list inside scrolls. Leaving or closing the browser unmounts
+  the point.
 - **Backups missed the end of disks whose size is not a whole number of MiB** (proxy `0.5.2`).
   HyperCore shows a guest such a disk rounded up to whole MiB (a "100 GB" disk is 100,000,595,968
   bytes), but disk images were capped at the API capacity, so the last partial MiB, with the backup

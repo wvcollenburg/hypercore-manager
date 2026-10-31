@@ -124,7 +124,8 @@ days, and how many runs between fulls. The form says which time zone the time is
 
 ![Restore points](img/backup-points.png)
 
-One chain per VM: the base and the deltas after it, each a point you can restore. A point shows
+One chain per VM: the base and the deltas after it, each a point you can restore. **Points** opens
+them in a window of fixed size, where **Restore** and **Files** work on each point. A point shows
 when it was taken, how much changed and was written, whether the guest was **quiesced** (the
 guest flushed its state) or the point is **crash-consistent**, and when its files were last
 verified. **Verify** re-reads every file of the chain against the checksums written at backup
@@ -151,11 +152,12 @@ writing the disks, attaching them.
 
 ### Recovering single files
 
-**Files** on a point mounts it read-only on the proxy and opens a window with a browser of its filesystems
+**Files** on a point mounts it read-only on the proxy and turns the window into a browser of its filesystems
 (ext4, XFS, btrfs, NTFS, LVM). Download a file or a selection as a zip, or deliver the
 selection as an ISO straight into a running VM's CD-ROM, which needs no credentials for the
 guest; eject it afterwards from the Runs panel. Nothing is written into a guest through the
-hypervisor. Closing the window (✕, Escape or a click beside it) unmounts the point.
+hypervisor. **← Restore points** goes back to the list and closing the window (✕, Escape or a
+click beside it) does the same; both unmount the point.
 
 A partition that cannot be mounted (an unknown filesystem, a damaged one, or a partition table the
 proxy cannot read) is left out and the others stay browsable. When nothing in a point can be
