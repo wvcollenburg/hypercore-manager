@@ -725,6 +725,16 @@
   .flr-list { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
   .flr-list .um-table { margin: 0; }
   #flrMsg:empty { display: none; }
+  /* unlock form for encrypted volumes: read at a glance, about twice the size of the list text */
+  .flr-unlock { padding: 24px 28px; max-width: 860px; font-size: 16px; }
+  .flr-unlock-title { font-size: 22px; font-weight: 600; margin-bottom: 12px; }
+  .flr-unlock ul { margin: 0 0 18px 22px; padding: 0; }
+  .flr-unlock li { margin-bottom: 10px; }
+  .flr-unlock-keyid { font-family: 'JetBrains Mono', monospace; font-size: 14px; margin-top: 4px; }
+  .flr-unlock label { display: block; font-size: 14px; color: var(--text-muted); margin-bottom: 6px; }
+  .flr-unlock textarea { width: 100%; box-sizing: border-box; font-family: 'JetBrains Mono', monospace; font-size: 15px; padding: 8px 10px; }
+  .flr-unlock-hint { font-size: 13px; line-height: 1.5; color: var(--text-muted); margin-top: 8px; }
+  .flr-unlock .update-apply-btn.flr-unlock-btn { font-size: 15px; padding: 9px 22px; }
   .flr-list .loading, .flr-list .empty-state { height: 100%; }
   .update-meta {
     display: flex; gap: 20px; font-family: 'JetBrains Mono', monospace;
@@ -6004,18 +6014,18 @@ const _flrKindHint = kind => t(kind === 'BitLocker' ? 'ex.flr_key_hint_bitlocker
 function _flrUnlockForm() {
   const st = _flr; if (!st) return;
   // BitLocker: the recovery key ID tells the admin which key AD/Entra/Intune hold for this point (keys rotate)
-  const keyIds = v => (v.key_ids || []).map(id => `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;margin-top:2px;">${t('ex.flr_key_id')}: <b>${_exEsc(id.slice(0, 8))}</b>${_exEsc(id.slice(8))}</div>`).join('');
-  const vols = st.locked.map(v => `<li style="margin-bottom:6px;"><b>${_exEsc(v.name)}</b> · ${_exEsc(v.kind)}${v.description ? ` · <span style="color:var(--text-muted)">${_exEsc(v.description)}</span>` : ''}${v.reason === 'no key matched' ? ` · <span style="color:var(--accent-red)">${t('ex.flr_key_no_match')}</span>` : ''}${keyIds(v)}</li>`).join('');
+  const keyIds = v => (v.key_ids || []).map(id => `<div class="flr-unlock-keyid">${t('ex.flr_key_id')}: <b>${_exEsc(id.slice(0, 8))}</b>${_exEsc(id.slice(8))}</div>`).join('');
+  const vols = st.locked.map(v => `<li><b>${_exEsc(v.name)}</b> · ${_exEsc(v.kind)}${v.description ? ` · <span style="color:var(--text-muted)">${_exEsc(v.description)}</span>` : ''}${v.reason === 'no key matched' ? ` · <span style="color:var(--accent-red)">${t('ex.flr_key_no_match')}</span>` : ''}${keyIds(v)}</li>`).join('');
   const anyIds = st.locked.some(v => (v.key_ids || []).length);
   const kinds = [...new Set(st.locked.map(v => v.kind))];
   document.getElementById('flrToolbar').innerHTML = _pts ? `<a href="#" onclick="exFilesBack(); return false;" style="color:var(--accent-cyan);font-family:'JetBrains Mono',monospace;font-size:12px;">← ${t('ex.tab.points')}</a>` : '';
-  document.getElementById('flrList').innerHTML = `<div style="padding:16px 18px;max-width:640px;">
-    <div style="font-weight:600;margin-bottom:6px;">${t('ex.flr_locked_title')}</div>
-    <ul style="margin:0 0 10px 18px;padding:0;font-size:12px;">${vols}</ul>
-    <label for="flrKeys" style="font-size:11px;color:var(--text-muted);">${t('ex.flr_keys')}</label>
-    <textarea id="flrKeys" rows="3" autocomplete="off" spellcheck="false" style="width:100%;box-sizing:border-box;font-family:'JetBrains Mono',monospace;font-size:12px;" placeholder="123456-123456-123456-123456-123456-123456-123456-123456"></textarea>
-    <div class="ex-hint">${kinds.map(_flrKindHint).join(' ')}${anyIds ? ' ' + t('ex.flr_key_id_hint') : ''} ${t('ex.flr_keys_never_stored')}</div>
-    <div class="cl-actions"><button class="update-apply-btn" id="flrUnlockBtn" onclick="exFilesUnlock()">${t('ex.flr_unlock')}</button></div>
+  document.getElementById('flrList').innerHTML = `<div class="flr-unlock">
+    <div class="flr-unlock-title">${t('ex.flr_locked_title')}</div>
+    <ul>${vols}</ul>
+    <label for="flrKeys">${t('ex.flr_keys')}</label>
+    <textarea id="flrKeys" rows="3" autocomplete="off" spellcheck="false" placeholder="123456-123456-123456-123456-123456-123456-123456-123456"></textarea>
+    <div class="flr-unlock-hint">${kinds.map(_flrKindHint).join(' ')}${anyIds ? ' ' + t('ex.flr_key_id_hint') : ''} ${t('ex.flr_keys_never_stored')}</div>
+    <div class="cl-actions"><button class="update-apply-btn flr-unlock-btn" id="flrUnlockBtn" onclick="exFilesUnlock()">${t('ex.flr_unlock')}</button></div>
   </div>`;
   document.getElementById('flrKeys').focus();
 }
