@@ -49,7 +49,16 @@ CREATE TABLE IF NOT EXISTS config.sharing_prefs (
 );
 
 -- Seed the default row so Sentinel can read prefs immediately without
--- requiring a UI action first.
-INSERT INTO config.sharing_prefs (cluster_id)
-VALUES ('default')
-ON CONFLICT DO NOTHING;
+-- requiring a UI action first.  Only while cluster_id is still TEXT: 020 turns
+-- it into a UUID, and the migration runner re-runs this file on installs where
+-- it was applied before the runner recorded it ('default' is no UUID).
+DO $$
+BEGIN
+    IF (SELECT data_type FROM information_schema.columns
+        WHERE table_schema = 'config' AND table_name = 'sharing_prefs'
+          AND column_name = 'cluster_id') = 'text' THEN
+        INSERT INTO config.sharing_prefs (cluster_id)
+        VALUES ('default')
+        ON CONFLICT DO NOTHING;
+    END IF;
+END $$;

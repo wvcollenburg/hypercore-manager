@@ -222,3 +222,16 @@ def test_full_rule_days_are_passed_to_the_runs(fdb):
     assert {c[5] for c in monday} == {'none'}, 'with a full rule, other days never count up to a full'
     fdb.policies[0]['full_rrule'] = None
     assert {c[5] for c in _tick(fdb, datetime(2026, 11, 2, 22, 0, tzinfo=AMS))[0]} == {None}
+
+
+def test_scheduler_start_survives_a_database_without_the_new_tables(monkeypatch):
+    """On an upgrade the dashboard applies the migrations while the backup service starts: a
+    failing first sync must not take the service down; the periodic sync catches up."""
+    added = []
+    monkeypatch.setattr(sch._scheduler, 'start', lambda: None)
+    monkeypatch.setattr(sch._scheduler, 'add_job', lambda *a, **kw: added.append(kw.get('id')))
+    def boom():
+        raise RuntimeError('relation "backup.policies" does not exist')
+    monkeypatch.setattr(sch, 'sync_jobs', boom)
+    sch.start(60)
+    assert 'sync' in added and 'reconcile-start' in added

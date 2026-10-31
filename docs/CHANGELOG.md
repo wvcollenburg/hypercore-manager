@@ -38,6 +38,15 @@ All notable changes to this project are documented here. The format follows
   the work began after the pre-flight wait, the wait for a free proxy, the copy itself and the
   remaining overhead. Backup schedules learn their durations from these columns.
 
+### Fixed
+- **Migrations stuck at `015`.** On installs where `015_sharing_prefs.sql` ran before the migration
+  runner recorded it, the runner re-ran it on every start and failed (`'default'` is no UUID since
+  `020`), so no later migration was applied. `015` now seeds its row only while the column is still
+  text.
+- **Backup service crash on upgrade.** When the dashboard had not yet applied a new migration the
+  backup service needs, it exited at start and restarted in a loop; it now logs the error and its
+  periodic sync catches up once the tables are there.
+
 ## [1.0.0]
 
 The community release: one installation for many clusters, folders and users, incremental

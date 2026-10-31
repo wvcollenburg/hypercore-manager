@@ -208,9 +208,16 @@ def start(sync_interval_seconds: int = 60) -> None:
     _scheduler.add_job(sweep_all, trigger='date', run_date=datetime.now() + timedelta(seconds=120), id='sweep-start', replace_existing=True)
     # proxies follow the stack's version: one pass shortly after every (re)start, when the dashboard is up again
     _scheduler.add_job(update_proxies, trigger='date', run_date=datetime.now() + timedelta(seconds=180), id='proxy-update-start', replace_existing=True)
-    n = sync_jobs()
-    reconcile_interrupted()
-    log.info('Scheduler started with %d active schedule(s)', n)
+    # on an upgrade the dashboard may still be applying the migrations this code reads: log and let
+    # the periodic sync (and a delayed reconcile) catch up instead of taking the service down
+    try:
+        n = sync_jobs()
+        reconcile_interrupted()
+        log.info('Scheduler started with %d active schedule(s)', n)
+    except Exception:                                   # noqa: BLE001
+        log.exception('Scheduler start: database not ready, retrying with the periodic sync')
+        _scheduler.add_job(reconcile_interrupted, trigger='date', run_date=datetime.now() + timedelta(seconds=90),
+                           id='reconcile-start', replace_existing=True)
 
 
 def next_run_time(schedule_id: int):
