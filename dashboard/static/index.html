@@ -735,6 +735,10 @@
   .flr-unlock textarea { width: 100%; box-sizing: border-box; font-family: 'JetBrains Mono', monospace; font-size: 15px; padding: 8px 10px; }
   .flr-unlock-hint { font-size: 13px; line-height: 1.5; color: var(--text-muted); margin-top: 8px; }
   .flr-unlock .update-apply-btn.flr-unlock-btn { font-size: 15px; padding: 9px 22px; }
+  /* a point with readable and still-locked volumes: the bar above the list must not be missed */
+  .flr-locked-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 14px 18px; font-size: 20px;
+                    border-bottom: 1px solid var(--border); border-left: 4px solid var(--accent-amber, #f59e0b); }
+  .flr-locked-bar .update-apply-btn.flr-unlock-btn { font-size: 15px; padding: 9px 22px; }
   .flr-list .loading, .flr-list .empty-state { height: 100%; }
   .update-meta {
     display: flex; gap: 20px; font-family: 'JetBrains Mono', monospace;
@@ -6073,7 +6077,7 @@ function _flrRender() {
       <button class="um-action-btn" ${n ? '' : 'disabled'} onclick="exFilesIso()">${t('ex.flr_iso', {n})}</button>
       <button class="um-action-btn" onclick="exFilesClose()">${t('ex.flr_unmount')}</button>`;
   const locked = (st.locked || []).length && st.path === '/'
-    ? `<div class="ex-hint" style="padding:8px 12px;border-bottom:1px solid var(--border);">${t('ex.flr_some_locked', {names: st.locked.map(v => `${_exEsc(v.name)} (${_exEsc(v.kind)})`).join(', ')})} <a href="#" onclick="_flrUnlockForm(); return false;" style="color:var(--accent-cyan);">${t('ex.flr_unlock')}</a></div>` : '';
+    ? `<div class="flr-locked-bar"><span>🔒 ${t('ex.flr_some_locked', {names: st.locked.map(v => `<b>${_exEsc(v.name)}</b> (${_exEsc(v.kind)})`).join(', ')})}</span><button class="update-apply-btn flr-unlock-btn" onclick="_flrUnlockForm()">${t('ex.flr_unlock')}</button></div>` : '';
   const list = document.getElementById('flrList'), top = list.scrollTop;
   list.innerHTML = locked + (st.entries.length ? `<table class="um-table"><tbody>${rows}</tbody></table>` : `<div class="empty-state">${t('ex.flr_empty')}</div>`);
   list.scrollTop = top;
