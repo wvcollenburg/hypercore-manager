@@ -14,6 +14,8 @@ buffer`, so the data is fresh and the early night quiet, while the buffer absorb
    allowed minute, is moved later as a whole; the night then ends past the target and the plan
    says by how much.
 4. A start that falls inside a blackout moves to the end of it, pushing the rest of its slot.
+An hourly schedule has no preferred finish to aim for: every member starts as early as it can
+(step 1 for all of them), and the next occurrence is its target.
 Pure functions; datetimes are aware. All arithmetic is done in UTC: Python adds a timedelta to a
 datetime in a ZoneInfo zone on the wall clock, which is an hour off on a DST night.
 """
@@ -30,30 +32,33 @@ def plan_night(policy: dict, window: recurrence.Window, members: list[dict], pre
                capacity: dict) -> dict:
     """members: plan rows (id, cluster_id, vm_name). predictions: plan id -> predict.predict() result.
     capacity: cluster id -> slots. Returns {target, earliest, items: [...], end, overrun_seconds}."""
-    target = window.finish.astimezone(timezone.utc) - timedelta(minutes=int(policy.get('buffer_minutes') or 0))
+    forward = recurrence.is_hourly(policy)
+    buffer = 0 if forward else int(policy.get('buffer_minutes') or 0)
+    target = window.finish.astimezone(timezone.utc) - timedelta(minutes=buffer)
     earliest = recurrence.next_allowed(policy, window.opens).astimezone(timezone.utc)
     items = []
     for cid in sorted({m['cluster_id'] for m in members}):
         group = [m for m in members if m['cluster_id'] == cid]
-        items += _plan_cluster(policy, group, predictions, max(1, int(capacity.get(cid, 1))), earliest, target)
+        items += _plan_cluster(policy, group, predictions, max(1, int(capacity.get(cid, 1))), earliest, target, forward)
     end = max((i['predicted_finish'] for i in items), default=None)
     over = max(0.0, (end - target).total_seconds()) if end else 0.0
     return {'target': target, 'earliest': earliest, 'items': items, 'end': end, 'overrun_seconds': over}
 
 
-def _plan_cluster(policy, members, predictions, slots, earliest, target):
+def _plan_cluster(policy, members, predictions, slots, earliest, target, forward=False):
     def length(m):
         p = predictions.get(m['id']) or {}
         return float(p['seconds']) if p.get('seconds') else float(DEFAULT_SECONDS)
 
-    learning = [m for m in members if not (predictions.get(m['id']) or {}).get('learned')]
-    learned = [m for m in members if (predictions.get(m['id']) or {}).get('learned')]
+    known = lambda m: bool((predictions.get(m['id']) or {}).get('learned'))  # noqa: E731
+    learning = list(members) if forward else [m for m in members if not known(m)]
+    learned = [] if forward else [m for m in members if known(m)]
     # 1. learning members from the first allowed minute, on the slot that frees up first
     front = [earliest] * slots
     queues: list[list[dict]] = [[] for _ in range(slots)]
     for m in sorted(learning, key=lambda m: (-length(m), m.get('vm_name') or '')):
         s = min(range(slots), key=lambda i: front[i])
-        queues[s].append({'member': m, 'seconds': length(m), 'learned': False})
+        queues[s].append({'member': m, 'seconds': length(m), 'learned': known(m) if forward else False, 'front': True})
         front[s] += timedelta(seconds=length(m))
     # 2. learned members backwards from the target, longest first, on the slot starting latest
     back = [target] * slots
@@ -72,7 +77,7 @@ def _plan_cluster(policy, members, predictions, slots, earliest, target):
         t = earliest
         tail_start = back[s]
         for i, job in enumerate(queues[s] + tails[s]):
-            if job['learned'] and i == len(queues[s]):
+            if not job.get('front') and i == len(queues[s]):
                 t = max(t, tail_start)
             t = recurrence.next_allowed(policy, t).astimezone(timezone.utc)
             finish = t + timedelta(seconds=job['seconds'])

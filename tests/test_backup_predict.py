@@ -145,3 +145,14 @@ def test_a_dst_night_is_planned_in_real_time():
     assert it['predicted_finish'] == datetime(2026, 10, 25, 5, 0, tzinfo=AMS)
     assert (it['predicted_finish'] - it['planned_start']).total_seconds() == 3 * 3600
     assert it['planned_start'] == datetime(2026, 10, 25, 1, 0, tzinfo=timezone.utc)
+
+
+def test_an_hourly_occurrence_is_planned_forward_from_its_opening():
+    pol = _policy(rrule='FREQ=HOURLY;INTERVAL=3')
+    w = rec.current_window(pol, datetime(2026, 10, 20, 13, 0, tzinfo=AMS))
+    preds = {1: {'learned': True, 'seconds': 600}, 2: {'learned': True, 'seconds': 300}, 3: {'learned': False}}
+    plan = pl.plan_night(pol, w, _members(1, 2, 3), preds, {'c1': 1})
+    it = _by(plan)
+    assert plan['target'] == datetime(2026, 10, 20, 15, 0, tzinfo=AMS), 'the next occurrence, no buffer'
+    assert min(i['planned_start'] for i in plan['items']) == datetime(2026, 10, 20, 12, 0, tzinfo=AMS)
+    assert it[1]['learned'] and not it[3]['learned'] and plan['overrun_seconds'] == 0

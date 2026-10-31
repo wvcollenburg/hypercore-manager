@@ -5365,6 +5365,7 @@ function _polParseRule(rule) {
   const keys = Object.keys(parts).filter(k => k !== 'FREQ' && k !== 'INTERVAL' && k !== 'BYDAY' && k !== 'BYMONTHDAY');
   const interval = parseInt(parts.INTERVAL || '1', 10);
   if (keys.length) return { preset: 'custom' };
+  if (parts.FREQ === 'HOURLY') return parts.BYDAY || parts.BYMONTHDAY ? { preset: 'custom' } : { preset: 'hourly', interval };
   if (parts.FREQ === 'DAILY' && !parts.BYDAY && !parts.BYMONTHDAY) return { preset: 'daily', interval };
   if (parts.FREQ === 'WEEKLY' && !parts.BYMONTHDAY) {
     const days = (parts.BYDAY || '').toLowerCase().split(',').filter(d => _POL_DAYS.includes(d));
@@ -5379,6 +5380,7 @@ function _polParseRule(rule) {
 }
 function _polDescribe(rule) {
   const r = _polParseRule(rule);
+  if (r.preset === 'hourly') return r.interval > 1 ? t('ex.pol_desc_every_n_hours', {n: r.interval}) : t('ex.pol_desc_hourly');
   if (r.preset === 'daily') return r.interval > 1 ? t('ex.pol_desc_every_n_days', {n: r.interval}) : t('ex.pol_desc_daily');
   if (r.preset === 'weekly') {
     const days = r.days.length === 5 && !r.days.includes('sa') && !r.days.includes('su') ? t('ex.pol_weekdays') : r.days.map(_polDayName).join(', ');
@@ -5397,6 +5399,14 @@ function _polWhen(iso, tz) {
 function _polBlackoutText(b) {
   const days = b.days.length === 7 ? t('ex.pol_every_day') : b.days.map(d => _polDayName(d.slice(0, 2))).join(', ');
   return `${days} ${_exEsc(b.from)}–${_exEsc(b.to)}`;
+}
+
+const _polIsHourly = p => /FREQ=HOURLY/.test(p.rrule || '');
+// an occurrence is the moment its window opened: hourly schedules show it in full, others by day
+function _polOcc(iso, p) {
+  if (!iso) return '—';
+  if (_polIsHourly(p)) return _polWhen(iso, p.timezone);
+  return _exEsc(new Date(iso).toLocaleDateString('en-CA', {timeZone: p.timezone || undefined}));
 }
 
 async function exLoadPolicies() {
@@ -5425,10 +5435,12 @@ const _polDur = sec => sec == null ? '—' : sec < 90 ? `${Math.round(sec)} s` :
 function _polNightLine(p) {
   const n = p.night;
   if (!n) return '';
-  const when = n.open ? t('ex.pol_night_tonight') : t('ex.pol_night_next', {date: _exEsc(n.occurrence)});
+  const when = _polIsHourly(p) ? (n.open ? t('ex.pol_occ_now') : t('ex.pol_occ_next', {time: _polOcc(n.occurrence, p)}))
+    : n.open ? t('ex.pol_night_tonight') : t('ex.pol_night_next', {date: _polOcc(n.occurrence, p)});
   const learning = n.members - n.learned;
   const state = n.learned === 0 ? t('ex.pol_night_learning_all')
     : n.overrun_seconds > 0 ? `<span class="ex-badge notice">${t('ex.pol_night_overrun', {time: _polHM(n.end, p.timezone), n: Math.round(n.overrun_seconds / 60)})}</span>`
+    : _polIsHourly(p) ? t('ex.pol_occ_done_by', {time: _polHM(n.end, p.timezone)})
     : t('ex.pol_night_done_by', {time: _polHM(n.end, p.timezone), buffer: p.buffer_minutes});
   return `<br>${when}${n.full ? ` <span class="ex-badge ok">${t('ex.pol_full_night')}</span>` : ''}: ${state}${learning && n.learned ? ` · ${t('ex.pol_night_still_learning', {n: learning})}` : ''}`;
 }
@@ -5462,7 +5474,7 @@ async function exPolicyNight(id, which, keep) {
   }).join('');
   box.innerHTML = `<div class="pol-tl">
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px;font-size:12px;">
-      <b>${n.open ? t('ex.pol_night_tonight') : t('ex.pol_night_next', {date: _exEsc(n.occurrence)})}</b>
+      <b>${_polIsHourly(p) ? (n.open ? t('ex.pol_occ_now') : t('ex.pol_occ_next', {time: _polOcc(n.occurrence, p)})) : n.open ? t('ex.pol_night_tonight') : t('ex.pol_night_next', {date: _polOcc(n.occurrence, p)})}</b>
       <span style="color:var(--text-muted);font-size:11px;">${t('ex.pol_tl_legend', {target: _polHM(n.target, tz), finish: _polHM(n.finish, tz), end: _polHM(n.end, tz)})}</span>
       <span style="margin-left:auto;display:flex;gap:4px;">
         <button class="um-action-btn" onclick="exPolicyNight(${id}, 'current', true)" ${which === 'current' ? 'disabled' : ''}>${t('ex.pol_tl_current')}</button>
@@ -5475,24 +5487,26 @@ async function exPolicyNight(id, which, keep) {
 function _polCard(p) {
   const last = p.last_occurrence;
   const st = last ? last.by_status || {} : {};
-  const lastLine = last ? `${t('ex.pol_last_night', {date: _exEsc(last.occurrence)})}: ${st.COMPLETE ? `<span class="ex-badge ok">${st.COMPLETE} ${t('ex.status_ok')}</span> ` : ''}${st.ERROR ? `<span class="ex-badge err">${st.ERROR} ${t('ex.status_failed')}</span> ` : ''}${st.SKIPPED ? `<span class="ex-badge warn">${st.SKIPPED} ${t('ex.status_deferred')}</span> ` : ''}${st.RUNNING ? `<span class="ex-badge run">${st.RUNNING} ${t('ex.status_running')}</span> ` : ''}${last.notices ? `<span class="ex-badge notice">${t('ex.pol_notices', {n: last.notices})}</span>` : ''}` : t('ex.pol_not_run_yet');
-  const next = (p.next || []).slice(0, 3).map(w => _polWhen(w.first_start || w.opens, p.timezone) + (w.full ? ` <span class="ex-badge ok">${t('ex.pol_full_night')}</span>` : '')).join(' · ');
+  const lastLine = last ? `${t('ex.pol_last_night', {date: _polOcc(last.occurrence, p)})}: ${st.COMPLETE ? `<span class="ex-badge ok">${st.COMPLETE} ${t('ex.status_ok')}</span> ` : ''}${st.ERROR ? `<span class="ex-badge err">${st.ERROR} ${t('ex.status_failed')}</span> ` : ''}${st.SKIPPED ? `<span class="ex-badge warn">${st.SKIPPED} ${t('ex.status_deferred')}</span> ` : ''}${st.RUNNING ? `<span class="ex-badge run">${st.RUNNING} ${t('ex.status_running')}</span> ` : ''}${last.notices ? `<span class="ex-badge notice">${t('ex.pol_notices', {n: last.notices})}</span>` : ''}` : t('ex.pol_not_run_yet');
+  const next = (p.next || []).filter(w => !_polIsHourly(p) || new Date(w.opens) > new Date()).slice(0, 3).map(w => _polWhen(w.first_start || w.opens, p.timezone) + (w.full ? ` <span class="ex-badge ok">${t('ex.pol_full_night')}</span>` : '')).join(' · ');
   return `<div class="pol-card">
     <div class="pol-head">
       <span class="pol-name">${_exEsc(p.name)}</span>
       ${p.enabled ? '' : `<span class="ex-badge off">${t('ex.paused')}</span>`}
       ${p.open_now && p.enabled ? `<span class="ex-badge run">${t('ex.pol_window_open')}</span>` : ''}
+      ${p.manual_at ? `<span class="ex-badge run" title="${_exEsc(t('ex.pol_manual_running_hint'))}">${t('ex.pol_manual_running')}</span>` : ''}
       ${p.rule_error ? `<span class="ex-badge err" title="${_exEsc(p.rule_error)}">${t('ex.pol_rule_error')}</span>` : ''}
       <span class="pol-actions">
         <button class="um-action-btn" onclick="exPolicyMembers(${p.id})">${t('ex.pol_members', {n: p.members.length})}</button>
         ${p.members.length ? `<button class="um-action-btn" onclick="exPolicyNight(${p.id}, 'current')">${t('ex.pol_night_plan')}</button>` : ''}
+        <button class="um-action-btn" onclick="exPolicyRunNow(${p.id}, '${_exEsc(p.name)}')" ${p.members.length && !p.manual_at ? '' : 'disabled'} title="${_exEsc(t('ex.pol_run_now_hint'))}">${t('ex.run_now')}</button>
         <button class="um-action-btn" onclick="exPolicyEdit(${p.id})">${t('ex.pol_edit')}</button>
         <button class="um-action-btn" onclick="exPolicyToggle(${p.id})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
         <button class="um-action-btn danger" onclick="exPolicyDelete(${p.id}, '${_exEsc(p.name)}')">${t('ex.remove')}</button>
       </span>
     </div>
     <div class="pol-meta">
-      <b>${_exEsc(_polDescribe(p.rrule))}</b> · ${t('ex.pol_window', {open: _exTimeLabel(p.window_open, p.timezone), finish: _exEsc(p.preferred_finish)})} · ${t('ex.pol_buffer', {n: p.buffer_minutes})}
+      <b>${_exEsc(_polDescribe(p.rrule))}</b> · ${_polIsHourly(p) ? t('ex.pol_hourly_window') : `${t('ex.pol_window', {open: _exTimeLabel(p.window_open, p.timezone), finish: _exEsc(p.preferred_finish)})} · ${t('ex.pol_buffer', {n: p.buffer_minutes})}`}
       ${(p.blackouts || []).length ? `<br>${t('ex.pol_blackouts')}: ${p.blackouts.map(_polBlackoutText).join('; ')}` : ''}
       <br>${t('ex.pol_keeps', {n: p.retention})}${p.retention_days ? ` / ${p.retention_days}d` : ''}${p.kind !== 'incremental' ? '' : p.full_rrule ? ` · ${t('ex.pol_full_rule', {rule: _exEsc(_polDescribe(p.full_rrule)), kind: t('ex.pol_full_kind_' + p.full_kind)})}` : ` · ${t('ex.full_every', {n: p.full_every_n})}`}${p.compress ? ' · zip' : ''}
       <br>${t('ex.pol_next')}: ${next || '—'}${_polNightLine(p)}
@@ -5518,22 +5532,23 @@ function _polForm(p, kind) {
     <div class="ex-form">
       <div><label>${t('ex.pol_f_name')}</label><input type="text" id="${f}-name" maxlength="80" value="${_exEsc(v.name)}"></div>
       <div><label>${t('ex.pol_f_repeat')}</label><select id="${f}-preset" onchange="_polPresetChanged()">
-        ${['daily', 'weekly', 'monthly_nth', 'monthly_day', 'custom'].map(x => `<option value="${x}" ${r.preset === x ? 'selected' : ''}>${t('ex.pol_preset_' + x)}</option>`).join('')}</select></div>
-      <div class="polp polp-daily polp-weekly"><label>${t('ex.pol_f_interval')}</label><input type="number" id="${f}-interval" min="1" max="52" value="${r.interval || 1}">
-        <div class="ex-hint">${t('ex.pol_f_interval_hint')}</div></div>
+        ${['hourly', 'daily', 'weekly', 'monthly_nth', 'monthly_day', 'custom'].map(x => `<option value="${x}" ${r.preset === x ? 'selected' : ''}>${t('ex.pol_preset_' + x)}</option>`).join('')}</select></div>
+      <div class="polp polp-hourly polp-daily polp-weekly"><label>${t('ex.pol_f_interval')}</label><input type="number" id="${f}-interval" min="1" max="168" value="${r.interval || 1}">
+        <div class="ex-hint polh polh-days">${t('ex.pol_f_interval_hint')}</div><div class="ex-hint polh polh-hours">${t('ex.pol_f_interval_hint_hours')}</div></div>
       <div class="polp polp-weekly" style="grid-column:1/-1;"><label>${t('ex.pol_f_days')}</label>${dayBoxes('polf-day', r.days || ['mo', 'tu', 'we', 'th', 'fr'])}</div>
       <div class="polp polp-monthly_nth"><label>${t('ex.pol_f_nth')}</label><select id="${f}-nth">${['1', '2', '3', '4', '-1'].map(n => `<option value="${n}" ${r.nth === n ? 'selected' : ''}>${_polNth(n)}</option>`).join('')}</select>
         <select id="${f}-weekday" style="margin-top:4px;">${_POL_DAYS.map(d => `<option value="${d}" ${(r.weekday || 'su') === d ? 'selected' : ''}>${_polDayName(d)}</option>`).join('')}</select></div>
       <div class="polp polp-monthly_day"><label>${t('ex.pol_f_monthday')}</label><input type="number" id="${f}-monthday" min="1" max="31" value="${r.monthday || 1}"></div>
       <div class="polp polp-custom" style="grid-column:1/-1;"><label>${t('ex.pol_f_rrule')}</label><input type="text" id="${f}-rrule" value="${_exEsc(v.rrule)}" placeholder="FREQ=MONTHLY;BYDAY=-1SU">
         <div class="ex-hint">${t('ex.pol_f_rrule_hint')}</div></div>
-      <div class="polp polp-daily polp-weekly"><label>${t('ex.pol_f_starts_on')}</label><input type="text" id="${f}-starts_on" placeholder="YYYY-MM-DD" value="${_exEsc(v.starts_on || '')}">
+      <div class="polp polp-hourly polp-daily polp-weekly"><label>${t('ex.pol_f_starts_on')}</label><input type="text" id="${f}-starts_on" placeholder="YYYY-MM-DD" value="${_exEsc(v.starts_on || '')}">
         <div class="ex-hint">${t('ex.pol_f_starts_on_hint')}</div></div>
     </div>
+    <div class="ex-hint polw-hourly" style="margin:6px 0;">${t('ex.pol_f_hourly_window')}</div>
     <div class="ex-form">
-      <div><label>${t('ex.pol_f_window_open')}</label><input type="time" id="${f}-window_open" value="${_exEsc(v.window_open)}"><div class="ex-hint">${t('ex.pol_f_window_open_hint')}</div></div>
-      <div><label>${t('ex.pol_f_finish')}</label><input type="time" id="${f}-preferred_finish" value="${_exEsc(v.preferred_finish)}"><div class="ex-hint">${t('ex.pol_f_finish_hint')}</div></div>
-      <div><label>${t('ex.pol_f_buffer')}</label><input type="number" id="${f}-buffer_minutes" min="0" max="720" value="${v.buffer_minutes}"><div class="ex-hint">${t('ex.pol_f_buffer_hint')}</div></div>
+      <div class="polw"><label>${t('ex.pol_f_window_open')}</label><input type="time" id="${f}-window_open" value="${_exEsc(v.window_open)}"><div class="ex-hint">${t('ex.pol_f_window_open_hint')}</div></div>
+      <div class="polw"><label>${t('ex.pol_f_finish')}</label><input type="time" id="${f}-preferred_finish" value="${_exEsc(v.preferred_finish)}"><div class="ex-hint">${t('ex.pol_f_finish_hint')}</div></div>
+      <div class="polw"><label>${t('ex.pol_f_buffer')}</label><input type="number" id="${f}-buffer_minutes" min="0" max="720" value="${v.buffer_minutes}"><div class="ex-hint">${t('ex.pol_f_buffer_hint')}</div></div>
       <div><label>${t('ex.pol_f_timezone')}</label><input type="text" id="${f}-timezone" list="polf-zones" value="${_exEsc(v.timezone)}"><datalist id="polf-zones">${zones}</datalist>
         <div class="ex-hint">${t('ex.pol_f_timezone_hint')}</div></div>
     </div>
@@ -5591,13 +5606,20 @@ function _polAddBlackout() { document.getElementById('polf-blackouts')?.insertAd
 function _polPresetChanged() {
   const preset = document.getElementById('polf-preset')?.value;
   document.querySelectorAll('.polp').forEach(el => { el.style.display = el.classList.contains(`polp-${preset}`) ? '' : 'none'; });
+  // an hourly schedule has no window: each occurrence lasts until the next
+  const hourly = preset === 'hourly';
+  document.querySelectorAll('.polw').forEach(el => { el.style.display = hourly ? 'none' : ''; });
+  document.querySelectorAll('.polw-hourly').forEach(el => { el.style.display = hourly ? '' : 'none'; });
+  document.querySelectorAll('.polh-days').forEach(el => { el.style.display = hourly ? 'none' : ''; });
+  document.querySelectorAll('.polh-hours').forEach(el => { el.style.display = hourly ? '' : 'none'; });
 }
 function _polFormInit() { _polPresetChanged(); _polFullChanged(); }
 function _polReadForm() {
   const g = id => document.getElementById(`polf-${id}`);
   const preset = g('preset').value, interval = Math.max(1, parseInt(g('interval').value || '1', 10));
   let rrule;
-  if (preset === 'daily') rrule = 'FREQ=DAILY' + (interval > 1 ? `;INTERVAL=${interval}` : '');
+  if (preset === 'hourly') rrule = 'FREQ=HOURLY' + (interval > 1 ? `;INTERVAL=${interval}` : '');
+  else if (preset === 'daily') rrule = 'FREQ=DAILY' + (interval > 1 ? `;INTERVAL=${interval}` : '');
   else if (preset === 'weekly') {
     const days = [...document.querySelectorAll('.polf-day:checked')].map(x => x.value.toUpperCase());
     rrule = 'FREQ=WEEKLY' + (interval > 1 ? `;INTERVAL=${interval}` : '') + (days.length ? `;BYDAY=${days.join(',')}` : '');
@@ -5609,7 +5631,7 @@ function _polReadForm() {
   const body = { name: g('name').value.trim(), rrule, window_open: g('window_open').value, preferred_finish: g('preferred_finish').value,
                  buffer_minutes: parseInt(g('buffer_minutes').value || '60', 10), timezone: g('timezone').value.trim(), blackouts,
                  retention: parseInt(g('retention').value || '7', 10), retention_days: parseInt(g('retention_days').value || '0', 10) || null };
-  if ((preset === 'daily' || preset === 'weekly') && g('starts_on').value.trim()) body.starts_on = g('starts_on').value.trim();
+  if (['hourly', 'daily', 'weekly'].includes(preset) && g('starts_on').value.trim()) body.starts_on = g('starts_on').value.trim();
   if (g('full_every_n')) body.full_every_n = parseInt(g('full_every_n').value || '14', 10);
   if (g('full_mode')) {
     const rule = g('full_preset').value === 'custom' ? g('full_rrule').value.trim() : g('full_preset').value;
@@ -5637,6 +5659,11 @@ async function exPolicySave(idOrKind) {
     else await _exCall('POST', '/api/backup/policies', {...body, kind: idOrKind});
     showToast(t('ex.pol_saved', {name: body.name}), 'ok'); _polEditing = null; exLoadPolicies();
   } catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
+}
+async function exPolicyRunNow(id, name) {
+  if (!confirm(t('ex.pol_run_now_confirm', {name}))) return;
+  try { await _exCall('POST', `/api/backup/policies/${id}/run`); showToast(t('ex.pol_run_now_started', {name}), 'ok'); exLoadPolicies(); }
+  catch (e) { showToast(e.message, 'err'); }
 }
 async function exPolicyToggle(id) { try { await _exCall('POST', `/api/backup/policies/${id}/toggle`); exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); } }
 async function exPolicyDelete(id, name) {

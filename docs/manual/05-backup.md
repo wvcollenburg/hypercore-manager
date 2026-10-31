@@ -24,6 +24,11 @@ run incremental backups and **export schedules** run exports; a schedule never m
 - **Repeats** picks the days: every day or every N days, chosen weekdays every N weeks, the Nth or
   last weekday of the month, a day of the month, or any RFC 5545 rule (RRULE) for anything else,
   such as `FREQ=MONTHLY;BYDAY=-1SU` for the last Sunday of the month.
+- **Every hour (or every N hours)** backs up more often than once a night, for smaller increments.
+  The hours count from midnight: every 3 hours runs at 00:00, 03:00, 06:00 and so on. An hourly
+  schedule has no earliest start, preferred finish or buffer: each run may start until the next one
+  is due, and a run that is still busy then gets a *past preferred finish* notice. Blackouts still
+  apply. With fulls on chosen days, the full is taken in the first run of that day.
 - **Earliest start** is when backups of an occurrence may begin; **Preferred finish** is when the
   night should be done (earlier than the start means the next day). Runs that finish later get a
   notice.
@@ -49,6 +54,12 @@ counts when the schedule runs that day (the preview marks those windows *full*).
 When a window opens, the members start one after the other: at most one backup per proxy of a
 cluster at a time (one export per cluster). A VM is taken only once per occurrence. **Preview** in
 the form lists the next windows.
+
+**Run now** backs up every VM of the schedule once, straight away, regardless of its window and its
+blackouts, and also when the schedule is paused. It still runs one backup per proxy at a time, so a
+large schedule takes a while; the card shows *manual run* until every VM has had its turn. A manual
+run is always an incremental (or the full the chain needs), never the full of a full day, and it
+gets no window notices. The schedule's own runs carry on as usual.
 
 ### Predicted finish
 

@@ -7,8 +7,10 @@ When the window opens the night is planned once (planner.py, from predict.py): m
 learning start right away, learned ones wait for their planned start so the night ends at the
 preferred finish minus the buffer; a member whose planned start has passed starts as soon as a
 slot is free. After a member's run the dispatcher records a notice when it ran into a blackout,
-into the buffer or past the preferred finish. Members are plans with policy_id set; standalone
-plans keep their own cron job.
+into the buffer or past the preferred finish. An hourly schedule starts every member as soon as
+a slot is free. "Run now" (policies.manual_at) opens a manual occurrence that ignores the window
+and the blackouts: every active member runs once, then it closes; its runs get no window notices.
+Members are plans with policy_id set; standalone plans keep their own cron job.
 """
 from __future__ import annotations
 
@@ -41,7 +43,7 @@ def active_members(policy: dict) -> list[dict]:
 
 def predictions_for(policy: dict, members: list[dict], window: recurrence.Window) -> dict:
     """Plan id -> predict.predict() for this occurrence (what kind of point it will be, its weekday)."""
-    kind = {'real': 'full', 'synthetic': 'synthetic'}.get(recurrence.full_mode(policy, window.occurrence), 'delta')
+    kind = {'real': 'full', 'synthetic': 'synthetic'}.get(recurrence.full_mode(policy, window.opens), 'delta')
     history = db.run_history([m['id'] for m in members])
     rates = {cid: predict.cluster_rate(db.cluster_run_history(cid)) for cid in {m['cluster_id'] for m in members}} \
         if policy['kind'] == 'incremental' else {}
@@ -98,14 +100,15 @@ def night_view(policy: dict, now: datetime, which: str = 'current') -> dict | No
     return {'occurrence': window.occurrence, 'opens': window.opens, 'finish': window.finish, 'target': fresh['target'],
             'earliest': fresh['earliest'], 'end': end, 'overrun_seconds': max(0.0, (end - fresh['target']).total_seconds()) if end else 0.0,
             'open': window.opens <= now < window.closes, 'stored': bool(stored),
-            'full': recurrence.full_mode(policy, window.occurrence) in ('real', 'synthetic'),
+            'full': recurrence.full_mode(policy, window.opens) in ('real', 'synthetic'),
             'items': sorted(items, key=lambda i: (i['cluster_id'], i['slot'], i['planned_start']))}
 
 
 def due_members(policy: dict, window: recurrence.Window, pending: set, now: datetime) -> list[dict]:
     """Enabled members on enabled clusters that have not run in this occurrence and are not queued.
     Learned members wait for their planned start; members still learning (or added after the night
-    was planned) are due at once and take a slot as soon as one frees up. Earliest planned first."""
+    was planned) are due at once and take a slot as soon as one frees up; in an hourly schedule
+    every member is. Earliest planned first."""
     done = db.plans_run_in_occurrence(policy['id'], window.occurrence)
     members = active_members(policy)
     night = stored_night(policy, window, members)
@@ -114,7 +117,7 @@ def due_members(policy: dict, window: recurrence.Window, pending: set, now: date
         if m['id'] in done or m['id'] in pending:
             continue
         row = night.get(m['id'])
-        if row and row['learned'] and row['planned_start'] > now:
+        if row and row['learned'] and row['planned_start'] > now and not recurrence.is_hourly(policy):
             continue
         due.append((row['planned_start'] if row else window.opens, m['vm_name'] or '', m))
     return [m for _, _, m in sorted(due, key=lambda x: (x[0], x[1]))]
@@ -126,9 +129,12 @@ def tick(dispatch, pending: dict, now: datetime | None = None) -> int:
     of runs dispatched."""
     now = now or _now()
     started = 0
-    for policy in db.get_policies(all_folders=True, enabled_only=True):
+    for policy in db.get_policies(all_folders=True):
         try:
-            started += _tick_policy(policy, dispatch, pending, now)
+            if policy.get('manual_at'):
+                started += _tick_manual(policy, dispatch, pending, now)
+            if policy['enabled']:
+                started += _tick_policy(policy, dispatch, pending, now)
         except Exception:                               # noqa: BLE001 — one bad policy must not stop the others
             log.exception('policy %s (%s): dispatch failed', policy['id'], policy['name'])
     return started
@@ -141,30 +147,59 @@ def _tick_policy(policy: dict, dispatch, pending: dict, now: datetime) -> int:
     window = recurrence.current_window(policy, now)
     if window is None or now < window.opens or recurrence.in_blackout(policy, now):
         return 0
+    started = _dispatch(policy, window, due_members(policy, window, set(pending), now), dispatch, pending,
+                        recurrence.full_mode(policy, window.opens))
+    if started:
+        log.info('policy %s: %s run(s) started for %s', policy['name'], started, window.occurrence)
+    return started
+
+
+def _tick_manual(policy: dict, dispatch, pending: dict, now: datetime) -> int:
+    """A manual occurrence: every active member that has not run in it yet, regardless of the
+    window and the blackouts. It closes once every member has a run in it (or after a day)."""
+    window = recurrence.manual_window(policy['manual_at'])
+    members = active_members(policy)
+    done = db.plans_run_in_occurrence(policy['id'], window.occurrence)
+    if now >= window.closes or all(m['id'] in done for m in members):
+        db.set_manual(policy['id'], None)
+        return 0
+    due = sorted((m for m in members if m['id'] not in done and m['id'] not in pending), key=lambda m: m['vm_name'] or '')
+    # a manual run is an incremental (or what the chain needs), never a full the rule asks for
+    started = _dispatch(policy, window, due, dispatch, pending, 'none' if policy.get('full_rrule') else None, manual=True)
+    if started:
+        log.info('policy %s: %s manual run(s) started', policy['name'], started)
+    return started
+
+
+def _dispatch(policy: dict, window: recurrence.Window, due: list[dict], dispatch, pending: dict, full,
+              manual: bool = False) -> int:
+    """Start due members while their cluster has a free slot."""
     kind = policy['kind']
-    full = recurrence.full_mode(policy, window.occurrence)
     free: dict[str, int] = {}
     started = 0
-    for m in due_members(policy, window, set(pending), now):
+    for m in due:
         cid = m['cluster_id']
         if cid not in free:
             mine = [pid for pid, c in pending.items() if c == (cid, kind)]   # dispatched, running or not yet
             free[cid] = capacity(cid, kind) - db.count_active_runs(cid, kind, exclude_plans=mine) - len(mine)
         if free[cid] <= 0:
             continue
-        dispatch(m['id'], policy['id'], window.occurrence, cid, kind, full)
+        if manual:
+            dispatch(m['id'], policy['id'], window.occurrence, cid, kind, full, manual=True)
+        else:
+            dispatch(m['id'], policy['id'], window.occurrence, cid, kind, full)
         pending[m['id']] = (cid, kind)
         free[cid] -= 1
         started += 1
-    if started:
-        log.info('policy %s: %s run(s) started for %s', policy['name'], started, window.occurrence)
     return started
 
 
-def run_member(plan_id: int, policy_id: int, occurrence, full: str | None = None) -> None:
+def run_member(plan_id: int, policy_id: int, occurrence, full: str | None = None, manual: bool = False) -> None:
     """Scheduler entry point for a policy run: the plan's normal run (with what the full rule says
-    for this occurrence), then the notices."""
+    for this occurrence), then the notices. A manual run has no window, so no window notices."""
     jobs.run_plan(plan_id, policy_id=policy_id, occurrence=occurrence, full=full)
+    if manual:
+        return
     try:
         run = db.last_run_for(plan_id)
         policy = db.get_policy(policy_id)
@@ -183,8 +218,8 @@ def run_member(plan_id: int, policy_id: int, occurrence, full: str | None = None
 
 def notices_for(policy: dict, run: dict) -> list[str]:
     """'blackout': the run was still busy when a blackout began; 'late': it finished after the
-    preferred finish of its occurrence; 'buffer': it finished inside the buffer before it. Only
-    finished runs get notices."""
+    preferred finish of its occurrence (in an hourly schedule: after the next occurrence opened);
+    'buffer': it finished inside the buffer before it. Only finished runs get notices."""
     if run.get('status') != 'COMPLETE' or not run.get('finished_at'):
         return []
     start = run.get('work_started_at') or run.get('started_at')
@@ -194,17 +229,10 @@ def notices_for(policy: dict, run: dict) -> list[str]:
         codes.append('blackout')
     occ = run.get('occurrence')
     if occ:
-        opens = recurrence.occurrences(policy, _day_start(policy, occ), 1)
-        if opens and opens[0].date() == occ:
-            finish = recurrence.window_for(policy, opens[0]).finish.astimezone(timezone.utc)   # UTC: see planner.py
-            if end > finish:
-                codes.append('late')
-            elif end > finish - timedelta(minutes=int(policy.get('buffer_minutes') or 0)):
-                codes.append('buffer')
+        finish = recurrence.window_for(policy, occ).finish.astimezone(timezone.utc)   # UTC: see planner.py
+        buffer = 0 if recurrence.is_hourly(policy) else int(policy.get('buffer_minutes') or 0)
+        if end > finish:
+            codes.append('late')
+        elif buffer and end > finish - timedelta(minutes=buffer):
+            codes.append('buffer')
     return codes
-
-
-def _day_start(policy: dict, occ) -> datetime:
-    """Just before the occurrence's day begins, in the policy zone (occurrences() is strictly after)."""
-    tz = recurrence.zone(policy.get('timezone'))
-    return datetime(occ.year, occ.month, occ.day, tzinfo=tz) - timedelta(seconds=1)

@@ -1,8 +1,11 @@
 """
 recurrence.py — when a backup schedule may run. An RFC 5545 rule picks the occurrence days; on each
 of those days the window opens at `window_open` and the night should be done by `preferred_finish`
-(the next day when it is earlier than the opening). Blackouts are weekly periods in which nothing may
-start. All times are read in the schedule's own time zone; functions take and return aware datetimes.
+(the next day when it is earlier than the opening). An hourly rule (FREQ=HOURLY, every N hours from
+midnight of the start date) has no such window: each occurrence is open until the next one, which
+is also its finish. Blackouts are weekly periods in which nothing may start. All times are read in
+the schedule's own time zone; functions take and return aware datetimes. An occurrence is
+identified by the moment its window opened.
 """
 from __future__ import annotations
 
@@ -13,7 +16,8 @@ from zoneinfo import ZoneInfo
 from dateutil.rrule import rrulestr
 
 DAYS = ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')
-_FREQS = {'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'}          # an occurrence is a day: no HOURLY/MINUTELY
+_FREQS = {'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'}   # no MINUTELY: a run needs more than a minute
+MAX_HOURLY_INTERVAL = 168
 _PARTS = {'FREQ', 'INTERVAL', 'BYDAY', 'BYMONTHDAY', 'BYMONTH', 'BYSETPOS', 'BYWEEKNO', 'BYYEARDAY',
           'UNTIL', 'COUNT', 'WKST'}
 # a window may stay open at most this long, and never past the next occurrence's opening
@@ -29,7 +33,8 @@ class Window:
     opens: datetime          # earliest start of this occurrence
     finish: datetime         # the preferred finish
     closes: datetime         # nothing of this occurrence starts after this
-    occurrence: date         # the local day the window opened on (identifies the occurrence)
+    occurrence: datetime     # identifies the occurrence: the moment the window opened (= opens)
+    day: date                # the local day the window opened on (full rules, weekday patterns)
 
 
 def parse_hhmm(v) -> time:
@@ -63,7 +68,10 @@ def normalise_rule(rule: str) -> str:
             raise RecurrenceError(f'unsupported rule part {item!r}')
         parts[k] = v
     if parts.get('FREQ') not in _FREQS:
-        raise RecurrenceError('FREQ must be DAILY, WEEKLY, MONTHLY or YEARLY')
+        raise RecurrenceError('FREQ must be HOURLY, DAILY, WEEKLY, MONTHLY or YEARLY')
+    if parts['FREQ'] == 'HOURLY' and not (parts.get('INTERVAL') or '1').isdigit() \
+            or parts['FREQ'] == 'HOURLY' and not 1 <= int(parts.get('INTERVAL') or 1) <= MAX_HOURLY_INTERVAL:
+        raise RecurrenceError(f'an hourly rule repeats every 1 to {MAX_HOURLY_INTERVAL} hours')
     text = ';'.join(f'{k}={v}' for k, v in parts.items())
     try:
         rrulestr(text, dtstart=datetime(2026, 1, 1))
@@ -93,11 +101,17 @@ def _aware(naive: datetime, tz: ZoneInfo) -> datetime:
     return naive.replace(tzinfo=tz)
 
 
+def is_hourly(policy: dict) -> bool:
+    return 'FREQ=HOURLY' in (policy.get('rrule') or '').upper()
+
+
 def _rule(policy: dict):
     start = policy.get('starts_on') or date(2026, 1, 1)
     if isinstance(start, str):
         start = date.fromisoformat(start[:10])
-    return rrulestr(policy['rrule'], dtstart=datetime.combine(start, parse_hhmm(policy['window_open'])))
+    # an hourly rule counts its hours from midnight of the start date: "every 3 hours" is 00, 03, 06...
+    at = time(0, 0) if is_hourly(policy) else parse_hhmm(policy['window_open'])
+    return rrulestr(policy['rrule'], dtstart=datetime.combine(start, at))
 
 
 def occurrences(policy: dict, after: datetime, count: int = 10) -> list[datetime]:
@@ -116,14 +130,22 @@ def occurrences(policy: dict, after: datetime, count: int = 10) -> list[datetime
 def window_for(policy: dict, opens: datetime) -> Window:
     tz = zone(policy.get('timezone'))
     lo = _local(opens, tz)
-    fin = datetime.combine(lo.date(), parse_hhmm(policy['preferred_finish']))
-    if fin <= lo:
-        fin += timedelta(days=1)
     closes = lo + MAX_WINDOW
     nxt = _rule(policy).after(lo)
     if nxt is not None and nxt < closes:
         closes = nxt
-    return Window(_aware(lo, tz), _aware(fin, tz), _aware(closes, tz), lo.date())
+    if is_hourly(policy):
+        fin = closes
+    else:
+        fin = datetime.combine(lo.date(), parse_hhmm(policy['preferred_finish']))
+        if fin <= lo:
+            fin += timedelta(days=1)
+    return Window(_aware(lo, tz), _aware(fin, tz), _aware(closes, tz), _aware(lo, tz), lo.date())
+
+
+def manual_window(opens: datetime) -> Window:
+    """The window of a manual run ("run now"): open for a day from the moment it was asked for."""
+    return Window(opens, opens + MAX_WINDOW, opens + MAX_WINDOW, opens, opens.date())
 
 
 def current_window(policy: dict, now: datetime) -> Window | None:
@@ -186,12 +208,21 @@ def rule_hits_day(policy: dict, rule: str | None, day: date) -> bool:
     return bool(r.between(datetime.combine(day, time(0, 0)), datetime.combine(day, time(23, 59, 59)), inc=True))
 
 
-def full_mode(policy: dict, occurrence: date) -> str | None:
-    """What the full rule says for an occurrence: None (no rule: every N runs as before), 'none'
-    (not a full day), or the schedule's full kind ('real' | 'synthetic')."""
+def full_mode(policy: dict, opens: datetime) -> str | None:
+    """What the full rule says for the occurrence that opened at `opens`: None (no rule: every N
+    runs as before), 'none' (not a full), or the schedule's full kind ('real' | 'synthetic'). An
+    hourly schedule takes the full in the first occurrence of a full day only."""
     if policy.get('kind') != 'incremental' or not policy.get('full_rrule'):
         return None
-    return (policy.get('full_kind') or 'real') if rule_hits_day(policy, policy['full_rrule'], occurrence) else 'none'
+    tz = zone(policy.get('timezone'))
+    lo = _local(opens, tz)
+    if not rule_hits_day(policy, policy['full_rrule'], lo.date()):
+        return 'none'
+    if is_hourly(policy):
+        prev = _rule(policy).before(lo)
+        if prev is not None and prev.date() == lo.date():
+            return 'none'
+    return policy.get('full_kind') or 'real'
 
 
 def preview(policy: dict, now: datetime, count: int = 10) -> list[dict]:
@@ -204,5 +235,6 @@ def preview(policy: dict, now: datetime, count: int = 10) -> list[dict]:
         start = next_allowed(policy, w.opens)
         out.append({'opens': w.opens.isoformat(), 'first_start': start.isoformat() if start < w.closes else None,
                     'finish': w.finish.isoformat(), 'closes': w.closes.isoformat(), 'occurrence': w.occurrence.isoformat(),
-                    'full': full_mode(policy, w.occurrence) in ('real', 'synthetic')})
+                    'day': w.day.isoformat(),
+                    'full': full_mode(policy, w.opens) in ('real', 'synthetic')})
     return out

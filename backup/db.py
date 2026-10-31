@@ -404,7 +404,12 @@ def get_night(policy_id: int, occurrence) -> dict:
 
 
 def prune_nights(days: int = 90) -> int:
-    return _exec('DELETE FROM backup.policy_nights WHERE occurrence < CURRENT_DATE - %s', (int(days),))
+    return _exec('DELETE FROM backup.policy_nights WHERE occurrence < NOW() - make_interval(days => %s)', (int(days),))
+
+
+def set_manual(policy_id: int, at) -> None:
+    """Open (at = now) or close (None) the manual occurrence of a schedule ("run now")."""
+    _exec('UPDATE backup.policies SET manual_at = %s WHERE id = %s', (at, policy_id))
 
 
 def runs_in_occurrence(policy_id: int, occurrence) -> dict:

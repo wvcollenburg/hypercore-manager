@@ -463,6 +463,22 @@ def policies_toggle(pid):
     return jsonify({'ok': True})
 
 
+@app.post('/api/v1/policies/<int:pid>/run')
+@_require_token
+def policies_run_now(pid):
+    """Run every active member once now, regardless of the window and the blackouts (still one
+    run per proxy at a time). The dispatcher picks it up within a minute."""
+    pol, err = _policy_in_scope(pid)
+    if err:
+        return err
+    if not policies.active_members(pol):
+        return _err('the schedule has no active members')
+    if pol.get('manual_at'):
+        return _err('a manual run of this schedule is already in progress', 409)
+    db.set_manual(pid, datetime.now(timezone.utc))
+    return jsonify({'ok': True})
+
+
 @app.delete('/api/v1/policies/<int:pid>')
 @_require_token
 def policies_delete(pid):

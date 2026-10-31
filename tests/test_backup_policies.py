@@ -30,6 +30,7 @@ def _import():
 
 pol, sch, api = _import()
 AMS = ZoneInfo('Europe/Amsterdam')
+OCC = datetime(2026, 10, 20, 22, 0, tzinfo=AMS)       # the occurrence that opens on 20 Oct at 22:00
 
 
 class _DB:
@@ -59,6 +60,7 @@ class _DB:
     def save_night(self, pid, occ, items):
         self.saved.append((pid, occ)); self.nights[(pid, occ)] = {i['plan_id']: dict(i) for i in items}
     def update_run(self, rid, **f): self.updates.append((rid, f))
+    def set_manual(self, pid, at): self.get_policy(pid)['manual_at'] = at
 
 
 @pytest.fixture
@@ -71,7 +73,7 @@ def fdb(monkeypatch):
 def _tick(fdb, now, pending=None):
     calls = []
     pending = {} if pending is None else pending
-    pol.tick(lambda *a: calls.append(a), pending, now)
+    pol.tick(lambda *a, **k: calls.append(a + ((k,) if k else ())), pending, now)
     return calls, pending
 
 
@@ -87,7 +89,7 @@ def test_runs_start_per_cluster_up_to_its_proxies(fdb):
     now = datetime(2026, 10, 20, 22, 0, tzinfo=AMS)
     calls, pending = _tick(fdb, now)
     assert [c[0] for c in calls] == [10, 11, 20], 'two proxies on c1, one slot minimum on c2'
-    assert calls[0][1:] == (1, date(2026, 10, 20), 'c1', 'incremental', None)
+    assert calls[0][1:] == (1, OCC, 'c1', 'incremental', None)
     # next minute: the dispatched ones are still pending, nothing else fits
     calls, _ = _tick(fdb, now + timedelta(minutes=1), pending)
     assert calls == []
@@ -115,15 +117,15 @@ def test_learned_members_wait_for_their_planned_start_and_learning_ones_go_first
     fdb.members = fdb.members[:3]
     opens = datetime(2026, 10, 20, 22, 0, tzinfo=AMS)
     calls, pending = _tick(fdb, opens)
-    assert [c[0] for c in calls] == [12] and fdb.saved == [(1, date(2026, 10, 20))]
-    night = fdb.nights[(1, date(2026, 10, 20))]
+    assert [c[0] for c in calls] == [12] and fdb.saved == [(1, OCC)]
+    night = fdb.nights[(1, OCC)]
     assert night[12]['learned'] is False and night[12]['planned_start'] == opens
     ends = sorted(night[i]['predicted_finish'] for i in (10, 11))
     assert ends[-1] == datetime(2026, 10, 21, 5, 0, tzinfo=AMS), ends
     assert _tick(fdb, datetime(2026, 10, 21, 3, 0, tzinfo=AMS), pending)[0] == []
     first = min(night[10]['planned_start'], night[11]['planned_start'])
     calls, _ = _tick(fdb, first, pending)
-    assert len(calls) >= 1 and fdb.saved == [(1, date(2026, 10, 20))], 'planned once per night'
+    assert len(calls) >= 1 and fdb.saved == [(1, OCC)], 'planned once per night'
 
 
 def test_blackout_holds_every_start(fdb):
@@ -150,7 +152,7 @@ def test_a_broken_policy_does_not_stop_the_others(fdb):
     assert len(_tick(fdb, datetime(2026, 10, 20, 22, 0, tzinfo=AMS))[0]) == 3
 
 
-def _run(start, end, occ=date(2026, 10, 20), status='COMPLETE'):
+def _run(start, end, occ=OCC, status='COMPLETE'):
     return {'id': 5, 'status': status, 'policy_id': 1, 'occurrence': occ, 'work_started_at': start, 'finished_at': end}
 
 
@@ -176,8 +178,8 @@ def test_run_member_records_the_notice(fdb, monkeypatch):
     seen = []
     monkeypatch.setattr(pol.jobs, 'run_plan', lambda pid, policy_id=None, occurrence=None, full=None: seen.append((pid, policy_id, occurrence)))
     fdb.runs[10] = _run(datetime(2026, 10, 21, 5, 0, tzinfo=AMS), datetime(2026, 10, 21, 6, 30, tzinfo=AMS))
-    pol.run_member(10, 1, date(2026, 10, 20))
-    assert seen == [(10, 1, date(2026, 10, 20))] and fdb.updates == [(5, {'notice': 'late'})]
+    pol.run_member(10, 1, OCC)
+    assert seen == [(10, 1, OCC)] and fdb.updates == [(5, {'notice': 'late'})]
 
 
 def test_standalone_plans_keep_their_cron_job_and_members_do_not(monkeypatch):
@@ -194,7 +196,7 @@ def test_policy_fields_validation():
                             'blackouts': [{'days': ['Mon'], 'from': '7:00', 'to': '19:00'}], 'buffer_minutes': 9999}, True)
     assert f['name'] == 'Nightly' and f['rrule'] == 'FREQ=WEEKLY;BYDAY=MO' and f['buffer_minutes'] == 720
     assert f['window_open'] == '22:00' and f['blackouts'] == [{'days': ['mon'], 'from': '07:00', 'to': '19:00'}]
-    for bad in ({'kind': 'incremental'}, {'name': 'x', 'kind': 'both'}, {'name': 'x', 'kind': 'export', 'rrule': 'FREQ=HOURLY'},
+    for bad in ({'kind': 'incremental'}, {'name': 'x', 'kind': 'both'}, {'name': 'x', 'kind': 'export', 'rrule': 'FREQ=MINUTELY'},
                 {'name': 'x', 'kind': 'export', 'timezone': 'Mars/Base'}, {'name': 'x', 'kind': 'export', 'window_open': '25:00'}):
         with pytest.raises(ValueError):
             api._policy_fields(bad, True)
@@ -210,7 +212,7 @@ def test_policy_fields_validation():
 def test_run_member_keeps_a_notice_the_run_set_itself(fdb, monkeypatch):
     monkeypatch.setattr(pol.jobs, 'run_plan', lambda *a, **k: None)
     fdb.runs[10] = dict(_run(datetime(2026, 10, 21, 5, 0, tzinfo=AMS), datetime(2026, 10, 21, 6, 30, tzinfo=AMS)), notice='synthetic_failed')
-    pol.run_member(10, 1, date(2026, 10, 20), 'synthetic')
+    pol.run_member(10, 1, OCC, 'synthetic')
     assert fdb.updates == [(5, {'notice': 'synthetic_failed,late'})]
 
 
@@ -235,3 +237,39 @@ def test_scheduler_start_survives_a_database_without_the_new_tables(monkeypatch)
     monkeypatch.setattr(sch, 'sync_jobs', boom)
     sch.start(60)
     assert 'sync' in added and 'reconcile-start' in added
+
+
+# ------------------------------------------------------- hourly and run now
+def test_an_hourly_schedule_starts_every_member_at_once_in_each_occurrence(fdb):
+    fdb.policies[0].update(rrule='FREQ=HOURLY;INTERVAL=3')
+    fdb.history = {i: [{'status': 'COMPLETE', 'mode': 'incremental', 'point_kind': 'delta', 'blocks_changed': 600, 'copy_seconds': 6,
+                        'overhead_seconds': 30, 'work_started_at': OCC} for _ in range(6)] for i in (10, 11, 12)}
+    calls, _ = _tick(fdb, datetime(2026, 10, 20, 15, 1, tzinfo=AMS))
+    assert sorted(c[0] for c in calls) == [10, 11, 20], 'learned or not, members start as soon as a proxy is free'
+    assert {c[2] for c in calls} == {datetime(2026, 10, 20, 15, 0, tzinfo=AMS)}, 'the occurrence is the hour it opened'
+    late = _run(datetime(2026, 10, 20, 15, 5, tzinfo=AMS), datetime(2026, 10, 20, 18, 2, tzinfo=AMS), occ=datetime(2026, 10, 20, 15, 0, tzinfo=AMS))
+    assert pol.notices_for(fdb.policies[0], late) == ['late'], 'ran into the next occurrence'
+    ok = dict(late, finished_at=datetime(2026, 10, 20, 17, 55, tzinfo=AMS))
+    assert pol.notices_for(fdb.policies[0], ok) == [], 'no buffer in an hourly schedule'
+
+
+def test_run_now_ignores_window_and_blackouts_and_closes_when_everyone_ran(fdb):
+    at = datetime(2026, 10, 20, 12, 0, tzinfo=AMS)                      # far outside the 22:00 window
+    fdb.policies[0].update(manual_at=at, enabled=False, full_rrule='FREQ=WEEKLY;BYDAY=TU',
+                           blackouts=[{'days': ['tue'], 'from': '08:00', 'to': '18:00'}])
+    calls, pending = _tick(fdb, at + timedelta(minutes=1))
+    assert [c[:6] for c in calls] == [(10, 1, at, 'c1', 'incremental', 'none'), (11, 1, at, 'c1', 'incremental', 'none'),
+                                     (20, 1, at, 'c2', 'incremental', 'none')]
+    assert all(c[6] == {'manual': True} for c in calls), 'a paused schedule still runs on request; a full day still gives no full'
+    fdb.ran = {10, 11, 20}
+    calls, _ = _tick(fdb, at + timedelta(minutes=30))
+    assert [c[0] for c in calls] == [12], 'the next member once a proxy is free'
+    fdb.ran = {10, 11, 12, 20}
+    assert _tick(fdb, at + timedelta(minutes=60))[0] == [] and fdb.policies[0]['manual_at'] is None
+
+
+def test_a_manual_run_gets_no_window_notices(fdb, monkeypatch):
+    monkeypatch.setattr(pol.jobs, 'run_plan', lambda *a, **k: None)
+    fdb.runs[10] = _run(datetime(2026, 10, 21, 5, 0, tzinfo=AMS), datetime(2026, 10, 21, 6, 30, tzinfo=AMS))
+    pol.run_member(10, 1, OCC, None, manual=True)
+    assert fdb.updates == []

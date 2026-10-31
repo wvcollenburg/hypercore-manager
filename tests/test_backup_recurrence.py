@@ -33,7 +33,7 @@ def test_rules_are_normalised(rule, expected):
     assert rec.normalise_rule(rule) == expected
 
 
-@pytest.mark.parametrize('rule', ['', 'FREQ=HOURLY', 'FREQ=DAILY;BYHOUR=3', 'DTSTART:20260101T000000\nFREQ=DAILY',
+@pytest.mark.parametrize('rule', ['', 'FREQ=MINUTELY', 'FREQ=HOURLY;INTERVAL=0', 'FREQ=HOURLY;INTERVAL=169', 'FREQ=DAILY;BYHOUR=3', 'DTSTART:20260101T000000\nFREQ=DAILY',
                                   'FREQ=WEEKLY;BYDAY=XX', 'BYDAY=MO'])
 def test_bad_rules_are_refused(rule):
     with pytest.raises(rec.RecurrenceError):
@@ -51,13 +51,13 @@ def test_every_second_saturday_and_last_sunday():
 def test_window_runs_past_midnight_and_closes_at_the_next_opening():
     p = _pol()
     w = rec.current_window(p, datetime(2026, 10, 20, 23, 30, tzinfo=AMS))
-    assert w.opens == datetime(2026, 10, 20, 22, 0, tzinfo=AMS) and w.occurrence == date(2026, 10, 20)
+    assert w.opens == datetime(2026, 10, 20, 22, 0, tzinfo=AMS) and w.occurrence == w.opens and w.day == date(2026, 10, 20)
     assert w.finish == datetime(2026, 10, 21, 6, 0, tzinfo=AMS)
     assert w.closes == datetime(2026, 10, 21, 22, 0, tzinfo=AMS), 'daily: open until the next opening'
     # weekly: closed 24 h after opening
     p = _pol(rrule='FREQ=WEEKLY;BYDAY=TU')
     assert rec.current_window(p, datetime(2026, 10, 21, 23, 0, tzinfo=AMS)) is None
-    assert rec.current_window(p, datetime(2026, 10, 21, 21, 0, tzinfo=AMS)).occurrence == date(2026, 10, 20)
+    assert rec.current_window(p, datetime(2026, 10, 21, 21, 0, tzinfo=AMS)).day == date(2026, 10, 20)
 
 
 def test_times_are_read_in_the_schedule_zone_across_dst():
@@ -91,14 +91,39 @@ def test_bad_blackouts_are_refused(items):
 def test_preview_lists_the_current_window_first_and_the_first_allowed_start():
     p = _pol(blackouts=[{'days': list(rec.DAYS), 'from': '21:00', 'to': '23:00'}])
     pv = rec.preview(p, datetime(2026, 10, 20, 22, 30, tzinfo=AMS), 3)
-    assert [x['occurrence'] for x in pv] == ['2026-10-20', '2026-10-21', '2026-10-22']
+    assert [x['day'] for x in pv] == ['2026-10-20', '2026-10-21', '2026-10-22']
     assert pv[0]['first_start'] == datetime(2026, 10, 20, 23, 0, tzinfo=AMS).isoformat()
 
 
 def test_full_mode_per_occurrence():
     p = _pol(kind='incremental', full_rrule='FREQ=MONTHLY;BYDAY=-1SU', full_kind='real')
-    assert rec.full_mode(p, date(2026, 10, 25)) == 'real' and rec.full_mode(p, date(2026, 10, 24)) == 'none'
-    assert rec.full_mode(dict(p, full_rrule=None), date(2026, 10, 25)) is None
-    assert rec.full_mode(dict(p, kind='export'), date(2026, 10, 25)) is None
+    assert rec.full_mode(p, datetime(2026, 10, 25, 22, tzinfo=AMS)) == 'real' and rec.full_mode(p, datetime(2026, 10, 24, 22, tzinfo=AMS)) == 'none'
+    assert rec.full_mode(dict(p, full_rrule=None), datetime(2026, 10, 25, 22, tzinfo=AMS)) is None
+    assert rec.full_mode(dict(p, kind='export'), datetime(2026, 10, 25, 22, tzinfo=AMS)) is None
     pv = rec.preview(dict(p, full_kind='synthetic'), datetime(2026, 10, 24, 12, tzinfo=AMS), 3)
-    assert [(x['occurrence'], x['full']) for x in pv] == [('2026-10-23', False), ('2026-10-24', False), ('2026-10-25', True)]
+    assert [(x['day'], x['full']) for x in pv] == [('2026-10-23', False), ('2026-10-24', False), ('2026-10-25', True)]
+
+
+# ------------------------------------------------------------------- hourly
+def test_an_hourly_rule_counts_from_midnight_and_each_window_lasts_until_the_next():
+    p = _pol(rrule='FREQ=HOURLY;INTERVAL=3')
+    opens = rec.occurrences(p, datetime(2026, 10, 20, 10, 30, tzinfo=AMS), 3)
+    assert [o.hour for o in opens] == [12, 15, 18], 'every third hour from 00:00, whatever window_open says'
+    w = rec.current_window(p, datetime(2026, 10, 20, 13, 0, tzinfo=AMS))
+    assert w.opens == datetime(2026, 10, 20, 12, 0, tzinfo=AMS)
+    assert w.finish == w.closes == datetime(2026, 10, 20, 15, 0, tzinfo=AMS), 'no preferred finish: the next occurrence'
+    assert w.occurrence == w.opens and w.day == date(2026, 10, 20)
+    assert rec.normalise_rule('freq=hourly;interval=3') == 'FREQ=HOURLY;INTERVAL=3'
+
+
+def test_an_hourly_schedule_takes_its_full_in_the_first_occurrence_of_a_full_day():
+    p = _pol(rrule='FREQ=HOURLY;INTERVAL=6', kind='incremental', full_rrule='FREQ=WEEKLY;BYDAY=SU', full_kind='synthetic')
+    sun = [datetime(2026, 10, 25, h, tzinfo=AMS) for h in (0, 6, 12, 18)]
+    assert [rec.full_mode(p, o) for o in sun] == ['synthetic', 'none', 'none', 'none']
+    assert rec.full_mode(p, datetime(2026, 10, 24, 0, tzinfo=AMS)) == 'none'
+
+
+def test_a_manual_window_is_open_for_a_day_from_the_request():
+    at = datetime(2026, 10, 31, 14, 7, tzinfo=timezone.utc)
+    w = rec.manual_window(at)
+    assert w.opens == w.occurrence == at and w.closes == at + timedelta(hours=24)

@@ -34,6 +34,12 @@ All notable changes to this project are documented here. The format follows
   chain and the old chain retires. When the chain fails its verification or the proxy cannot build
   the full, the old chain stays as it is, the run gets a notice and the next run reads the VM in
   full. Restore points show which fulls were synthetic.
+- **Hourly backup schedules and Run now** (migration `039`). A schedule can repeat every hour or every
+  N hours (counted from midnight), for smaller increments; such a schedule has no start and finish
+  time, each run may start until the next one is due. **Run now** on a schedule backs up every VM of
+  it once, straight away, regardless of its window and blackouts, one backup per proxy at a time. An
+  occurrence is now stored as the moment its window opened instead of its day; existing runs are
+  converted.
 - **Run timing** (migration `035`). Every backup and export run records where its time went: when
   the work began after the pre-flight wait, the wait for a free proxy, the copy itself and the
   remaining overhead. Backup schedules learn their durations from these columns.
