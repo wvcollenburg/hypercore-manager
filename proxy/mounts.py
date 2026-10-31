@@ -160,6 +160,26 @@ class Mount:
         self.skipped.append({'name': name, 'reason': reason})
 
 
+def parse_bitlk_dump(text: str) -> dict:
+    """From `cryptsetup bitlkDump`: the key IDs of the recovery-password protectors (what AD, Entra and
+    Intune list a recovery key under) and the volume description Windows wrote (computer, drive, date)."""
+    out = {'key_ids': [], 'description': None}
+    guid = None
+    in_slots = False
+    for raw in (text or '').splitlines():
+        line = raw.strip()
+        if line.lower().startswith('description:'):
+            out['description'] = line.split(':', 1)[1].strip() or None
+        elif line.lower().startswith('keyslots:'):
+            in_slots = True
+        elif in_slots and line.lower().startswith('guid:'):
+            guid = line.split(':', 1)[1].strip().upper()
+        elif in_slots and line.lower().startswith('protection:') and 'recovery' in line.lower() and guid:
+            if guid not in out['key_ids']:
+                out['key_ids'].append(guid)
+    return out
+
+
 class LockedVolumes(RuntimeError):
     """Nothing could be mounted but there are encrypted volumes a key would open."""
     def __init__(self, msg: str, locked: list[dict]):
@@ -280,7 +300,7 @@ class MountManager:
         is listed in m.locked so the caller can ask for one."""
         ctype, kind = _ENCRYPTED[fstype]
         if not m.keys:
-            m.locked.append({'name': name, 'kind': kind, 'reason': 'key needed'})
+            m.locked.append(self._locked_entry(dev, name, kind, 'key needed'))
             return
         dm = f'hcmflr-{m.id}-{name}-open'
         env = dict(os.environ, DM_DISABLE_UDEV='1')        # no udev in the container: cryptsetup must not wait for it
@@ -296,13 +316,24 @@ class MountManager:
                 opened = True
                 break
         if not opened:
-            m.locked.append({'name': name, 'kind': kind, 'reason': 'no key matched'})
+            m.locked.append(self._locked_entry(dev, name, kind, 'no key matched'))
             return
         m.cleanup.append(['dmsetup', 'remove', '--noudevsync', '--retry', dm])     # = cryptsetup close, without udev
         minor = _run(['dmsetup', 'info', '-c', '--noheadings', '-o', 'minor', dm], run=self.run).strip()
         inner = f'/dev/dm-{minor}' if minor.isdigit() else f'/dev/mapper/{dm}'
         log.info('%s: %s volume opened read-only', name, kind)
         self._attach_volume(m, inner, name, size_bytes)
+
+    def _locked_entry(self, dev: str, name: str, kind: str, reason: str) -> dict:
+        """A locked volume as the window shows it; BitLocker adds the recovery key IDs so the admin can
+        look up the key that was valid for this point (it changes when a key is rotated)."""
+        entry = {'name': name, 'kind': kind, 'reason': reason}
+        if kind == 'BitLocker':
+            try:
+                entry.update(parse_bitlk_dump(_run(['cryptsetup', 'bitlkDump', dev], check=False, run=self.run, timeout=60)))
+            except (OSError, subprocess.SubprocessError, RuntimeError):
+                pass
+        return entry
 
     def _sector_size(self, dev: str) -> str:
         try:

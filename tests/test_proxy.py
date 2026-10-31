@@ -629,6 +629,39 @@ def test_a_gpt_that_sfdisk_refuses_for_a_short_image_is_read_directly(flr, monke
     assert [p['name'] for p in tight] == ['p1', 'p2']
 
 
+BITLK_DUMP = """Info for BITLK device /dev/dm-3.
+Version:        2
+GUID:           0d2f9a6e-1111-4c4c-9b9b-123456789abc
+Sector size:    512 [bytes]
+Volume size:    49015734272 [bytes]
+Created:        Sat Oct 31 15:02:11 2026
+Description:    W11BTEST C: 31-10-2026
+Cipher name:    aes
+Cipher mode:    xts-plain64
+Cipher key:     128 bits
+
+Keyslots:
+ 0: VMK
+        GUID: 9f8e7d6c-0000-4111-8222-333344445555
+        Protection:     VMK protected with TPM
+        Salt:           00112233445566778899aabbccddeeff
+        Key data size:  44 [bytes]
+ 1: VMK
+        GUID: 4a3b9c1d-2e5f-4071-8899-aabbccddeeff
+        Protection:     VMK protected with recovery passphrase
+        Salt:           ffeeddccbbaa99887766554433221100
+        Key data size:  44 [bytes]
+ 2: FVEK
+        Key data size:  44 [bytes]
+"""
+
+
+def test_bitlk_dump_gives_the_recovery_key_id_and_the_description():
+    d = P.mounts.parse_bitlk_dump(BITLK_DUMP)
+    assert d == {'key_ids': ['4A3B9C1D-2E5F-4071-8899-AABBCCDDEEFF'], 'description': 'W11BTEST C: 31-10-2026'}
+    assert P.mounts.parse_bitlk_dump('') == {'key_ids': [], 'description': None}
+
+
 def _crypt_run(flr, inner='ntfs', good='111111-222222-333333-444444-555555-666666-777777-888888'):
     """p2 is a BitLocker volume; cryptsetup opens it only with `good`, read on stdin."""
     flr.run.fstypes = {'p1': 'vfat', 'p2': 'BitLocker'}
@@ -636,10 +669,12 @@ def _crypt_run(flr, inner='ntfs', good='111111-222222-333333-444444-555555-66666
     seen = {'inputs': [], 'cmds': []}
     def run(cmd, **kw):
         seen['cmds'].append(cmd)
-        if cmd[0] == 'cryptsetup':
+        if cmd[:2] == ['cryptsetup', 'open']:
             seen['inputs'].append(kw.get('input'))
             ok = kw.get('input') == good + '\n'
             return types.SimpleNamespace(returncode=0 if ok else 2, stdout='', stderr='' if ok else 'No key available with this passphrase.')
+        if cmd[:2] == ['cryptsetup', 'bitlkDump']:
+            return types.SimpleNamespace(returncode=0, stdout=BITLK_DUMP, stderr='')
         if cmd[:2] == ['dmsetup', 'info'] and cmd[-1].endswith('-open'):
             return types.SimpleNamespace(returncode=0, stdout='77', stderr='')
         if cmd[0] == 'blkid' and cmd[-1] == '/dev/dm-77':
@@ -653,7 +688,9 @@ def test_a_bitlocker_volume_is_reported_locked_without_a_key(flr):
     _crypt_run(flr)
     m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
     assert [f['name'] for f in m.filesystems] == ['disk1-p1'], 'the unencrypted partition stays browsable'
-    assert m.public()['locked'] == [{'name': 'disk1-p2', 'kind': 'BitLocker', 'reason': 'key needed'}]
+    locked = m.public()['locked']
+    assert [(v['name'], v['kind'], v['reason']) for v in locked] == [('disk1-p2', 'BitLocker', 'key needed')]
+    assert locked[0]['key_ids'] == ['4A3B9C1D-2E5F-4071-8899-AABBCCDDEEFF'] and locked[0]['description'].startswith('W11BTEST C:')
     flr.mm.unmount(m.id)
 
 
@@ -678,8 +715,9 @@ def test_only_locked_volumes_and_a_wrong_key_give_a_locked_answer(flr):
     flr.run.fstypes = {'p1': 'crypto_LUKS', 'p2': 'BitLocker'}
     with pytest.raises(P.mounts.LockedVolumes) as e:
         flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0, keys=['nope'])
-    assert e.value.locked == [{'name': 'disk1-p1', 'kind': 'LUKS', 'reason': 'no key matched'},
-                              {'name': 'disk1-p2', 'kind': 'BitLocker', 'reason': 'no key matched'}]
+    assert [(v['name'], v['kind'], v['reason']) for v in e.value.locked] == [('disk1-p1', 'LUKS', 'no key matched'),
+                                                                            ('disk1-p2', 'BitLocker', 'no key matched')]
+    assert 'key_ids' not in e.value.locked[0] and e.value.locked[1]['key_ids'] == ['4A3B9C1D-2E5F-4071-8899-AABBCCDDEEFF']
     assert 'nope' not in str(e.value)
     flr.run.dms = []                  # the fake numbers dm devices by creation; start again for the next mount
     app = P.api.create_app(flr.cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}), flr.mm)

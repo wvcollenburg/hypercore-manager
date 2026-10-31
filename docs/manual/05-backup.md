@@ -168,7 +168,10 @@ has the details, including the kernel's own messages.
 lists them and asks for one. For BitLocker that is the 48-digit recovery password, kept in Active
 Directory, Entra ID or wherever it was saved when BitLocker was turned on; for LUKS the volume's
 passphrase. Enter one key per line when volumes have different keys; each key is tried on every
-volume. The volume is opened read-only on the proxy for this browse only: the key is never stored or
+volume. For BitLocker the window shows the volume's description (computer, drive, date) and the
+**recovery key ID**: look the key up by that ID (in Active Directory Users and Computers or Entra ID
+the first eight characters are enough), because a key that was rotated after the point was made
+will not open it. The volume is opened read-only on the proxy for this browse only: the key is never stored or
 logged, and the next time you open the point you enter it again. When a point holds both, the
 unencrypted volumes are browsable at once and a line above the list offers to unlock the rest.
 

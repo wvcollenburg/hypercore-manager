@@ -926,6 +926,8 @@ window.LANG = {
   'ex.flr_unlock': "Entsperren",
   'ex.flr_unlocking': "Entsperren und Einhängen…",
   'ex.flr_key_no_match': "keiner der Schlüssel hat es geöffnet",
+  'ex.flr_key_id': "ID des Wiederherstellungsschlüssels",
+  'ex.flr_key_id_hint': "Suchen Sie den Schlüssel über seine ID (der fett gedruckte Teil genügt in Active Directory und Entra ID): Ein nach diesem Punkt ersetzter Schlüssel öffnet es nicht.",
   'ex.flr_keys_missing': "Geben Sie mindestens einen Schlüssel ein.",
   'ex.flr_some_locked': "Noch gesperrt: {names}.",
   'ex.flr_mounting': "Wiederherstellungspunkt wird auf dem Proxy eingehängt…",

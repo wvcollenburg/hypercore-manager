@@ -11,7 +11,9 @@ All notable changes to this project are documented here. The format follows
   encrypted volume as an unsupported filesystem. It now lists it as locked and asks for the key (a
   BitLocker recovery password or a LUKS passphrase; several keys are tried on every volume); the proxy
   opens the volume read-only with `cryptsetup` and browses it like any other. Keys are passed for that
-  one mount only, on cryptsetup's stdin, and never stored or logged. Verified with a real LUKS volume;
+  one mount only, on cryptsetup's stdin, and never stored or logged. For BitLocker the window shows
+  the recovery key ID and the volume description, so the admin can find the key that was valid for
+  that point in AD or Entra ID. Verified with a real LUKS volume;
   BitLocker is still to be tried on a real Windows point.
 - **Proxy log bundle** (proxy `0.5.1`). **Download logs** on a backup proxy (Settings) fetches a zip
   with the proxy's log, its recent jobs and file-level mounts, and its kernel messages, devices,

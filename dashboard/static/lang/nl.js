@@ -926,6 +926,8 @@ window.LANG = {
   'ex.flr_unlock': "Ontgrendelen",
   'ex.flr_unlocking': "Ontgrendelen en koppelen…",
   'ex.flr_key_no_match': "geen van de sleutels opende het",
+  'ex.flr_key_id': "ID van de herstelsleutel",
+  'ex.flr_key_id_hint': "Zoek de sleutel op met zijn ID (het vetgedrukte deel volstaat in Active Directory en Entra ID): een sleutel die na dit punt is vervangen opent het niet.",
   'ex.flr_keys_missing': "Voer minstens één sleutel in.",
   'ex.flr_some_locked': "Nog vergrendeld: {names}.",
   'ex.flr_mounting': "Herstelpunt wordt op de proxy gekoppeld…",

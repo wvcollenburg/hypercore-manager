@@ -926,6 +926,8 @@ window.LANG = {
   'ex.flr_unlock': "Déverrouiller",
   'ex.flr_unlocking': "Déverrouillage et montage…",
   'ex.flr_key_no_match': "aucune clé ne l'a ouvert",
+  'ex.flr_key_id': "ID de la clé de récupération",
+  'ex.flr_key_id_hint': "Recherchez la clé par son ID (la partie en gras suffit dans Active Directory et Entra ID) : une clé remplacée après ce point ne l'ouvrira pas.",
   'ex.flr_keys_missing': "Saisissez au moins une clé.",
   'ex.flr_some_locked': "Encore verrouillé : {names}.",
   'ex.flr_mounting': "Montage du point de restauration sur le proxy…",
