@@ -18,7 +18,10 @@ import requests
 
 
 class ProxyError(Exception):
-    pass
+    """payload: the proxy's JSON answer to a refused request, when it sent one (e.g. locked volumes)."""
+    def __init__(self, msg: str = '', payload: dict | None = None):
+        super().__init__(msg)
+        self.payload = payload or {}
 
 
 def certificate_fingerprint(url: str, timeout: float = 10) -> str:
@@ -79,10 +82,11 @@ class ProxyClient:
             raise ProxyError('proxy rejected the token (401)')
         if r.status_code >= 400:
             try:
-                detail = r.json().get('error', r.text[:200])
-            except ValueError:
-                detail = r.text[:200]
-            raise ProxyError(f'proxy returned {r.status_code}: {detail}')
+                payload = r.json()
+                detail = payload.get('error', r.text[:200])
+            except (ValueError, AttributeError):
+                payload, detail = None, r.text[:200]
+            raise ProxyError(f'proxy returned {r.status_code}: {detail}', payload if isinstance(payload, dict) else None)
         return r.json() if r.text else None
 
     def _raw(self, method: str, path: str, timeout: float = 120) -> requests.Response:

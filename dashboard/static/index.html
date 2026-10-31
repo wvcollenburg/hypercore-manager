@@ -5303,7 +5303,7 @@ document.addEventListener('DOMContentLoaded', () => { setTimeout(_exProbe, 800);
 async function _exCall(method, path, body) {
   const r = await fetch(_withCluster(path), { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  if (!r.ok) { const err = new Error(d.error || `HTTP ${r.status}`); err.status = r.status; err.data = d; throw err; }
   return d;
 }
 const _exEsc = v => _clEsc(v);
@@ -5974,20 +5974,56 @@ async function exRestoreStart(pointId) {
 let _flr = null;   // the open file browser: {point, mount, path, selected:Set, entries, vms}
 async function exFilesOpen(pointId, seq, date) {
   if (_flr) await _flrUnmount();
-  _flr = {point: pointId, mount: null, path: '/', selected: new Set(), entries: [], vms: []};
+  _flr = {point: pointId, mount: null, path: '/', selected: new Set(), entries: [], vms: [], locked: []};
   document.getElementById('flrTitle').textContent = `${_pts ? _pts.vm + ' · ' : ''}${t('ex.flr_title', {seq, date})}`;
   document.getElementById('flrToolbar').innerHTML = '';
   document.getElementById('flrMsg').textContent = '';
   document.getElementById('flrHint').textContent = t('ex.flr_hint');
   document.getElementById('flrList').innerHTML = `<div class="loading"><div class="spinner"></div><span>${t('ex.flr_mounting')}</span></div>`;
   document.getElementById('flrBackdrop').classList.add('visible');
+  await _flrMount();
+}
+// mount the open point; keys (BitLocker recovery passwords, LUKS passphrases) go along for this one
+// request only and are never kept in the page
+async function _flrMount(keys) {
+  const st = _flr; if (!st) return;
+  const pointId = st.point;
   try {
-    const m = await _exCall('POST', '/api/backup/flr/mounts', {point_id: pointId});
-    if (!_flr || _flr.point !== pointId) { _exCall('DELETE', `/api/backup/flr/mounts/${m.id}`).catch(() => {}); return; }   // closed meanwhile
-    _flr.mount = m.id;
-    try { _flr.vms = (await _exCall('GET', '/api/backup/vms')).map(v => ({uuid: v.uuid, name: v.name})); } catch (e) {}
+    const m = await _exCall('POST', '/api/backup/flr/mounts', keys && keys.length ? {point_id: pointId, keys} : {point_id: pointId});
+    if (_flr !== st) { _exCall('DELETE', `/api/backup/flr/mounts/${m.id}`).catch(() => {}); return; }   // closed meanwhile
+    st.mount = m.id; st.locked = m.locked || [];
+    if (!st.vms.length) { try { st.vms = (await _exCall('GET', '/api/backup/vms')).map(v => ({uuid: v.uuid, name: v.name})); } catch (e) {} }
     await _flrLoad('/');
-  } catch (e) { document.getElementById('flrList').innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
+  } catch (e) {
+    if (_flr !== st) return;
+    if (e.status === 422 && e.data && e.data.locked) { st.locked = e.data.locked; _flrUnlockForm(); return; }
+    document.getElementById('flrList').innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`;
+  }
+}
+const _flrKindHint = kind => t(kind === 'BitLocker' ? 'ex.flr_key_hint_bitlocker' : 'ex.flr_key_hint_luks');
+function _flrUnlockForm() {
+  const st = _flr; if (!st) return;
+  const vols = st.locked.map(v => `<li><b>${_exEsc(v.name)}</b> · ${_exEsc(v.kind)}${v.reason === 'no key matched' ? ` · <span style="color:var(--accent-red)">${t('ex.flr_key_no_match')}</span>` : ''}</li>`).join('');
+  const kinds = [...new Set(st.locked.map(v => v.kind))];
+  document.getElementById('flrToolbar').innerHTML = _pts ? `<a href="#" onclick="exFilesBack(); return false;" style="color:var(--accent-cyan);font-family:'JetBrains Mono',monospace;font-size:12px;">← ${t('ex.tab.points')}</a>` : '';
+  document.getElementById('flrList').innerHTML = `<div style="padding:16px 18px;max-width:640px;">
+    <div style="font-weight:600;margin-bottom:6px;">${t('ex.flr_locked_title')}</div>
+    <ul style="margin:0 0 10px 18px;padding:0;font-size:12px;">${vols}</ul>
+    <label for="flrKeys" style="font-size:11px;color:var(--text-muted);">${t('ex.flr_keys')}</label>
+    <textarea id="flrKeys" rows="3" autocomplete="off" spellcheck="false" style="width:100%;box-sizing:border-box;font-family:'JetBrains Mono',monospace;font-size:12px;" placeholder="123456-123456-123456-123456-123456-123456-123456-123456"></textarea>
+    <div class="ex-hint">${kinds.map(_flrKindHint).join(' ')} ${t('ex.flr_keys_never_stored')}</div>
+    <div class="cl-actions"><button class="update-apply-btn" id="flrUnlockBtn" onclick="exFilesUnlock()">${t('ex.flr_unlock')}</button></div>
+  </div>`;
+  document.getElementById('flrKeys').focus();
+}
+async function exFilesUnlock() {
+  const st = _flr; const box = document.getElementById('flrKeys'); if (!st || !box) return;
+  const keys = box.value.split('\n').map(k => k.trim()).filter(Boolean);
+  if (!keys.length) { _shMsg('flrMsg', t('ex.flr_keys_missing'), 'err'); return; }
+  box.value = ''; _shMsg('flrMsg', '', '');
+  if (st.mount) { const old = st.mount; st.mount = null; try { await _exCall('DELETE', `/api/backup/flr/mounts/${old}`); } catch (e) {} }
+  document.getElementById('flrList').innerHTML = `<div class="loading"><div class="spinner"></div><span>${t('ex.flr_unlocking')}</span></div>`;
+  await _flrMount(keys);
 }
 async function _flrLoad(path) {
   if (!_flr || !_flr.mount) return;
@@ -6023,8 +6059,10 @@ function _flrRender() {
       <select id="flrVm" style="max-width:220px;" title="${_exEsc(t('ex.flr_iso_vm'))}"><option value="">${t('ex.flr_iso_vm')}</option>${(st.vms || []).map(v => `<option value="${_exEsc(v.uuid)}" ${v.uuid === vm ? 'selected' : ''}>${_exEsc(v.name)}</option>`).join('')}</select>
       <button class="um-action-btn" ${n ? '' : 'disabled'} onclick="exFilesIso()">${t('ex.flr_iso', {n})}</button>
       <button class="um-action-btn" onclick="exFilesClose()">${t('ex.flr_unmount')}</button>`;
+  const locked = (st.locked || []).length && st.path === '/'
+    ? `<div class="ex-hint" style="padding:8px 12px;border-bottom:1px solid var(--border);">${t('ex.flr_some_locked', {names: st.locked.map(v => `${_exEsc(v.name)} (${_exEsc(v.kind)})`).join(', ')})} <a href="#" onclick="_flrUnlockForm(); return false;" style="color:var(--accent-cyan);">${t('ex.flr_unlock')}</a></div>` : '';
   const list = document.getElementById('flrList'), top = list.scrollTop;
-  list.innerHTML = st.entries.length ? `<table class="um-table"><tbody>${rows}</tbody></table>` : `<div class="empty-state">${t('ex.flr_empty')}</div>`;
+  list.innerHTML = locked + (st.entries.length ? `<table class="um-table"><tbody>${rows}</tbody></table>` : `<div class="empty-state">${t('ex.flr_empty')}</div>`);
   list.scrollTop = top;
 }
 async function exFilesIso() {

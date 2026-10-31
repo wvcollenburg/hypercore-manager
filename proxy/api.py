@@ -7,7 +7,8 @@ api.py — REST API of the backup proxy (port 8083), driven by the backup servic
   GET  /jobs                  recent jobs
   GET  /jobs/<id>             state, progress, result or error
   DELETE /jobs/<id>           request cancellation
-  POST /mounts                mount a restore point read-only {target, chain_dir, seq} -> {id, filesystems}
+  POST /mounts                mount a restore point read-only {target, chain_dir, seq, keys?} -> {id, filesystems, locked}
+                              (422 {error, locked} when only encrypted volumes without a fitting key were found)
   GET  /mounts/<id>/ls?path=  directory listing ('/' lists the filesystems)
   GET  /mounts/<id>/file?path= stream one file
   GET  /mounts/<id>/zip?paths=a,b  stream a zip of files/directories
@@ -29,6 +30,7 @@ from functools import wraps
 from flask import Flask, Response, jsonify, request
 
 import identity as identity_mod
+import mounts as mounts_mod
 import support
 
 log = logging.getLogger('proxy.api')
@@ -150,8 +152,13 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
         for k in ('target', 'chain_dir', 'seq'):
             if k not in body:
                 return jsonify({'error': f'missing field {k}'}), 400
+        keys = body.get('keys') or []
+        if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+            return jsonify({'error': 'keys must be a list of strings'}), 400
         try:
-            m = mounts.mount(body['target'], body['chain_dir'], int(body['seq']))
+            m = mounts.mount(body['target'], body['chain_dir'], int(body['seq']), keys=keys)
+        except mounts_mod.LockedVolumes as e:
+            return jsonify({'error': str(e), 'locked': e.locked}), 422
         except Exception as e:                       # noqa: BLE001
             log.warning('mount failed', exc_info=True)
             return jsonify({'error': str(e)}), 502

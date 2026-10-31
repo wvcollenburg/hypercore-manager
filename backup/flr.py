@@ -23,7 +23,9 @@ _MOUNTS: dict[str, dict] = {}          # mount id -> {proxy_id, point_id, chain_
 _LOCK = threading.Lock()
 
 
-def mount_point(point_id: int, requested_by: str | None = None) -> dict:
+def mount_point(point_id: int, requested_by: str | None = None, keys: list[str] | None = None) -> dict:
+    """keys: BitLocker recovery passwords or LUKS passphrases for encrypted volumes; handed to the
+    proxy for this one mount, never stored or logged."""
     point = db.get_point(point_id)
     chain = db.get_chain(point['chain_id']) if point else None
     if not point or not chain or point.get('status') != 'ok':
@@ -35,9 +37,12 @@ def mount_point(point_id: int, requested_by: str | None = None) -> dict:
     pc = proxy_client_for(proxy)
     body = {'target': {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')},
             'chain_dir': chain['chain_dir'], 'seq': point['seq']}
+    if keys:
+        body['keys'] = [str(k) for k in keys]
     m = pc._request('POST', '/mounts', json=body, timeout=300)
     entry = {'id': m['id'], 'proxy_id': proxy['id'], 'point_id': point_id, 'chain_id': chain['id'], 'cluster_id': chain['cluster_id'],
-             'vm_name': chain['vm_name'], 'seq': point['seq'], 'filesystems': m.get('filesystems', []), 'created': time.time(),
+             'vm_name': chain['vm_name'], 'seq': point['seq'], 'filesystems': m.get('filesystems', []), 'locked': m.get('locked', []),
+             'created': time.time(),
              'requested_by': requested_by}
     with _LOCK:
         _MOUNTS[m['id']] = entry

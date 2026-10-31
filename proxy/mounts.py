@@ -7,6 +7,9 @@ For every disk image of a point:
       and LVM metadata changes never reach the backup)  ->  mount read-only
 LVM physical volumes are imported under a temporary volume-group name (vgimportclone on the
 COW device), so a guest whose root VG has the same name as the proxy's own does not collide.
+BitLocker and LUKS volumes are opened read-only with cryptsetup when the request carries a key
+(a BitLocker recovery password or a LUKS passphrase; several keys are tried in turn). Keys go to
+cryptsetup on stdin, are never logged or kept, and live only as long as the mount request.
 
 Everything that touches the system goes through `run` (injectable), so the planning and the
 browse/zip logic are unit-tested without root; the real thing is exercised on the lab proxy.
@@ -33,6 +36,8 @@ import manifest
 
 log = logging.getLogger('proxy.mounts')
 SECTOR = 512
+# blkid TYPE -> (cryptsetup --type, name shown to the admin)
+_ENCRYPTED = {'bitlocker': ('bitlk', 'BitLocker'), 'crypto_luks': ('luks', 'LUKS')}
 _FS_OPTS = {
     'ext4': ('ext4', 'ro,noload'), 'ext3': ('ext4', 'ro,noload'), 'ext2': ('ext2', 'ro'),
     'xfs': ('xfs', 'ro,norecovery,nouuid'), 'btrfs': ('btrfs', 'ro'), 'vfat': ('vfat', 'ro'),
@@ -134,6 +139,8 @@ class Mount:
         self.root = root                     # directory under which filesystems are mounted
         self.filesystems: list[dict] = []    # {name, fstype, mountpoint, label, size_bytes}
         self.skipped: list[dict] = []        # {name, reason}: partitions and volumes that were not mounted
+        self.locked: list[dict] = []         # {name, kind, reason}: encrypted volumes no key opened
+        self.keys: list[str] = []            # unlock keys, only while mounting (cleared afterwards)
         self.cleanup: list[list[str]] = []   # commands to run in reverse on unmount
         self.stack = ExitStack()             # keeps nbd attachments alive
         self.created = time.time()
@@ -145,12 +152,19 @@ class Mount:
 
     def public(self) -> dict:
         return {'id': self.id, 'filesystems': [{k: v for k, v in f.items() if k != 'mountpoint'} for f in self.filesystems],
-                'skipped': self.skipped, 'created': self.created, 'last_used': self.last_used}
+                'skipped': self.skipped, 'locked': self.locked, 'created': self.created, 'last_used': self.last_used}
 
     def skip(self, name: str, reason: str) -> None:
         reason = ' '.join(reason.split())            # tool output spans lines; the error is one line
         log.warning('%s not mounted: %s', name, reason)
         self.skipped.append({'name': name, 'reason': reason})
+
+
+class LockedVolumes(RuntimeError):
+    """Nothing could be mounted but there are encrypted volumes a key would open."""
+    def __init__(self, msg: str, locked: list[dict]):
+        super().__init__(msg)
+        self.locked = locked
 
 
 def no_filesystem_error(skipped: list[dict], limit: int = 900) -> str:
@@ -173,10 +187,11 @@ class MountManager:
         os.makedirs(self.base, exist_ok=True)
 
     # ------------------------------------------------------------------ mount
-    def mount(self, target: dict, chain_dir: str, seq: int) -> Mount:
+    def mount(self, target: dict, chain_dir: str, seq: int, keys: list[str] | None = None) -> Mount:
         root = self.mounter.acquire(target['uri'], target.get('username'), target.get('password'))
         mid = uuidlib.uuid4().hex[:12]
         m = Mount(mid, os.path.join(self.base, mid))
+        m.keys = [k.strip() for k in (keys or []) if k and k.strip()]
         os.makedirs(m.root, exist_ok=True)
         m.cleanup.append(['__release_target__', target['uri']])
         try:
@@ -194,10 +209,15 @@ class MountManager:
                 dev = m.stack.enter_context(self.backend.open_readonly(image))
                 self._attach_disk(m, dev, f'disk{di}', int(d.get('size') or 0))
             if not m.filesystems:
+                if m.locked:
+                    raise LockedVolumes('encrypted volume(s) need a key: ' + ', '.join(
+                        f"{v['name']} ({v['kind']}{'' if v['reason'] == 'key needed' else ': ' + v['reason']})" for v in m.locked), m.locked)
                 raise RuntimeError(no_filesystem_error(m.skipped))
         except Exception:
+            m.keys = []
             self._teardown(m)
             raise
+        m.keys = []
         with self._lock:
             self.mounts[mid] = m
         log.info('point mounted', extra={'mount': mid, 'filesystems': [f['name'] for f in m.filesystems]})
@@ -229,10 +249,8 @@ class MountManager:
             blkid = _run(['blkid', '-p', '-o', 'export', cow], check=False, run=self.run)
             info = parse_blkid(blkid)
             fstype = (info.get('TYPE') or '').lower()
-            if fstype == 'lvm2_member':
-                self._attach_lvm(m, cow, name)
-            elif fstype in _FS_OPTS:
-                self._mount_fs(m, cow, name, fstype, info.get('LABEL'), part['size_bytes'])
+            if fstype == 'lvm2_member' or fstype in _ENCRYPTED or fstype in _FS_OPTS:
+                self._attach_volume(m, cow, name, part['size_bytes'], info)
             elif fstype:
                 m.skip(name, f'unsupported filesystem {fstype!r}')
             elif whole and info.get('PTTYPE'):
@@ -241,6 +259,50 @@ class MountManager:
                 log.info('partition %s: %d bytes, no filesystem (boot loader area)', name, part['size_bytes'])
             else:
                 m.skip(name, 'no filesystem recognised' + ('' if blkid else ' (blkid returned nothing)'))
+
+    def _attach_volume(self, m: Mount, dev: str, name: str, size_bytes: int, info: dict | None = None) -> None:
+        """What a partition, logical volume or opened encrypted volume holds: a filesystem, an LVM
+        physical volume, or an encrypted volume (which may hold either again)."""
+        if info is None:
+            info = parse_blkid(_run(['blkid', '-p', '-o', 'export', dev], check=False, run=self.run))
+        fstype = (info.get('TYPE') or '').lower()
+        if fstype == 'lvm2_member':
+            self._attach_lvm(m, dev, name)
+        elif fstype in _ENCRYPTED:
+            self._unlock(m, dev, name, fstype, size_bytes)
+        elif fstype in _FS_OPTS:
+            self._mount_fs(m, dev, name, fstype, info.get('LABEL'), size_bytes)
+        else:
+            m.skip(name, f'unsupported filesystem {fstype!r}' if fstype else 'no filesystem recognised')
+
+    def _unlock(self, m: Mount, dev: str, name: str, fstype: str, size_bytes: int) -> None:
+        """Open an encrypted volume read-only with the first key that fits; a volume no key opens
+        is listed in m.locked so the caller can ask for one."""
+        ctype, kind = _ENCRYPTED[fstype]
+        if not m.keys:
+            m.locked.append({'name': name, 'kind': kind, 'reason': 'key needed'})
+            return
+        dm = f'hcmflr-{m.id}-{name}-open'
+        env = dict(os.environ, DM_DISABLE_UDEV='1')        # no udev in the container: cryptsetup must not wait for it
+        opened = False
+        for key in m.keys:
+            try:
+                r = self.run(['cryptsetup', 'open', '--readonly', '--type', ctype, dev, dm], input=key + '\n',
+                             capture_output=True, text=True, timeout=120, env=env)
+            except (OSError, subprocess.SubprocessError) as e:
+                m.skip(name, f'{kind} volume could not be opened: {e}')
+                return
+            if getattr(r, 'returncode', 1) == 0:
+                opened = True
+                break
+        if not opened:
+            m.locked.append({'name': name, 'kind': kind, 'reason': 'no key matched'})
+            return
+        m.cleanup.append(['dmsetup', 'remove', '--noudevsync', '--retry', dm])     # = cryptsetup close, without udev
+        minor = _run(['dmsetup', 'info', '-c', '--noheadings', '-o', 'minor', dm], run=self.run).strip()
+        inner = f'/dev/dm-{minor}' if minor.isdigit() else f'/dev/mapper/{dm}'
+        log.info('%s: %s volume opened read-only', name, kind)
+        self._attach_volume(m, inner, name, size_bytes)
 
     def _sector_size(self, dev: str) -> str:
         try:
@@ -317,16 +379,11 @@ class MountManager:
             m.skip(name, 'LVM physical volume without an active logical volume')
         for lv_label, lv in lvs:
             info = parse_blkid(_run(['blkid', '-p', '-o', 'export', lv], check=False, run=self.run))
-            fstype = (info.get('TYPE') or '').lower()
-            lv_name = f'{name}-{lv_label}'
-            if fstype not in _FS_OPTS:
-                m.skip(lv_name, f'unsupported filesystem {fstype!r}' if fstype else 'no filesystem recognised')
-            if fstype in _FS_OPTS:
-                try:
-                    size = int(_run(['blockdev', '--getsize64', lv], run=self.run) or 0)
-                except RuntimeError:
-                    size = 0
-                self._mount_fs(m, lv, lv_name, fstype, info.get('LABEL'), size)
+            try:
+                size = int(_run(['blockdev', '--getsize64', lv], run=self.run) or 0)
+            except RuntimeError:
+                size = 0
+            self._attach_volume(m, lv, f'{name}-{lv_label}', size, info)
 
     # ---------------------------------------------------------------- browse
     def get(self, mid: str) -> Mount:
@@ -485,10 +542,10 @@ class MountManager:
         for vg in _run(['vgs', '--noheadings', '-o', 'vg_name'], check=False, run=self.run).split():
             if vg.startswith('hcmflr'):
                 _run(['vgchange', '-an', vg], check=False, run=self.run); n['vgs'] += 1
-        for line in _run(['dmsetup', 'ls'], check=False, run=self.run).splitlines():
-            name = line.split()[0] if line.split() else ''
-            if name.startswith('hcmflr-'):
-                _run(['dmsetup', 'remove', '--noudevsync', '--retry', name], check=False, run=self.run); n['dm'] += 1
+        names = [ln.split()[0] for ln in _run(['dmsetup', 'ls'], check=False, run=self.run).splitlines() if ln.split()]
+        # opened encrypted volumes (-open) sit on top of the snapshots: remove them first
+        for name in sorted((x for x in names if x.startswith('hcmflr-')), key=lambda x: not x.endswith('-open')):
+            _run(['dmsetup', 'remove', '--noudevsync', '--retry', name], check=False, run=self.run); n['dm'] += 1
         for line in _run(['losetup', '-a'], check=False, run=self.run).splitlines():
             dev = line.split(':')[0]
             if dev.startswith('/dev/loop') and (self.base in line or '(/dev/nbd' in line):

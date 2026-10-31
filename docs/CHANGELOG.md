@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Browse BitLocker and LUKS volumes with a key** (proxy `0.5.3`). File browsing used to show an
+  encrypted volume as an unsupported filesystem. It now lists it as locked and asks for the key (a
+  BitLocker recovery password or a LUKS passphrase; several keys are tried on every volume); the proxy
+  opens the volume read-only with `cryptsetup` and browses it like any other. Keys are passed for that
+  one mount only, on cryptsetup's stdin, and never stored or logged. Verified with a real LUKS volume;
+  BitLocker is still to be tried on a real Windows point.
 - **Proxy log bundle** (proxy `0.5.1`). **Download logs** on a backup proxy (Settings) fetches a zip
   with the proxy's log, its recent jobs and file-level mounts, and its kernel messages, devices,
   mounts, disk space, memory and processes; passwords and tokens are left out. The proxy now also

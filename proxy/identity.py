@@ -9,7 +9,7 @@ import shutil
 import socket
 import subprocess
 
-VERSION = '0.5.2'
+VERSION = '0.5.3'
 _SKIP_PREFIXES = ('lo', 'docker', 'veth', 'br-', 'virbr', 'cni', 'flannel', 'tun', 'tap', 'wg')
 
 
@@ -71,5 +71,7 @@ def identity(cfg, backend_name: str, nbd_free: int | None) -> dict:
             # GET /support/bundle: log, jobs, mounts and system state as one zip
             'support_bundle': True,
             'filesystems': ['ext4', 'ext3', 'ext2', 'xfs', 'btrfs', 'vfat', 'ntfs', 'exfat', 'lvm'],
+            # POST /mounts takes keys: BitLocker and LUKS volumes are opened read-only with them
+            'unlock': ['bitlocker', 'luks'],
         },
     }

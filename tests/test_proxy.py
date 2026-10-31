@@ -629,6 +629,68 @@ def test_a_gpt_that_sfdisk_refuses_for_a_short_image_is_read_directly(flr, monke
     assert [p['name'] for p in tight] == ['p1', 'p2']
 
 
+def _crypt_run(flr, inner='ntfs', good='111111-222222-333333-444444-555555-666666-777777-888888'):
+    """p2 is a BitLocker volume; cryptsetup opens it only with `good`, read on stdin."""
+    flr.run.fstypes = {'p1': 'vfat', 'p2': 'BitLocker'}
+    orig = flr.run.__call__
+    seen = {'inputs': [], 'cmds': []}
+    def run(cmd, **kw):
+        seen['cmds'].append(cmd)
+        if cmd[0] == 'cryptsetup':
+            seen['inputs'].append(kw.get('input'))
+            ok = kw.get('input') == good + '\n'
+            return types.SimpleNamespace(returncode=0 if ok else 2, stdout='', stderr='' if ok else 'No key available with this passphrase.')
+        if cmd[:2] == ['dmsetup', 'info'] and cmd[-1].endswith('-open'):
+            return types.SimpleNamespace(returncode=0, stdout='77', stderr='')
+        if cmd[0] == 'blkid' and cmd[-1] == '/dev/dm-77':
+            return types.SimpleNamespace(returncode=0, stdout=f'TYPE={inner}\nLABEL=Data\n', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    return seen, good
+
+
+def test_a_bitlocker_volume_is_reported_locked_without_a_key(flr):
+    _crypt_run(flr)
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert [f['name'] for f in m.filesystems] == ['disk1-p1'], 'the unencrypted partition stays browsable'
+    assert m.public()['locked'] == [{'name': 'disk1-p2', 'kind': 'BitLocker', 'reason': 'key needed'}]
+    flr.mm.unmount(m.id)
+
+
+def test_a_bitlocker_volume_opens_read_only_with_its_recovery_key(flr):
+    seen, good = _crypt_run(flr)
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0, keys=['wrong-one', ' ' + good + ' '])
+    assert [f['name'] for f in m.filesystems] == ['disk1-p1', 'disk1-p2'] and m.filesystems[1]['fstype'] == 'ntfs'
+    assert m.locked == [] and m.keys == [], 'keys are dropped once the mount is made'
+    opens = [c for c in seen['cmds'] if c[0] == 'cryptsetup']
+    assert all(c[:4] == ['cryptsetup', 'open', '--readonly', '--type'] and c[4] == 'bitlk' for c in opens)
+    assert seen['inputs'] == ['wrong-one\n', good + '\n'], 'keys go on stdin, tried in turn, trimmed'
+    assert not any(good in ' '.join(c) for c in seen['cmds']), 'a key never appears on a command line'
+    assert any(c[:3] == ['mount', '-t', 'ntfs3'] and c[-2] == '/dev/dm-77' for c in flr.run.cmds), 'the opened volume is mounted'
+    flr.mm.unmount(m.id)
+    removes = [c[-1] for c in flr.run.cmds if c[:2] == ['dmsetup', 'remove']]
+    assert removes.index(next(r for r in removes if r.endswith('-open'))) < removes.index(next(r for r in removes if r.endswith('disk1-p2'))), \
+        'the opened volume is closed before the snapshot under it'
+
+
+def test_only_locked_volumes_and_a_wrong_key_give_a_locked_answer(flr):
+    seen, good = _crypt_run(flr)
+    flr.run.fstypes = {'p1': 'crypto_LUKS', 'p2': 'BitLocker'}
+    with pytest.raises(P.mounts.LockedVolumes) as e:
+        flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0, keys=['nope'])
+    assert e.value.locked == [{'name': 'disk1-p1', 'kind': 'LUKS', 'reason': 'no key matched'},
+                              {'name': 'disk1-p2', 'kind': 'BitLocker', 'reason': 'no key matched'}]
+    assert 'nope' not in str(e.value)
+    flr.run.dms = []                  # the fake numbers dm devices by creation; start again for the next mount
+    app = P.api.create_app(flr.cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}), flr.mm)
+    r = app.test_client().post('/mounts', json={'target': {'uri': 'smb://nas/share/hcm'}, 'chain_dir': 'F/v_vm-1.chain', 'seq': 0},
+                               headers={'Authorization': 'Bearer t0k'})
+    assert r.status_code == 422 and r.get_json()['locked'][0]['reason'] == 'key needed'
+    r = app.test_client().post('/mounts', json={'target': {'uri': 'smb://nas/share/hcm'}, 'chain_dir': 'F/v_vm-1.chain', 'seq': 0, 'keys': 'x'},
+                               headers={'Authorization': 'Bearer t0k'})
+    assert r.status_code == 400
+
+
 def test_lvm_member_is_imported_under_a_temporary_vg(flr):
     flr.run.fstypes = {'p1': 'vfat', 'p2': 'LVM2_member'}
     orig = flr.run.__call__
@@ -1059,7 +1121,7 @@ def test_support_bundle_route_needs_the_token(tmp_path):
     r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
     assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
     assert r.data[:2] == b'PK'
-    assert P.identity.VERSION == '0.5.2'
+    assert P.identity.VERSION == '0.5.3'
 
 
 def test_the_proxy_keeps_a_rotating_log_file(tmp_path):

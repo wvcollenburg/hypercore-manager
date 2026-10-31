@@ -1032,9 +1032,17 @@ def flr_mounts():
 @_require_token
 def flr_mount():
     b = request.get_json(silent=True) or {}
+    keys = b.get('keys') or []
+    if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+        return _err('keys must be a list of strings')
     try:
-        return jsonify(flr.mount_point(int(b.get('point_id') or 0), b.get('requested_by'))), 201
-    except (incremental.IncrementalError, ProxyError, ValueError) as e:
+        return jsonify(flr.mount_point(int(b.get('point_id') or 0), b.get('requested_by'), keys=keys)), 201
+    except ProxyError as e:
+        if e.payload.get('locked'):
+            # only encrypted volumes and no key that opens them: the dashboard asks for one
+            return jsonify({'error': e.payload.get('error') or str(e), 'locked': e.payload['locked']}), 422
+        return _err(str(e), 502)
+    except (incremental.IncrementalError, ValueError) as e:
         return _err(str(e), 502)
 
 

@@ -291,3 +291,17 @@ def test_proxy_logs_route_fetches_the_bundle_with_the_decrypted_token(monkeypatc
     r = api.app.test_client().get('/api/v1/proxies/3/logs')
     assert r.status_code == 200 and r.data.startswith(b'PK') and r.headers['Content-Disposition'] == 'attachment; filename="hcm-proxy-px-1.zip"'
     assert asked == {'with_secret': True} and used == {'token': 'plain'}
+
+
+def test_flr_mount_passes_keys_and_answers_locked_volumes_with_422(monkeypatch):
+    seen = {}
+    def mount_point(pid, by, keys=None):
+        seen['keys'] = keys
+        raise api.ProxyError('proxy returned 422: locked', {'error': 'encrypted volume(s) need a key: disk1-p2 (BitLocker)',
+                                                            'locked': [{'name': 'disk1-p2', 'kind': 'BitLocker', 'reason': 'key needed'}]})
+    monkeypatch.setattr(api.flr, 'mount_point', mount_point)
+    monkeypatch.setitem(api.app.config, 'API_TOKEN', '')
+    c = api.app.test_client()
+    r = c.post('/api/v1/flr/mounts', json={'point_id': 4, 'keys': ['k1']})
+    assert r.status_code == 422 and r.get_json()['locked'][0]['kind'] == 'BitLocker' and seen['keys'] == ['k1']
+    assert c.post('/api/v1/flr/mounts', json={'point_id': 4, 'keys': 'k1'}).status_code == 400

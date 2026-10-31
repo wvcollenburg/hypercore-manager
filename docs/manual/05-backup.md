@@ -164,6 +164,14 @@ proxy cannot read) is left out and the others stay browsable. When nothing in a 
 mounted, the message names the reason for every partition; the proxy's **Download logs** (Settings)
 has the details, including the kernel's own messages.
 
+**Encrypted volumes** (BitLocker, LUKS) are found but stay locked until you give a key: the window
+lists them and asks for one. For BitLocker that is the 48-digit recovery password, kept in Active
+Directory, Entra ID or wherever it was saved when BitLocker was turned on; for LUKS the volume's
+passphrase. Enter one key per line when volumes have different keys; each key is tried on every
+volume. The volume is opened read-only on the proxy for this browse only: the key is never stored or
+logged, and the next time you open the point you enter it again. When a point holds both, the
+unencrypted volumes are browsable at once and a line above the list offers to unlock the rest.
+
 Points written before HyperCore Manager took a disk's full size show **end of disk missing**: for a
 disk whose size is not a whole number of MiB, the last partial MiB (with the backup copy of the
 partition table) is not in them. Restores and file browsing of those points work; the next backup
