@@ -46,6 +46,11 @@ All notable changes to this project are documented here. The format follows
 - **Backup service crash on upgrade.** When the dashboard had not yet applied a new migration the
   backup service needs, it exited at start and restarted in a loop; it now logs the error and its
   periodic sync catches up once the tables are there.
+- **Migrations retried instead of given up.** The dashboard stopped trying after eight failed
+  attempts at start, so a migration fixed afterwards waited for a dashboard restart. It now retries
+  every five minutes and logs that migrations are not applied.
+- **Disabled action buttons look disabled** (for example *New schedule* for backup schedules when the
+  cluster has no backup proxy); before they looked the same as enabled ones.
 
 ## [1.0.0]
 

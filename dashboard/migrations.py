@@ -105,3 +105,31 @@ def apply_pending(conn, init_dir: str) -> list[str]:
         conn.commit()
 
     return newly_applied
+
+
+def apply_until_done(connect, init_dir: str, sleep=None, fast_attempts: int = 8,
+                     slow_interval: float = 300.0) -> list[str]:
+    """
+    Keep calling `apply_pending` until it succeeds.  The first `fast_attempts`
+    back off from 2 s to 30 s (Postgres may still be starting); after that a
+    failing migration is retried every `slow_interval` seconds instead of being
+    given up on, so an install whose migration was fixed on disk (or whose
+    database came back) catches up without a dashboard restart.  `connect()`
+    returns a context manager yielding a connection.
+    """
+    import time
+    sleep = sleep or time.sleep
+    delay, attempt = 2.0, 0
+    while True:
+        attempt += 1
+        try:
+            with connect() as conn:
+                return apply_pending(conn, init_dir)
+        except Exception as exc:
+            if attempt < fast_attempts:
+                log.warning('Migration check attempt %d/%d failed: %s', attempt, fast_attempts, exc)
+                sleep(delay)
+                delay = min(delay * 2, 30.0)
+            else:
+                log.error('Migrations are not applied (%s); retrying every %d s', exc, int(slow_interval))
+                sleep(slow_interval)

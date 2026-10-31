@@ -140,3 +140,22 @@ def test_repo_migrations_look_idempotent(repo):
     for p in (repo / 'postgres' / 'init').glob('*.sql'):
         sql = p.read_text().upper()
         assert any(g in sql for g in guards), f'{p.name} has no idempotency guard'
+
+
+def test_runner_keeps_retrying_a_failing_migration_until_it_is_fixed(init_dir):
+    """The startup runner backs off quickly at first, then retries every slow_interval rather
+    than giving up: a migration fixed on disk is applied without a dashboard restart."""
+    conn = FakeConn(fail_on='b (x int)')
+    waits = []
+
+    class Ctx:
+        def __enter__(self): return conn
+        def __exit__(self, *a): return False
+
+    def sleep(s):
+        waits.append(s)
+        if len(waits) == 10:
+            conn.fail_on = None        # the fix lands
+    applied = migrations.apply_until_done(Ctx, str(init_dir), sleep=sleep, fast_attempts=4, slow_interval=300)
+    assert applied == ['002_second.sql', '010_tenth.sql']
+    assert waits[:3] == [2.0, 4.0, 8.0] and waits[3:] == [300] * 7

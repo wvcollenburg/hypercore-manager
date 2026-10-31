@@ -2440,42 +2440,28 @@ def _apply_migrations_on_startup():
     """
     Apply any pending Postgres migrations once the dashboard process boots.
 
-    Runs in a background thread with retry/back-off so that:
+    Runs in a background thread so that:
       - the dashboard's HTTP server isn't blocked waiting for Postgres to be
         reachable (the two containers start in parallel under compose);
       - a deployment that ships a new migration but only restarts services
         (not the user-triggered Apply Update flow) still picks it up.
+    A failing migration is retried every few minutes instead of given up on:
+    the backup service needs the new tables, and a fix that lands on disk (the
+    SQL is read from the repo mount) must not wait for a dashboard restart.
     Errors are logged but never raised — the auto-updater path
     (_do_apply_update) is the authoritative migration application moment;
     this is a belt-and-braces backstop.
     """
-    import time
-
     init_dir = os.path.join(_REPO_PATH, 'postgres', 'init')
     if not os.path.isdir(init_dir):
         return
-
-    delay = 2
-    for attempt in range(8):
-        try:
-            import migrations as _migrations
-            with _pg() as conn:
-                applied = _migrations.apply_pending(conn, init_dir)
-            if applied:
-                app.logger.info(
-                    'Applied %d pending migration(s) on startup: %s',
-                    len(applied), ', '.join(applied),
-                )
-            return
-        except Exception as exc:
-            app.logger.warning(
-                'Startup migration check attempt %d/%d failed: %s',
-                attempt + 1, 8, exc,
-            )
-            time.sleep(delay)
-            delay = min(delay * 2, 30)
-
-    app.logger.error('Startup migration check gave up after retries')
+    import migrations as _migrations
+    applied = _migrations.apply_until_done(_pg, init_dir)
+    if applied:
+        app.logger.info(
+            'Applied %d pending migration(s) on startup: %s',
+            len(applied), ', '.join(applied),
+        )
 
 
 threading.Thread(target=_apply_migrations_on_startup, daemon=True, name='hcm-migrations').start()
