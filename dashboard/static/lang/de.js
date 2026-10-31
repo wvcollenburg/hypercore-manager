@@ -917,6 +917,7 @@ window.LANG = {
   'ex.restores_title': "WIEDERHERSTELLUNGEN",
 
   'ex.files': "Dateien",
+  'ex.flr_title': "Dateien des Wiederherstellungspunkts #{seq} ({date})",
   'ex.flr_mounting': "Wiederherstellungspunkt wird auf dem Proxy eingehängt…",
   'ex.flr_root': "Dateisysteme",
   'ex.flr_download': "Herunterladen",

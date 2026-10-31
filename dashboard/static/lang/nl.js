@@ -917,6 +917,7 @@ window.LANG = {
   'ex.restores_title': "HERSTELACTIES",
 
   'ex.files': "Bestanden",
+  'ex.flr_title': "Bestanden van herstelpunt #{seq} ({date})",
   'ex.flr_mounting': "Herstelpunt wordt op de proxy gekoppeld…",
   'ex.flr_root': "Bestandssystemen",
   'ex.flr_download': "Downloaden",

@@ -719,6 +719,13 @@
     font-size: 18px; padding: 2px 6px; border-radius: 4px; line-height: 1;
   }
   .update-modal-close:hover { color: var(--text-primary); }
+  /* file browser of a restore point: fixed size, only the listing scrolls */
+  .flr-modal { width: min(1100px, 94vw); max-width: none; min-width: 0; height: min(720px, 86vh); padding: 18px 22px; gap: 10px; }
+  .flr-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .flr-list { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .flr-list .um-table { margin: 0; }
+  #flrMsg:empty { display: none; }
+  .flr-list .loading, .flr-list .empty-state { height: 100%; }
   .update-meta {
     display: flex; gap: 20px; font-family: 'JetBrains Mono', monospace;
     font-size: 11px; color: var(--text-muted); flex-wrap: wrap;
@@ -5925,9 +5932,8 @@ async function exTogglePoints(id) {
       <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted)">${_exEsc(p.dir)}</span>${p.synthetic ? ` <span class="ex-badge off" title="${_exEsc(t('ex.synthetic_hint'))}">${t('ex.synthetic')}</span>` : ''}${(p.short_disks || []).length ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.short_disk_hint', {n: Math.round((p.short_disks[0].guest_size - p.short_disks[0].image_size) / 1024)}))}">${t('ex.short_disk')}</span>` : ''}${p.quiesced === true ? ` <span class="ex-badge off" title="${_exEsc(t('ex.quiesced_hint'))}">${t('ex.quiesced')}</span>` : p.quiesced === false ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.crash_consistent_hint'))}">${t('ex.crash_consistent')}</span>` : ''}</td>
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
       <td style="font-size:11px;color:var(--text-muted)">${p.verify_error ? `<span class="ex-badge err" title="${_exEsc(p.verify_error)}">${t('ex.point_corrupt')}</span>` : p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
-      <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" onclick="exFilesOpen(${p.id})">${t('ex.files')}</button></td></tr>
-      <tr id="rs-form-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);">${_exRestoreFormHtml(p, id)}</td></tr>
-      <tr id="flr-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);" id="flr-${p.id}-body"></td></tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.no_points')}</div>`;
+      <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" onclick="exFilesOpen(${p.id}, ${p.seq}, '${_exEsc(_exFmt(p.created_at))}')">${t('ex.files')}</button></td></tr>
+      <tr id="rs-form-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);">${_exRestoreFormHtml(p, id)}</td></tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.no_points')}</div>`;
   } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
 }
 function _exRestoreFormHtml(p, chainId) {
@@ -5957,76 +5963,83 @@ async function exRestoreStart(pointId) {
   catch (e) { _shMsg(`rs-${pointId}-msg`, e.message, 'err'); }
 }
 // ── file-level recovery ─────────────────────────────────────────────────────
-const _flr = {};   // point id -> {mount, path, selected:Set}
-async function exFilesOpen(pointId) {
-  const row = document.getElementById(`flr-${pointId}`); if (!row) return;
-  if (!row.hidden) { row.hidden = true; return; }
-  row.hidden = false;
-  const body = document.getElementById(`flr-${pointId}-body`);
-  if (_flr[pointId] && _flr[pointId].mount) { _flrRender(pointId); return; }
-  body.innerHTML = `<div class="loading"><div class="spinner"></div><span>${t('ex.flr_mounting')}</span></div>`;
+let _flr = null;   // the open file browser: {point, mount, path, selected:Set, entries, vms}
+async function exFilesOpen(pointId, seq, date) {
+  if (_flr) await exFilesClose();
+  _flr = {point: pointId, mount: null, path: '/', selected: new Set(), entries: [], vms: []};
+  document.getElementById('flrTitle').textContent = t('ex.flr_title', {seq, date});
+  document.getElementById('flrToolbar').innerHTML = '';
+  document.getElementById('flrMsg').textContent = '';
+  document.getElementById('flrHint').textContent = t('ex.flr_hint');
+  document.getElementById('flrList').innerHTML = `<div class="loading"><div class="spinner"></div><span>${t('ex.flr_mounting')}</span></div>`;
+  document.getElementById('flrBackdrop').classList.add('visible');
   try {
     const m = await _exCall('POST', '/api/backup/flr/mounts', {point_id: pointId});
-    _flr[pointId] = {mount: m.id, path: '/', selected: new Set(), entries: [], vms: []};
-    try { _flr[pointId].vms = (await _exCall('GET', '/api/backup/vms')).map(v => ({uuid: v.uuid, name: v.name})); } catch (e) {}
-    await _flrLoad(pointId, '/');
-  } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
+    if (!_flr || _flr.point !== pointId) { _exCall('DELETE', `/api/backup/flr/mounts/${m.id}`).catch(() => {}); return; }   // closed meanwhile
+    _flr.mount = m.id;
+    try { _flr.vms = (await _exCall('GET', '/api/backup/vms')).map(v => ({uuid: v.uuid, name: v.name})); } catch (e) {}
+    await _flrLoad('/');
+  } catch (e) { document.getElementById('flrList').innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
 }
-async function _flrLoad(pointId, path) {
-  const st = _flr[pointId]; st.path = path;
-  const d = await _exCall('GET', `/api/backup/flr/mounts/${st.mount}/ls?path=${encodeURIComponent(path)}`);
-  st.entries = d.entries || []; _flrRender(pointId);
+async function _flrLoad(path) {
+  if (!_flr || !_flr.mount) return;
+  try {
+    const d = await _exCall('GET', `/api/backup/flr/mounts/${_flr.mount}/ls?path=${encodeURIComponent(path)}`);
+    _flr.path = path; _flr.entries = d.entries || []; _flrRender();
+    document.getElementById('flrList').scrollTop = 0;
+  } catch (e) { _shMsg('flrMsg', e.message, 'err'); }
 }
 function _flrJoin(path, name) { return (path === '/' ? '' : path.replace(/\/$/, '')) + '/' + name; }
-function _flrRender(pointId) {
-  const st = _flr[pointId]; const body = document.getElementById(`flr-${pointId}-body`); if (!body) return;
+function _flrRender() {
+  const st = _flr; if (!st) return;
   const crumbs = ['/'].concat(st.path.split('/').filter(Boolean));
   let acc = '';
-  const crumbHtml = crumbs.map((c, i) => { if (i > 0) acc += '/' + c; const p = i === 0 ? '/' : acc; return `<a href="#" onclick="_flrLoad(${pointId}, '${_exEsc(p)}'); return false;" style="color:var(--accent-cyan);">${_exEsc(i === 0 ? t('ex.flr_root') : c)}</a>`; }).join(' <span style="color:var(--text-muted)">/</span> ');
+  const crumbHtml = crumbs.map((c, i) => { if (i > 0) acc += '/' + c; const p = i === 0 ? '/' : acc; return `<a href="#" onclick="_flrLoad('${_exEsc(p)}'); return false;" style="color:var(--accent-cyan);">${_exEsc(i === 0 ? t('ex.flr_root') : c)}</a>`; }).join(' <span style="color:var(--text-muted)">/</span> ');
   const rows = st.entries.map(e => {
     const full = _flrJoin(st.path, e.name); const sel = st.selected.has(full);
     const icon = e.kind === 'dir' ? '📁' : e.kind === 'link' ? '🔗' : '📄';
-    const name = e.kind === 'dir' ? `<a href="#" onclick="_flrLoad(${pointId}, '${_exEsc(full)}'); return false;" style="color:var(--text-primary);">${_exEsc(e.name)}</a>` : _exEsc(e.name);
+    const name = e.kind === 'dir' ? `<a href="#" onclick="_flrLoad('${_exEsc(full)}'); return false;" style="color:var(--text-primary);">${_exEsc(e.name)}</a>` : _exEsc(e.name);
     const size = e.size != null ? (e.size >= 1048576 ? (e.size / 1048576).toFixed(1) + ' MiB' : e.size >= 1024 ? (e.size / 1024).toFixed(0) + ' KiB' : e.size + ' B') : (e.fstype ? `${_exEsc(e.fstype)} · ${(e.size || 0) / 1073741824 | 0} GiB` : '');
-    return `<tr><td style="width:24px;"><input type="checkbox" ${sel ? 'checked' : ''} onchange="_flrToggle(${pointId}, '${_exEsc(full)}', this.checked)"></td>
+    return `<tr><td style="width:24px;"><input type="checkbox" ${sel ? 'checked' : ''} onchange="_flrToggle('${_exEsc(full)}', this.checked)"></td>
       <td>${icon} ${name}</td><td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${size}</td>
       <td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${e.mtime ? _exFmt(new Date(e.mtime * 1000).toISOString()) : ''}</td>
       <td style="white-space:nowrap;">${e.kind === 'file' ? `<a class="um-action-btn" href="${API_BASE}/api/backup/flr/mounts/${st.mount}/file?path=${encodeURIComponent(full)}&cluster=${currentCluster}">${t('ex.flr_download')}</a>` : ''}</td></tr>`;
   }).join('');
   const n = st.selected.size;
-  body.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+  const vm = document.getElementById('flrVm')?.value || '';
+  document.getElementById('flrToolbar').innerHTML = `
       <span style="font-family:'JetBrains Mono',monospace;font-size:12px;">${crumbHtml}</span>
       <span style="flex:1"></span>
-      <a class="um-action-btn ${n ? '' : 'disabled'}" ${n ? `href="${API_BASE}/api/backup/flr/mounts/${st.mount}/zip?paths=${encodeURIComponent([...st.selected].join(','))}&name=recovered-${pointId}.zip&cluster=${currentCluster}"` : ''}>${t('ex.flr_zip', {n})}</a>
-      <select id="flr-${pointId}-vm" style="max-width:220px;" title="${_exEsc(t('ex.flr_iso_vm'))}"><option value="">${t('ex.flr_iso_vm')}</option>${(st.vms || []).map(v => `<option value="${_exEsc(v.uuid)}">${_exEsc(v.name)}</option>`).join('')}</select>
-      <button class="um-action-btn" ${n ? '' : 'disabled'} onclick="exFilesIso(${pointId})">${t('ex.flr_iso', {n})}</button>
-      <button class="um-action-btn" onclick="exFilesClose(${pointId})">${t('ex.flr_unmount')}</button>
-    </div>
-    <div class="cl-msg" id="flr-${pointId}-msg"></div>
-    ${st.entries.length ? `<table class="um-table"><tbody>${rows}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.flr_empty')}</div>`}
-    <div class="ex-hint" style="margin-top:6px;">${t('ex.flr_hint')}</div>`;
+      <a class="um-action-btn ${n ? '' : 'disabled'}" ${n ? `href="${API_BASE}/api/backup/flr/mounts/${st.mount}/zip?paths=${encodeURIComponent([...st.selected].join(','))}&name=recovered-${st.point}.zip&cluster=${currentCluster}"` : ''}>${t('ex.flr_zip', {n})}</a>
+      <select id="flrVm" style="max-width:220px;" title="${_exEsc(t('ex.flr_iso_vm'))}"><option value="">${t('ex.flr_iso_vm')}</option>${(st.vms || []).map(v => `<option value="${_exEsc(v.uuid)}" ${v.uuid === vm ? 'selected' : ''}>${_exEsc(v.name)}</option>`).join('')}</select>
+      <button class="um-action-btn" ${n ? '' : 'disabled'} onclick="exFilesIso()">${t('ex.flr_iso', {n})}</button>
+      <button class="um-action-btn" onclick="exFilesClose()">${t('ex.flr_unmount')}</button>`;
+  const list = document.getElementById('flrList'), top = list.scrollTop;
+  list.innerHTML = st.entries.length ? `<table class="um-table"><tbody>${rows}</tbody></table>` : `<div class="empty-state">${t('ex.flr_empty')}</div>`;
+  list.scrollTop = top;
 }
-async function exFilesIso(pointId) {
-  const st = _flr[pointId]; const vm = document.getElementById(`flr-${pointId}-vm`)?.value;
-  if (!vm) { _shMsg(`flr-${pointId}-msg`, t('ex.flr_iso_pick_vm'), 'err'); return; }
+async function exFilesIso() {
+  const st = _flr; const vm = document.getElementById('flrVm')?.value;
+  if (!st) return;
+  if (!vm) { _shMsg('flrMsg', t('ex.flr_iso_pick_vm'), 'err'); return; }
   const vmName = (st.vms.find(v => v.uuid === vm) || {}).name || vm;
   if (!confirm(t('ex.flr_iso_confirm', {n: st.selected.size, vm: vmName}))) return;
-  _shMsg(`flr-${pointId}-msg`, t('ex.i_starting'), '');
-  try { await _exCall('POST', `/api/backup/flr/mounts/${st.mount}/iso`, {paths: [...st.selected], vm_uuid: vm}); _shMsg(`flr-${pointId}-msg`, t('ex.flr_iso_started'), 'ok'); }
-  catch (e) { _shMsg(`flr-${pointId}-msg`, e.message, 'err'); }
+  _shMsg('flrMsg', t('ex.i_starting'), '');
+  try { await _exCall('POST', `/api/backup/flr/mounts/${st.mount}/iso`, {paths: [...st.selected], vm_uuid: vm}); _shMsg('flrMsg', t('ex.flr_iso_started'), 'ok'); }
+  catch (e) { _shMsg('flrMsg', e.message, 'err'); }
 }
 async function exEjectIso(rid) {
   if (!confirm(t('ex.flr_eject_confirm'))) return;
   try { await _exCall('POST', `/api/backup/flr/iso/${rid}/eject`); showToast(t('ex.flr_ejected'), 'ok'); exLoadRuns(); } catch (e) { showToast(e.message, 'err'); }
 }
-function _flrToggle(pointId, full, on) { const st = _flr[pointId]; if (on) st.selected.add(full); else st.selected.delete(full); _flrRender(pointId); }
-async function exFilesClose(pointId) {
-  const st = _flr[pointId];
+function _flrToggle(full, on) { if (!_flr) return; if (on) _flr.selected.add(full); else _flr.selected.delete(full); _flrRender(); }
+async function exFilesClose() {
+  // closing the browser unmounts the point (the hint says so); a mount still being made is dropped when it answers
+  const st = _flr; _flr = null;
+  document.getElementById('flrBackdrop').classList.remove('visible');
   if (st && st.mount) { try { await _exCall('DELETE', `/api/backup/flr/mounts/${st.mount}`); } catch (e) {} }
-  delete _flr[pointId];
-  const row = document.getElementById(`flr-${pointId}`); if (row) row.hidden = true;
 }
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && _flr) exFilesClose(); });
 async function exVerifyChain(id) {
   // the service re-hashes the chain in the background; this follows it until it is done
   _shMsg(`ch-${id}-msg`, t('ex.verifying'), '');
@@ -6305,6 +6318,20 @@ document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality,
     <div class="community-notice-actions">
       <button class="update-apply-btn" id="communityAckBtn" onclick="acknowledgeCommunityNotice()" data-i18n="community.ack">I understand</button>
     </div>
+  </div>
+</div>
+
+<!-- file browser of a restore point -->
+<div class="update-modal-backdrop" id="flrBackdrop" onclick="if (event.target === this) exFilesClose()">
+  <div class="update-modal flr-modal" role="dialog" aria-modal="true" aria-labelledby="flrTitle">
+    <div class="update-modal-header">
+      <span class="update-modal-title" id="flrTitle"></span>
+      <button class="update-modal-close" onclick="exFilesClose()" aria-label="Close">✕</button>
+    </div>
+    <div id="flrToolbar" class="flr-toolbar"></div>
+    <div class="cl-msg" id="flrMsg"></div>
+    <div id="flrList" class="flr-list"></div>
+    <div class="ex-hint" id="flrHint"></div>
   </div>
 </div>
 

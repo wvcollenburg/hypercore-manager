@@ -918,6 +918,7 @@ window.LANG = {
   'ex.restores_title': "RESTORES",
 
   'ex.files': "Files",
+  'ex.flr_title': "Files of restore point #{seq} ({date})",
   'ex.flr_mounting': "Mounting the restore point on the proxy…",
   'ex.flr_root': "Filesystems",
   'ex.flr_download': "Download",

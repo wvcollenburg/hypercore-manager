@@ -151,11 +151,11 @@ writing the disks, attaching them.
 
 ### Recovering single files
 
-**Files** on a point mounts it read-only on the proxy and opens a browser of its filesystems
+**Files** on a point mounts it read-only on the proxy and opens a window with a browser of its filesystems
 (ext4, XFS, btrfs, NTFS, LVM). Download a file or a selection as a zip, or deliver the
 selection as an ISO straight into a running VM's CD-ROM, which needs no credentials for the
 guest; eject it afterwards from the Runs panel. Nothing is written into a guest through the
-hypervisor.
+hypervisor. Closing the window (✕, Escape or a click beside it) unmounts the point.
 
 A partition that cannot be mounted (an unknown filesystem, a damaged one, or a partition table the
 proxy cannot read) is left out and the others stay browsable. When nothing in a point can be

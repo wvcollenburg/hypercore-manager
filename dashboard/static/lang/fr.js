@@ -917,6 +917,7 @@ window.LANG = {
   'ex.restores_title': "RESTAURATIONS",
 
   'ex.files': "Fichiers",
+  'ex.flr_title': "Fichiers du point de restauration n° {seq} ({date})",
   'ex.flr_mounting': "Montage du point de restauration sur le proxy…",
   'ex.flr_root': "Systèmes de fichiers",
   'ex.flr_download': "Télécharger",
