@@ -60,6 +60,13 @@ All notable changes to this project are documented here. The format follows
   remaining overhead. Backup schedules learn their durations from these columns.
 
 ### Fixed
+- **File browsing: LVM inside LUKS, NTFS fallback, hidden skips** (proxy `0.5.4`). A LUKS volume
+  holding LVM (Ubuntu's encrypted layout) opened but its logical volumes did not appear: LVM could not
+  write its temporary name on a read-only LUKS device. LUKS now opens writable on the private
+  copy-on-write view (the backup is never written). The `ntfs-3g` fallback for an NTFS volume the
+  kernel driver refuses failed for want of a `/dev/mapper` node; the node is now made first.
+  Volumes that are found but cannot be mounted are listed in the window instead of looking absent;
+  Microsoft reserved and BIOS boot partitions, empty by design, are not.
 - **Restore points and file browsing open in a window of fixed size.** Both were inline in the
   restore points list, so the page grew and shrank with every folder. **Points** now opens a window
   with the VM's points (restore forms open in it), **Files** turns it into the browser of a point with

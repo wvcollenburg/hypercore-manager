@@ -38,6 +38,9 @@ log = logging.getLogger('proxy.mounts')
 SECTOR = 512
 # blkid TYPE -> (cryptsetup --type, name shown to the admin)
 _ENCRYPTED = {'bitlocker': ('bitlk', 'BitLocker'), 'crypto_luks': ('luks', 'LUKS')}
+# partitions that hold no filesystem by design: not worth a "not mounted" line
+_EMPTY_BY_DESIGN = {'e3c9e316-0b5c-4db8-817d-f92df00215ae': 'Microsoft reserved partition',
+                    '21686148-6449-6e6f-744e-656564454649': 'BIOS boot partition'}
 _FS_OPTS = {
     'ext4': ('ext4', 'ro,noload'), 'ext3': ('ext4', 'ro,noload'), 'ext2': ('ext2', 'ro'),
     'xfs': ('xfs', 'ro,norecovery,nouuid'), 'btrfs': ('btrfs', 'ro'), 'vfat': ('vfat', 'ro'),
@@ -108,7 +111,8 @@ def parse_gpt(header: bytes, read, device_size: int) -> list[dict] | None:
         first, last = struct.unpack_from('<QQ', e, 32)
         start, size = first * SECTOR, (last - first + 1) * SECTOR
         if last >= first and start + size <= device_size:
-            out.append({'name': f'p{len(out) + 1}', 'start_bytes': start, 'size_bytes': size, 'type': None})
+            out.append({'name': f'p{len(out) + 1}', 'start_bytes': start, 'size_bytes': size,
+                        'type': str(uuidlib.UUID(bytes_le=bytes(e[:16])))})
     return out
 
 
@@ -275,6 +279,8 @@ class MountManager:
                 m.skip(name, f'unsupported filesystem {fstype!r}')
             elif whole and info.get('PTTYPE'):
                 m.skip(name, f"a {info['PTTYPE']} partition table that could not be read ({size} bytes)")
+            elif str(part.get('type') or '').lower() in _EMPTY_BY_DESIGN:
+                log.info('partition %s: %s, no filesystem by design', name, _EMPTY_BY_DESIGN[str(part['type']).lower()])
             elif part['size_bytes'] < (8 << 20):
                 log.info('partition %s: %d bytes, no filesystem (boot loader area)', name, part['size_bytes'])
             else:
@@ -304,10 +310,14 @@ class MountManager:
             return
         dm = f'hcmflr-{m.id}-{name}-open'
         env = dict(os.environ, DM_DISABLE_UDEV='1')        # no udev in the container: cryptsetup must not wait for it
+        # `dev` is the private copy-on-write view (or an LV on one), so writes never reach the backup.
+        # LUKS opens writable: LVM inside it (Ubuntu's encrypted layout) must write its temporary VG
+        # name. BitLocker holds NTFS, which mounts read-only, so it opens read-only.
+        mode = ['--readonly'] if ctype == 'bitlk' else []
         opened = False
         for key in m.keys:
             try:
-                r = self.run(['cryptsetup', 'open', '--readonly', '--type', ctype, dev, dm], input=key + '\n',
+                r = self.run(['cryptsetup', 'open', *mode, '--type', ctype, dev, dm], input=key + '\n',
                              capture_output=True, text=True, timeout=120, env=env)
             except (OSError, subprocess.SubprocessError) as e:
                 m.skip(name, f'{kind} volume could not be opened: {e}')
@@ -381,7 +391,15 @@ class MountManager:
             except RuntimeError:
                 if fstype != 'ntfs':
                     raise
-                _run(['mount', '-t', 'ntfs-3g', '-o', 'ro', dev, mp], run=self.run)   # kernel ntfs3 missing: userspace driver
+                # kernel ntfs3 refused it: the userspace driver, which resolves /dev/dm-N to its
+                # /dev/mapper name; without udev that node has to be made first
+                if dev.startswith('/dev/dm-'):
+                    try:
+                        with open(f'/sys/block/{os.path.basename(dev)}/dm/name') as fh:
+                            _run(['dmsetup', 'mknodes', fh.read().strip()], check=False, run=self.run)
+                    except OSError:
+                        pass
+                _run(['mount', '-t', 'ntfs-3g', '-o', 'ro', dev, mp], run=self.run)
         except RuntimeError as e:
             # one filesystem that will not mount (say a damaged EFI partition) must not hide the others
             m.skip(name, f'{fstype} mount failed: {e}')

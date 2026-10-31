@@ -739,6 +739,7 @@
   .flr-locked-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 14px 18px; font-size: 20px;
                     border-bottom: 1px solid var(--border); border-left: 4px solid var(--accent-amber, #f59e0b); }
   .flr-locked-bar .update-apply-btn.flr-unlock-btn { font-size: 15px; padding: 9px 22px; }
+  .flr-skipped { padding: 8px 18px; font-size: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border); word-break: break-word; }
   .flr-list .loading, .flr-list .empty-state { height: 100%; }
   .update-meta {
     display: flex; gap: 20px; font-family: 'JetBrains Mono', monospace;
@@ -6005,7 +6006,7 @@ async function _flrMount(keys) {
   try {
     const m = await _exCall('POST', '/api/backup/flr/mounts', keys && keys.length ? {point_id: pointId, keys} : {point_id: pointId});
     if (_flr !== st) { _exCall('DELETE', `/api/backup/flr/mounts/${m.id}`).catch(() => {}); return; }   // closed meanwhile
-    st.mount = m.id; st.locked = m.locked || [];
+    st.mount = m.id; st.locked = m.locked || []; st.skipped = m.skipped || [];
     if (!st.vms.length) { try { st.vms = (await _exCall('GET', '/api/backup/vms')).map(v => ({uuid: v.uuid, name: v.name})); } catch (e) {} }
     await _flrLoad('/');
   } catch (e) {
@@ -6078,8 +6079,11 @@ function _flrRender() {
       <button class="um-action-btn" onclick="exFilesClose()">${t('ex.flr_unmount')}</button>`;
   const locked = (st.locked || []).length && st.path === '/'
     ? `<div class="flr-locked-bar"><span>🔒 ${t('ex.flr_some_locked', {names: st.locked.map(v => `<b>${_exEsc(v.name)}</b> (${_exEsc(v.kind)})`).join(', ')})}</span><button class="update-apply-btn flr-unlock-btn" onclick="_flrUnlockForm()">${t('ex.flr_unlock')}</button></div>` : '';
+  // volumes that were found but could not be mounted: say so, or they silently look absent
+  const skipped = (st.skipped || []).length && st.path === '/'
+    ? `<div class="flr-skipped">${t('ex.flr_not_shown')} ${st.skipped.map(v => `<b>${_exEsc(v.name)}</b>: ${_exEsc(v.reason)}`).join(' · ')}</div>` : '';
   const list = document.getElementById('flrList'), top = list.scrollTop;
-  list.innerHTML = locked + (st.entries.length ? `<table class="um-table"><tbody>${rows}</tbody></table>` : `<div class="empty-state">${t('ex.flr_empty')}</div>`);
+  list.innerHTML = locked + skipped + (st.entries.length ? `<table class="um-table"><tbody>${rows}</tbody></table>` : `<div class="empty-state">${t('ex.flr_empty')}</div>`);
   list.scrollTop = top;
 }
 async function exFilesIso() {

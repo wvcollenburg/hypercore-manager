@@ -930,6 +930,7 @@ window.LANG = {
   'ex.flr_key_id_hint': "Recherchez la clé par son ID (la partie en gras suffit dans Active Directory et Entra ID) : une clé remplacée après ce point ne l'ouvrira pas.",
   'ex.flr_keys_missing': "Saisissez au moins une clé.",
   'ex.flr_some_locked': "Encore verrouillé : {names}.",
+  'ex.flr_not_shown': "Non affiché :",
   'ex.flr_mounting': "Montage du point de restauration sur le proxy…",
   'ex.flr_root': "Systèmes de fichiers",
   'ex.flr_download': "Télécharger",

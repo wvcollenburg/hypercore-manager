@@ -710,6 +710,40 @@ def test_a_bitlocker_volume_opens_read_only_with_its_recovery_key(flr):
         'the opened volume is closed before the snapshot under it'
 
 
+def test_luks_opens_writable_on_the_private_view_so_lvm_inside_can_be_imported(flr):
+    """Ubuntu's encrypted layout: LUKS holding LVM. vgimportclone writes the temporary VG name, so
+    the LUKS volume opens writable on the copy-on-write view (never on the backup); BitLocker stays
+    read-only."""
+    seen, good = _crypt_run(flr, inner='LVM2_member')
+    flr.run.fstypes = {'p1': 'vfat', 'p2': 'crypto_LUKS'}
+    orig = flr.mm.run
+    def run(cmd, **kw):
+        if cmd[0] == 'pvs': return types.SimpleNamespace(returncode=0, stdout='  hcmflrabc\n', stderr='')
+        if cmd[0] == 'lvs': return types.SimpleNamespace(returncode=0, stdout='  ubuntu-lv 9\n', stderr='')
+        if cmd[0] == 'blkid' and cmd[-1] == '/dev/dm-9': return types.SimpleNamespace(returncode=0, stdout='TYPE=ext4\n', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0, keys=[good])
+    assert [f['name'] for f in m.filesystems] == ['disk1-p1', 'disk1-p2-ubuntu-lv']
+    opens = [c for c in seen['cmds'] if c[:2] == ['cryptsetup', 'open']]
+    assert opens and '--readonly' not in opens[0] and opens[0][2:4] == ['--type', 'luks']
+    assert any(c[0] == 'vgimportclone' and '/dev/dm-77' in c for c in seen['cmds']), 'LVM is imported from the opened volume'
+    flr.mm.unmount(m.id)
+
+
+def test_partitions_empty_by_design_are_not_reported(flr):
+    msr = '{"partitiontable": {"label": "gpt", "partitions": [{"start": 2048, "size": 32768, "type": "E3C9E316-0B5C-4DB8-817D-F92DF00215AE"}, {"start": 34816, "size": 3907584, "type": "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7"}]}}'
+    orig = flr.run.__call__
+    def run(cmd, **kw):
+        if cmd[0] == 'sfdisk': return types.SimpleNamespace(returncode=0, stdout=msr, stderr='')
+        if cmd[0] == 'blkid': return types.SimpleNamespace(returncode=0, stdout='' if cmd[-1] == '/dev/dm-1' else 'TYPE=ntfs\n', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert [f['name'] for f in m.filesystems] == ['disk1-p2'] and m.skipped == [], 'the Microsoft reserved partition is not a "not mounted" line'
+    flr.mm.unmount(m.id)
+
+
 def test_only_locked_volumes_and_a_wrong_key_give_a_locked_answer(flr):
     seen, good = _crypt_run(flr)
     flr.run.fstypes = {'p1': 'crypto_LUKS', 'p2': 'BitLocker'}
@@ -1159,7 +1193,7 @@ def test_support_bundle_route_needs_the_token(tmp_path):
     r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
     assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
     assert r.data[:2] == b'PK'
-    assert P.identity.VERSION == '0.5.3'
+    assert P.identity.VERSION == '0.5.4'
 
 
 def test_the_proxy_keeps_a_rotating_log_file(tmp_path):

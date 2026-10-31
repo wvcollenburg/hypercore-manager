@@ -42,6 +42,7 @@ def mount_point(point_id: int, requested_by: str | None = None, keys: list[str] 
     m = pc._request('POST', '/mounts', json=body, timeout=300)
     entry = {'id': m['id'], 'proxy_id': proxy['id'], 'point_id': point_id, 'chain_id': chain['id'], 'cluster_id': chain['cluster_id'],
              'vm_name': chain['vm_name'], 'seq': point['seq'], 'filesystems': m.get('filesystems', []), 'locked': m.get('locked', []),
+             'skipped': m.get('skipped', []),
              'created': time.time(),
              'requested_by': requested_by}
     with _LOCK:

@@ -930,6 +930,7 @@ window.LANG = {
   'ex.flr_key_id_hint': "Zoek de sleutel op met zijn ID (het vetgedrukte deel volstaat in Active Directory en Entra ID): een sleutel die na dit punt is vervangen opent het niet.",
   'ex.flr_keys_missing': "Voer minstens één sleutel in.",
   'ex.flr_some_locked': "Nog vergrendeld: {names}.",
+  'ex.flr_not_shown': "Niet getoond:",
   'ex.flr_mounting': "Herstelpunt wordt op de proxy gekoppeld…",
   'ex.flr_root': "Bestandssystemen",
   'ex.flr_download': "Downloaden",

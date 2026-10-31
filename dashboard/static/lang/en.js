@@ -931,6 +931,7 @@ window.LANG = {
   'ex.flr_key_id_hint': "Look the key up by its key ID (the bold part is enough in Active Directory and Entra ID): a key that was rotated since this point was made will not open it.",
   'ex.flr_keys_missing': "Enter at least one key.",
   'ex.flr_some_locked': "Still locked: {names}.",
+  'ex.flr_not_shown': "Not shown:",
   'ex.flr_mounting': "Mounting the restore point on the proxy…",
   'ex.flr_root': "Filesystems",
   'ex.flr_download': "Download",
