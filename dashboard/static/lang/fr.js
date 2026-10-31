@@ -736,6 +736,8 @@ window.LANG = {
   'ex.pol_f_full_kind_hint': "Réelle : relit toute la VM. Synthétique : exécute l'incrémentielle normale, vérifie la chaîne et en construit une nouvelle complète sur la cible, sans charger le cluster.",
   'ex.synthetic': "synthétique",
   'ex.synthetic_hint': "Une complète construite sur la cible à partir de la chaîne précédente, sans lecture de la VM.",
+  'ex.short_disk': "fin de disque manquante",
+  'ex.short_disk_hint': "Ce point a été écrit avant que les sauvegardes ne prennent la taille complète du disque : les derniers {n} Kio du disque (avec la copie de secours de la table de partitions) n'y figurent pas. La restauration et la navigation dans les fichiers fonctionnent ; la prochaine sauvegarde de cette VM ajoute la fin manquante.",
   'ex.notice_synthetic_failed': "complète synthétique non construite",
   'ex.notice_synthetic_failed_hint': "L'incrémentielle a réussi, mais la complète synthétique n'a pas pu être construite ; la prochaine exécution relit toute la VM.",
   'ex.tab.policies': "Planifications",

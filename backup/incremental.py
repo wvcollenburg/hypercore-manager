@@ -252,11 +252,34 @@ def _target_for(plan) -> tuple[dict, dict]:
 
 
 def image_size(dev: dict) -> int:
-    """Virtual size the backed-up image must have. Disks: their capacity. NVRAM: its real capacity
-    (OVMF refuses a variable store of another size); vTPM: its physical size."""
+    """Virtual size the backed-up image must have, 0 = the clone's own size. Disks: 0, because the
+    guest sees its capacity rounded up to whole MiB (a "100 GB" disk is 100,000,595,968 bytes) and
+    the clone has that size; capping at the API capacity cut off the end of the disk, the backup
+    GPT among it. NVRAM: its real capacity (OVMF refuses a variable store of another size); vTPM:
+    its physical size."""
     if dev['type'] in HyperCoreClient.DISK_TYPES:
-        return int(dev['capacity'])
+        return 0
     return int(dev.get('capacity') or 0) or int(dev.get('physical') or 0) or MiB
+
+
+def guest_size(capacity: int) -> int:
+    """The size a guest sees for a disk of this API capacity: rounded up to whole MiB."""
+    return -(-int(capacity) // MiB) * MiB
+
+
+def short_disks(point: dict) -> list[dict]:
+    """Disks whose image in this point is smaller than the disk the guest sees (points written
+    before image_size stopped capping disks): their last partial MiB, with the backup GPT, is
+    missing. [{uuid, image_size, guest_size}]"""
+    caps = {b.get('uuid'): int(b.get('capacity') or 0) for b in ((point.get('definition') or {}).get('blockDevs') or [])
+            if b.get('type') in HyperCoreClient.DISK_TYPES and b.get('uuid')}
+    out = []
+    for f in point.get('files') or []:
+        cap = caps.get(f.get('uuid'))
+        size = int(f.get('size') or 0)
+        if cap and size and size < guest_size(cap):
+            out.append({'uuid': f['uuid'], 'image_size': size, 'guest_size': guest_size(cap)})
+    return out
 
 
 def device_capacity(dev: dict) -> int:

@@ -162,6 +162,11 @@ proxy cannot read) is left out and the others stay browsable. When nothing in a 
 mounted, the message names the reason for every partition; the proxy's **Download logs** (Settings)
 has the details, including the kernel's own messages.
 
+Points written before HyperCore Manager took a disk's full size show **end of disk missing**: for a
+disk whose size is not a whole number of MiB, the last partial MiB (with the backup copy of the
+partition table) is not in them. Restores and file browsing of those points work; the next backup
+of the VM adds the missing end.
+
 ## Import
 
 ![Import](img/backup-import.png)

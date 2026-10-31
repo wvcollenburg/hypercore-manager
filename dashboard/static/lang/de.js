@@ -736,6 +736,8 @@ window.LANG = {
   'ex.pol_f_full_kind_hint': "Echt: liest die ganze VM erneut. Synthetisch: führt das normale inkrementelle Backup aus, prüft die Kette und baut daraus auf dem Ziel eine neue Vollsicherung, ohne den Cluster zu belasten.",
   'ex.synthetic': "synthetisch",
   'ex.synthetic_hint': "Eine Vollsicherung, die auf dem Ziel aus der vorherigen Kette gebaut wurde, nicht von der VM gelesen.",
+  'ex.short_disk': "Datenträgerende fehlt",
+  'ex.short_disk_hint': "Dieser Punkt wurde geschrieben, bevor Sicherungen die volle Datenträgergröße übernahmen: Die letzten {n} KiB des Datenträgers (mit der Sicherungskopie der Partitionstabelle) fehlen. Wiederherstellen und Dateien durchsuchen funktionieren; die nächste Sicherung dieser VM ergänzt das fehlende Ende.",
   'ex.notice_synthetic_failed': "synthetische Vollsicherung nicht gebaut",
   'ex.notice_synthetic_failed_hint': "Das inkrementelle Backup war erfolgreich, aber die synthetische Vollsicherung konnte nicht gebaut werden; der nächste Lauf liest die ganze VM.",
   'ex.tab.policies': "Zeitpläne",

@@ -390,6 +390,39 @@ def test_stage_writes_allocated_blocks_into_a_staging_device_and_flatten_filters
     assert sorted(os.listdir(out)) == ['NEW.qcow2', 'r.xml'] and f['result']['files'][0]['uuid'] == nvram
 
 
+def test_a_disk_image_takes_the_whole_clone_and_a_delta_copies_a_grown_tail(stack):
+    """HyperCore shows a guest its disk rounded up to whole MiB. An older backup service capped disk
+    images at the API capacity, cutting off that last partial MiB (and the backup GPT in it): the
+    cap now applies to NVRAM/vTPM only, and the first delta on such a chain copies the missing end."""
+    H = {'Authorization': 'Bearer t0k'}
+    disk = 'b1b1b1b1-0000-4000-8000-000000000001'
+    src = stack.dev / 'virtio-eeee0001'
+    data = bytearray(random.Random(7).randbytes(3 * MiB)); src.write_bytes(bytes(data))
+    tgt = {'uri': 'smb://nas/share/hcm'}
+    full = {'target': tgt, 'folder': 'F', 'vm': {'uuid': 'vm-t', 'name': 't'}, 'point': {'kind': 'full', 'seq': 0},
+            'devices': [{'uuid': disk, 'type': 'VIRTIO_DISK', 'clone_uuid': 'eeee0001-0000-0000-0000-000000000000', 'size': 3 * MiB,
+                         'image_size': 2 * MiB + 4096, 'map': [{'lower': 0, 'upper': 2}]}]}
+    j = _wait(stack, stack.client.post('/jobs/backup', json=full, headers=H).get_json()['id']); assert j['state'] == 'done', j
+    assert j['result']['devices'][0]['size'] == 3 * MiB, 'an image_size from an older backup service no longer caps a disk'
+    # a chain written capped: shorten the base image and its manifest, as the old code left it
+    chain = os.path.join(stack.mounter.root, P.targets.parse_uri(tgt['uri']).key, 'hcm', 'F', 't_vm-t.chain')
+    base = os.path.join(chain, 'base', next(f for f in os.listdir(os.path.join(chain, 'base')) if f.endswith('.qcow2')))
+    open(base, 'r+b').truncate(2 * MiB + 4096)
+    import json as _j
+    m = _j.load(open(os.path.join(chain, 'base', 'manifest.json'))); m['devices'][0]['size'] = 2 * MiB + 4096
+    _j.dump(m, open(os.path.join(chain, 'base', 'manifest.json'), 'w'))
+    # the next delta: nothing changed on the disk (empty snapDiff), yet the end the base lacks is copied
+    delta = dict(full, point={'kind': 'delta', 'seq': 1, 'previous_seq': 0},
+                 devices=[dict(full['devices'][0], image_size=0, map=[])])
+    j = _wait(stack, stack.client.post('/jobs/backup', json=delta, headers=H).get_json()['id']); assert j['state'] == 'done', j
+    d = j['result']['devices'][0]
+    assert d['size'] == 3 * MiB and d['blocks'] == 1, 'the block holding the old end, up to the new end'
+    img = os.path.join(chain, j['result']['point_dir'], d['file'])
+    assert open(img, 'rb').read()[2 * MiB:] == bytes(data[2 * MiB:])
+    assert P.jobs.grown_tail(None, 5) is None and P.jobs.grown_tail(3 * MiB, 3 * MiB) is None
+    assert P.jobs.grown_tail(100_000_000_000, 100_000_595_968) == {'lower': 95367, 'upper': 95367}
+
+
 def test_copier_clamps_to_a_smaller_destination(tmp_path):
     src, dst = str(tmp_path / 'src'), str(tmp_path / 'dst')
     _random_file(src, 1, 44); open(dst, 'wb').truncate(540672)
@@ -551,6 +584,49 @@ def test_a_gpt_disk_read_as_its_protective_mbr_is_reported_with_what_sector_1_ho
     assert not any(c[0] == 'losetup' for c in flr.run.cmds), 'nothing attached for a table that was not read'
     assert P.mounts.describe_sector(b'EFI PART' + b'\x00' * 504) == 'a GPT header (EFI PART)'
     assert P.mounts.describe_sector(b'\xeb\x63\x90' + b'\x00' * 509).startswith('other data: eb 63 90')
+
+
+def _gpt_disk(disk_sectors, parts):
+    """A GPT disk image (bytes up to the end of the partition table) with valid checksums."""
+    import struct, zlib, uuid as _u
+    ents = bytearray(128 * 128)
+    for i, (first, last, tguid) in enumerate(parts):
+        struct.pack_into('<16s16sQQ', ents, i * 128, _u.UUID(tguid).bytes_le, _u.uuid4().bytes_le, first, last)
+    hdr = bytearray(92)
+    struct.pack_into('<8sIIIIQQQQ16sQIII', hdr, 0, b'EFI PART', 0x10000, 92, 0, 0, 1, disk_sectors - 1, 34, disk_sectors - 34,
+                     _u.uuid4().bytes_le, 2, 128, 128, zlib.crc32(bytes(ents)) & 0xffffffff)
+    struct.pack_into('<I', hdr, 16, zlib.crc32(bytes(hdr)) & 0xffffffff)
+    mbr = bytearray(512); mbr[510:512] = b'\x55\xaa'
+    return bytes(mbr) + bytes(hdr) + bytes(420) + bytes(ents)
+
+
+def test_a_gpt_that_sfdisk_refuses_for_a_short_image_is_read_directly(flr, monkeypatch):
+    """container01: a 100,000,595,968-byte disk backed up as a 100,000,000,000-byte image. Its GPT
+    claims more disk than the image has, so sfdisk falls back to the protective MBR; the checksums
+    hold and every partition fits, so the proxy reads the table itself."""
+    esp, linux = 'C12A7328-F81F-11D2-BA4B-00A0C93EC93B', '0FC63DAF-8483-4772-8E79-3D69D8477DE4'
+    disk = _gpt_disk(195313664, [(2048, 2203647, esp), (2203648, 6397951, linux), (6397952, 195311615, linux)])
+    pmbr = '{"partitiontable": {"label": "dos", "unit": "sectors", "partitions": [{"node": "/dev/nbd2p1", "start": 1, "size": 195312499, "type": "ee"}]}}'
+    orig = flr.run.__call__
+    def run(cmd, **kw):
+        if cmd[0] == 'sfdisk':
+            return types.SimpleNamespace(returncode=0, stdout=pmbr, stderr='')
+        if cmd[0] == 'blockdev' and cmd[1] == '--getsize64':
+            return types.SimpleNamespace(returncode=0, stdout='100000000000', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    flr.run.fstypes = {'p1': 'vfat', 'p2': 'ext4', 'p3': 'ext4'}
+    monkeypatch.setattr(P.mounts.MountManager, '_read', staticmethod(lambda dev, off, n: disk[off:off + n]))
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert [f['name'] for f in m.filesystems] == ['disk1-p1', 'disk1-p2', 'disk1-p3']
+    loops = [c for c in flr.run.cmds if c[0] == 'losetup' and '--offset' in c]
+    assert loops[0][loops[0].index('--offset') + 1] == str(2048 * 512)
+    # a broken partition array is not trusted
+    bad = bytearray(disk); bad[1024 + 40] ^= 0xFF
+    assert P.mounts.parse_gpt(bytes(bad[512:1024]), lambda off, n: bytes(bad[off:off + n]), 100_000_000_000) is None
+    # a partition beyond the image is left out, the others kept
+    tight = P.mounts.parse_gpt(disk[512:1024], lambda off, n: disk[off:off + n], 6397952 * 512)
+    assert [p['name'] for p in tight] == ['p1', 'p2']
 
 
 def test_lvm_member_is_imported_under_a_temporary_vg(flr):
@@ -983,7 +1059,7 @@ def test_support_bundle_route_needs_the_token(tmp_path):
     r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
     assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
     assert r.data[:2] == b'PK'
-    assert P.identity.VERSION == '0.5.1'
+    assert P.identity.VERSION == '0.5.2'
 
 
 def test_the_proxy_keeps_a_rotating_log_file(tmp_path):

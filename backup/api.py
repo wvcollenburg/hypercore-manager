@@ -924,7 +924,7 @@ def chain_points(chain_id):
     ch = db.get_chain(chain_id)
     if not ch:
         return _err('chain not found', 404)
-    return jsonify([_ser(p) for p in db.get_points(chain_id)])
+    return jsonify([dict(_ser(p), short_disks=incremental.short_disks(p)) for p in db.get_points(chain_id)])
 
 
 @app.delete('/api/v1/chains/<int:chain_id>')

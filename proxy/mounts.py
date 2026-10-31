@@ -20,11 +20,13 @@ import os
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import threading
 import time
 import uuid as uuidlib
 import zipfile
+import zlib
 from contextlib import ExitStack
 
 import manifest
@@ -74,6 +76,37 @@ def protective_only(sfdisk_json: str) -> bool:
     return t.get('label') == 'dos' and len(parts) == 1 and str(parts[0].get('type', '')).lower() in ('ee', '0xee')
 
 
+def parse_gpt(header: bytes, read, device_size: int) -> list[dict] | None:
+    """Partitions from a primary GPT header whose checksums hold, for a disk sfdisk refused. sfdisk
+    also checks the header against the device size, and an image shorter than the disk it came from
+    (a point written before disk images got the guest's full size) fails that check although every
+    partition is inside it. read(offset, length) -> bytes. Partitions that do not fit are left out.
+    None when the header or its partition array is not valid."""
+    if len(header) < 92 or header[:8] != b'EFI PART':
+        return None
+    hsize, hcrc = struct.unpack_from('<II', header, 12)
+    if not 92 <= hsize <= len(header):
+        return None
+    if zlib.crc32(header[:16] + b'\0\0\0\0' + header[20:hsize]) & 0xffffffff != hcrc:
+        return None
+    elba, count, esize, ecrc = struct.unpack_from('<QIII', header, 72)
+    if not (128 <= esize <= 4096 and 0 < count <= 1024):
+        return None
+    entries = read(elba * SECTOR, count * esize)
+    if len(entries) != count * esize or zlib.crc32(entries) & 0xffffffff != ecrc:
+        return None
+    out = []
+    for i in range(count):
+        e = entries[i * esize:(i + 1) * esize]
+        if not e[:16].strip(b'\0'):
+            continue
+        first, last = struct.unpack_from('<QQ', e, 32)
+        start, size = first * SECTOR, (last - first + 1) * SECTOR
+        if last >= first and start + size <= device_size:
+            out.append({'name': f'p{len(out) + 1}', 'start_bytes': start, 'size_bytes': size, 'type': None})
+    return out
+
+
 def describe_sector(data: bytes) -> str:
     """What a sector holds, in a few words: a GPT header, zeros, or its first bytes."""
     if not data:
@@ -115,6 +148,7 @@ class Mount:
                 'skipped': self.skipped, 'created': self.created, 'last_used': self.last_used}
 
     def skip(self, name: str, reason: str) -> None:
+        reason = ' '.join(reason.split())            # tool output spans lines; the error is one line
         log.warning('%s not mounted: %s', name, reason)
         self.skipped.append({'name': name, 'reason': reason})
 
@@ -174,12 +208,16 @@ class MountManager:
         r = self.run(['sfdisk', '--json', dev], capture_output=True, text=True, timeout=600)
         table, warnings = (r.stdout or '').strip(), ' '.join((r.stderr or '').split())[:300]
         if protective_only(table):
-            # the GPT is there (the MBR says so) but sfdisk could not use it: say what is where
-            m.skip(disk_name, 'only the protective MBR of a GPT disk could be read; sector 1 holds '
-                              f'{describe_sector(self._sector(dev, 1))}, sector size {self._sector_size(dev)}'
-                              + (f'; sfdisk: {warnings}' if warnings else ''))
-            return
-        parts = partitions_from_sfdisk(table, dev, size)
+            # the GPT is there (the MBR says so) but sfdisk would not use it: read it ourselves
+            parts = parse_gpt(self._read(dev, SECTOR, SECTOR), lambda off, n: self._read(dev, off, n), size)
+            if not parts:
+                m.skip(disk_name, 'only the protective MBR of a GPT disk could be read; sector 1 holds '
+                                  f'{describe_sector(self._sector(dev, 1))}, sector size {self._sector_size(dev)}'
+                                  + (f'; sfdisk: {warnings}' if warnings else ''))
+                return
+            log.info('%s: GPT read directly (sfdisk refused it%s)', disk_name, f': {warnings}' if warnings else '')
+        else:
+            parts = partitions_from_sfdisk(table, dev, size)
         whole = len(parts) == 1 and parts[0]['name'] == 'disk'
         for part in parts:
             name = f'{disk_name}-{part["name"]}'
@@ -210,12 +248,16 @@ class MountManager:
         except RuntimeError:
             return '?'
 
+    @classmethod
+    def _sector(cls, dev: str, lba: int) -> bytes:
+        return cls._read(dev, lba * SECTOR, SECTOR)
+
     @staticmethod
-    def _sector(dev: str, lba: int) -> bytes:
+    def _read(dev: str, offset: int, length: int) -> bytes:
         try:
             with open(dev, 'rb') as fh:
-                fh.seek(lba * SECTOR)
-                return fh.read(SECTOR)
+                fh.seek(offset)
+                return fh.read(length)
         except OSError:
             return b''
 

@@ -59,6 +59,14 @@ class Job:
                 'result': self.result, 'error': self.error, 'created_at': self.created_at, 'updated_at': self.updated_at}
 
 
+def grown_tail(prev_size: int | None, size: int) -> dict | None:
+    """The block interval a delta must copy because its image is larger than the previous point's
+    (None when it is not): from the block holding the old end up to the new end, whole MiB blocks."""
+    if not prev_size or size <= prev_size:
+        return None
+    return {'lower': prev_size // copier.MiB, 'upper': (size - 1) // copier.MiB}
+
+
 class Engine:
     def __init__(self, cfg, backend, mounter):
         self.cfg, self.backend, self.mounter = cfg, backend, mounter
@@ -153,6 +161,10 @@ class Engine:
                 if not prev:
                     raise RuntimeError(f'previous point {prev_seq} not in chain')
                 prev_dir = os.path.join(chain_dir, prev['dir'])
+            prev_sizes = {}
+            if prev_dir:
+                pm = manifest.read_json(os.path.join(prev_dir, manifest.POINT_FILE)) or {}
+                prev_sizes = {d.get('uuid'): int(d.get('size') or 0) for d in pm.get('devices', [])}
             total_blocks = sum(copier.blocks_in(d['map']) for d in req['devices'])
             job.progress = {'devices_total': len(req['devices']), 'devices_done': 0, 'blocks_total': total_blocks, 'blocks_done': 0}
             # a second of self-check before the first clone is read: a reader whose qemu-nbd or qcow2
@@ -164,8 +176,10 @@ class Engine:
                 job.progress['current_device'] = dev['uuid'][:8]
                 src = devices.wait_for_device(dev['clone_uuid'], self.cfg.device_wait_seconds, self.cfg.dev_dir)
                 size = devices.device_size(src)
-                if dev.get('image_size'):
+                if dev.get('image_size') and dev.get('type') in ('NVRAM', 'VTPM'):
                     size = min(size, int(dev['image_size']))      # NVRAM: the firmware wants its exact size
+                # disks keep the clone's size: the guest's whole disk (an older backup service capped
+                # them at the API capacity, which cut off the last partial MiB)
                 fname = self._device_file(dev)
                 path = os.path.join(point_dir, fname)
                 backing = os.path.join(prev_dir, fname) if prev_dir else None
@@ -177,6 +191,12 @@ class Engine:
                     dev_map = dev.get('full_map') or dev['map']
                 else:
                     dev_map = dev['map']
+                    tail = grown_tail(prev_sizes.get(dev['uuid']), size)
+                    if tail:
+                        # the previous point's image was shorter than the disk (written capped): copy
+                        # the end it never had, or it would read as zeros through every later point
+                        dev_map = list(dev_map) + [tail]
+                        job.progress['blocks_total'] += copier.blocks_in([tail])
                 base_done = job.progress['blocks_done']
 
                 def prog(done, total, _b=base_done):

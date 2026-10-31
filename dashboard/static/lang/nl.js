@@ -736,6 +736,8 @@ window.LANG = {
   'ex.pol_f_full_kind_hint': "Echt: leest de hele VM opnieuw. Synthetisch: draait de normale incrementele back-up, controleert de keten en bouwt er op het doel een nieuwe volledige back-up van, zonder het cluster te belasten.",
   'ex.synthetic': "synthetisch",
   'ex.synthetic_hint': "Een volledige back-up die op het doel uit de vorige keten is gebouwd, niet van de VM gelezen.",
+  'ex.short_disk': "einde van schijf ontbreekt",
+  'ex.short_disk_hint': "Dit punt is gemaakt voordat back-ups de volledige schijfgrootte namen: de laatste {n} KiB van de schijf (met de reservekopie van de partitietabel) zit er niet in. Herstellen en bestanden bekijken werken gewoon; de volgende back-up van deze VM voegt het ontbrekende einde toe.",
   'ex.notice_synthetic_failed': "synthetische back-up niet gebouwd",
   'ex.notice_synthetic_failed_hint': "De incrementele back-up is gelukt, maar de synthetische volledige back-up kon niet worden gebouwd; de volgende run leest de hele VM.",
   'ex.tab.policies': "Schema's",

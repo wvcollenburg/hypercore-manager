@@ -737,6 +737,8 @@ window.LANG = {
   'ex.pol_f_full_kind_hint': "Real: reads the whole VM again. Synthetic: runs the normal incremental, verifies the chain and builds a new full from it on the target, without loading the cluster.",
   'ex.synthetic': "synthetic",
   'ex.synthetic_hint': "A full built on the target from the previous chain, not read from the VM.",
+  'ex.short_disk': "end of disk missing",
+  'ex.short_disk_hint': "This point was written before backups took a disk's full size: the last {n} KiB of the disk (with the backup copy of its partition table) is not in it. Restores and file browsing still work; the next backup of this VM adds the missing end.",
   'ex.notice_synthetic_failed': "synthetic full not built",
   'ex.notice_synthetic_failed_hint': "The incremental succeeded, but the synthetic full could not be built; the next run reads the VM in full.",
   'ex.tab.policies': "Schedules",

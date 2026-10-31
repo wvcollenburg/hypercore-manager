@@ -52,6 +52,14 @@ All notable changes to this project are documented here. The format follows
   remaining overhead. Backup schedules learn their durations from these columns.
 
 ### Fixed
+- **Backups missed the end of disks whose size is not a whole number of MiB** (proxy `0.5.2`).
+  HyperCore shows a guest such a disk rounded up to whole MiB (a "100 GB" disk is 100,000,595,968
+  bytes), but disk images were capped at the API capacity, so the last partial MiB, with the backup
+  copy of the GPT, was not backed up. Restores booted (the primary GPT was intact) but file browsing
+  of those points failed. Images now take the clone's full size; the first delta on an existing chain
+  copies the missing end, and older points show *end of disk missing*. File browsing reads a GPT
+  that `sfdisk` refuses for such a short image directly when its checksums hold, so existing points
+  are browsable too.
 - **File browsing: why nothing could be mounted.** *No mountable filesystem found in this point* now
   names the reason for every partition (unsupported filesystem, unreadable partition table, mount
   error), and a partition that will not mount is left out instead of failing the whole point (proxy

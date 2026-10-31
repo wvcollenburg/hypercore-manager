@@ -577,3 +577,17 @@ def test_pick_proxy_prefers_an_idle_proxy(monkeypatch):
         assert inc.pick_proxy('c')['id'] == 72, 'a busy proxy goes last'
     finally:
         lock.release()
+
+
+def test_disk_images_are_not_capped_and_short_points_are_named():
+    """A guest sees its disk rounded up to whole MiB; points written capped at the API capacity
+    miss that end and are flagged."""
+    assert inc.image_size({'type': 'VIRTIO_DISK', 'capacity': 100_000_000_000}) == 0, 'the clone decides'
+    assert inc.image_size({'type': 'NVRAM', 'capacity': 540672}) == 540672
+    assert inc.guest_size(100_000_000_000) == 100_000_595_968 and inc.guest_size(6 << 30) == 6 << 30
+    definition = {'blockDevs': [{'uuid': 'd', 'type': 'VIRTIO_DISK', 'capacity': 100_000_000_000},
+                                {'uuid': 'n', 'type': 'NVRAM', 'capacity': 540672}]}
+    old = {'definition': definition, 'files': [{'uuid': 'd', 'size': 100_000_000_000}, {'uuid': 'n', 'size': 540672}]}
+    assert inc.short_disks(old) == [{'uuid': 'd', 'image_size': 100_000_000_000, 'guest_size': 100_000_595_968}]
+    new = dict(old, files=[{'uuid': 'd', 'size': 100_000_595_968}, {'uuid': 'n', 'size': 540672}])
+    assert inc.short_disks(new) == [] and inc.short_disks({}) == []
