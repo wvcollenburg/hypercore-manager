@@ -3761,6 +3761,7 @@ async function _loadProxiesPanel() {
         <button class="um-action-btn" onclick="pxTest(${p.id})">${t('clusters.test')}</button>
         <button class="um-action-btn" onclick="pxToggle(${p.id}, ${p.enabled ? 'false' : 'true'})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
         <button class="um-action-btn" onclick="pxBench(${p.id})" title="${_clEsc(t('proxies.bench_hint'))}">${t('proxies.bench')}</button>
+        <button class="um-action-btn" onclick="pxLogs(${p.id}, this)" title="${_clEsc(t('proxies.logs_hint'))}">${t('proxies.logs')}</button>
         <button class="um-action-btn danger" onclick="pxRemove(${p.id}, '${_clEsc(p.name)}', '${_clEsc(p.vm_uuid || '')}', '${_clEsc(p.kind || '')}')">${t('clusters.remove')}</button>
         <div class="cl-msg" id="px-${p.id}-msg"></div>
       </td>
@@ -3853,6 +3854,26 @@ async function pxBench(id) {
     const detail = Object.entries(modes).map(([k, v]) => `${k} ${v.mib_s != null ? v.mib_s : (v.skipped ? '–' : 'error')}`).join(' · ');
     _shMsg(`px-${id}-msg`, t('proxies.bench_result', {target: s.target || '?', size: d.result.size_mib, detail}), 'ok');
   } catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
+}
+async function pxLogs(id, btn) {
+  // the proxy's support bundle (zip): log, recent jobs, open mounts, kernel messages and devices
+  btn.disabled = true; _shMsg(`px-${id}-msg`, t('proxies.logs_busy'), 'ok');
+  try {
+    const resp = await fetch(`${API_BASE}/api/backup/proxies/${id}/logs`);
+    if (!resp.ok) {
+      let detail = `HTTP ${resp.status}`;
+      try { const j = await resp.json(); detail = j.error || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const m = /filename="?([^";]+)"?/.exec(cd);
+    const url = URL.createObjectURL(await resp.blob());
+    const a = document.createElement('a');
+    a.href = url; a.download = m ? m[1] : `hcm-proxy-${id}-logs.zip`; a.click();
+    URL.revokeObjectURL(url);
+    _shMsg(`px-${id}-msg`, '', 'ok');
+  } catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
+  finally { btn.disabled = false; }
 }
 async function pxToggle(id, enabled) { try { await _exCall('PUT', `/api/backup/proxies/${id}`, {enabled}); await _loadProxiesPanel(); } catch (e) { showToast(e.message, 'err'); } }
 function _pxUpdateCell(p, stackImage) {

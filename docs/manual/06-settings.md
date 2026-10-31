@@ -58,3 +58,9 @@ registration away and, for a proxy with a VM behind it, asks whether that VM goe
 VM is then powered off and deleted from the cluster. Only a VM the dashboard deployed is
 deleted (it carries the `hcm-proxy` tag); a proxy container you put on a VM of your own is
 left for you to clean up.
+
+**Download logs** fetches a zip from a proxy for troubleshooting, without a login on its VM: the
+proxy's own log, its recent jobs and open file-level mounts, and the state of the system it runs
+on (kernel messages, block, loop and device-mapper devices, mounts, disk space, memory, processes).
+Passwords and tokens are left out. Proxies older than 0.5.1 cannot make one yet; update them
+first.

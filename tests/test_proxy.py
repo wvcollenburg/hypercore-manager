@@ -14,7 +14,7 @@ import types
 import pytest
 
 _PROXY = os.path.join(os.path.dirname(__file__), '..', 'proxy')
-_CLASH = ('config', 'devices', 'copier', 'images', 'targets', 'manifest', 'identity', 'jobs', 'api', 'mounts', 'bench', 'log')
+_CLASH = ('config', 'devices', 'copier', 'images', 'targets', 'manifest', 'identity', 'jobs', 'api', 'mounts', 'bench', 'support', 'log')
 
 
 def _import():
@@ -492,6 +492,47 @@ def test_mount_browse_zip_and_unmount(flr):
     assert not os.path.exists(m.root) and m.id not in flr.mm.mounts
 
 
+def test_nothing_mountable_names_the_reason_per_partition(flr):
+    """The proxy's log is out of reach for most admins: the error itself says why each partition
+    was left out."""
+    orig = flr.run.__call__
+    def run(cmd, **kw):
+        if cmd[0] == 'blkid':
+            return types.SimpleNamespace(returncode=0, stdout='TYPE=zfs_member\n' if cmd[-1] == '/dev/dm-1' else '', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    with pytest.raises(RuntimeError) as e:
+        flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert str(e.value) == ("no mountable filesystem found in this point (disk1-p1: unsupported filesystem 'zfs_member'; "
+                            "disk1-p2: no filesystem recognised (blkid returned nothing))")
+
+
+def test_an_unreadable_partition_table_and_a_failing_mount_are_reported(flr):
+    orig = flr.run.__call__
+    def run(cmd, **kw):
+        if cmd[0] == 'sfdisk':
+            return types.SimpleNamespace(returncode=1, stdout='', stderr='')
+        if cmd[0] == 'blkid':
+            return types.SimpleNamespace(returncode=0, stdout='PTUUID=x\nPTTYPE=gpt\n', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    with pytest.raises(RuntimeError, match=r'disk1-disk: a gpt partition table that could not be read'):
+        flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    # a filesystem that will not mount is left out with its reason; the others stay browsable
+    mounts = []
+    def run2(cmd, **kw):
+        if cmd[0] == 'mount':
+            mounts.append(cmd)
+            if len(mounts) == 1:
+                return types.SimpleNamespace(returncode=32, stdout='', stderr='wrong fs type, bad option, bad superblock')
+        return orig(cmd, **kw)
+    flr.mm.run = run2
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert [f['name'] for f in m.filesystems] == ['disk1-p2']
+    assert m.public()['skipped'][0]['name'] == 'disk1-p1' and 'mount failed' in m.public()['skipped'][0]['reason']
+    assert 'bad superblock' in m.public()['skipped'][0]['reason']
+
+
 def test_lvm_member_is_imported_under_a_temporary_vg(flr):
     flr.run.fstypes = {'p1': 'vfat', 'p2': 'LVM2_member'}
     orig = flr.run.__call__
@@ -883,3 +924,71 @@ def test_update_hook_absent_without_a_directory(stack):
     assert stack.client.get('/identity', headers=H).get_json()['capabilities']['update'] is False
     r = stack.client.post('/update', data=b'x', headers={**H, 'X-Image-Tag': 't'})
     assert r.status_code == 501 and 'no update hook' in r.get_json()['error']
+
+
+# ----------------------------------------------------------------------------- support bundle
+def test_support_bundle_has_logs_jobs_mounts_and_system_state_without_secrets(tmp_path):
+    import zipfile, io
+    logs = tmp_path / 'data' / 'logs'; logs.mkdir(parents=True)
+    (logs / 'proxy.log').write_text('{"message": "disk1-p1 not mounted: ext4 mount failed"}\n')
+    (logs / 'proxy.log.1').write_text('older\n')
+    cfg = P.config.Config(api_token='s3cret-token', data_dir=str(tmp_path / 'data'), backend='file')
+    jobs = [{'id': 'j1', 'kind': 'backup', 'state': 'error', 'error': 'boom',
+             'params': {'target': {'uri': 'smb://nas/share', 'username': 'bk', 'password': 'hunter2'}}}]
+    seen = []
+    def run(cmd, **kw):
+        seen.append(cmd[0])
+        if cmd[0] == 'dmesg':
+            return types.SimpleNamespace(returncode=0, stdout='[Sat Oct 31] EXT4-fs (dm-3): unsupported feature\n', stderr='')
+        if cmd[0] == 'ps':
+            raise FileNotFoundError('ps')
+        return types.SimpleNamespace(returncode=0, stdout=f'{cmd[0]} output\n', stderr='')
+    data = P.support.bundle(cfg, {'version': '0.5.1', 'hostname': 'px'}, jobs, [{'id': 'm1', 'skipped': [{'name': 'disk1-p1', 'reason': 'x'}]}], run=run)
+    z = zipfile.ZipFile(io.BytesIO(data))
+    names = set(z.namelist())
+    assert {'proxy.json', 'jobs.json', 'mounts.json', 'logs/proxy.log', 'logs/proxy.log.1', 'system/dmesg.txt', 'system/lsblk.txt'} <= names
+    assert 'EXT4-fs (dm-3)' in z.read('system/dmesg.txt').decode()
+    assert 'not run' in z.read('system/ps.txt').decode(), 'a missing tool is noted, not fatal'
+    everything = b''.join(z.read(n) for n in names).decode()
+    assert 's3cret-token' not in everything and 'hunter2' not in everything, 'no secrets in the bundle'
+    assert json.loads(z.read('jobs.json'))[0]['params']['target'] == {'uri': 'smb://nas/share', 'username': 'bk', 'password': '***'}
+    assert json.loads(z.read('mounts.json'))[0]['skipped'][0]['name'] == 'disk1-p1'
+
+
+def test_support_bundle_route_needs_the_token(tmp_path):
+    cfg = P.config.Config(api_token='t0k', data_dir=str(tmp_path / 'data'), backend='file')
+    app = P.api.create_app(cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}))
+    c = app.test_client()
+    assert c.get('/support/bundle').status_code == 401
+    r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
+    assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
+    assert r.data[:2] == b'PK'
+    assert P.identity.VERSION == '0.5.1'
+
+
+def test_the_proxy_keeps_a_rotating_log_file(tmp_path):
+    import importlib.util, logging
+    try:
+        import pythonjsonlogger  # noqa: F401
+    except ImportError:          # not in the test requirements: a plain formatter stands in for the JSON one
+        jl = types.ModuleType('pythonjsonlogger.jsonlogger')
+        class JsonFormatter(logging.Formatter):
+            def format(self, record):
+                d = {'message': record.getMessage()}; self.add_fields(d, record, {}); return json.dumps(d)
+            def add_fields(self, log_record, record, message_dict): pass
+        jl.JsonFormatter = JsonFormatter
+        pkg = types.ModuleType('pythonjsonlogger'); pkg.jsonlogger = jl
+        sys.modules.setdefault('pythonjsonlogger', pkg); sys.modules.setdefault('pythonjsonlogger.jsonlogger', jl)
+    spec = importlib.util.spec_from_file_location('proxy_log_under_test', os.path.join(_PROXY, 'log.py'))
+    plog = importlib.util.module_from_spec(spec); spec.loader.exec_module(plog)
+    root = logging.getLogger(); before = list(root.handlers), root.level
+    try:
+        plog.configure('INFO', str(tmp_path / 'logs'))
+        logging.getLogger('proxy.mounts').warning('disk1-p1 not mounted: test')
+        for h in root.handlers: h.flush()
+        text = (tmp_path / 'logs' / 'proxy.log').read_text()
+        assert 'disk1-p1 not mounted: test' in text and '"level": "WARNING"' in text
+    finally:
+        for h in root.handlers:
+            if h not in before[0]: h.close()
+        root.handlers[:] = before[0]; root.setLevel(before[1])

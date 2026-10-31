@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Proxy log bundle** (proxy `0.5.1`). **Download logs** on a backup proxy (Settings) fetches a zip
+  with the proxy's log, its recent jobs and file-level mounts, and its kernel messages, devices,
+  mounts, disk space, memory and processes; passwords and tokens are left out. The proxy now also
+  keeps its log in a rotating file on its data volume (at most ~20 MiB). The backup service pushes
+  0.5.1 to every idle proxy after the stack update.
 - **Backup schedules** (migration `036`). Create a schedule, then add VMs to it, from every cluster
   in the folder. Backup schedules (incremental) and export schedules are separate kinds. A
   schedule repeats on an RFC 5545 rule (every N days, chosen weekdays every N weeks, the Nth or last
@@ -47,6 +52,10 @@ All notable changes to this project are documented here. The format follows
   remaining overhead. Backup schedules learn their durations from these columns.
 
 ### Fixed
+- **File browsing: why nothing could be mounted.** *No mountable filesystem found in this point* now
+  names the reason for every partition (unsupported filesystem, unreadable partition table, mount
+  error), and a partition that will not mount is left out instead of failing the whole point (proxy
+  `0.5.1`).
 - **Migrations stuck at `015`.** On installs where `015_sharing_prefs.sql` ran before the migration
   runner recorded it, the runner re-ran it on every start and failed (`'default'` is no UUID since
   `020`), so no later migration was applied. `015` now seeds its row only while the column is still

@@ -273,3 +273,21 @@ def test_a_manual_run_gets_no_window_notices(fdb, monkeypatch):
     fdb.runs[10] = _run(datetime(2026, 10, 21, 5, 0, tzinfo=AMS), datetime(2026, 10, 21, 6, 30, tzinfo=AMS))
     pol.run_member(10, 1, OCC, None, manual=True)
     assert fdb.updates == []
+
+
+def test_proxy_logs_route_fetches_the_bundle_with_the_decrypted_token(monkeypatch):
+    """The stored token is encrypted: the route must ask for it decrypted, or the proxy answers 401."""
+    asked = {}
+    def get_proxy(pid, with_secret=False):
+        asked['with_secret'] = with_secret
+        return {'id': pid, 'url': 'http://px:8083', 'token': 'plain' if with_secret else None, 'token_enc': 'x'}
+    monkeypatch.setattr(api, 'db', types.SimpleNamespace(get_proxy=get_proxy))
+    used = {}
+    class FakeClient:
+        def __init__(self, proxy): used['token'] = proxy.get('token')
+        def support_bundle(self): return b'PK\x03\x04zip', 'hcm-proxy-px-1.zip'
+    monkeypatch.setattr(api.incremental, 'proxy_client_for', FakeClient)
+    monkeypatch.setitem(api.app.config, 'API_TOKEN', '')
+    r = api.app.test_client().get('/api/v1/proxies/3/logs')
+    assert r.status_code == 200 and r.data.startswith(b'PK') and r.headers['Content-Disposition'] == 'attachment; filename="hcm-proxy-px-1.zip"'
+    assert asked == {'with_secret': True} and used == {'token': 'plain'}

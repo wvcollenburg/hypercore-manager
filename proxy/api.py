@@ -13,6 +13,7 @@ api.py — REST API of the backup proxy (port 8083), driven by the backup servic
   GET  /mounts/<id>/zip?paths=a,b  stream a zip of files/directories
   GET  /mounts/<id>/iso?paths=a,b[&size=1]  stream an ISO 9660 image of the selection (or just its size)
   DELETE /mounts/<id>         unmount
+  GET  /support/bundle        zip of the proxy's log, jobs, mounts and system state (support.py)
 
 Authentication: Bearer token (PROXY_API_TOKEN). An empty token disables auth, for development only.
 """
@@ -20,13 +21,15 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 import threading
 import time
 from functools import wraps
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 
 import identity as identity_mod
+import support
 
 log = logging.getLogger('proxy.api')
 
@@ -153,6 +156,15 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
             log.warning('mount failed', exc_info=True)
             return jsonify({'error': str(e)}), 502
         return jsonify(m.public()), 201
+
+    @app.get('/support/bundle')
+    @require_token
+    def support_bundle():
+        free = getattr(getattr(engine.backend, 'pool', None), 'free', None)
+        data = support.bundle(cfg, identity_mod.identity(cfg, engine.backend.name, free), engine.list()[:200],
+                              [m.public() for m in (mounts.mounts.values() if mounts else [])])
+        name = f'hcm-proxy-{socket.gethostname()}-{time.strftime("%Y%m%d-%H%M%S")}.zip'
+        return Response(data, mimetype='application/zip', headers={'Content-Disposition': f'attachment; filename="{name}"'})
 
     @app.get('/mounts')
     @require_token

@@ -85,7 +85,34 @@ class ProxyClient:
             raise ProxyError(f'proxy returned {r.status_code}: {detail}')
         return r.json() if r.text else None
 
+    def _raw(self, method: str, path: str, timeout: float = 120) -> requests.Response:
+        """A non-JSON answer (a file), with the same pinning and error handling as _request."""
+        if self.url.startswith('https://'):
+            if not self.fingerprint and not self.tls_verify:
+                raise ProxyError('https proxy without a pinned certificate fingerprint or CA verification; probe it first')
+            self._check_pin()
+        headers = {'Authorization': f'Bearer {self.token}'} if self.token else {}
+        verify = (self.tls_verify if self.url.startswith('https://') else True) if not self.fingerprint else False
+        try:
+            r = requests.request(method, f'{self.url}{path}', headers=headers, timeout=timeout, verify=verify)
+        except requests.exceptions.RequestException as e:
+            raise ProxyError(f'proxy unreachable at {self.url}: {e}') from e
+        if r.status_code == 401:
+            raise ProxyError('proxy rejected the token (401)')
+        if r.status_code == 404:
+            raise ProxyError('this proxy cannot make a support bundle yet; update it to 0.5.1 or later')
+        if r.status_code >= 400:
+            raise ProxyError(f'proxy returned {r.status_code}: {r.text[:200]}')
+        return r
+
     # ------------------------------------------------------------------ calls
+    def support_bundle(self) -> tuple[bytes, str]:
+        """(zip bytes, file name) of the proxy's log, jobs, mounts and system state."""
+        r = self._raw('GET', '/support/bundle')
+        cd = r.headers.get('Content-Disposition', '')
+        name = cd.split('filename=', 1)[1].strip('"') if 'filename=' in cd else 'hcm-proxy-logs.zip'
+        return r.content, name
+
     def health(self) -> dict:
         return self._request('GET', '/health') or {}
 

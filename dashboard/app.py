@@ -1461,7 +1461,8 @@ def backup_proxy(sub):
             payload['cluster_id'] = cid
         body = json.dumps(payload).encode()
         headers['Content-Type'] = 'application/json'
-    if request.method == 'GET' and sub.startswith('flr/mounts/') and sub.rsplit('/', 1)[-1] in ('file', 'zip'):
+    if request.method == 'GET' and (sub.startswith('flr/mounts/') and sub.rsplit('/', 1)[-1] in ('file', 'zip')
+                                    or re.fullmatch(r'proxies/\d+/logs', sub)):
         # downloads stream through; nothing in them is a target path or credential
         try:
             rq = urllib.request.Request(f'{url}/api/v1/{sub}?{qs}', headers=headers)

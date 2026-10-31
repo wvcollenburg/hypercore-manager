@@ -157,6 +157,11 @@ selection as an ISO straight into a running VM's CD-ROM, which needs no credenti
 guest; eject it afterwards from the Runs panel. Nothing is written into a guest through the
 hypervisor.
 
+A partition that cannot be mounted (an unknown filesystem, a damaged one, or a partition table the
+proxy cannot read) is left out and the others stay browsable. When nothing in a point can be
+mounted, the message names the reason for every partition; the proxy's **Download logs** (Settings)
+has the details, including the kernel's own messages.
+
 ## Import
 
 ![Import](img/backup-import.png)

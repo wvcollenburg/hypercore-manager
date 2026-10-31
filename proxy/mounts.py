@@ -78,6 +78,7 @@ class Mount:
         self.id = mid
         self.root = root                     # directory under which filesystems are mounted
         self.filesystems: list[dict] = []    # {name, fstype, mountpoint, label, size_bytes}
+        self.skipped: list[dict] = []        # {name, reason}: partitions and volumes that were not mounted
         self.cleanup: list[list[str]] = []   # commands to run in reverse on unmount
         self.stack = ExitStack()             # keeps nbd attachments alive
         self.created = time.time()
@@ -89,7 +90,21 @@ class Mount:
 
     def public(self) -> dict:
         return {'id': self.id, 'filesystems': [{k: v for k, v in f.items() if k != 'mountpoint'} for f in self.filesystems],
-                'created': self.created, 'last_used': self.last_used}
+                'skipped': self.skipped, 'created': self.created, 'last_used': self.last_used}
+
+    def skip(self, name: str, reason: str) -> None:
+        log.warning('%s not mounted: %s', name, reason)
+        self.skipped.append({'name': name, 'reason': reason})
+
+
+def no_filesystem_error(skipped: list[dict], limit: int = 900) -> str:
+    """The error of a point in which nothing could be mounted, with the reason per partition, so the
+    cause reaches the dashboard without a login on the proxy."""
+    msg = 'no mountable filesystem found in this point'
+    if skipped:
+        why = '; '.join(f"{s['name']}: {s['reason']}" for s in skipped)
+        msg += f' ({why[:limit] + "…" if len(why) > limit else why})'
+    return msg
 
 
 class MountManager:
@@ -123,7 +138,7 @@ class MountManager:
                 dev = m.stack.enter_context(self.backend.open_readonly(image))
                 self._attach_disk(m, dev, f'disk{di}', int(d.get('size') or 0))
             if not m.filesystems:
-                raise RuntimeError('no mountable filesystem found in this point')
+                raise RuntimeError(no_filesystem_error(m.skipped))
         except Exception:
             self._teardown(m)
             raise
@@ -135,21 +150,30 @@ class MountManager:
     def _attach_disk(self, m: Mount, dev: str, disk_name: str, size_hint: int) -> None:
         size = int(_run(['blockdev', '--getsize64', dev], run=self.run) or size_hint or 0) if os.path.exists(dev) else size_hint
         table = _run(['sfdisk', '--json', dev], check=False, run=self.run)
-        for part in partitions_from_sfdisk(table, dev, size):
+        parts = partitions_from_sfdisk(table, dev, size)
+        whole = len(parts) == 1 and parts[0]['name'] == 'disk'
+        for part in parts:
             name = f'{disk_name}-{part["name"]}'
             try:
                 cow = self._cow_device(m, dev, part, name)
             except RuntimeError as e:
-                log.warning('partition %s skipped: %s', name, e)
+                m.skip(name, f'no read-only view: {e}')
                 continue
-            info = parse_blkid(_run(['blkid', '-p', '-o', 'export', cow], check=False, run=self.run))
+            blkid = _run(['blkid', '-p', '-o', 'export', cow], check=False, run=self.run)
+            info = parse_blkid(blkid)
             fstype = (info.get('TYPE') or '').lower()
             if fstype == 'lvm2_member':
                 self._attach_lvm(m, cow, name)
             elif fstype in _FS_OPTS:
                 self._mount_fs(m, cow, name, fstype, info.get('LABEL'), part['size_bytes'])
+            elif fstype:
+                m.skip(name, f'unsupported filesystem {fstype!r}')
+            elif whole and info.get('PTTYPE'):
+                m.skip(name, f"a {info['PTTYPE']} partition table that could not be read ({size} bytes)")
+            elif part['size_bytes'] < (8 << 20):
+                log.info('partition %s: %d bytes, no filesystem (boot loader area)', name, part['size_bytes'])
             else:
-                log.info('partition %s: unsupported or empty filesystem %r', name, fstype)
+                m.skip(name, 'no filesystem recognised' + ('' if blkid else ' (blkid returned nothing)'))
 
     def _cow_device(self, m: Mount, dev: str, part: dict, name: str) -> str:
         """read-only loop over the partition + dm snapshot with a sparse COW file -> writable, private view."""
@@ -173,12 +197,16 @@ class MountManager:
         mp = os.path.join(m.root, name)
         os.makedirs(mp, exist_ok=True)
         try:
-            _run(['mount', '-t', mtype, '-o', opts, dev, mp], run=self.run)
-        except RuntimeError as e:
-            if fstype == 'ntfs':
+            try:
+                _run(['mount', '-t', mtype, '-o', opts, dev, mp], run=self.run)
+            except RuntimeError:
+                if fstype != 'ntfs':
+                    raise
                 _run(['mount', '-t', 'ntfs-3g', '-o', 'ro', dev, mp], run=self.run)   # kernel ntfs3 missing: userspace driver
-            else:
-                raise e
+        except RuntimeError as e:
+            # one filesystem that will not mount (say a damaged EFI partition) must not hide the others
+            m.skip(name, f'{fstype} mount failed: {e}')
+            return
         m.cleanup.append(['umount', mp])
         m.filesystems.append({'name': name, 'fstype': fstype, 'mountpoint': mp, 'label': label, 'size_bytes': size_bytes})
 
@@ -197,16 +225,16 @@ class MountManager:
             rows = [l.split() for l in _run(['lvs', '--noheadings', '--separator', ' ', '-o', 'lv_name,lv_kernel_minor'] + dev + [vg_name], run=self.run).splitlines() if l.strip()]
             lvs = [(r[0], f'/dev/dm-{r[1]}') for r in rows if len(r) == 2 and r[1].isdigit()]
         except RuntimeError as e:
-            log.warning('LVM import on %s failed: %s', name, e)
+            m.skip(name, f'LVM import failed: {e}')
             return
         if not lvs:
-            log.warning('LVM import on %s: no active logical volume found', name)
+            m.skip(name, 'LVM physical volume without an active logical volume')
         for lv_label, lv in lvs:
             info = parse_blkid(_run(['blkid', '-p', '-o', 'export', lv], check=False, run=self.run))
             fstype = (info.get('TYPE') or '').lower()
             lv_name = f'{name}-{lv_label}'
             if fstype not in _FS_OPTS:
-                log.info('logical volume %s: unsupported or empty filesystem %r', lv_name, fstype)
+                m.skip(lv_name, f'unsupported filesystem {fstype!r}' if fstype else 'no filesystem recognised')
             if fstype in _FS_OPTS:
                 try:
                     size = int(_run(['blockdev', '--getsize64', lv], run=self.run) or 0)

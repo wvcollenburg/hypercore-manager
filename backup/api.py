@@ -843,6 +843,22 @@ def proxies_test(pid):
         return jsonify({'ok': False, 'error': str(e)})
 
 
+@app.get('/api/v1/proxies/<int:pid>/logs')
+@_require_token
+def proxies_logs(pid):
+    """The proxy's support bundle (zip): its log, recent jobs, open mounts and system state."""
+    from flask import Response
+    proxy = db.get_proxy(pid, with_secret=True)
+    if not proxy:
+        return _err('proxy not found', 404)
+    try:
+        data, name = incremental.proxy_client_for(proxy).support_bundle()
+    except ProxyError as e:
+        return _err(str(e), 502)
+    name = ''.join(c for c in name if c.isalnum() or c in '-_.') or 'hcm-proxy-logs.zip'
+    return Response(data, mimetype='application/zip', headers={'Content-Disposition': f'attachment; filename="{name}"'})
+
+
 _BENCH: dict[int, dict] = {}          # proxy id -> {job_id, started_at, target}
 
 
