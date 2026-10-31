@@ -816,7 +816,7 @@ window.LANG = {
   'ex.pol_f_buffer_hint': "Wird vor dem gewünschten Ende freigehalten, sobald die Dauer gelernt ist.",
   'ex.pol_f_timezone': "Zeitzone",
   'ex.pol_f_timezone_hint': "Alle Zeiten dieses Zeitplans, für jeden enthaltenen Cluster.",
-  'ex.pol_f_blackouts_hint': "Wöchentliche Zeiträume, in denen kein Backup dieses Zeitplans startet. Ein Lauf, der zu Beginn noch läuft, wird beendet und erhält einen Hinweis.",
+  'ex.pol_f_blackouts_hint': "Wöchentliche Zeiträume, in denen kein Backup dieses Zeitplans startet. Ein Lauf, der zu Beginn noch läuft, wird beendet und erhält einen Hinweis. Bis 23:59 bedeutet bis Mitternacht, 00:00–23:59 umfasst also den ganzen Tag.",
   'ex.pol_f_add_blackout': "+ Zeitraum",
   'ex.pol_save': "Speichern",
   'ex.pol_create': "Zeitplan erstellen",

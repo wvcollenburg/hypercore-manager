@@ -817,7 +817,7 @@ window.LANG = {
   'ex.pol_f_buffer_hint': "Kept free before the preferred finish once durations are learned.",
   'ex.pol_f_timezone': "Time zone",
   'ex.pol_f_timezone_hint': "All times of this schedule, for every cluster in it.",
-  'ex.pol_f_blackouts_hint': "Weekly periods in which no backup of this schedule starts. A run that is still busy when one begins finishes and gets a notice.",
+  'ex.pol_f_blackouts_hint': "Weekly periods in which no backup of this schedule starts. A run that is still busy when one begins finishes and gets a notice. Until 23:59 means until midnight, so 00:00–23:59 covers the whole day.",
   'ex.pol_f_add_blackout': "+ period",
   'ex.pol_save': "Save",
   'ex.pol_create': "Create schedule",

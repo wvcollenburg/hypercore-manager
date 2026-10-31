@@ -816,7 +816,7 @@ window.LANG = {
   'ex.pol_f_buffer_hint': "Gardée libre avant la fin souhaitée une fois les durées apprises.",
   'ex.pol_f_timezone': "Fuseau horaire",
   'ex.pol_f_timezone_hint': "Toutes les heures de cette planification, pour chacun de ses clusters.",
-  'ex.pol_f_blackouts_hint': "Périodes hebdomadaires pendant lesquelles aucune sauvegarde de cette planification ne démarre. Une exécution encore en cours au début d'une période se termine et reçoit un avis.",
+  'ex.pol_f_blackouts_hint': "Périodes hebdomadaires pendant lesquelles aucune sauvegarde de cette planification ne démarre. Une exécution encore en cours au début d'une période se termine et reçoit un avis. Jusqu'à 23:59 signifie jusqu'à minuit : 00:00–23:59 couvre donc toute la journée.",
   'ex.pol_f_add_blackout': "+ période",
   'ex.pol_save': "Enregistrer",
   'ex.pol_create': "Créer la planification",

@@ -816,7 +816,7 @@ window.LANG = {
   'ex.pol_f_buffer_hint': "Wordt vrijgehouden vóór de gewenste eindtijd zodra de duur is geleerd.",
   'ex.pol_f_timezone': "Tijdzone",
   'ex.pol_f_timezone_hint': "Alle tijden van dit schema, voor elk cluster erin.",
-  'ex.pol_f_blackouts_hint': "Wekelijkse periodes waarin geen back-up van dit schema start. Een run die nog bezig is wanneer er een begint, maakt af en krijgt een melding.",
+  'ex.pol_f_blackouts_hint': "Wekelijkse periodes waarin geen back-up van dit schema start. Een run die nog bezig is wanneer er een begint, maakt af en krijgt een melding. Tot 23:59 betekent tot middernacht, dus 00:00–23:59 beslaat de hele dag.",
   'ex.pol_f_add_blackout': "+ periode",
   'ex.pol_save': "Opslaan",
   'ex.pol_create': "Schema maken",

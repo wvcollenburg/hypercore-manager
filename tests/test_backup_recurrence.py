@@ -127,3 +127,14 @@ def test_a_manual_window_is_open_for_a_day_from_the_request():
     at = datetime(2026, 10, 31, 14, 7, tzinfo=timezone.utc)
     w = rec.manual_window(at)
     assert w.opens == w.occurrence == at and w.closes == at + timedelta(hours=24)
+
+
+def test_a_blackout_ending_at_2359_lasts_until_midnight():
+    """Sat and Sun 00:00-23:59 black out the whole weekend: the last minute of each day too."""
+    p = _pol(rrule='FREQ=HOURLY', blackouts=[{'days': ['sat', 'sun'], 'from': '00:00', 'to': '23:59'}])
+    assert rec.in_blackout(p, datetime(2026, 10, 31, 23, 59, 30, tzinfo=AMS))
+    assert rec.in_blackout(p, datetime(2026, 11, 1, 23, 59, 30, tzinfo=AMS))
+    assert not rec.in_blackout(p, datetime(2026, 11, 2, 0, 0, tzinfo=AMS))
+    assert rec.next_allowed(p, datetime(2026, 10, 31, 9, 0, tzinfo=AMS)) == datetime(2026, 11, 2, 0, 0, tzinfo=AMS)
+    weekday = _pol(blackouts=[{'days': ['mon'], 'from': '07:00', 'to': '23:59'}])
+    assert rec.next_allowed(weekday, datetime(2026, 11, 2, 12, 0, tzinfo=AMS)) == datetime(2026, 11, 3, 0, 0, tzinfo=AMS)

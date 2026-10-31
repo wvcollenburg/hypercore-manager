@@ -34,6 +34,10 @@ run incremental backups and **export schedules** run exports; a schedule never m
   notice.
 - **No backups start** lists weekly periods in which nothing of this schedule starts, such as
   office hours. A run that is still busy when one begins is allowed to finish and gets a notice.
+  A period ending at 23:59 lasts until midnight, so 00:00–23:59 covers a whole day: Saturday and
+  Sunday 00:00–23:59 keeps an hourly schedule off for the weekend. On an hourly schedule, also
+  consider **Keep for days**: *Copies to keep* counts restore points, and a weekend of hourly runs
+  would otherwise push Friday's out.
 - **Buffer** is the margin kept free before the preferred finish once durations are learned.
 - **Time zone**: every time of the schedule is read in this zone, for every cluster in it. It
   defaults to the zone of the cluster the schedule was created on.

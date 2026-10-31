@@ -18,6 +18,7 @@ from dateutil.rrule import rrulestr
 DAYS = ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')
 _FREQS = {'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'}   # no MINUTELY: a run needs more than a minute
 MAX_HOURLY_INTERVAL = 168
+END_OF_DAY = '23:59'             # a blackout ending at 23:59 lasts until midnight
 _PARTS = {'FREQ', 'INTERVAL', 'BYDAY', 'BYMONTHDAY', 'BYMONTH', 'BYSETPOS', 'BYWEEKNO', 'BYYEARDAY',
           'UNTIL', 'COUNT', 'WKST'}
 # a window may stay open at most this long, and never past the next occurrence's opening
@@ -160,7 +161,8 @@ def current_window(policy: dict, now: datetime) -> Window | None:
 
 def blackout_intervals(policy: dict, start: datetime, end: datetime) -> list[tuple[datetime, datetime]]:
     """Blackout periods overlapping [start, end), as aware intervals. A period whose end is not after
-    its start runs past midnight into the next day."""
+    its start runs past midnight into the next day. An end of 23:59 means the end of the day, so
+    00:00-23:59 covers a whole day without a minute in which a run could still start."""
     tz = zone(policy.get('timezone'))
     lo, hi = _local(start, tz), _local(end, tz)
     out = []
@@ -171,6 +173,8 @@ def blackout_intervals(policy: dict, start: datetime, end: datetime) -> list[tup
                 continue
             s = datetime.combine(d, parse_hhmm(b['from']))
             e = datetime.combine(d, parse_hhmm(b['to']))
+            if b['to'] == END_OF_DAY:
+                e = datetime.combine(d + timedelta(days=1), time(0, 0))
             if e <= s:
                 e += timedelta(days=1)
             if s < hi and e > lo:
