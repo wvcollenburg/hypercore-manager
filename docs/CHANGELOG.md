@@ -55,7 +55,8 @@ All notable changes to this project are documented here. The format follows
 - **File browsing: why nothing could be mounted.** *No mountable filesystem found in this point* now
   names the reason for every partition (unsupported filesystem, unreadable partition table, mount
   error), and a partition that will not mount is left out instead of failing the whole point (proxy
-  `0.5.1`).
+  `0.5.1`). A GPT disk read as only its protective MBR says so, with what its first sector after the
+  MBR holds.
 - **Migrations stuck at `015`.** On installs where `015_sharing_prefs.sql` ran before the migration
   runner recorded it, the runner re-ran it on every start and failed (`'default'` is no UUID since
   `020`), so no later migration was applied. `015` now seeds its row only while the column is still

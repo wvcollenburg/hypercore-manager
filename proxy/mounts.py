@@ -63,6 +63,28 @@ def partitions_from_sfdisk(sfdisk_json: str, device: str, device_size: int) -> l
     return out
 
 
+def protective_only(sfdisk_json: str) -> bool:
+    """An MBR whose only entry is the 0xEE placeholder of a GPT disk: sfdisk fell back to it because
+    it could not use the GPT itself."""
+    try:
+        t = json.loads(sfdisk_json).get('partitiontable', {})
+    except (ValueError, AttributeError):
+        return False
+    parts = t.get('partitions') or []
+    return t.get('label') == 'dos' and len(parts) == 1 and str(parts[0].get('type', '')).lower() in ('ee', '0xee')
+
+
+def describe_sector(data: bytes) -> str:
+    """What a sector holds, in a few words: a GPT header, zeros, or its first bytes."""
+    if not data:
+        return 'unreadable'
+    if data[:8] == b'EFI PART':
+        return 'a GPT header (EFI PART)'
+    if not data.strip(b'\x00'):
+        return 'zeros'
+    return 'other data: ' + data[:16].hex(' ')
+
+
 def parse_blkid(text: str) -> dict:
     """`blkid -o export` -> {TYPE, LABEL, UUID, ...}"""
     out = {}
@@ -149,7 +171,14 @@ class MountManager:
 
     def _attach_disk(self, m: Mount, dev: str, disk_name: str, size_hint: int) -> None:
         size = int(_run(['blockdev', '--getsize64', dev], run=self.run) or size_hint or 0) if os.path.exists(dev) else size_hint
-        table = _run(['sfdisk', '--json', dev], check=False, run=self.run)
+        r = self.run(['sfdisk', '--json', dev], capture_output=True, text=True, timeout=600)
+        table, warnings = (r.stdout or '').strip(), ' '.join((r.stderr or '').split())[:300]
+        if protective_only(table):
+            # the GPT is there (the MBR says so) but sfdisk could not use it: say what is where
+            m.skip(disk_name, 'only the protective MBR of a GPT disk could be read; sector 1 holds '
+                              f'{describe_sector(self._sector(dev, 1))}, sector size {self._sector_size(dev)}'
+                              + (f'; sfdisk: {warnings}' if warnings else ''))
+            return
         parts = partitions_from_sfdisk(table, dev, size)
         whole = len(parts) == 1 and parts[0]['name'] == 'disk'
         for part in parts:
@@ -174,6 +203,21 @@ class MountManager:
                 log.info('partition %s: %d bytes, no filesystem (boot loader area)', name, part['size_bytes'])
             else:
                 m.skip(name, 'no filesystem recognised' + ('' if blkid else ' (blkid returned nothing)'))
+
+    def _sector_size(self, dev: str) -> str:
+        try:
+            return _run(['blockdev', '--getss', dev], run=self.run) or '?'
+        except RuntimeError:
+            return '?'
+
+    @staticmethod
+    def _sector(dev: str, lba: int) -> bytes:
+        try:
+            with open(dev, 'rb') as fh:
+                fh.seek(lba * SECTOR)
+                return fh.read(SECTOR)
+        except OSError:
+            return b''
 
     def _cow_device(self, m: Mount, dev: str, part: dict, name: str) -> str:
         """read-only loop over the partition + dm snapshot with a sparse COW file -> writable, private view."""

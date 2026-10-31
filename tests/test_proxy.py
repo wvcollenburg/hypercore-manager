@@ -533,6 +533,26 @@ def test_an_unreadable_partition_table_and_a_failing_mount_are_reported(flr):
     assert 'bad superblock' in m.public()['skipped'][0]['reason']
 
 
+def test_a_gpt_disk_read_as_its_protective_mbr_is_reported_with_what_sector_1_holds(flr, monkeypatch):
+    pmbr = '{"partitiontable": {"label": "dos", "unit": "sectors", "partitions": [{"node": "/dev/nbd2p1", "start": 1, "size": 195312499, "type": "ee"}]}}'
+    orig = flr.run.__call__
+    def run(cmd, **kw):
+        if cmd[0] == 'sfdisk':
+            return types.SimpleNamespace(returncode=0, stdout=pmbr, stderr='GPT PMBR size mismatch\n')
+        if cmd[:2] == ['blockdev', '--getss']:
+            return types.SimpleNamespace(returncode=0, stdout='512', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    monkeypatch.setattr(P.mounts.MountManager, '_sector', staticmethod(lambda dev, lba: b'\x00' * 512))
+    with pytest.raises(RuntimeError) as e:
+        flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert ('disk1: only the protective MBR of a GPT disk could be read; sector 1 holds zeros, sector size 512; '
+            'sfdisk: GPT PMBR size mismatch') in str(e.value)
+    assert not any(c[0] == 'losetup' for c in flr.run.cmds), 'nothing attached for a table that was not read'
+    assert P.mounts.describe_sector(b'EFI PART' + b'\x00' * 504) == 'a GPT header (EFI PART)'
+    assert P.mounts.describe_sector(b'\xeb\x63\x90' + b'\x00' * 509).startswith('other data: eb 63 90')
+
+
 def test_lvm_member_is_imported_under_a_temporary_vg(flr):
     flr.run.fstypes = {'p1': 'vfat', 'p2': 'LVM2_member'}
     orig = flr.run.__call__
