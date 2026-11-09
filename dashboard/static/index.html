@@ -696,6 +696,12 @@
   .community-notice-body { font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
   .community-notice-body a { color: var(--accent-cyan); }
   .community-notice-actions { display: flex; justify-content: flex-end; }
+  .cluster-notice { background: none; border: none; cursor: pointer; color: var(--accent-amber); font-size: 14px; line-height: 1; padding: 0 2px; vertical-align: baseline; }
+  .cluster-notice:hover { filter: brightness(1.25); }
+  .cluster-notice-body { font-size: 13px; line-height: 1.55; color: var(--text-primary); }
+  .cluster-notice-mute { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); justify-content: flex-end; }
+  .cluster-notice-mute input { width: 64px; padding: 4px 6px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-active); border-radius: 6px; }
+  .cluster-notice-msg { font-size: 12px; color: var(--accent-red); min-height: 1em; text-align: right; }
   .update-modal-backdrop {
     display: none; position: fixed; inset: 0; z-index: 10200;
     background: rgba(0,0,0,0.7); backdrop-filter: blur(2px);
@@ -4682,7 +4688,7 @@ function _renderClusterRail(enabled) {
     <div class="cluster-item ${c.cluster_id === currentCluster ? 'active' : ''}" onclick="selectCluster('${c.cluster_id}')" title="${_clEsc(c.host)}">
       <span class="cluster-dot" style="background:${_clColour(c, i)}"></span>
       <div style="min-width:0;flex:1;">
-        <div class="cluster-item-name">${_clEsc(c.name)}${dupIds.has(c.cluster_id) ? ' <span title="' + _clEsc(t('clusters.dup_short')) + '" style="color:var(--accent-amber)">⚠</span>' : ''}</div>
+        <div class="cluster-item-name">${_clEsc(c.name)}${dupIds.has(c.cluster_id) ? ' <span title="' + _clEsc(t('clusters.dup_short')) + '" style="color:var(--accent-amber)">⚠</span>' : ''}${_activeNotice(c.cluster_id) ? ` <button class="cluster-notice" title="${_clEsc(t('notice.update_terminated_title'))}" onclick="event.stopPropagation(); openClusterNotice('${c.cluster_id}')">⚠</button>` : ''}</div>
         <div class="cluster-item-sub ${c.last_error ? 'err' : ''}">${c.last_error ? t('clusters.status_error') : _clAgo(c.last_seen_at)}</div>
         <div class="cluster-item-sub" style="display:flex;gap:6px;margin-top:3px;">
           ${c.dry_run === null || c.dry_run === undefined ? '' : `<span style="color:${c.dry_run ? 'var(--accent-amber)' : 'var(--accent-green)'}">${c.dry_run ? t('clusters.mode_dry') : t('clusters.mode_live')}</span>`}
@@ -5298,6 +5304,7 @@ async function _exProbe() {
   const tab = document.getElementById('navTabExports');
   if (tab) tab.hidden = !_exAvailable;
   _exPreflightBanner(d && d.available ? d.preflight : null);
+  loadClusterNotices();
   return _exAvailable;
 }
 // cluster self-update or a node missing: HyperCore cannot snapshot, so every backup, export and
@@ -5306,12 +5313,6 @@ function _exPreflightBanner(pf) {
   const el = document.getElementById('exPreflightBanner');
   if (!el) return;
   el.classList.remove('visible', 'update', 'node');
-  if (pf && pf.ok && pf.warning && pf.warning.kind === 'update_terminated') {
-    // an update a pre-check stopped: nothing is applied and backups run, but the operator should know
-    el.innerHTML = `<strong>${t('ex.preflight_terminated_title')}</strong>${t('ex.preflight_terminated', {detail: _exEsc(pf.warning.detail || '')})}`;
-    el.classList.add('visible', 'update');
-    return;
-  }
   if (!pf || pf.ok) { el.innerHTML = ''; return; }
   const nodes = (pf.nodes || []).map(n => `${_exEsc(n.lan_ip || (n.uuid || '').slice(0, 8))} (${_exEsc(n.status)})`).join(', ');
   const title = pf.kind === 'node' ? t('ex.preflight_node_title') : t('ex.preflight_update_title');
@@ -5320,6 +5321,56 @@ function _exPreflightBanner(pf) {
   el.classList.add('visible', pf.kind === 'node' ? 'node' : 'update');
 }
 document.addEventListener('DOMContentLoaded', () => { setTimeout(_exProbe, 800); setInterval(_exProbe, 120000); });
+
+// cluster notices: warnings that block nothing (a terminated HyperCore update), shown as a warning
+// sign on the cluster's card; a notice can be muted for some days, for every user
+var _clusterNotices = {};   // var: the rail can render before this line has run
+let _noticeOpen = null;
+function _activeNotice(cid) {
+  return (_clusterNotices[cid] || []).find(n => !n.muted_until) || null;
+}
+async function loadClusterNotices() {
+  const enabled = CLUSTERS.filter(c => c.enabled);
+  if (!_exAvailable || !enabled.length) { _clusterNotices = {}; return; }
+  const pairs = await Promise.all(enabled.map(c =>
+    apiFetch(`/api/backup/notices?cluster=${encodeURIComponent(c.cluster_id)}`).then(d => [c.cluster_id, (d && d.notices) || []])));
+  const next = Object.fromEntries(pairs);
+  if (JSON.stringify(next) === JSON.stringify(_clusterNotices)) return;
+  _clusterNotices = next;
+  _renderClusterRail(enabled);
+}
+function openClusterNotice(cid) {
+  const n = _activeNotice(cid);
+  if (!n) return;
+  _noticeOpen = {cid, key: n.key};
+  const c = CLUSTERS.find(x => x.cluster_id === cid);
+  document.getElementById('clusterNoticeTitle').textContent = t('notice.update_terminated_title') + (c ? ` · ${c.name}` : '');
+  const detail = (n.detail || '').charAt(0).toUpperCase() + (n.detail || '').slice(1);
+  document.getElementById('clusterNoticeBody').innerHTML = t('notice.update_terminated', {detail: _exEsc(detail)});
+  document.getElementById('clusterNoticeMsg').textContent = '';
+  document.getElementById('clusterNoticeBackdrop').classList.add('visible');
+}
+function closeClusterNotice(e) {
+  if (e && e.target !== document.getElementById('clusterNoticeBackdrop')) return;
+  document.getElementById('clusterNoticeBackdrop').classList.remove('visible');
+  _noticeOpen = null;
+}
+async function muteClusterNotice() {
+  if (!_noticeOpen) return;
+  const days = parseInt(document.getElementById('clusterNoticeDays').value, 10);
+  const msg = document.getElementById('clusterNoticeMsg');
+  if (!(days >= 1 && days <= 365)) { msg.textContent = t('notice.days_range'); return; }
+  try {
+    const r = await fetch(`${API_BASE}/api/backup/notices/mute?cluster=${encodeURIComponent(_noticeOpen.cid)}`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key: _noticeOpen.key, days})});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  } catch (e) { msg.textContent = e.message; return; }
+  (_clusterNotices[_noticeOpen.cid] || []).forEach(n => { if (n.key === _noticeOpen.key) n.muted_until = 'muted'; });
+  document.getElementById('clusterNoticeBackdrop').classList.remove('visible');
+  _noticeOpen = null;
+  _renderClusterRail(CLUSTERS.filter(c => c.enabled));
+}
 
 async function _exCall(method, path, body) {
   const r = await fetch(_withCluster(path), { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
@@ -6401,6 +6452,22 @@ document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality,
 </div>
 
 <!-- file browser of a restore point -->
+<div class="update-modal-backdrop" id="clusterNoticeBackdrop" onclick="closeClusterNotice(event)">
+  <div class="update-modal">
+    <div class="update-modal-header">
+      <span class="update-modal-title" id="clusterNoticeTitle" style="color:var(--accent-amber)"></span>
+      <button class="update-modal-close" onclick="closeClusterNotice()">✕</button>
+    </div>
+    <div class="cluster-notice-body" id="clusterNoticeBody"></div>
+    <div class="cluster-notice-mute">
+      <label for="clusterNoticeDays" data-i18n="notice.mute_for">Mute for</label>
+      <input type="number" id="clusterNoticeDays" min="1" max="365" value="7">
+      <span data-i18n="notice.days">days</span>
+      <button class="refresh-btn" onclick="muteClusterNotice()" data-i18n="notice.mute">Mute</button>
+    </div>
+    <div class="cluster-notice-msg" id="clusterNoticeMsg"></div>
+  </div>
+</div>
 <div class="update-modal-backdrop" id="flrBackdrop" onclick="if (event.target === this) exFilesClose()">
   <div class="update-modal flr-modal" role="dialog" aria-modal="true" aria-labelledby="flrTitle">
     <div class="update-modal-header">

@@ -1461,6 +1461,8 @@ def backup_proxy(sub):
         # the body's cluster is always the one the user has selected and may see
         if 'cluster_id' in payload or sub.endswith(('plans', 'import/start')):
             payload['cluster_id'] = cid
+        if sub == 'notices/mute':                    # who muted it is the session's user, not the body's
+            payload['muted_by'] = session.get('username') or None
         body = json.dumps(payload).encode()
         headers['Content-Type'] = 'application/json'
     if request.method == 'GET' and (sub.startswith('flr/mounts/') and sub.rsplit('/', 1)[-1] in ('file', 'zip')

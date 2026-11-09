@@ -304,7 +304,7 @@ def test_preflight_rules_and_a_deferred_run():
     t = pf(term, [{'networkStatus': 'ONLINE'}])
     assert t['ok'] and t['warning']['kind'] == 'update_terminated'
     assert t['warning']['detail'] == ('cluster update to 9.8.7.229077 was terminated at 4% on node 10.20.30.241: '
-                                      'SecureBoot needs to be disabled on this node.')
+                                      'SecureBoot needs to be disabled on this node')
     assert pf(term, [{'lanIP': '10.0.0.242', 'networkStatus': 'OFFLINE'}])['kind'] == 'node', 'a missing node still blocks'
     assert 'warning' not in pf({'updateStatus': {'masterState': 'COMPLETE'}}, [])
     node = pf({}, [{'lanIP': '10.0.0.242', 'networkStatus': 'OFFLINE', 'uuid': 'n2'}, {'lanIP': '10.0.0.241', 'networkStatus': 'ONLINE'}])

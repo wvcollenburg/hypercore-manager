@@ -305,3 +305,38 @@ def test_flr_mount_passes_keys_and_answers_locked_volumes_with_422(monkeypatch):
     r = c.post('/api/v1/flr/mounts', json={'point_id': 4, 'keys': ['k1']})
     assert r.status_code == 422 and r.get_json()['locked'][0]['kind'] == 'BitLocker' and seen['keys'] == ['k1']
     assert c.post('/api/v1/flr/mounts', json={'point_id': 4, 'keys': 'k1'}).status_code == 400
+
+
+def test_cluster_notices_carry_a_terminated_update_and_can_be_muted(monkeypatch):
+    """The cluster card shows a terminated update as a warning sign; a mute hides it for N days, for
+    that update only (the key names its target build and node)."""
+    term = {'updateStatus': {'masterState': 'TERMINATING', 'toBuild': '229077', 'toVersion': '9.8.7.229077', 'percent': '4',
+            'status': {'node': '10.20.30.241', 'usernotes': 'UPDATE TERMINATED: SecureBoot needs to be disabled on this node.'}}}
+    w = api.jobs.preflight_of(term, [{'networkStatus': 'ONLINE'}])['warning']
+    assert w['key'] == 'update_terminated:229077:10.20.30.241'
+    assert w['detail'].endswith('on this node'), 'no full stop of its own: the sentence around it adds one'
+    mutes, calls = {}, []
+    fake_db = types.SimpleNamespace(
+        get_notice_mute=lambda cid, key: mutes.get((cid, key)),
+        set_notice_mute=lambda cid, key, days, by: (calls.append(('set', cid, key, days, by)),
+                                                     mutes.__setitem__((cid, key), {'muted_until': datetime(2026, 11, 16, tzinfo=AMS), 'muted_by': by})),
+        clear_notice_mute=lambda cid, key: (calls.append(('clear', cid, key)), mutes.pop((cid, key), None)))
+    monkeypatch.setattr(api, 'db', fake_db)
+    monkeypatch.setattr(api.jobs, 'client_for', lambda cid: object())
+    monkeypatch.setattr(api.jobs, 'preflight', lambda hc, cid, max_age=0: api.jobs.preflight_of(term, [{'networkStatus': 'ONLINE'}]))
+    monkeypatch.setitem(api.app.config, 'API_TOKEN', '')
+    c = api.app.test_client()
+    cid = '3090c567-4393-454d-ae79-cf98fe087949'
+    n = c.get(f'/api/v1/notices?cluster={cid}').get_json()['notices']
+    assert len(n) == 1 and n[0]['kind'] == 'update_terminated' and n[0]['muted_until'] is None
+    assert c.post(f'/api/v1/notices/mute?cluster={cid}', json={'key': w['key'], 'days': 400}).status_code == 400
+    assert c.post(f'/api/v1/notices/mute?cluster={cid}', json={'key': w['key'], 'days': 'x'}).status_code == 400
+    assert c.post(f'/api/v1/notices/mute?cluster={cid}', json={'key': w['key'], 'days': 7, 'muted_by': 'william'}).status_code == 200
+    n = c.get(f'/api/v1/notices?cluster={cid}').get_json()['notices']
+    assert n[0]['muted_until'].startswith('2026-11-16') and n[0]['muted_by'] == 'william'
+    assert c.post(f'/api/v1/notices/mute?cluster={cid}', json={'key': w['key'], 'days': 0}).status_code == 200
+    assert c.get(f'/api/v1/notices?cluster={cid}').get_json()['notices'][0]['muted_until'] is None
+    assert calls[0] == ('set', cid, w['key'], 7, 'william') and calls[1][0] == 'clear'
+    monkeypatch.setattr(api.jobs, 'preflight', lambda hc, cid, max_age=0: {'ok': True, 'kind': None, 'detail': '', 'nodes': []})
+    assert c.get(f'/api/v1/notices?cluster={cid}').get_json() == {'notices': []}
+    assert c.get('/api/v1/notices').status_code == 400

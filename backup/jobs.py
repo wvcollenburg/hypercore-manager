@@ -150,12 +150,14 @@ def _update_terminated(us: dict, stage: str) -> dict | None:
     if stage not in _UPDATE_TERMINATED and not notes.upper().startswith('UPDATE TERMINATED'):
         return None
     pct = us.get('percent'); ver = us.get('toVersion')
-    reason = re.sub(r'^UPDATE TERMINATED:\s*', '', notes, flags=re.I)
+    reason = re.sub(r'^UPDATE TERMINATED:\s*', '', notes, flags=re.I).rstrip('. ')
     node = (us.get('status') or {}).get('node')
     detail = (f'cluster update' + (f' to {ver}' if ver else '') + ' was terminated'
               + (f' at {pct}%' if pct not in (None, '') else '') + (f' on node {node}' if node else '')
               + (f': {reason}' if reason else ''))
-    return {'kind': 'update_terminated', 'detail': detail}
+    # the key names this terminated update, so a mute of it does not hide the next one
+    key = f"update_terminated:{us.get('toBuild') or ver or ''}:{node or ''}"
+    return {'kind': 'update_terminated', 'key': key, 'detail': detail}
 
 
 def preflight_of(update_status: dict, nodes: list[dict]) -> dict:

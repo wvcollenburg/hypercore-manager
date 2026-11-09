@@ -149,4 +149,9 @@ def test_backup_forwarding_sends_only_the_validated_cluster(repo):
     body = body[:body.index('\n@app.')] if '\n@app.' in body else body
     assert 'request.query_string' not in body
     assert "if k != 'cluster'] + [('cluster', cid)]" in body
+    assert "payload['muted_by'] = session.get('username')" in body, 'who muted a notice comes from the session'
 
+
+def test_cluster_notice_mutes_migration(repo):
+    sql = (repo / 'postgres' / 'init' / '040_backup_notice_mutes.sql').read_text()
+    assert 'CREATE TABLE IF NOT EXISTS backup.notice_mutes' in sql and 'PRIMARY KEY (cluster_id, key)' in sql

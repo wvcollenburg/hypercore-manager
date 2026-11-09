@@ -112,6 +112,49 @@ def status():
 
 
 # ---------------------------------------------------------------------- VMs
+@app.get('/api/v1/notices')
+@_require_token
+def notices():
+    """Warnings about the cluster that block nothing (a terminated HyperCore update), for the
+    warning sign on its card in the dashboard. A muted notice is returned with its mute."""
+    cid = _cluster_arg()
+    if not cid:
+        return _err('cluster required')
+    try:
+        pf = jobs.preflight(jobs.client_for(cid), cid, max_age=60)
+    except HyperCoreError as e:
+        return jsonify({'notices': [], 'unavailable': str(e)})
+    out = []
+    w = pf.get('warning')
+    if w:
+        mute = db.get_notice_mute(cid, w['key'])
+        out.append(dict(w, muted_until=mute['muted_until'].isoformat() if mute else None,
+                        muted_by=mute['muted_by'] if mute else None))
+    return jsonify({'notices': out})
+
+
+@app.post('/api/v1/notices/mute')
+@_require_token
+def mute_notice():
+    """{key, days, muted_by}: mute that notice for 1-365 days; days 0 lifts the mute."""
+    cid = _cluster_arg()
+    b = request.get_json(silent=True) or {}
+    key = str(b.get('key') or '').strip()
+    if not cid or not key:
+        return _err('cluster and key required')
+    try:
+        days = int(b.get('days'))
+    except (TypeError, ValueError):
+        return _err('days must be a whole number')
+    if days == 0:
+        db.clear_notice_mute(cid, key)
+    elif 1 <= days <= 365:
+        db.set_notice_mute(cid, key, days, (str(b.get('muted_by') or '').strip() or None))
+    else:
+        return _err('days must be between 1 and 365')
+    return jsonify({'ok': True})
+
+
 @app.get('/api/v1/vms')
 @_require_token
 def vms():

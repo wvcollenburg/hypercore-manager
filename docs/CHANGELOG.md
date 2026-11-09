@@ -78,8 +78,10 @@ All notable changes to this project are documented here. The format follows
 - **A terminated cluster update deferred every backup.** When an update pre-check stops a HyperCore
   update (seen on 9.8.7: "SecureBoot needs to be disabled on this node"), the cluster reports the
   update as `TERMINATING` indefinitely while still running the old version. Backups and restores
-  took that for an update in progress and were deferred for days. They now run, and the dashboard
-  shows the cluster's reason in a banner until the update is retried.
+  took that for an update in progress and were deferred for days. They now run. The cluster's card
+  in the sidebar shows a warning sign; it opens the cluster's reason, and the warning can be muted
+  for 1 to 365 days (migration `040`). A mute is shared by all users and holds for that update only:
+  the next update that is terminated shows again.
 - **File browsing: LVM inside LUKS, NTFS fallback, hidden skips** (proxy `0.5.4`). A LUKS volume
   holding LVM (Ubuntu's encrypted layout) opened but its logical volumes did not appear: LVM could not
   write its temporary name on a read-only LUKS device. LUKS now opens writable on the private
