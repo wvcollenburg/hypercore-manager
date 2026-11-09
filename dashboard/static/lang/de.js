@@ -893,6 +893,7 @@ window.LANG = {
   'proxies.vm_detected': "VM erkannt",
   'proxies.vm_missing': "VM auf diesem Cluster nicht gefunden",
   'proxies.added_ok': "Proxy erreichbar, läuft als VM '{vm}'.",
+  'proxies.moved_ok': "Proxy unter seiner neuen Adresse {to} gefunden (vorher {from}), läuft als VM '{vm}'.",
   'proxies.bench': "Durchsatz messen",
   'proxies.bench_hint': "Schreibt 512 MiB je Modus auf das Sicherungsziel des Clusters über die Pfade, die eine Sicherung und eine Wiederherstellung nutzen, und meldet MiB/s. Dauert einige Minuten; nichts bleibt zurück.",
   'proxies.logs': "Protokolle herunterladen",

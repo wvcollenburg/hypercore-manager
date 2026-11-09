@@ -18,10 +18,14 @@ import requests
 
 
 class ProxyError(Exception):
-    """payload: the proxy's JSON answer to a refused request, when it sent one (e.g. locked volumes)."""
-    def __init__(self, msg: str = '', payload: dict | None = None):
+    """payload: the proxy's JSON answer to a refused request, when it sent one (e.g. locked volumes).
+    kind: 'unreachable' (nothing answered at the URL), 'wrong_certificate' (something answered with
+    another certificate than the pinned one), or None for every other refusal. The first two mean
+    the proxy may have moved to another address (see incremental.relocate_proxy)."""
+    def __init__(self, msg: str = '', payload: dict | None = None, kind: str | None = None):
         super().__init__(msg)
         self.payload = payload or {}
+        self.kind = kind
 
 
 def certificate_fingerprint(url: str, timeout: float = 10) -> str:
@@ -60,9 +64,10 @@ class ProxyClient:
             try:
                 seen = certificate_fingerprint(self.url)
             except OSError as e:                 # refused, reset, or a TLS EOF while the proxy (re)starts: retryable
-                raise ProxyError(f'proxy unreachable at {self.url}: {e}') from e
+                raise ProxyError(f'proxy unreachable at {self.url}: {e}', kind='unreachable') from e
             if seen != self.fingerprint:
-                raise ProxyError(f'proxy certificate fingerprint {seen[:16]}… does not match the pinned {self.fingerprint[:16]}…')
+                raise ProxyError(f'proxy certificate fingerprint {seen[:16]}… does not match the pinned {self.fingerprint[:16]}…',
+                                 kind='wrong_certificate')
             self._pinned_ok = True
 
     def _request(self, method: str, path: str, extra_headers: dict | None = None, **kw):
@@ -77,7 +82,7 @@ class ProxyClient:
             r = requests.request(method, f'{self.url}{path}', headers=headers, timeout=kw.pop('timeout', self.timeout),
                                  verify=verify if not self.fingerprint else False, **kw)
         except requests.exceptions.RequestException as e:
-            raise ProxyError(f'proxy unreachable at {self.url}: {e}') from e
+            raise ProxyError(f'proxy unreachable at {self.url}: {e}', kind='unreachable') from e
         if r.status_code == 401:
             raise ProxyError('proxy rejected the token (401)')
         if r.status_code >= 400:
@@ -100,7 +105,7 @@ class ProxyClient:
         try:
             r = requests.request(method, f'{self.url}{path}', headers=headers, timeout=timeout, verify=verify)
         except requests.exceptions.RequestException as e:
-            raise ProxyError(f'proxy unreachable at {self.url}: {e}') from e
+            raise ProxyError(f'proxy unreachable at {self.url}: {e}', kind='unreachable') from e
         if r.status_code == 401:
             raise ProxyError('proxy rejected the token (401)')
         if r.status_code == 404:

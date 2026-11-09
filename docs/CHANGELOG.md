@@ -66,6 +66,14 @@ All notable changes to this project are documented here. The format follows
   cluster outside their folders. Only the checked cluster is forwarded now.
 
 ### Fixed
+- **A proxy on DHCP that got a new address was lost.** HyperCore Manager kept calling the address
+  it had at registration. When a proxy no longer answers there, the address its VM has now is read
+  from HyperCore (reported by the guest agent) and the registration follows it, but only when the
+  proxy at that address shows the pinned certificate and accepts its token. This happens before
+  every run, restore, file browse, verify and image update, and on "Test" in Settings → Proxies,
+  which says where the proxy was found. The connection stays one-way (HyperCore Manager → proxy),
+  so no firewall opening towards HyperCore Manager is needed. A proxy registered by DNS name is
+  left to DNS.
 - **A proxy stopped working after about a thousand jobs** (proxy `0.5.5`). After four days of hourly
   backups every job failed with `qemu_thread_create: Resource temporarily unavailable`, and so did
   the proxy's own clean-up of file-browsing mounts. The proxy ran as PID 1 in its container, where

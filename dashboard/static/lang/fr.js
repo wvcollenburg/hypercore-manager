@@ -893,6 +893,7 @@ window.LANG = {
   'proxies.vm_detected': "VM détectée",
   'proxies.vm_missing': "VM introuvable sur ce cluster",
   'proxies.added_ok': "Proxy joignable, s'exécute dans la VM '{vm}'.",
+  'proxies.moved_ok': "Proxy trouvé à sa nouvelle adresse {to} (avant {from}), s'exécute dans la VM '{vm}'.",
   'proxies.bench': "Mesurer le débit",
   'proxies.bench_hint': "Écrit 512 Mio par mode sur la cible de sauvegarde du cluster via les chemins qu'utilisent une sauvegarde et une restauration, et indique les Mio/s. Prend quelques minutes ; rien n'est conservé.",
   'proxies.logs': "Télécharger les journaux",

@@ -24,10 +24,12 @@ Rules from the field that shape the sequence (see the HyperCore backup SDK notes
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
 import threading
 import time
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import cluster_registry
 import config as cfg_module
@@ -78,16 +80,107 @@ def proxy_client_for(proxy: dict) -> ProxyClient:
                        tls_verify=bool(proxy.get('tls_verify')))
 
 
+# A proxy VM lives in DHCP; HyperCore Manager is the fixed point and the connection is one-way
+# (HCM -> proxy, no firewall opening towards HCM). When a proxy no longer answers at its registered
+# address, the address it has now is read from HyperCore (the guest agent reports the VM's IPv4
+# addresses) and the registration follows it, but only when the proxy at the new address presents
+# the pinned certificate and accepts the token. A URL with a DNS name is left alone: there the
+# customer's DNS manages the address.
+_MOVED_KINDS = ('unreachable', 'wrong_certificate')
+
+
+def relocatable(proxy: dict) -> bool:
+    if proxy.get('kind') == 'local' or not proxy.get('vm_uuid') or not proxy.get('tls_fingerprint'):
+        return False
+    u = urlparse(proxy.get('url') or '')
+    if u.scheme != 'https' or not u.hostname:
+        return False
+    try:
+        ipaddress.ip_address(u.hostname)
+    except ValueError:
+        return False
+    return True
+
+
+def vm_ipv4_addresses(vm: dict) -> list[str]:
+    """The VM's IPv4 addresses as the guest agent reports them, link-local and loopback left out."""
+    out = []
+    for n in vm.get('netDevs') or []:
+        for ip in n.get('ipv4Addresses') or []:
+            if ip and not ip.startswith('127.') and not ip.startswith('169.254.') and ip not in out:
+                out.append(ip)
+    return out
+
+
+def relocate_proxy(proxy: dict, hc: HyperCoreClient | None = None, client_factory=None) -> dict:
+    """Find a proxy that no longer answers at its registered URL at the address its VM has now.
+    Returns {'moved': True, 'from', 'to', 'identity'} after updating the registration, or
+    {'moved': False, 'detail'} with the reason it stayed where it was."""
+    if not relocatable(proxy):
+        return {'moved': False, 'detail': None}
+    client_factory = client_factory or (lambda url: ProxyClient(url, proxy.get('token') or '', tls_fingerprint=proxy['tls_fingerprint'], timeout=10))
+    u = urlparse(proxy['url'])
+    try:
+        hc = hc or jobs.client_for(proxy['cluster_id'])
+        addrs = vm_ipv4_addresses(hc.get_vm(proxy['vm_uuid']))
+    except HyperCoreError as e:
+        return {'moved': False, 'detail': f'could not read the address of its VM from HyperCore: {e}'}
+    candidates = [a for a in addrs if a != u.hostname]
+    if not candidates:
+        if addrs:
+            return {'moved': False, 'detail': 'its VM still reports this address'}
+        return {'moved': False, 'detail': 'its VM reports no IP address (powered off, or the guest agent is not running)'}
+    tried = []
+    for a in candidates:
+        url = f"https://{a}{f':{u.port}' if u.port else ''}"
+        try:
+            ident = client_factory(url).identity()      # pin check + token: only this proxy passes both
+        except ProxyError as e:
+            tried.append(f'{a}: {e}')
+            continue
+        try:
+            db.update_proxy(proxy['id'], url=url, status='ok', status_detail=None)
+        except Exception as e:                          # noqa: BLE001 — e.g. a stale registration holding that URL
+            return {'moved': False, 'detail': f'found at {url} but the registration could not be updated: {e}'}
+        log.warning('proxy %s (%s) moved from %s to %s', proxy['id'], proxy.get('name'), proxy['url'], url)
+        old = proxy['url']
+        proxy['url'] = url
+        return {'moved': True, 'from': old, 'to': url, 'identity': ident}
+    return {'moved': False, 'detail': 'its VM reports ' + '; '.join(tried)}
+
+
+def ensure_reachable(proxy: dict, hc: HyperCoreClient | None = None) -> dict:
+    """Before work goes to a proxy: if it does not answer at its URL and may have moved, follow it.
+    Never raises; a proxy that cannot be found is returned unchanged and the work reports the
+    usual 'unreachable' error."""
+    if not relocatable(proxy):
+        return proxy
+    try:
+        ProxyClient(proxy['url'], proxy.get('token') or '', tls_fingerprint=proxy['tls_fingerprint'], timeout=10).health()
+        return proxy
+    except ProxyError as e:
+        if e.kind not in _MOVED_KINDS:
+            return proxy
+    try:
+        r = relocate_proxy(proxy, hc)
+    except Exception as e:                              # noqa: BLE001 — a lookup must never break the run itself
+        log.warning('proxy %s: looking up its new address failed: %s', proxy.get('id'), e)
+        return proxy
+    if not r['moved'] and r.get('detail'):
+        log.warning('proxy %s unreachable at %s; %s', proxy.get('id'), proxy['url'], r['detail'])
+    return proxy
+
+
 def pick_proxy(cluster_id: str) -> dict:
     """An enabled proxy of the cluster that knows its own VM: an idle one before a busy one, then
-    least recently used first."""
+    least recently used first. Follows the proxy to a new address when its VM got one."""
     candidates = [p for p in db.get_proxies(cluster_id, enabled_only=True) if p.get('vm_uuid')]
     if not candidates:
         raise IncrementalError('no enabled backup proxy with a known VM is registered for this cluster')
     candidates.sort(key=lambda p: (proxy_lock(p['id']).locked(), p.get('last_seen_at') or datetime.min.replace(tzinfo=timezone.utc)))
     chosen = candidates[0]
     db.update_proxy(chosen['id'], last_seen_at=_now())          # rotate: the next job goes to another proxy
-    return db.get_proxy(chosen['id'], with_secret=True)
+    return ensure_reachable(db.get_proxy(chosen['id'], with_secret=True))
 
 
 def probe_proxy(proxy_id: int, hc: HyperCoreClient | None = None) -> dict:
@@ -105,11 +198,16 @@ def probe_proxy(proxy_id: int, hc: HyperCoreClient | None = None) -> dict:
         except Exception as e:                      # noqa: BLE001
             db.update_proxy(proxy_id, status='error', status_detail=f'could not read the proxy certificate: {e}')
             return {'ok': False, 'error': f'could not read the proxy certificate: {e}'}
+    moved = None
     try:
         ident = proxy_client_for(p).identity()
     except ProxyError as e:
-        db.update_proxy(proxy_id, status='error', status_detail=str(e))
-        return {'ok': False, 'error': str(e)}
+        r = relocate_proxy(p, hc) if e.kind in _MOVED_KINDS else {'moved': False, 'detail': None}
+        if not r['moved']:
+            detail = f"{e}; {r['detail']}" if r.get('detail') else str(e)
+            db.update_proxy(proxy_id, status='error', status_detail=detail)
+            return {'ok': False, 'error': detail}
+        ident, moved = r['identity'], {'from': r['from'], 'to': r['to']}
     fields = {'status': 'ok', 'status_detail': None, 'last_seen_at': _now(), 'version': ident.get('version'),
               'capabilities': ident.get('capabilities')}
     if p.get('tls_fingerprint') and ident.get('tls_fingerprint') and ident['tls_fingerprint'] != p['tls_fingerprint']:
@@ -130,7 +228,7 @@ def probe_proxy(proxy_id: int, hc: HyperCoreClient | None = None) -> dict:
         fields['status'] = 'error'
         fields['status_detail'] = 'proxy reachable but none of its MAC addresses belongs to a VM on this cluster'
     db.update_proxy(proxy_id, **fields)
-    return {'ok': fields['status'] == 'ok', 'identity': ident, 'vm': detected, 'detail': fields['status_detail']}
+    return {'ok': fields['status'] == 'ok', 'identity': ident, 'vm': detected, 'detail': fields['status_detail'], 'moved': moved}
 
 
 # ------------------------------------------------------------------ helpers

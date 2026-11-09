@@ -600,3 +600,150 @@ def test_disk_images_are_not_capped_and_short_points_are_named():
     assert inc.short_disks(old) == [{'uuid': 'd', 'image_size': 100_000_000_000, 'guest_size': 100_000_595_968}]
     new = dict(old, files=[{'uuid': 'd', 'size': 100_000_595_968}, {'uuid': 'n', 'size': 540672}])
     assert inc.short_disks(new) == [] and inc.short_disks({}) == []
+
+
+# ------------------------------------------------------------------ a proxy on DHCP gets a new address
+FP = 'ab' * 32
+_MOVED_PROXY = {'id': 4, 'name': 'px', 'cluster_id': 'c', 'kind': 'remote', 'vm_uuid': 'pvm', 'token': 't',
+                'url': 'https://172.16.0.65:8083', 'tls_fingerprint': FP, 'tls_verify': False}
+
+
+class _AddrHC:
+    def __init__(self, *addrs):
+        self.addrs = list(addrs)
+    def get_vm(self, uuid):
+        assert uuid == 'pvm'
+        return {'uuid': uuid, 'netDevs': [{'ipv4Addresses': ['127.0.0.1', '169.254.1.1'] + self.addrs}]}
+
+
+def _relocate_db(monkeypatch):
+    updates = []
+    monkeypatch.setattr(inc, 'db', types.SimpleNamespace(update_proxy=lambda pid, **f: updates.append((pid, f))))
+    return updates
+
+
+def test_proxy_errors_say_whether_the_proxy_may_have_moved(monkeypatch):
+    import ssl
+    def eof(url, timeout=10):
+        raise ssl.SSLEOFError('EOF')
+    monkeypatch.setattr(pcm, 'certificate_fingerprint', eof)
+    with pytest.raises(pcm.ProxyError) as e:
+        pcm.ProxyClient('https://10.0.0.5:8083', 't', tls_fingerprint=FP).identity()
+    assert e.value.kind == 'unreachable'
+    monkeypatch.setattr(pcm, 'certificate_fingerprint', lambda url, timeout=10: 'cd' * 32)
+    with pytest.raises(pcm.ProxyError) as e:
+        pcm.ProxyClient('https://10.0.0.5:8083', 't', tls_fingerprint=FP).identity()
+    assert e.value.kind == 'wrong_certificate', 'another device took the old address'
+
+
+def test_only_a_pinned_proxy_registered_by_ip_is_followed():
+    assert inc.relocatable(_MOVED_PROXY)
+    assert not inc.relocatable({**_MOVED_PROXY, 'url': 'https://proxy.example.lan:8083'}), "DNS manages that address"
+    assert not inc.relocatable({**_MOVED_PROXY, 'url': 'http://172.16.0.65:8083'})
+    assert not inc.relocatable({**_MOVED_PROXY, 'tls_fingerprint': None}), 'no pin, nothing to prove it is the same proxy'
+    assert not inc.relocatable({**_MOVED_PROXY, 'vm_uuid': None})
+    assert not inc.relocatable({**_MOVED_PROXY, 'kind': 'local'})
+
+
+def test_a_moved_proxy_is_followed_when_the_pin_matches(monkeypatch):
+    updates = _relocate_db(monkeypatch)
+    tried = []
+    def factory(url):
+        tried.append(url)
+        class C:
+            def identity(self):
+                if url != 'https://172.16.0.80:8083':
+                    raise pcm.ProxyError('fingerprint mismatch', kind='wrong_certificate')
+                return {'version': '0.5.5'}
+        return C()
+    p = dict(_MOVED_PROXY)
+    r = inc.relocate_proxy(p, _AddrHC('172.16.0.79', '172.16.0.80'), client_factory=factory)
+    assert r['moved'] and r['from'] == 'https://172.16.0.65:8083' and r['to'] == 'https://172.16.0.80:8083'
+    assert tried == ['https://172.16.0.79:8083', 'https://172.16.0.80:8083'], 'loopback and link-local are not tried'
+    assert updates == [(4, {'url': 'https://172.16.0.80:8083', 'status': 'ok', 'status_detail': None})]
+    assert p['url'] == 'https://172.16.0.80:8083', 'the caller works with the new address right away'
+
+
+def test_a_proxy_is_not_moved_to_an_address_that_fails_the_pin(monkeypatch):
+    updates = _relocate_db(monkeypatch)
+    def factory(url):
+        class C:
+            def identity(self):
+                raise pcm.ProxyError('certificate does not match the pinned one', kind='wrong_certificate')
+        return C()
+    r = inc.relocate_proxy(dict(_MOVED_PROXY), _AddrHC('172.16.0.80'), client_factory=factory)
+    assert not r['moved'] and '172.16.0.80' in r['detail'] and 'pinned' in r['detail'] and updates == []
+
+
+def test_relocation_explains_why_the_proxy_stayed(monkeypatch):
+    _relocate_db(monkeypatch)
+    never = lambda url: pytest.fail('nothing to try')
+    assert 'guest agent' in inc.relocate_proxy(dict(_MOVED_PROXY), _AddrHC(), client_factory=never)['detail']
+    assert 'still reports this address' in inc.relocate_proxy(dict(_MOVED_PROXY), _AddrHC('172.16.0.65'), client_factory=never)['detail']
+    class Broken:
+        def get_vm(self, uuid):
+            raise hcm.HyperCoreError('login limit')
+    assert 'login limit' in inc.relocate_proxy(dict(_MOVED_PROXY), Broken(), client_factory=never)['detail']
+
+
+def test_probe_follows_a_moved_proxy(monkeypatch):
+    p = dict(_MOVED_PROXY)
+    updates = []
+    monkeypatch.setattr(inc, 'db', types.SimpleNamespace(get_proxy=lambda pid, with_secret=False: dict(p),
+                                                         update_proxy=lambda pid, **f: updates.append(f)))
+    class Old:
+        def identity(self):
+            raise pcm.ProxyError('proxy unreachable at https://172.16.0.65:8083', kind='unreachable')
+    monkeypatch.setattr(inc, 'proxy_client_for', lambda proxy: Old())
+    monkeypatch.setattr(inc, 'relocate_proxy', lambda proxy, hc=None: {'moved': True, 'from': proxy['url'], 'to': 'https://172.16.0.80:8083',
+                                                                      'identity': {'version': '0.5.5', 'macs': []}})
+    r = inc.probe_proxy(4, hc=object())
+    assert r['ok'] and r['moved'] == {'from': 'https://172.16.0.65:8083', 'to': 'https://172.16.0.80:8083'}
+    assert updates[-1]['status'] == 'ok' and updates[-1]['version'] == '0.5.5'
+
+
+def test_probe_reports_why_a_proxy_could_not_be_followed(monkeypatch):
+    updates = []
+    monkeypatch.setattr(inc, 'db', types.SimpleNamespace(get_proxy=lambda pid, with_secret=False: dict(_MOVED_PROXY),
+                                                         update_proxy=lambda pid, **f: updates.append(f)))
+    class Old:
+        def identity(self):
+            raise pcm.ProxyError('proxy unreachable at https://172.16.0.65:8083', kind='unreachable')
+    monkeypatch.setattr(inc, 'proxy_client_for', lambda proxy: Old())
+    monkeypatch.setattr(inc, 'relocate_proxy', lambda proxy, hc=None: {'moved': False, 'detail': 'its VM reports no IP address'})
+    r = inc.probe_proxy(4)
+    assert not r['ok'] and 'unreachable' in r['error'] and 'no IP address' in r['error']
+    assert updates[-1]['status'] == 'error' and 'no IP address' in updates[-1]['status_detail']
+
+
+def test_a_refused_token_is_not_a_move(monkeypatch):
+    monkeypatch.setattr(inc, 'db', types.SimpleNamespace(get_proxy=lambda pid, with_secret=False: dict(_MOVED_PROXY),
+                                                         update_proxy=lambda pid, **f: None))
+    class Old:
+        def identity(self):
+            raise pcm.ProxyError('proxy rejected the token (401)')
+    monkeypatch.setattr(inc, 'proxy_client_for', lambda proxy: Old())
+    monkeypatch.setattr(inc, 'relocate_proxy', lambda *a, **k: pytest.fail('a 401 comes from the proxy at its address'))
+    assert not inc.probe_proxy(4)['ok']
+
+
+def test_work_goes_to_the_new_address_and_a_reachable_proxy_costs_no_lookup(monkeypatch):
+    calls = []
+    class Client:
+        def __init__(self, url, token, **kw):
+            self.url = url
+        def health(self):
+            calls.append(self.url)
+            if self.url.endswith('.65:8083'):
+                raise pcm.ProxyError('unreachable', kind='unreachable')
+            return {'status': 'ok'}
+    monkeypatch.setattr(inc, 'ProxyClient', Client)
+    def relocate(proxy, hc=None):
+        proxy['url'] = 'https://172.16.0.80:8083'
+        return {'moved': True}
+    monkeypatch.setattr(inc, 'relocate_proxy', relocate)
+    assert inc.ensure_reachable(dict(_MOVED_PROXY))['url'] == 'https://172.16.0.80:8083'
+    monkeypatch.setattr(inc, 'relocate_proxy', lambda *a, **k: pytest.fail('it answers, no HyperCore lookup'))
+    assert inc.ensure_reachable({**_MOVED_PROXY, 'url': 'https://172.16.0.80:8083'})['url'] == 'https://172.16.0.80:8083'
+    monkeypatch.setattr(inc, 'relocate_proxy', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('boom')))
+    assert inc.ensure_reachable(dict(_MOVED_PROXY))['url'] == 'https://172.16.0.65:8083', 'a failed lookup never breaks the run'

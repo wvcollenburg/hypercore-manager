@@ -894,6 +894,7 @@ window.LANG = {
   'proxies.vm_detected': "VM detected",
   'proxies.vm_missing': "VM not detected on this cluster",
   'proxies.added_ok': "Proxy reachable, runs as VM '{vm}'.",
+  'proxies.moved_ok': "Proxy found at its new address {to} (was {from}), runs as VM '{vm}'.",
   'proxies.bench': "Measure throughput",
   'proxies.bench_hint': "Writes 512 MiB per mode onto the cluster's backup target through the paths a backup and a restore use, and reports MiB/s. Takes a few minutes; nothing is kept.",
   'proxies.logs': "Download logs",

@@ -893,6 +893,7 @@ window.LANG = {
   'proxies.vm_detected': "VM gedetecteerd",
   'proxies.vm_missing': "VM niet gevonden op dit cluster",
   'proxies.added_ok': "Proxy bereikbaar, draait als VM '{vm}'.",
+  'proxies.moved_ok': "Proxy gevonden op zijn nieuwe adres {to} (was {from}), draait als VM '{vm}'.",
   'proxies.bench': "Doorvoer meten",
   'proxies.bench_hint': "Schrijft 512 MiB per modus naar het back-updoel van het cluster via de paden die een back-up en een herstel gebruiken, en meldt MiB/s. Duurt enkele minuten; er blijft niets achter.",
   'proxies.logs': "Logs downloaden",

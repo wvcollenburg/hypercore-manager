@@ -3862,7 +3862,7 @@ async function pxAdd() {
 }
 async function pxTest(id) {
   _shMsg(`px-${id}-msg`, t('clusters.testing'), '');
-  try { const d = await _exCall('POST', `/api/backup/proxies/${id}/test`); _shMsg(`px-${id}-msg`, d.ok ? t('proxies.added_ok', {vm: d.vm ? d.vm.name : '?'}) : (d.detail || d.error || ''), d.ok ? 'ok' : 'err'); await _loadProxiesPanel(); }
+  try { const d = await _exCall('POST', `/api/backup/proxies/${id}/test`); _shMsg(`px-${id}-msg`, d.ok ? (d.moved ? t('proxies.moved_ok', {vm: d.vm ? d.vm.name : '?', from: d.moved.from, to: d.moved.to}) : t('proxies.added_ok', {vm: d.vm ? d.vm.name : '?'})) : (d.detail || d.error || ''), d.ok ? 'ok' : 'err'); await _loadProxiesPanel(); }
   catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
 }
 async function pxBench(id) {
