@@ -1185,6 +1185,62 @@ def test_support_bundle_has_logs_jobs_mounts_and_system_state_without_secrets(tm
     assert json.loads(z.read('mounts.json'))[0]['skipped'][0]['name'] == 'disk1-p1'
 
 
+def _fake_proc(root, procs):
+    """procs: (pid, comm, state, ppid, threads, cmdline)"""
+    for pid, comm, state, ppid, threads, cmd in procs:
+        d = root / str(pid); d.mkdir(parents=True)
+        rest = [state, str(ppid)] + ['0'] * 15 + [str(threads), '0', '0', '0', '2560']   # f[17] threads, f[21] rss pages
+        (d / 'stat').write_text(f'{pid} ({comm}) ' + ' '.join(rest) + '\n')
+        (d / 'cmdline').write_text('\0'.join(cmd.split()) if cmd else '')
+    (root / 'sys' / 'kernel').mkdir(parents=True)
+    (root / 'sys' / 'kernel' / 'threads-max').write_text('31318\n')
+    (root / 'sys' / 'kernel' / 'pid_max').write_text('4194304\n')
+    (root / 'loadavg').write_text('0.10 0.20 0.30 2/4911 812\n')
+    (root / 'self').mkdir()
+    (root / 'self' / 'limits').write_text('Limit  Soft  Hard  Units\nMax processes  15659  15659  processes\nMax open files 1024 4096 files\n')
+
+
+def test_support_bundle_counts_zombies_and_reads_every_task_limit(tmp_path):
+    """0.5.4 ran out of threads after ~1000 jobs and the bundle could not say why: no procps, no cgroup
+    numbers. processes.txt and limits.txt read /proc and the cgroup files directly."""
+    import zipfile, io
+    proc = tmp_path / 'proc'
+    _fake_proc(proc, [(1, 'tini', 'S', 0, 1, '/usr/bin/tini -- python proxy.py'),
+                      (7, 'python', 'S', 1, 9, 'python proxy.py'),
+                      (40, 'qemu-nbd', 'Z', 1, 1, ''), (41, 'qemu-nbd', 'Z', 1, 1, ''),
+                      (42, 'ntfs-3g', 'Z', 1, 1, ''), (50, 'qemu-nbd', 'S', 1, 3, 'qemu-nbd -c /dev/nbd3 -r x.qcow2')])
+    table = P.support.process_table(str(proc))
+    assert 'processes: 6   threads: 16' in table and 'states: S=3, Z=3' in table
+    assert 'zombies: qemu-nbd (parent 1) x2, ntfs-3g (parent 1) x1' in table
+    assert 'qemu-nbd -c /dev/nbd3 -r x.qcow2' in table and '[qemu-nbd]' in table, 'a zombie has no cmdline: its name stands in'
+    own = tmp_path / 'cg'; own.mkdir()
+    (own / 'pids.current').write_text('4900\n'); (own / 'pids.max').write_text('max\n'); (own / 'memory.max').write_text('1073741824\n')
+    host = tmp_path / 'host'
+    scope = host / 'system.slice' / 'docker-9a59ab723977ffff.scope'; scope.mkdir(parents=True)
+    (scope / 'pids.current').write_text('4900\n'); (scope / 'pids.max').write_text('4915\n')
+    (host / 'system.slice' / 'pids.current').write_text('5200\n')
+    limits = P.support.task_limits(str(proc), str(own), str(host), container_id='9a59ab723977')
+    assert 'threads-max = 31318' in limits and 'pid_max = 4194304' in limits and '2/4911' in limits
+    assert 'Max processes  15659' in limits and 'Max open files' not in limits
+    assert 'pids.current = 4900' in limits and 'memory.max = 1073741824' in limits
+    i = limits.index('host cgroup /system.slice/docker-9a59ab723977ffff.scope:')
+    assert 'pids.max = 4915' in limits[i:] and 'host cgroup /system.slice:' in limits[i:] and 'host cgroup /:' in limits[i:]
+    assert 'no directory naming' in P.support.task_limits(str(proc), str(own), str(host), container_id='nothere')
+    cfg = P.config.Config(api_token='t', data_dir=str(tmp_path / 'data'), backend='file')
+    run = lambda cmd, **kw: types.SimpleNamespace(returncode=0, stdout='', stderr='')
+    z = zipfile.ZipFile(io.BytesIO(P.support.bundle(cfg, {}, [], [], run=run, proc=str(proc), cgroup=str(own),
+                                                    host_cgroup=str(host), container_id='9a59ab723977')))
+    assert 'Z=3' in z.read('system/processes.txt').decode() and 'pids.max = 4915' in z.read('system/limits.txt').decode()
+    z = zipfile.ZipFile(io.BytesIO(P.support.bundle(cfg, {}, [], [], run=run, proc=str(tmp_path / 'none'))))
+    assert z.read('system/processes.txt').startswith(b'(not collected'), 'a diagnostic never breaks the bundle'
+
+
+def test_proxy_image_runs_under_an_init_that_reaps_orphans():
+    import pathlib
+    df = (pathlib.Path(__file__).resolve().parents[1] / 'proxy' / 'Dockerfile').read_text()
+    assert 'ENTRYPOINT ["/usr/bin/tini", "--"]' in df and ' tini ' in df and ' procps ' in df
+
+
 def test_support_bundle_route_needs_the_token(tmp_path):
     cfg = P.config.Config(api_token='t0k', data_dir=str(tmp_path / 'data'), backend='file')
     app = P.api.create_app(cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}))
@@ -1193,7 +1249,7 @@ def test_support_bundle_route_needs_the_token(tmp_path):
     r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
     assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
     assert r.data[:2] == b'PK'
-    assert P.identity.VERSION == '0.5.4'
+    assert P.identity.VERSION == '0.5.5'
 
 
 def test_the_proxy_keeps_a_rotating_log_file(tmp_path):

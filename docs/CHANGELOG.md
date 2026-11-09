@@ -60,6 +60,20 @@ All notable changes to this project are documented here. The format follows
   remaining overhead. Backup schedules learn their durations from these columns.
 
 ### Fixed
+- **A proxy stopped working after about a thousand jobs** (proxy `0.5.5`). After four days of hourly
+  backups every job failed with `qemu_thread_create: Resource temporarily unavailable`, and so did
+  the proxy's own clean-up of file-browsing mounts. The proxy ran as PID 1 in its container, where
+  nothing collects the daemons that `qemu-nbd` and `ntfs-3g` leave behind when they exit; these
+  most likely piled up until no new thread could start. The image now runs under `tini`, which
+  collects them. Proxies that are already deployed get it with the update. The log bundle now also
+  holds `processes.txt` (every process with its state, and a count of exited-but-uncollected ones)
+  and `limits.txt` (the kernel, process and cgroup limits that can refuse a new thread), and `ps`
+  and `free` work again in it.
+- **A terminated cluster update deferred every backup.** When an update pre-check stops a HyperCore
+  update (seen on 9.8.7: "SecureBoot needs to be disabled on this node"), the cluster reports the
+  update as `TERMINATING` indefinitely while still running the old version. Backups and restores
+  took that for an update in progress and were deferred for days. They now run, and the dashboard
+  shows the cluster's reason in a banner until the update is retried.
 - **File browsing: LVM inside LUKS, NTFS fallback, hidden skips** (proxy `0.5.4`). A LUKS volume
   holding LVM (Ubuntu's encrypted layout) opened but its logical volumes did not appear: LVM could not
   write its temporary name on a read-only LUKS device. LUKS now opens writable on the private
