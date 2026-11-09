@@ -668,6 +668,8 @@ window.LANG = {
   'ex.status_deferred': "deferred",
   'ex.preflight_update_title': "Cluster update in progress",
   'ex.preflight_update': "{detail}. The HyperCore API is read-only until the update finishes; scheduled backups wait for it and are deferred to the next run when it takes longer than two hours.",
+  'ex.preflight_terminated_title': "Cluster update was terminated",
+  'ex.preflight_terminated': "{detail}. The cluster is still on its previous version and backups run normally. Resolve the cause and start the update again.",
   'ex.preflight_node_title': "Backups are blocked: a node is missing",
   'ex.preflight_node': "Node not online: {nodes}. HyperCore cannot create snapshots while a node is missing, and every backup, export, clone and restore starts with a snapshot. Nothing can be backed up until this is resolved. Replace the node as soon as possible, or contact Scale Computing support to have the missing node evicted from the cluster.",
   'ex.quiesced': "quiesced",

@@ -139,13 +139,32 @@ def derive_name(folder: str) -> str:
 # the REST API read-only for its whole duration; a missing node (failure group) stops HyperCore from
 # creating snapshots, and a snapshot is the first step of every export, backup, clone and restore.
 _UPDATE_IDLE = frozenset({'', 'COMPLETE', 'ERROR', 'FAILED', 'CANCELLED', 'CANCELED', 'NONE', 'IDLE'})
+# An update that a pre-check stopped stays in TERMINATING for good (seen on 9.8.7: "UPDATE TERMINATED:
+# SecureBoot needs to be disabled on this node", 4%, still on the old build). Nothing is applied and
+# nothing will finish it, so it must not defer backups; it is shown as a warning with the cluster's reason.
+_UPDATE_TERMINATED = frozenset({'TERMINATING', 'TERMINATED'})
+
+
+def _update_terminated(us: dict, stage: str) -> dict | None:
+    notes = str((us.get('status') or {}).get('usernotes') or '').strip()
+    if stage not in _UPDATE_TERMINATED and not notes.upper().startswith('UPDATE TERMINATED'):
+        return None
+    pct = us.get('percent'); ver = us.get('toVersion')
+    reason = re.sub(r'^UPDATE TERMINATED:\s*', '', notes, flags=re.I)
+    node = (us.get('status') or {}).get('node')
+    detail = (f'cluster update' + (f' to {ver}' if ver else '') + ' was terminated'
+              + (f' at {pct}%' if pct not in (None, '') else '') + (f' on node {node}' if node else '')
+              + (f': {reason}' if reason else ''))
+    return {'kind': 'update_terminated', 'detail': detail}
 
 
 def preflight_of(update_status: dict, nodes: list[dict]) -> dict:
-    """Pure: {'ok', 'kind': None|'update'|'node', 'detail', 'nodes': [...]} from the two API answers."""
+    """Pure: {'ok', 'kind': None|'update'|'node', 'detail', 'nodes': [...], 'warning'?} from the two
+    API answers. 'warning' does not block: a terminated update, reported until the cluster moves on."""
     us = (update_status or {}).get('updateStatus') or {}
     stage = str(us.get('masterState') or (update_status or {}).get('updateStage') or '').upper()
-    if stage not in _UPDATE_IDLE:
+    warning = _update_terminated(us, stage)
+    if stage not in _UPDATE_IDLE and not warning:
         pct = us.get('percent'); ver = us.get('toVersion')
         detail = f'cluster self-update in progress' + (f' to {ver}' if ver else '') + (f', {pct}%' if pct not in (None, '') else '')
         return {'ok': False, 'kind': 'update', 'detail': detail, 'nodes': []}
@@ -154,7 +173,8 @@ def preflight_of(update_status: dict, nodes: list[dict]) -> dict:
         names = ', '.join(f"{n.get('lanIP') or n.get('uuid', '')[:8]} ({n.get('networkStatus') or 'UNKNOWN'})" for n in bad)
         return {'ok': False, 'kind': 'node', 'detail': f'node not online: {names}',
                 'nodes': [{'lan_ip': n.get('lanIP'), 'status': n.get('networkStatus') or 'UNKNOWN', 'uuid': n.get('uuid')} for n in bad]}
-    return {'ok': True, 'kind': None, 'detail': '', 'nodes': []}
+    ok = {'ok': True, 'kind': None, 'detail': '', 'nodes': []}
+    return dict(ok, warning=warning) if warning else ok
 
 
 _PREFLIGHT_CACHE: dict[str, tuple[float, dict]] = {}

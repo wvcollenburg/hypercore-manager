@@ -298,6 +298,15 @@ def test_preflight_rules_and_a_deferred_run():
     assert pf({}, [])['ok'], 'a cluster that never updated has no status'
     up = pf({'updateStatus': {'masterState': 'RUNNING', 'toVersion': '9.9.0', 'percent': '40'}}, [{'networkStatus': 'ONLINE'}])
     assert not up['ok'] and up['kind'] == 'update' and '9.9.0' in up['detail'] and '40%' in up['detail']
+    # 9.8.7 lab, Nov 2026: a pre-check stopped the update and the file stays like this for good
+    term = {'updateStatus': {'masterState': 'TERMINATING', 'toVersion': '9.8.7.229077', 'percent': '4',
+            'status': {'node': '10.20.30.241', 'usernotes': 'UPDATE TERMINATED: SecureBoot needs to be disabled on this node.'}}}
+    t = pf(term, [{'networkStatus': 'ONLINE'}])
+    assert t['ok'] and t['warning']['kind'] == 'update_terminated'
+    assert t['warning']['detail'] == ('cluster update to 9.8.7.229077 was terminated at 4% on node 10.20.30.241: '
+                                      'SecureBoot needs to be disabled on this node.')
+    assert pf(term, [{'lanIP': '10.0.0.242', 'networkStatus': 'OFFLINE'}])['kind'] == 'node', 'a missing node still blocks'
+    assert 'warning' not in pf({'updateStatus': {'masterState': 'COMPLETE'}}, [])
     node = pf({}, [{'lanIP': '10.0.0.242', 'networkStatus': 'OFFLINE', 'uuid': 'n2'}, {'lanIP': '10.0.0.241', 'networkStatus': 'ONLINE'}])
     assert not node['ok'] and node['kind'] == 'node' and node['nodes'] == [{'lan_ip': '10.0.0.242', 'status': 'OFFLINE', 'uuid': 'n2'}]
     assert 'Scale Computing support' in inc.jobs.DEFERRED_HINT['node']

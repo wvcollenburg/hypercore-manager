@@ -667,6 +667,8 @@ window.LANG = {
   'ex.status_deferred': "différé",
   'ex.preflight_update_title': "Mise à jour du cluster en cours",
   'ex.preflight_update': "{detail}. L'API HyperCore est en lecture seule jusqu'à la fin de la mise à jour ; les sauvegardes planifiées attendent et sont reportées à l'exécution suivante si cela dure plus de deux heures.",
+  'ex.preflight_terminated_title': "La mise à jour du cluster a été interrompue",
+  'ex.preflight_terminated': "{detail}. Le cluster tourne toujours sur sa version précédente et les sauvegardes s'exécutent normalement. Corrigez la cause et relancez la mise à jour.",
   'ex.preflight_node_title': "Sauvegardes bloquées : un nœud manque",
   'ex.preflight_node': "Nœud hors ligne : {nodes}. HyperCore ne peut pas créer de snapshots tant qu'un nœud manque, et chaque sauvegarde, export, clone et restauration commence par un snapshot. Rien ne peut être sauvegardé tant que ce n'est pas résolu. Remplacez le nœud au plus vite, ou contactez le support Scale Computing pour faire évincer le nœud manquant du cluster.",
   'ex.quiesced': "quiesced",

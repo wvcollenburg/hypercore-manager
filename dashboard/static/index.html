@@ -5306,6 +5306,12 @@ function _exPreflightBanner(pf) {
   const el = document.getElementById('exPreflightBanner');
   if (!el) return;
   el.classList.remove('visible', 'update', 'node');
+  if (pf && pf.ok && pf.warning && pf.warning.kind === 'update_terminated') {
+    // an update a pre-check stopped: nothing is applied and backups run, but the operator should know
+    el.innerHTML = `<strong>${t('ex.preflight_terminated_title')}</strong>${t('ex.preflight_terminated', {detail: _exEsc(pf.warning.detail || '')})}`;
+    el.classList.add('visible', 'update');
+    return;
+  }
   if (!pf || pf.ok) { el.innerHTML = ''; return; }
   const nodes = (pf.nodes || []).map(n => `${_exEsc(n.lan_ip || (n.uuid || '').slice(0, 8))} (${_exEsc(n.status)})`).join(', ');
   const title = pf.kind === 'node' ? t('ex.preflight_node_title') : t('ex.preflight_update_title');
