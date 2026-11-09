@@ -59,6 +59,12 @@ All notable changes to this project are documented here. The format follows
   the work began after the pre-flight wait, the wait for a free proxy, the copy itself and the
   remaining overhead. Backup schedules learn their durations from these columns.
 
+### Security
+- **Backup data of another cluster was readable by naming it.** The dashboard forwarded the
+  browser's `cluster` parameter to the backup service ahead of the one it had checked, and the
+  backup service used the first. A folder member could read the plans, runs and restore points of a
+  cluster outside their folders. Only the checked cluster is forwarded now.
+
 ### Fixed
 - **A proxy stopped working after about a thousand jobs** (proxy `0.5.5`). After four days of hourly
   backups every job failed with `qemu_thread_create: Resource temporarily unavailable`, and so did

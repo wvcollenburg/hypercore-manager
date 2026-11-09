@@ -138,3 +138,15 @@ def test_backup_targets_wiring(repo):
     assert "if sub.startswith(('targets', 'proxies')) and not _is_admin_request()" in app, 'target and proxy management must stay admin-only'
     reg = (repo / 'shared' / 'cluster_registry.py').read_text()
     assert 'share_id' in reg
+
+
+def test_backup_forwarding_sends_only_the_validated_cluster(repo):
+    """The backup service reads the first `cluster` parameter. The dashboard used to forward the
+    browser's query string and append the validated cluster after it, so a folder member could read
+    another cluster's backups by naming it. Only the validated one may be forwarded."""
+    app = (repo / 'dashboard' / 'app.py').read_text()
+    body = app[app.index('def backup_proxy(sub):'):]
+    body = body[:body.index('\n@app.')] if '\n@app.' in body else body
+    assert 'request.query_string' not in body
+    assert "if k != 'cluster'] + [('cluster', cid)]" in body
+

@@ -43,6 +43,7 @@ import secrets
 import subprocess
 import threading
 import time
+import urllib.parse
 import urllib.request
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
@@ -1450,8 +1451,9 @@ def backup_proxy(sub):
         return jsonify({'error': 'Admin access required'}), 403
     url, token = _backup_env()
     cid = _cluster_id()
-    qs = request.query_string.decode()
-    qs = (qs + '&' if qs else '') + f'cluster={cid}'
+    # the validated cluster only: the backup service reads the first `cluster` it gets, so one sent by
+    # the browser would otherwise win over the check above and reach a cluster the user may not see
+    qs = urllib.parse.urlencode([(k, v) for k, v in request.args.items(multi=True) if k != 'cluster'] + [('cluster', cid)])
     body = None
     headers = {'Authorization': f'Bearer {token}'} if token else {}
     if request.method in ('POST', 'PUT'):
