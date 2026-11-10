@@ -109,7 +109,19 @@ _CGROUP_FILES = ('pids.current', 'pids.max', 'pids.peak', 'memory.current', 'mem
 
 
 def _cgroup_lines(path: str) -> list[str]:
-    return [f'  {n} = {v}' for n in _CGROUP_FILES if (v := _read(os.path.join(path, n))) is not None]
+    out = [f'  {n} = {v}' for n in _CGROUP_FILES if (v := _read(os.path.join(path, n))) is not None]
+    # memory.peak at memory.max is normal when images are written (page cache counts against the
+    # limit and is reclaimed); oom/oom_kill in memory.events and anon vs file in memory.stat tell a
+    # real out-of-memory apart from a full cache
+    events = _read(os.path.join(path, 'memory.events'))
+    if events:
+        out.append('  memory.events = ' + ', '.join(line.strip() for line in events.splitlines() if line.strip()))
+    stat = _read(os.path.join(path, 'memory.stat'))
+    if stat:
+        keep = [line.strip() for line in stat.splitlines() if line.split(' ', 1)[0] in ('anon', 'file')]
+        if keep:
+            out.append('  memory.stat = ' + ', '.join(keep))
+    return out
 
 
 def task_limits(proc: str = '/proc', cgroup: str = '/sys/fs/cgroup', host_cgroup: str = '/host/sys/fs/cgroup',

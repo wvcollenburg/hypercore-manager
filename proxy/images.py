@@ -75,6 +75,18 @@ class NbdPool:
             return len(self._free)
 
 
+_CHECK_NOISE = ('Leaked cluster', 'ERROR cluster', 'ERROR OFLAG', 'ERROR l2', 'ERROR refcount', 'Image end offset')
+
+
+def _last_lines(text: str, n: int = 3, limit: int = 400) -> str:
+    """The verdict of a tool's output for an error message. qemu-img check lists every leaked or
+    corrupt cluster first and ends with allocation statistics; both are left out, the lines in
+    between ("N errors were found…", a lock message) are what matters."""
+    lines = [l.strip() for l in (text or '').splitlines() if l.strip()]
+    kept = [l for l in lines if not l.startswith(_CHECK_NOISE) and '% allocated' not in l] or lines
+    return ' | '.join(kept[-n:])[-limit:]
+
+
 def _run(cmd: list[str], timeout: int = 3600) -> str:
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if r.returncode:
@@ -147,9 +159,58 @@ class NbdBackend:
             _run(['qemu-nbd', '-d', slot], timeout=120)
         else:
             subprocess.run(['qemu-nbd', '-d', slot], check=False, capture_output=True, timeout=120)
+        # `qemu-nbd -d` only tears down the kernel device; the server process that held the image
+        # exits on its own afterwards, writing its qcow2 metadata and dropping the image lock as it
+        # closes. Anything that opens the image next (qemu-img check, the next point's backing
+        # file) must wait for that, or it meets a lock or half-written metadata (0.5.4/0.5.5:
+        # ~2-3 % of backups failed their image check two seconds in).
+        self._wait_server_gone(slot)
         # qemu writes its qcow2 metadata caches when it closes the image; with --cache=unsafe
         # nothing flushed them to the share yet, so push the page cache out now
         subprocess.run(['sync'], check=False)
+
+    proc_dir = '/proc'
+    server_exit_timeout = 60.0
+
+    def _server_pids(self, slot: str) -> list[int]:
+        """Live qemu-nbd servers attached to this slot (`qemu-nbd -c <slot> ...`). An exited server
+        that is not reaped yet has an empty cmdline and so does not count: its image is closed."""
+        pids = []
+        try:
+            entries = os.listdir(self.proc_dir)
+        except OSError:
+            return pids
+        for e in entries:
+            if not e.isdigit():
+                continue
+            try:
+                with open(os.path.join(self.proc_dir, e, 'cmdline'), 'rb') as fh:
+                    argv = [a.decode('utf-8', 'replace') for a in fh.read().split(b'\0') if a]
+            except OSError:
+                continue
+            if not argv or os.path.basename(argv[0]) != 'qemu-nbd':
+                continue
+            for i, a in enumerate(argv):
+                if (a == '-c' and i + 1 < len(argv) and argv[i + 1] == slot) or a in (f'-c{slot}', f'--connect={slot}'):
+                    pids.append(int(e))
+                    break
+        return pids
+
+    def _wait_server_gone(self, slot: str) -> None:
+        deadline = time.monotonic() + self.server_exit_timeout
+        waited = False
+        while True:
+            pids = self._server_pids(slot)
+            if not pids:
+                if waited:
+                    log.info('qemu-nbd server of %s exited after the disconnect', slot)
+                return
+            if time.monotonic() >= deadline:
+                log.warning('qemu-nbd server of %s (pid %s) still running %.0fs after the disconnect',
+                            slot, ', '.join(map(str, pids)), self.server_exit_timeout)
+                return
+            waited = True
+            time.sleep(0.2)
 
     def _probe(self, slot: str) -> None:
         """Read the first 4 KiB with O_DIRECT. A slot whose previous connection died without a clean
@@ -223,8 +284,36 @@ class NbdBackend:
         """Point an image at another backing file whose content is equivalent (unsafe mode: no data copy)."""
         _run(['qemu-img', 'rebase', '-q', '-u', '-f', 'qcow2', '-F', 'qcow2', '-b', os.path.relpath(new_backing, os.path.dirname(image)), image])
 
+    check_lock_retries = 3
+    check_lock_wait = 2.0
+
+    def check_detail(self, path: str) -> str | None:
+        """qemu-img check of a finished image: None when it is sound, otherwise the reason.
+        Exit codes: 0 clean, 1 check could not run (e.g. the image is still locked), 2 corruption,
+        3 leaked clusters only (wasted space, no wrong data: passes with a warning). A lock
+        conflict is retried a few times and logged, so the bundle shows whether it still occurs."""
+        for attempt in range(self.check_lock_retries + 1):
+            r = subprocess.run(['qemu-img', 'check', path], capture_output=True, text=True, timeout=3600)
+            rc = r.returncode
+            msg = (r.stderr or '').strip() or (r.stdout or '').strip()
+            if rc == 0:
+                return None
+            if rc == 3:
+                log.warning('qemu-img check: %s has leaked clusters only (no corruption): %s',
+                            os.path.basename(path), _last_lines(msg))
+                return None
+            if rc == 1 and 'lock' in msg.lower() and attempt < self.check_lock_retries:
+                log.warning('qemu-img check: %s is still locked, retrying in %.0fs: %s',
+                            os.path.basename(path), self.check_lock_wait, _last_lines(msg))
+                time.sleep(self.check_lock_wait)
+                continue
+            detail = f'qemu-img check exit {rc}: {_last_lines(msg) or "no output"}'
+            log.error('image check failed for %s: %s', path, detail)
+            return detail
+        return None                                        # not reached
+
     def check(self, path: str) -> bool:
-        return subprocess.run(['qemu-img', 'check', '-q', path], capture_output=True).returncode == 0
+        return self.check_detail(path) is None
 
     def raw_to_image(self, raw_path: str, path: str) -> None:
         _run(['qemu-img', 'convert', '-q', '-f', 'raw', '-O', 'qcow2', '-o', 'cluster_size=2M', raw_path, path])
@@ -302,8 +391,9 @@ class NbdBackend:
                 _write_pattern(dev, 3 * MiB, MiB // 2, 0x5A)
             _run(['qemu-io', '-r', '-f', 'qcow2', '-c', 'read -P 0xaa 0 1M', '-c', 'read -P 0x5a 1M 1M',
                   '-c', 'read -P 0 2M 1M', '-c', 'read -P 0x5a 3M 512k', '-c', 'read -P 0xaa 3584k 512k', delta], timeout=120)
-            if not self.check(delta):
-                raise RuntimeError('qemu-img check failed on the self-check delta')
+            problem = self.check_detail(delta)
+            if problem:
+                raise RuntimeError(f'self-check delta: {problem}')
         except RuntimeError as e:
             raise RuntimeError(f'proxy self-check failed, this host cannot write a correct delta: {e}') from e
         finally:
@@ -388,8 +478,11 @@ class FileBackend:
     def rebase(self, image: str, new_backing: str) -> None:
         pass
 
+    def check_detail(self, path: str) -> str | None:
+        return None if os.path.exists(path) else 'image missing'
+
     def check(self, path: str) -> bool:
-        return os.path.exists(path)
+        return self.check_detail(path) is None
 
     def raw_to_image(self, raw_path: str, path: str) -> None:
         shutil.copyfile(raw_path, path)

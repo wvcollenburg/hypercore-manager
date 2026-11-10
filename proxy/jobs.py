@@ -206,8 +206,9 @@ class Engine:
                     written = copier.copy_intervals(src, writable, dev_map, writers=self.cfg.writers, progress=prog, cancelled=job.cancelled)
                 if job.cancelled():
                     raise RuntimeError('cancelled')
-                if not self.backend.check(path):
-                    raise RuntimeError(f'image check failed: {fname}')
+                problem = self.backend.check_detail(path)
+                if problem:
+                    raise RuntimeError(f'image check failed: {fname}: {problem}')
                 out_devices.append({'uuid': dev['uuid'], 'type': dev.get('type', 'VIRTIO_DISK'), 'file': fname, 'size': size,
                                     'serial': dev.get('serial'), 'blocks': copier.blocks_in(dev_map), 'bytes_written': written,
                                     'full': backing is None and kind == 'delta', 'sha256': manifest.sha256_file(path)})
@@ -357,8 +358,9 @@ class Engine:
                 self.backend.synthesize(os.path.join(src_chain_dir, point['dir'], d['file']), dst)
                 if job.cancelled():
                     raise RuntimeError('cancelled')
-                if not self.backend.check(dst):
-                    raise RuntimeError(f'image check failed: {d["file"]}')
+                problem = self.backend.check_detail(dst)
+                if problem:
+                    raise RuntimeError(f'image check failed: {d["file"]}: {problem}')
                 out.append({'uuid': d['uuid'], 'type': d.get('type', 'VIRTIO_DISK'), 'file': d['file'], 'size': d.get('size'),
                             'serial': d.get('serial'), 'blocks': d.get('blocks'), 'bytes_written': os.path.getsize(dst),
                             'full': False, 'sha256': manifest.sha256_file(dst)})

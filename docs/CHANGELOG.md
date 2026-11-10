@@ -66,6 +66,15 @@ All notable changes to this project are documented here. The format follows
   cluster outside their folders. Only the checked cluster is forwarded now.
 
 ### Fixed
+- **About 2-3 % of backups failed with "image check failed"** (proxy `0.5.6`). After writing an
+  image the proxy disconnects it from `qemu-nbd` and checks it with `qemu-img check`. The
+  disconnect returns before the `qemu-nbd` server has closed the image (written its metadata,
+  released its lock), and the check sometimes ran in that window. The proxy now waits until the
+  server is gone. The check also says why it failed (the reason is in the run's error and the
+  proxy log, it used to be thrown away), retries briefly when the image is still locked, and lets
+  an image with only leaked clusters pass (wasted space, no wrong data). The log bundle now
+  includes the container's `memory.events` and anon/file memory, which tell a real out-of-memory
+  apart from a full page cache.
 - **A proxy on DHCP that got a new address was lost.** HyperCore Manager kept calling the address
   it had at registration. When a proxy no longer answers there, the address its VM has now is read
   from HyperCore (reported by the guest agent) and the registration follows it, but only when the

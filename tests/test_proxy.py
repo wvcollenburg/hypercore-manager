@@ -1223,6 +1223,11 @@ def test_support_bundle_counts_zombies_and_reads_every_task_limit(tmp_path):
     assert 'threads-max = 31318' in limits and 'pid_max = 4194304' in limits and '2/4911' in limits
     assert 'Max processes  15659' in limits and 'Max open files' not in limits
     assert 'pids.current = 4900' in limits and 'memory.max = 1073741824' in limits
+    (own / 'memory.events').write_text('low 0\nhigh 0\nmax 812\noom 0\noom_kill 0\n')
+    (own / 'memory.stat').write_text('anon 41943040\nfile 1006632960\nkernel 2097152\n')
+    limits = P.support.task_limits(str(proc), str(own), str(host), container_id='9a59ab723977')
+    assert 'memory.events = low 0, high 0, max 812, oom 0, oom_kill 0' in limits, 'a full cache is not an OOM'
+    assert 'memory.stat = anon 41943040, file 1006632960' in limits and 'kernel 2097152' not in limits
     i = limits.index('host cgroup /system.slice/docker-9a59ab723977ffff.scope:')
     assert 'pids.max = 4915' in limits[i:] and 'host cgroup /system.slice:' in limits[i:] and 'host cgroup /:' in limits[i:]
     assert 'no directory naming' in P.support.task_limits(str(proc), str(own), str(host), container_id='nothere')
@@ -1249,7 +1254,7 @@ def test_support_bundle_route_needs_the_token(tmp_path):
     r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
     assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
     assert r.data[:2] == b'PK'
-    assert P.identity.VERSION == '0.5.5'
+    assert P.identity.VERSION == '0.5.6'
 
 
 def test_the_proxy_keeps_a_rotating_log_file(tmp_path):
@@ -1278,3 +1283,88 @@ def test_the_proxy_keeps_a_rotating_log_file(tmp_path):
         for h in root.handlers:
             if h not in before[0]: h.close()
         root.handlers[:] = before[0]; root.setLevel(before[1])
+
+
+# ------------------------------------------------------------------ 0.5.6: image check after nbd disconnect
+def test_disconnect_waits_until_the_nbd_server_has_closed_the_image(tmp_path, monkeypatch):
+    """`qemu-nbd -d` returns before the server process has written its metadata and dropped the
+    image lock; 0.5.4/0.5.5 ran qemu-img check in that window and ~2-3 % of backups failed."""
+    proc = tmp_path / 'proc'
+    _fake_proc(proc, [(1, 'tini', 'S', 0, 1, '/usr/bin/tini -- python proxy.py'),
+                      (60, 'qemu-nbd', 'S', 1, 3, '/usr/bin/qemu-nbd -c /dev/nbd3 --cache=unsafe -f qcow2 a.qcow2'),
+                      (61, 'qemu-nbd', 'S', 1, 3, 'qemu-nbd -c /dev/nbd4 -r b.qcow2'),
+                      (62, 'qemu-nbd', 'Z', 1, 1, '')])
+    be = P.images.NbdBackend(P.images.NbdPool(8, '/dev'))
+    be.proc_dir = str(proc)
+    assert be._server_pids('/dev/nbd3') == [60] and be._server_pids('/dev/nbd4') == [61]
+    assert be._server_pids('/dev/nbd5') == [], 'a reaped or zombie server has closed its image'
+    runs = []
+    monkeypatch.setattr(P.images.subprocess, 'run', lambda cmd, **kw: runs.append(cmd) or types.SimpleNamespace(returncode=0, stdout='', stderr=''))
+    monkeypatch.setattr(P.images, '_run', lambda cmd, timeout=3600: runs.append(cmd) or '')
+    polls = []
+    def sleep(s):
+        polls.append(s)
+        if len(polls) == 3:                                 # the server exits a little later
+            (proc / '60' / 'cmdline').write_text('')
+    monkeypatch.setattr(P.images.time, 'sleep', sleep)
+    be._disconnect('/dev/nbd3', strict=True)
+    assert ['qemu-nbd', '-d', '/dev/nbd3'] in runs and len(polls) == 3
+    assert runs[-1] == ['sync'], 'the final sync runs after the server is gone'
+
+
+def test_disconnect_gives_up_waiting_on_a_hung_server(tmp_path, monkeypatch):
+    proc = tmp_path / 'proc'
+    _fake_proc(proc, [(60, 'qemu-nbd', 'S', 1, 3, 'qemu-nbd -c /dev/nbd3 a.qcow2')])
+    be = P.images.NbdBackend(P.images.NbdPool(8, '/dev'))
+    be.proc_dir, be.server_exit_timeout = str(proc), 0.0
+    monkeypatch.setattr(P.images.subprocess, 'run', lambda cmd, **kw: types.SimpleNamespace(returncode=0, stdout='', stderr=''))
+    monkeypatch.setattr(P.images, '_run', lambda cmd, timeout=3600: '')
+    be._disconnect('/dev/nbd3', strict=True)                # returns; the check then reports what it finds
+
+
+def _check_backend(monkeypatch, answers):
+    be = P.images.NbdBackend(P.images.NbdPool(1, '/dev'))
+    be.check_lock_wait = 0
+    calls = []
+    def run(cmd, **kw):
+        calls.append(cmd)
+        rc, out, err = answers.pop(0)
+        return types.SimpleNamespace(returncode=rc, stdout=out, stderr=err)
+    monkeypatch.setattr(P.images.subprocess, 'run', run)
+    return be, calls
+
+
+def test_image_check_says_why_and_lets_leaks_pass(monkeypatch):
+    be, calls = _check_backend(monkeypatch, [(0, 'No errors were found on the image.', '')])
+    assert be.check_detail('/t/a.qcow2') is None and calls[0] == ['qemu-img', 'check', '/t/a.qcow2']
+    be, _ = _check_backend(monkeypatch, [(3, 'Leaked cluster 17 refcount=1 reference=0\n2 leaked clusters were found on the image.\n'
+                                             'This means waste of disk space, but no harm to data.', '')])
+    assert be.check_detail('/t/a.qcow2') is None, 'leaked clusters waste space, the data is right'
+    be, _ = _check_backend(monkeypatch, [(2, 'ERROR cluster 5 refcount=0 reference=1\n1 errors were found on the image.\n'
+                                             'Data may be corrupted, or further writes to the image may corrupt it.', '')])
+    d = be.check_detail('/t/a.qcow2')
+    assert d.startswith('qemu-img check exit 2:') and '1 errors were found' in d and 'cluster 5' not in d, 'the summary, not the cluster list'
+    be, _ = _check_backend(monkeypatch, [(2, '', 'boom')])
+    assert not be.check('/t/x')
+    be, _ = _check_backend(monkeypatch, [(2, 'ERROR cluster 5 refcount=0 reference=1\n\n1 errors were found on the image.\n'
+                                             'Data may be corrupted, or further writes to the image may corrupt it.\n'
+                                             '120/4096 = 2.93% allocated, 0.00% fragmented, 0.00% compressed clusters\n'
+                                             'Image end offset: 126091264', '')])
+    d = be.check_detail('/t/a.qcow2')
+    assert '1 errors were found' in d and 'allocated' not in d and 'end offset' not in d, 'the verdict, not the statistics'
+
+
+def test_image_check_retries_a_lock_and_then_reports_it(monkeypatch):
+    lock = (1, '', 'qemu-img: Could not open \'/t/a.qcow2\': Failed to get shared "write" lock\nIs another process using the image [/t/a.qcow2]?')
+    be, calls = _check_backend(monkeypatch, [lock, (0, '', '')])
+    assert be.check_detail('/t/a.qcow2') is None and len(calls) == 2
+    be, calls = _check_backend(monkeypatch, [lock] * 4)
+    d = be.check_detail('/t/a.qcow2')
+    assert len(calls) == 4 and 'exit 1' in d and 'lock' in d
+
+
+def test_a_failed_image_check_names_the_reason_in_the_job_error(tmp_path):
+    be = P.images.FileBackend()
+    assert be.check_detail(str(tmp_path / 'missing')) == 'image missing' and not be.check(str(tmp_path / 'missing'))
+    src = open(P.jobs.__file__).read()
+    assert src.count("check_detail(") == 2 and "image check failed: {fname}: {problem}" in src
