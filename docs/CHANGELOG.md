@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.1.0]
 
 ### Added
 - **Browse BitLocker and LUKS volumes with a key** (proxy `0.5.3`). File browsing used to show an
