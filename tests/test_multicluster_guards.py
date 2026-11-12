@@ -155,3 +155,36 @@ def test_backup_forwarding_sends_only_the_validated_cluster(repo):
 def test_cluster_notice_mutes_migration(repo):
     sql = (repo / 'postgres' / 'init' / '040_backup_notice_mutes.sql').read_text()
     assert 'CREATE TABLE IF NOT EXISTS backup.notice_mutes' in sql and 'PRIMARY KEY (cluster_id, key)' in sql
+
+
+def _forwarding():
+    import importlib.util, pathlib
+    p = pathlib.Path(__file__).resolve().parent.parent / 'dashboard' / 'forwarding.py'
+    spec = importlib.util.spec_from_file_location('hcm_dashboard_forwarding', p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_a_cluster_chosen_in_a_form_is_checked_not_replaced():
+    """2026-11-12: a proxy deployed for the second cluster landed on the first. The dashboard
+    replaced every body's cluster_id with the cluster selected in the sidebar, so the deploy form's
+    own cluster choice (and the proxy registration form's) never reached the backup service."""
+    f = _forwarding()
+    seen = {'c1', 'c2'}
+    assert f.body_cluster({'cluster_id': 'c2'}, 'c1', seen, fill=True) == ('c2', None), 'the form chose c2'
+    assert f.body_cluster({'cluster_id': ' c2 '}, 'c1', seen, fill=True) == ('c2', None)
+    cid, err = f.body_cluster({'cluster_id': 'c3'}, 'c1', seen, fill=True)
+    assert cid is None and err, 'a cluster the user may not see is refused, never swapped for another'
+    assert f.body_cluster({'cluster_id': ''}, 'c1', seen, fill=True) == ('c1', None), 'empty: the selected one, as before'
+    assert f.body_cluster({}, 'c1', seen, fill=True) == ('c1', None), 'plans and imports get the selected cluster'
+    assert f.body_cluster({'name': 'x'}, 'c1', seen, fill=False) == (None, None), 'nothing added where none is needed'
+
+
+def test_backup_forwarding_uses_the_cluster_check(repo):
+    app = (repo / 'dashboard' / 'app.py').read_text()
+    body = app[app.index('def backup_proxy(sub):'):]
+    body = body[:body.index('\n@app.')] if '\n@app.' in body else body
+    assert 'body_cluster(payload, cid, {c.cluster_id for c in _visible_clusters()}' in body
+    assert "payload['cluster_id'] = cid" not in body, 'the old unconditional override'
+    assert 'COPY dashboard/forwarding.py .' in (repo / 'dashboard' / 'Dockerfile').read_text(), 'the image needs the module'
