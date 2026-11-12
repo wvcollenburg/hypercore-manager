@@ -3,16 +3,18 @@ api.py — REST API of the backup proxy (port 8083), driven by the backup servic
 
   GET  /health                liveness
   GET  /identity              hostname, MAC addresses, capabilities (token required)
-  POST /jobs/<kind>           kind in backup | flatten | verify | sweep | prune | delete_chain | stage | bench -> {id}
+  POST /jobs/<kind>           kind in backup | flatten | synthesize | verify | sweep | prune | delete_chain | stage | bench -> {id}
   GET  /jobs                  recent jobs
   GET  /jobs/<id>             state, progress, result or error
   DELETE /jobs/<id>           request cancellation
-  POST /mounts                mount a restore point read-only {target, chain_dir, seq} -> {id, filesystems}
+  POST /mounts                mount a restore point read-only {target, chain_dir, seq, keys?} -> {id, filesystems, locked}
+                              (422 {error, locked} when only encrypted volumes without a fitting key were found)
   GET  /mounts/<id>/ls?path=  directory listing ('/' lists the filesystems)
   GET  /mounts/<id>/file?path= stream one file
   GET  /mounts/<id>/zip?paths=a,b  stream a zip of files/directories
   GET  /mounts/<id>/iso?paths=a,b[&size=1]  stream an ISO 9660 image of the selection (or just its size)
   DELETE /mounts/<id>         unmount
+  GET  /support/bundle        zip of the proxy's log, jobs, mounts and system state (support.py)
 
 Authentication: Bearer token (PROXY_API_TOKEN). An empty token disables auth, for development only.
 """
@@ -20,19 +22,23 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 import threading
 import time
 from functools import wraps
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 
 import identity as identity_mod
+import mounts as mounts_mod
+import support
 
 log = logging.getLogger('proxy.api')
 
 _REQUIRED = {
     'backup': ('target', 'folder', 'vm', 'point', 'devices'),
     'flatten': ('target', 'chain_dir', 'seq', 'out_dir'),
+    'synthesize': ('target', 'chain_dir', 'seq', 'new_chain_dir'),
     'verify': ('target', 'chain_dir'),
     'sweep': ('target', 'folder'),
     'prune': ('target', 'chain_dir', 'keep_min_seq'),
@@ -146,12 +152,26 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
         for k in ('target', 'chain_dir', 'seq'):
             if k not in body:
                 return jsonify({'error': f'missing field {k}'}), 400
+        keys = body.get('keys') or []
+        if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+            return jsonify({'error': 'keys must be a list of strings'}), 400
         try:
-            m = mounts.mount(body['target'], body['chain_dir'], int(body['seq']))
+            m = mounts.mount(body['target'], body['chain_dir'], int(body['seq']), keys=keys)
+        except mounts_mod.LockedVolumes as e:
+            return jsonify({'error': str(e), 'locked': e.locked}), 422
         except Exception as e:                       # noqa: BLE001
             log.warning('mount failed', exc_info=True)
             return jsonify({'error': str(e)}), 502
         return jsonify(m.public()), 201
+
+    @app.get('/support/bundle')
+    @require_token
+    def support_bundle():
+        free = getattr(getattr(engine.backend, 'pool', None), 'free', None)
+        data = support.bundle(cfg, identity_mod.identity(cfg, engine.backend.name, free), engine.list()[:200],
+                              [m.public() for m in (mounts.mounts.values() if mounts else [])])
+        name = f'hcm-proxy-{socket.gethostname()}-{time.strftime("%Y%m%d-%H%M%S")}.zip'
+        return Response(data, mimetype='application/zip', headers={'Content-Disposition': f'attachment; filename="{name}"'})
 
     @app.get('/mounts')
     @require_token

@@ -43,6 +43,7 @@ import secrets
 import subprocess
 import threading
 import time
+import urllib.parse
 import urllib.request
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
@@ -1450,8 +1451,9 @@ def backup_proxy(sub):
         return jsonify({'error': 'Admin access required'}), 403
     url, token = _backup_env()
     cid = _cluster_id()
-    qs = request.query_string.decode()
-    qs = (qs + '&' if qs else '') + f'cluster={cid}'
+    # the validated cluster only: the backup service reads the first `cluster` it gets, so one sent by
+    # the browser would otherwise win over the check above and reach a cluster the user may not see
+    qs = urllib.parse.urlencode([(k, v) for k, v in request.args.items(multi=True) if k != 'cluster'] + [('cluster', cid)])
     body = None
     headers = {'Authorization': f'Bearer {token}'} if token else {}
     if request.method in ('POST', 'PUT'):
@@ -1459,9 +1461,12 @@ def backup_proxy(sub):
         # the body's cluster is always the one the user has selected and may see
         if 'cluster_id' in payload or sub.endswith(('plans', 'import/start')):
             payload['cluster_id'] = cid
+        if sub == 'notices/mute':                    # who muted it is the session's user, not the body's
+            payload['muted_by'] = session.get('username') or None
         body = json.dumps(payload).encode()
         headers['Content-Type'] = 'application/json'
-    if request.method == 'GET' and sub.startswith('flr/mounts/') and sub.rsplit('/', 1)[-1] in ('file', 'zip'):
+    if request.method == 'GET' and (sub.startswith('flr/mounts/') and sub.rsplit('/', 1)[-1] in ('file', 'zip')
+                                    or re.fullmatch(r'proxies/\d+/logs', sub)):
         # downloads stream through; nothing in them is a target path or credential
         try:
             rq = urllib.request.Request(f'{url}/api/v1/{sub}?{qs}', headers=headers)
@@ -2440,42 +2445,28 @@ def _apply_migrations_on_startup():
     """
     Apply any pending Postgres migrations once the dashboard process boots.
 
-    Runs in a background thread with retry/back-off so that:
+    Runs in a background thread so that:
       - the dashboard's HTTP server isn't blocked waiting for Postgres to be
         reachable (the two containers start in parallel under compose);
       - a deployment that ships a new migration but only restarts services
         (not the user-triggered Apply Update flow) still picks it up.
+    A failing migration is retried every few minutes instead of given up on:
+    the backup service needs the new tables, and a fix that lands on disk (the
+    SQL is read from the repo mount) must not wait for a dashboard restart.
     Errors are logged but never raised — the auto-updater path
     (_do_apply_update) is the authoritative migration application moment;
     this is a belt-and-braces backstop.
     """
-    import time
-
     init_dir = os.path.join(_REPO_PATH, 'postgres', 'init')
     if not os.path.isdir(init_dir):
         return
-
-    delay = 2
-    for attempt in range(8):
-        try:
-            import migrations as _migrations
-            with _pg() as conn:
-                applied = _migrations.apply_pending(conn, init_dir)
-            if applied:
-                app.logger.info(
-                    'Applied %d pending migration(s) on startup: %s',
-                    len(applied), ', '.join(applied),
-                )
-            return
-        except Exception as exc:
-            app.logger.warning(
-                'Startup migration check attempt %d/%d failed: %s',
-                attempt + 1, 8, exc,
-            )
-            time.sleep(delay)
-            delay = min(delay * 2, 30)
-
-    app.logger.error('Startup migration check gave up after retries')
+    import migrations as _migrations
+    applied = _migrations.apply_until_done(_pg, init_dir)
+    if applied:
+        app.logger.info(
+            'Applied %d pending migration(s) on startup: %s',
+            len(applied), ', '.join(applied),
+        )
 
 
 threading.Thread(target=_apply_migrations_on_startup, daemon=True, name='hcm-migrations').start()

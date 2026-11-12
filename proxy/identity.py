@@ -9,7 +9,7 @@ import shutil
 import socket
 import subprocess
 
-VERSION = '0.4.0'
+VERSION = '0.5.6'
 _SKIP_PREFIXES = ('lo', 'docker', 'veth', 'br-', 'virbr', 'cni', 'flannel', 'tun', 'tap', 'wg')
 
 
@@ -57,7 +57,7 @@ def identity(cfg, backend_name: str, nbd_free: int | None) -> dict:
             'qemu_img': _tool_version(['qemu-img', '--version']),
             'mount_cifs': shutil.which('mount.cifs') is not None,
             'mount_nfs': shutil.which('mount.nfs') is not None or shutil.which('mount.nfs4') is not None,
-            'jobs': ['backup', 'flatten', 'verify', 'sweep', 'prune', 'delete_chain', 'stage', 'bench'],
+            'jobs': ['backup', 'flatten', 'synthesize', 'verify', 'sweep', 'prune', 'delete_chain', 'stage', 'bench'],
             # a resized disk arrives with `full: true` and is written without a backing file
             'full_flag': True,
             # verify accepts upto_seq and reports progress (points, bytes)
@@ -68,6 +68,10 @@ def identity(cfg, backend_name: str, nbd_free: int | None) -> dict:
             'mounts': True,
             # accepts a pushed image tarball on POST /update; the host swaps the container (needs PROXY_UPDATE_DIR)
             'update': bool(cfg.update_dir and os.path.isdir(cfg.update_dir)),
+            # GET /support/bundle: log, jobs, mounts and system state as one zip
+            'support_bundle': True,
             'filesystems': ['ext4', 'ext3', 'ext2', 'xfs', 'btrfs', 'vfat', 'ntfs', 'exfat', 'lvm'],
+            # POST /mounts takes keys: BitLocker and LUKS volumes are opened read-only with them
+            'unlock': ['bitlocker', 'luks'],
         },
     }

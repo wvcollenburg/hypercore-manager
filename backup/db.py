@@ -97,8 +97,10 @@ def decrypt_password(token: str) -> str:
 
 # ------------------------------------------------------------------ schedules
 _SCHED_SELECT = '''SELECT s.*, s.cluster_id::text AS cluster_id, c.cluster_name, c.hc_host AS cluster_host,
-                          c.enabled AS cluster_enabled, c.timezone AS cluster_timezone
-                     FROM backup.plans s JOIN config.clusters c ON c.cluster_id = s.cluster_id'''
+                          c.enabled AS cluster_enabled, c.timezone AS cluster_timezone,
+                          c.folder_id::text AS cluster_folder_id, pol.name AS policy_name
+                     FROM backup.plans s JOIN config.clusters c ON c.cluster_id = s.cluster_id
+                     LEFT JOIN backup.policies pol ON pol.id = s.policy_id'''
 
 
 def add_schedule(cluster_id: str, vm_uuid: str, vm_name: str, path_uri_base: str, prune_path: str,
@@ -119,7 +121,7 @@ def add_schedule(cluster_id: str, vm_uuid: str, vm_name: str, path_uri_base: str
 
 def update_schedule(schedule_id: int, **fields) -> None:
     allowed = {'path_uri_base', 'smb_user', 'prune_path', 'retention', 'run_time', 'compress', 'enabled', 'mode',
-               'full_every_n', 'retention_days'}
+               'full_every_n', 'retention_days', 'policy_id', 'force_full'}
     sets, params = [], []
     for k, v in fields.items():
         if k == 'smb_password':
@@ -171,13 +173,15 @@ def get_known_smb_locations() -> list[dict]:
 
 
 # ----------------------------------------------------------------------- runs
-def start_run(schedule_id: int) -> int:
-    return _one('INSERT INTO backup.runs (schedule_id) VALUES (%s) RETURNING id', (schedule_id,))['id']
+def start_run(schedule_id: int, policy_id: Optional[int] = None, occurrence=None) -> int:
+    return _one('INSERT INTO backup.runs (schedule_id, policy_id, occurrence) VALUES (%s,%s,%s) RETURNING id',
+                (schedule_id, policy_id, occurrence))['id']
 
 
 def update_run(run_id: int, **fields) -> None:
     allowed = {'finished_at', 'status', 'task_tag', 'export_path', 'message', 'mode', 'point_kind', 'chain_id', 'point_id',
-               'proxy_id', 'blocks_changed', 'bytes_written'}
+               'proxy_id', 'blocks_changed', 'bytes_written', 'work_started_at', 'lock_wait_seconds', 'copy_seconds',
+               'overhead_seconds', 'notice', 'synth_seconds', 'planned_start', 'predicted_finish'}
     items = [(k, v) for k, v in fields.items() if k in allowed]
     if not items:
         return
@@ -215,6 +219,204 @@ def get_active_runs() -> list[dict]:
 def is_run_active(schedule_id: int) -> bool:
     row = _one("SELECT COUNT(*) AS n FROM backup.runs WHERE schedule_id = %s AND status = 'RUNNING'", (schedule_id,))
     return bool(row and row['n'])
+
+
+def count_active_runs(cluster_id: str, mode: str, exclude_plans=()) -> int:
+    row = _one('''SELECT COUNT(*) AS n FROM backup.runs r JOIN backup.plans s ON s.id = r.schedule_id
+                  WHERE s.cluster_id = %s AND r.status = 'RUNNING' AND COALESCE(r.mode, s.mode) = %s
+                    AND NOT (s.id = ANY(%s))''', (cluster_id, mode, [int(x) for x in exclude_plans]))
+    return int(row['n']) if row else 0
+
+
+# ------------------------------------------------------------------- policies
+_POLICY_FIELDS = ('name', 'kind', 'enabled', 'timezone', 'rrule', 'starts_on', 'window_open', 'preferred_finish',
+                  'buffer_minutes', 'blackouts', 'retention', 'retention_days', 'full_every_n', 'compress',
+                  'full_rrule', 'full_kind')
+# the plan settings a policy decides for its members
+_POLICY_PLAN_FIELDS = ('retention', 'retention_days', 'full_every_n', 'compress')
+
+
+def folder_of_cluster(cluster_id: str) -> tuple[bool, Optional[str]]:
+    """(known, folder_id) of a registered cluster; folder_id None = no folder."""
+    r = _one('SELECT folder_id::text AS folder_id FROM config.clusters WHERE cluster_id = %s', (cluster_id,))
+    return (r is not None, r['folder_id'] if r else None)
+
+
+def folder_name(folder_id: str) -> Optional[str]:
+    r = _one('SELECT name FROM config.folders WHERE folder_id = %s', (folder_id,))
+    return r['name'] if r else None
+
+
+def _policy_row(r):
+    if r is None:
+        return None
+    d = dict(r)
+    d['folder_id'] = str(d['folder_id']) if d.get('folder_id') else None
+    d['blackouts'] = d.get('blackouts') or []
+    return d
+
+
+def get_policies(folder_id: Optional[str] = None, all_folders: bool = False, enabled_only: bool = False) -> list[dict]:
+    where, params = [], []
+    if not all_folders:
+        if folder_id:
+            where.append('folder_id = %s'); params.append(folder_id)
+        else:
+            where.append('folder_id IS NULL')
+    if enabled_only:
+        where.append('enabled')
+    sql = 'SELECT * FROM backup.policies' + (' WHERE ' + ' AND '.join(where) if where else '') + ' ORDER BY lower(name), id'
+    return [_policy_row(r) for r in _all(sql, params)]
+
+
+def get_policy(policy_id: int) -> Optional[dict]:
+    return _policy_row(_one('SELECT * FROM backup.policies WHERE id = %s', (policy_id,)))
+
+
+def add_policy(folder_id: Optional[str], **fields) -> int:
+    cols = ['folder_id'] + [k for k in _POLICY_FIELDS if k in fields]
+    vals = [folder_id] + [_json(fields[k]) if k == 'blackouts' else fields[k] for k in cols[1:]]
+    return _one(f'''INSERT INTO backup.policies ({", ".join(cols)}) VALUES ({", ".join(["%s"] * len(cols))}) RETURNING id''',
+                vals)['id']
+
+
+def update_policy(policy_id: int, **fields) -> None:
+    items = [(k, _json(v) if k == 'blackouts' else v) for k, v in fields.items() if k in _POLICY_FIELDS and k != 'kind']
+    if not items:
+        return
+    _exec(f'''UPDATE backup.policies SET {", ".join(f"{k} = %s" for k, _ in items)}, updated_at = NOW() WHERE id = %s''',
+          [v for _, v in items] + [policy_id])
+    apply_policy(policy_id)
+
+
+def apply_policy(policy_id: int) -> int:
+    """Copy the policy's plan settings onto its members (their chains and retention read the plan)."""
+    sets = ', '.join(f'{k} = p.{k}' for k in _POLICY_PLAN_FIELDS)          # SET takes bare column names
+    return _exec(f'''UPDATE backup.plans s SET {sets}, mode = p.kind, updated_at = NOW()
+                       FROM backup.policies p WHERE p.id = s.policy_id AND p.id = %s''', (policy_id,))
+
+
+def delete_policy(policy_id: int) -> None:
+    """Members stay as paused plans of their own (chains kept), like removing them one by one."""
+    _exec('UPDATE backup.plans SET policy_id = NULL, enabled = FALSE, updated_at = NOW() WHERE policy_id = %s', (policy_id,))
+    _exec('DELETE FROM backup.policies WHERE id = %s', (policy_id,))
+
+
+def toggle_policy(policy_id: int) -> None:
+    _exec('UPDATE backup.policies SET enabled = NOT enabled, updated_at = NOW() WHERE id = %s', (policy_id,))
+
+
+def policy_members(policy_id: int) -> list[dict]:
+    return _all(_SCHED_SELECT + ' WHERE s.policy_id = %s ORDER BY c.cluster_name, s.vm_name', (policy_id,))
+
+
+def plan_for_vm(cluster_id: str, vm_uuid: str) -> Optional[dict]:
+    return _one(_SCHED_SELECT + ' WHERE s.cluster_id = %s AND s.vm_uuid = %s', (cluster_id, vm_uuid))
+
+
+def assign_plan(plan_id: int, policy_id: int) -> None:
+    """The newest assignment wins: the plan joins the policy (leaving any other) and takes its settings."""
+    _exec('UPDATE backup.plans SET policy_id = %s, enabled = TRUE, updated_at = NOW() WHERE id = %s', (policy_id, plan_id))
+    apply_policy(policy_id)
+
+
+def release_plan(plan_id: int) -> None:
+    _exec('UPDATE backup.plans SET policy_id = NULL, enabled = FALSE, updated_at = NOW() WHERE id = %s', (plan_id,))
+
+
+def release_foreign_members(policy: dict) -> list[dict]:
+    """Members whose cluster is no longer in the policy's folder leave it (paused, chain kept)."""
+    return _all('''UPDATE backup.plans s SET policy_id = NULL, enabled = FALSE, updated_at = NOW()
+                      FROM config.clusters c
+                     WHERE c.cluster_id = s.cluster_id AND s.policy_id = %s AND c.folder_id IS DISTINCT FROM %s::uuid
+                 RETURNING s.id, s.vm_name''', (policy['id'], policy.get('folder_id')))
+
+
+def plans_run_in_occurrence(policy_id: int, occurrence) -> set:
+    return {r['schedule_id'] for r in _all('SELECT DISTINCT schedule_id FROM backup.runs WHERE policy_id = %s AND occurrence = %s',
+                                           (policy_id, occurrence))}
+
+
+def occurrence_summary(policy_id: int, occurrence) -> dict:
+    rows = _all('''SELECT status, COUNT(*) AS n, COUNT(notice) AS notices, MAX(finished_at) AS last_finished
+                    FROM backup.runs WHERE policy_id = %s AND occurrence = %s GROUP BY status''', (policy_id, occurrence))
+    out = {'by_status': {r['status']: int(r['n']) for r in rows}, 'notices': sum(int(r['notices']) for r in rows),
+           'last_finished': max((r['last_finished'] for r in rows if r['last_finished']), default=None)}
+    return out
+
+
+def last_occurrence(policy_id: int):
+    r = _one('SELECT MAX(occurrence) AS occ FROM backup.runs WHERE policy_id = %s', (policy_id,))
+    return r['occ'] if r else None
+
+
+def last_active_seconds(plan_ids: list[int]) -> dict:
+    """Per plan: the active time of its newest finished run (copy + overhead), for ordering."""
+    if not plan_ids:
+        return {}
+    rows = _all('''SELECT DISTINCT ON (schedule_id) schedule_id, COALESCE(copy_seconds, 0) + COALESCE(overhead_seconds, 0) AS s
+                    FROM backup.runs WHERE schedule_id = ANY(%s) AND status = 'COMPLETE' AND copy_seconds IS NOT NULL
+                   ORDER BY schedule_id, id DESC''', (list(plan_ids),))
+    return {r['schedule_id']: float(r['s']) for r in rows}
+
+
+_HISTORY_COLS = '''r.id, r.schedule_id, r.status, r.mode, r.point_kind, r.started_at, r.work_started_at, r.blocks_changed,
+                   r.bytes_written, r.copy_seconds, r.overhead_seconds, r.synth_seconds, r.proxy_id'''
+
+
+def run_history(plan_ids: list[int], days: int = 90, per_plan: int = 30) -> dict:
+    """Plan id -> its newest finished runs (newest first), what predictions learn from."""
+    if not plan_ids:
+        return {}
+    rows = _all(f'''SELECT * FROM (SELECT {_HISTORY_COLS}, ROW_NUMBER() OVER (PARTITION BY r.schedule_id ORDER BY r.id DESC) AS n
+                                     FROM backup.runs r WHERE r.schedule_id = ANY(%s) AND r.status = 'COMPLETE'
+                                      AND r.started_at > NOW() - make_interval(days => %s)) x
+                    WHERE n <= %s ORDER BY schedule_id, id DESC''', ([int(x) for x in plan_ids], int(days), int(per_plan)))
+    out: dict = {}
+    for r in rows:
+        out.setdefault(r['schedule_id'], []).append(r)
+    return out
+
+
+def cluster_run_history(cluster_id: str, limit: int = 60) -> list[dict]:
+    """The cluster's newest finished incremental runs (any plan), for its read rate."""
+    return _all(f'''SELECT {_HISTORY_COLS} FROM backup.runs r JOIN backup.plans s ON s.id = r.schedule_id
+                     WHERE s.cluster_id = %s AND r.status = 'COMPLETE' AND r.copy_seconds IS NOT NULL
+                       AND COALESCE(r.mode, s.mode) = 'incremental'
+                     ORDER BY r.id DESC LIMIT %s''', (cluster_id, int(limit)))
+
+
+def save_night(policy_id: int, occurrence, items: list[dict]) -> None:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            for i in items:
+                cur.execute('''INSERT INTO backup.policy_nights (policy_id, occurrence, plan_id, cluster_id, slot, planned_start,
+                                                                  predicted_finish, predicted_seconds, learned)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (policy_id, occurrence, plan_id) DO NOTHING''',
+                            (policy_id, occurrence, i['plan_id'], i['cluster_id'], i['slot'], i['planned_start'], i['predicted_finish'],
+                             i['seconds'], i['learned']))
+
+
+def get_night(policy_id: int, occurrence) -> dict:
+    """Plan id -> the stored plan row of that night."""
+    return {r['plan_id']: r for r in _all('SELECT *, cluster_id::text AS cluster_id FROM backup.policy_nights WHERE policy_id = %s AND occurrence = %s',
+                                         (policy_id, occurrence))}
+
+
+def prune_nights(days: int = 90) -> int:
+    return _exec('DELETE FROM backup.policy_nights WHERE occurrence < NOW() - make_interval(days => %s)', (int(days),))
+
+
+def set_manual(policy_id: int, at) -> None:
+    """Open (at = now) or close (None) the manual occurrence of a schedule ("run now")."""
+    _exec('UPDATE backup.policies SET manual_at = %s WHERE id = %s', (at, policy_id))
+
+
+def runs_in_occurrence(policy_id: int, occurrence) -> dict:
+    """Plan id -> its newest run in that occurrence."""
+    rows = _all('''SELECT DISTINCT ON (schedule_id) * FROM backup.runs WHERE policy_id = %s AND occurrence = %s
+                    ORDER BY schedule_id, id DESC''', (policy_id, occurrence))
+    return {r['schedule_id']: r for r in rows}
 
 
 # -------------------------------------------------------------------- imports
@@ -349,6 +551,25 @@ def _proxy_row(r: Optional[dict]) -> Optional[dict]:
     return d
 
 
+# ------------------------------------------------------------- notice mutes
+def get_notice_mute(cluster_id: str, key: str) -> Optional[dict]:
+    """The mute of one notice while it lasts, else None."""
+    return _one('SELECT key, muted_until, muted_by, muted_at FROM backup.notice_mutes '
+                'WHERE cluster_id = %s AND key = %s AND muted_until > now()', (cluster_id, key))
+
+
+def set_notice_mute(cluster_id: str, key: str, days: int, muted_by: Optional[str]) -> None:
+    _exec("""INSERT INTO backup.notice_mutes (cluster_id, key, muted_until, muted_by, muted_at)
+             VALUES (%s, %s, now() + make_interval(days => %s), %s, now())
+             ON CONFLICT (cluster_id, key) DO UPDATE
+               SET muted_until = EXCLUDED.muted_until, muted_by = EXCLUDED.muted_by, muted_at = now()""",
+          (cluster_id, key, int(days), muted_by))
+
+
+def clear_notice_mute(cluster_id: str, key: str) -> None:
+    _exec('DELETE FROM backup.notice_mutes WHERE cluster_id = %s AND key = %s', (cluster_id, key))
+
+
 def get_proxies(cluster_id: Optional[str] = None, enabled_only: bool = False) -> list[dict]:
     sql = '''SELECT p.*, c.cluster_name FROM backup.proxies p JOIN config.clusters c ON c.cluster_id = p.cluster_id'''
     where, params = [], []
@@ -481,12 +702,15 @@ def chains_with_clones() -> list[dict]:
 
 # --------------------------------------------------------------------- points
 def add_point(chain_id: int, seq: int, kind: str, dir_: str, serials: dict, blocks: int, bytes_written: int,
-              duration_s: float, files: list, definition: dict, run_id: Optional[int], quiesced: Optional[bool] = None) -> int:
+              duration_s: float, files: list, definition: dict, run_id: Optional[int], quiesced: Optional[bool] = None,
+              synthetic: bool = False) -> int:
     """quiesced: what the anchor snapshot reported (True = the guest flushed, False = crash-consistent,
-    None = unknown); the restore UI shows it per point."""
-    return _one('''INSERT INTO backup.points (chain_id, seq, kind, dir, serials, blocks, bytes_written, duration_s, files, definition, run_id, quiesced)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
-                (chain_id, seq, kind, dir_, _json(serials), blocks, bytes_written, duration_s, _json(files), _json(definition), run_id, quiesced))['id']
+    None = unknown); the restore UI shows it per point. synthetic: a full built on the target from a chain."""
+    return _one('''INSERT INTO backup.points (chain_id, seq, kind, dir, serials, blocks, bytes_written, duration_s, files, definition, run_id,
+                                              quiesced, synthetic)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
+                (chain_id, seq, kind, dir_, _json(serials), blocks, bytes_written, duration_s, _json(files), _json(definition), run_id,
+                 quiesced, bool(synthetic)))['id']
 
 
 def get_points(chain_id: int, include_pruned: bool = False) -> list[dict]:

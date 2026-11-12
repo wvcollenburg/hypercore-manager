@@ -87,6 +87,20 @@ def test_flatten_and_commit_keep_the_content(tmp_path):
     _qemu_io(base, 'read -P 0xbb 1M 1M', readonly=True)
 
 
+def test_synthesize_gives_a_standalone_base_in_the_chain_cluster_size(tmp_path):
+    """A synthetic full reads a delta through its backing chain into an image without a backing
+    file, in the chain's 1 MiB clusters (flatten for restores keeps HyperCore's 2 MiB)."""
+    images = _images()
+    be = images.NbdBackend(images.NbdPool(0, str(tmp_path)))
+    base, d1, syn = (str(tmp_path / n) for n in ('base.qcow2', 'd1.qcow2', 'syn.qcow2'))
+    be.create(base, 3 * MiB); _qemu_io(base, 'write -P 0xaa 0 3M')
+    be.create(d1, 3 * MiB, backing=base); _qemu_io(d1, 'write -P 0xbb 1M 1M')
+    be.synthesize(d1, syn)
+    _qemu_io(syn, 'read -P 0xaa 0 1M', 'read -P 0xbb 1M 1M', 'read -P 0xaa 2M 1M', readonly=True)
+    info = json.loads(subprocess.run(['qemu-img', 'info', '--output=json', syn], capture_output=True, text=True, check=True).stdout)
+    assert 'backing-filename' not in info and info['cluster-size'] == MiB and be.check(syn)
+
+
 def test_lazy_refcount_image_is_clean_after_a_normal_close(tmp_path):
     """With lazy_refcounts=on qemu skips the flush per allocated cluster; an image closed normally
     carries no dirty flag and passes qemu-img check, and the delta semantics are unchanged."""

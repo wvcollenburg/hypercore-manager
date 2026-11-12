@@ -24,10 +24,12 @@ Rules from the field that shape the sequence (see the HyperCore backup SDK notes
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
 import threading
 import time
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import cluster_registry
 import config as cfg_module
@@ -78,15 +80,107 @@ def proxy_client_for(proxy: dict) -> ProxyClient:
                        tls_verify=bool(proxy.get('tls_verify')))
 
 
+# A proxy VM lives in DHCP; HyperCore Manager is the fixed point and the connection is one-way
+# (HCM -> proxy, no firewall opening towards HCM). When a proxy no longer answers at its registered
+# address, the address it has now is read from HyperCore (the guest agent reports the VM's IPv4
+# addresses) and the registration follows it, but only when the proxy at the new address presents
+# the pinned certificate and accepts the token. A URL with a DNS name is left alone: there the
+# customer's DNS manages the address.
+_MOVED_KINDS = ('unreachable', 'wrong_certificate')
+
+
+def relocatable(proxy: dict) -> bool:
+    if proxy.get('kind') == 'local' or not proxy.get('vm_uuid') or not proxy.get('tls_fingerprint'):
+        return False
+    u = urlparse(proxy.get('url') or '')
+    if u.scheme != 'https' or not u.hostname:
+        return False
+    try:
+        ipaddress.ip_address(u.hostname)
+    except ValueError:
+        return False
+    return True
+
+
+def vm_ipv4_addresses(vm: dict) -> list[str]:
+    """The VM's IPv4 addresses as the guest agent reports them, link-local and loopback left out."""
+    out = []
+    for n in vm.get('netDevs') or []:
+        for ip in n.get('ipv4Addresses') or []:
+            if ip and not ip.startswith('127.') and not ip.startswith('169.254.') and ip not in out:
+                out.append(ip)
+    return out
+
+
+def relocate_proxy(proxy: dict, hc: HyperCoreClient | None = None, client_factory=None) -> dict:
+    """Find a proxy that no longer answers at its registered URL at the address its VM has now.
+    Returns {'moved': True, 'from', 'to', 'identity'} after updating the registration, or
+    {'moved': False, 'detail'} with the reason it stayed where it was."""
+    if not relocatable(proxy):
+        return {'moved': False, 'detail': None}
+    client_factory = client_factory or (lambda url: ProxyClient(url, proxy.get('token') or '', tls_fingerprint=proxy['tls_fingerprint'], timeout=10))
+    u = urlparse(proxy['url'])
+    try:
+        hc = hc or jobs.client_for(proxy['cluster_id'])
+        addrs = vm_ipv4_addresses(hc.get_vm(proxy['vm_uuid']))
+    except HyperCoreError as e:
+        return {'moved': False, 'detail': f'could not read the address of its VM from HyperCore: {e}'}
+    candidates = [a for a in addrs if a != u.hostname]
+    if not candidates:
+        if addrs:
+            return {'moved': False, 'detail': 'its VM still reports this address'}
+        return {'moved': False, 'detail': 'its VM reports no IP address (powered off, or the guest agent is not running)'}
+    tried = []
+    for a in candidates:
+        url = f"https://{a}{f':{u.port}' if u.port else ''}"
+        try:
+            ident = client_factory(url).identity()      # pin check + token: only this proxy passes both
+        except ProxyError as e:
+            tried.append(f'{a}: {e}')
+            continue
+        try:
+            db.update_proxy(proxy['id'], url=url, status='ok', status_detail=None)
+        except Exception as e:                          # noqa: BLE001 — e.g. a stale registration holding that URL
+            return {'moved': False, 'detail': f'found at {url} but the registration could not be updated: {e}'}
+        log.warning('proxy %s (%s) moved from %s to %s', proxy['id'], proxy.get('name'), proxy['url'], url)
+        old = proxy['url']
+        proxy['url'] = url
+        return {'moved': True, 'from': old, 'to': url, 'identity': ident}
+    return {'moved': False, 'detail': 'its VM reports ' + '; '.join(tried)}
+
+
+def ensure_reachable(proxy: dict, hc: HyperCoreClient | None = None) -> dict:
+    """Before work goes to a proxy: if it does not answer at its URL and may have moved, follow it.
+    Never raises; a proxy that cannot be found is returned unchanged and the work reports the
+    usual 'unreachable' error."""
+    if not relocatable(proxy):
+        return proxy
+    try:
+        ProxyClient(proxy['url'], proxy.get('token') or '', tls_fingerprint=proxy['tls_fingerprint'], timeout=10).health()
+        return proxy
+    except ProxyError as e:
+        if e.kind not in _MOVED_KINDS:
+            return proxy
+    try:
+        r = relocate_proxy(proxy, hc)
+    except Exception as e:                              # noqa: BLE001 — a lookup must never break the run itself
+        log.warning('proxy %s: looking up its new address failed: %s', proxy.get('id'), e)
+        return proxy
+    if not r['moved'] and r.get('detail'):
+        log.warning('proxy %s unreachable at %s; %s', proxy.get('id'), proxy['url'], r['detail'])
+    return proxy
+
+
 def pick_proxy(cluster_id: str) -> dict:
-    """An enabled proxy of the cluster that knows its own VM. Least recently used first."""
+    """An enabled proxy of the cluster that knows its own VM: an idle one before a busy one, then
+    least recently used first. Follows the proxy to a new address when its VM got one."""
     candidates = [p for p in db.get_proxies(cluster_id, enabled_only=True) if p.get('vm_uuid')]
     if not candidates:
         raise IncrementalError('no enabled backup proxy with a known VM is registered for this cluster')
-    candidates.sort(key=lambda p: (p.get('last_seen_at') or datetime.min.replace(tzinfo=timezone.utc)))
+    candidates.sort(key=lambda p: (proxy_lock(p['id']).locked(), p.get('last_seen_at') or datetime.min.replace(tzinfo=timezone.utc)))
     chosen = candidates[0]
     db.update_proxy(chosen['id'], last_seen_at=_now())          # rotate: the next job goes to another proxy
-    return db.get_proxy(chosen['id'], with_secret=True)
+    return ensure_reachable(db.get_proxy(chosen['id'], with_secret=True))
 
 
 def probe_proxy(proxy_id: int, hc: HyperCoreClient | None = None) -> dict:
@@ -104,11 +198,16 @@ def probe_proxy(proxy_id: int, hc: HyperCoreClient | None = None) -> dict:
         except Exception as e:                      # noqa: BLE001
             db.update_proxy(proxy_id, status='error', status_detail=f'could not read the proxy certificate: {e}')
             return {'ok': False, 'error': f'could not read the proxy certificate: {e}'}
+    moved = None
     try:
         ident = proxy_client_for(p).identity()
     except ProxyError as e:
-        db.update_proxy(proxy_id, status='error', status_detail=str(e))
-        return {'ok': False, 'error': str(e)}
+        r = relocate_proxy(p, hc) if e.kind in _MOVED_KINDS else {'moved': False, 'detail': None}
+        if not r['moved']:
+            detail = f"{e}; {r['detail']}" if r.get('detail') else str(e)
+            db.update_proxy(proxy_id, status='error', status_detail=detail)
+            return {'ok': False, 'error': detail}
+        ident, moved = r['identity'], {'from': r['from'], 'to': r['to']}
     fields = {'status': 'ok', 'status_detail': None, 'last_seen_at': _now(), 'version': ident.get('version'),
               'capabilities': ident.get('capabilities')}
     if p.get('tls_fingerprint') and ident.get('tls_fingerprint') and ident['tls_fingerprint'] != p['tls_fingerprint']:
@@ -129,7 +228,7 @@ def probe_proxy(proxy_id: int, hc: HyperCoreClient | None = None) -> dict:
         fields['status'] = 'error'
         fields['status_detail'] = 'proxy reachable but none of its MAC addresses belongs to a VM on this cluster'
     db.update_proxy(proxy_id, **fields)
-    return {'ok': fields['status'] == 'ok', 'identity': ident, 'vm': detected, 'detail': fields['status_detail']}
+    return {'ok': fields['status'] == 'ok', 'identity': ident, 'vm': detected, 'detail': fields['status_detail'], 'moved': moved}
 
 
 # ------------------------------------------------------------------ helpers
@@ -251,11 +350,34 @@ def _target_for(plan) -> tuple[dict, dict]:
 
 
 def image_size(dev: dict) -> int:
-    """Virtual size the backed-up image must have. Disks: their capacity. NVRAM: its real capacity
-    (OVMF refuses a variable store of another size); vTPM: its physical size."""
+    """Virtual size the backed-up image must have, 0 = the clone's own size. Disks: 0, because the
+    guest sees its capacity rounded up to whole MiB (a "100 GB" disk is 100,000,595,968 bytes) and
+    the clone has that size; capping at the API capacity cut off the end of the disk, the backup
+    GPT among it. NVRAM: its real capacity (OVMF refuses a variable store of another size); vTPM:
+    its physical size."""
     if dev['type'] in HyperCoreClient.DISK_TYPES:
-        return int(dev['capacity'])
+        return 0
     return int(dev.get('capacity') or 0) or int(dev.get('physical') or 0) or MiB
+
+
+def guest_size(capacity: int) -> int:
+    """The size a guest sees for a disk of this API capacity: rounded up to whole MiB."""
+    return -(-int(capacity) // MiB) * MiB
+
+
+def short_disks(point: dict) -> list[dict]:
+    """Disks whose image in this point is smaller than the disk the guest sees (points written
+    before image_size stopped capping disks): their last partial MiB, with the backup GPT, is
+    missing. [{uuid, image_size, guest_size}]"""
+    caps = {b.get('uuid'): int(b.get('capacity') or 0) for b in ((point.get('definition') or {}).get('blockDevs') or [])
+            if b.get('type') in HyperCoreClient.DISK_TYPES and b.get('uuid')}
+    out = []
+    for f in point.get('files') or []:
+        cap = caps.get(f.get('uuid'))
+        size = int(f.get('size') or 0)
+        if cap and size and size < guest_size(cap):
+            out.append({'uuid': f['uuid'], 'image_size': size, 'guest_size': guest_size(cap)})
+    return out
 
 
 def device_capacity(dev: dict) -> int:
@@ -263,20 +385,27 @@ def device_capacity(dev: dict) -> int:
     return int(dev['capacity']) if dev['type'] in HyperCoreClient.DISK_TYPES else MiB
 
 
-def plan_point(chain: dict | None, plan: dict, prev_point: dict | None) -> tuple[str, int, int | None, str | None]:
+def plan_point(chain: dict | None, plan: dict, prev_point: dict | None, full: str | None = None) -> tuple[str, int, int | None, str | None]:
     """(kind, seq, previous_seq, note). A full when there is no chain, no previous point, no anchor,
-    or the chain reached full_every_n runs since its base."""
+    a failed synthetic full asked for one, or the full rule of the plan's schedule says so (`full`:
+    'real'). Without a full rule (`full` None) the chain takes a full after full_every_n runs; with
+    one ('none', 'synthetic') the count does not apply. A synthetic full is a delta plus a new chain
+    built afterwards (see synthesize_full)."""
     if chain is None or prev_point is None:
         return 'full', 0, None, None
     if not chain.get('anchor_snapshot_uuid'):
         return 'full', 0, None, 'reference snapshot missing: taking a full instead of an incremental'
-    if int(chain.get('runs_since_full') or 0) >= max(1, int(plan.get('full_every_n') or 14)):
+    if plan.get('force_full'):
+        return 'full', 0, None, 'the last synthetic full could not be built: taking a real full'
+    if full == 'real':
+        return 'full', 0, None, 'full day of the backup schedule'
+    if full is None and int(chain.get('runs_since_full') or 0) >= max(1, int(plan.get('full_every_n') or 14)):
         return 'full', 0, None, f'scheduled full after {chain.get("runs_since_full")} incrementals'
     return 'delta', int(chain['next_seq']), int(prev_point['seq']), None
 
 
 # ------------------------------------------------------------------ the run
-def run_incremental(plan_id: int) -> None:
+def run_incremental(plan_id: int, policy_id: int | None = None, occurrence=None, full: str | None = None) -> None:
     plan = db.get_schedule(plan_id)
     if plan is None or not plan['enabled'] or not plan.get('cluster_enabled', True):
         log.info('plan %s skipped (missing, disabled or cluster disabled)', plan_id)
@@ -284,7 +413,7 @@ def run_incremental(plan_id: int) -> None:
     if db.is_run_active(plan_id):
         log.warning('plan %s (%s) still has a run in progress, skipping', plan_id, plan['vm_name'])
         return
-    run_id = db.start_run(plan_id)
+    run_id = db.start_run(plan_id, policy_id, occurrence)
     db.update_run(run_id, mode='incremental')
     try:
         hc = jobs.client_for(plan['cluster_id'])
@@ -295,7 +424,9 @@ def run_incremental(plan_id: int) -> None:
             log.warning('[run %s] deferred: %s', run_id, pf['detail'])
             return
         with vm_lock(plan['cluster_id'], plan['vm_uuid']):
-            _run(plan, run_id, hc)
+            work_started = _now()
+            db.update_run(run_id, work_started_at=work_started)
+            _run(plan, run_id, hc, work_started, full)
     except (IncrementalError, HyperCoreError, ProxyError) as e:
         db.update_run(run_id, status='ERROR', message=str(e), finished_at=_now())
         log.error('[run %s] %s', run_id, e)
@@ -304,8 +435,10 @@ def run_incremental(plan_id: int) -> None:
         log.exception('[run %s] unexpected error', run_id)
 
 
-def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None) -> None:
+def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_started: datetime | None = None,
+         full: str | None = None) -> None:
     hc = hc or jobs.client_for(plan['cluster_id'])
+    work_started = work_started or _now()
     proxy = pick_proxy(plan['cluster_id'])
     pc = proxy_client_for(proxy)
     db.update_run(run_id, proxy_id=proxy['id'])
@@ -324,7 +457,7 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None) -> None:
         if not anchor_obj or anchor_obj.get('state') != 'CREATED':
             db.update_chain(chain['id'], anchor_snapshot_uuid=None)
             chain['anchor_snapshot_uuid'] = None
-    kind, seq, prev_seq, note = plan_point(chain, plan, prev_point)
+    kind, seq, prev_seq, note = plan_point(chain, plan, prev_point, full)
     if kind == 'full' and chain is not None:
         # a new full starts a new chain; the old one retires and expires through retention
         db.update_chain(chain['id'], status='retired')
@@ -355,7 +488,9 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None) -> None:
         log.warning('[run %s] %s', run_id, msg)
     clones: list[str] = []
     lock = proxy_lock(proxy['id'])
+    wait_t0 = time.monotonic()
     lock.acquire()
+    lock_wait = time.monotonic() - wait_t0
     try:
         # 2. clones + 3. maps
         req_devices = []
@@ -387,8 +522,10 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None) -> None:
             db.update_chain(chain['id'], active_clones=_delete_clones(hc, clones))
             lock.release()
             _safe_delete_snapshot(hc, snap_uuid, 'unneeded anchor')
-            db.update_run(run_id, status='COMPLETE', finished_at=_now(), blocks_changed=0, bytes_written=0,
-                          message='No blocks changed since the previous point; nothing written.')
+            end = _now()
+            db.update_run(run_id, status='COMPLETE', finished_at=end, blocks_changed=0, bytes_written=0,
+                          message='No blocks changed since the previous point; nothing written.',
+                          **jobs.run_timing(work_started, lock_wait, 0.0, end))
             log.info('[run %s] no changes, skipped', run_id)
             return
         db.update_run(run_id, blocks_changed=blocks, message=f'{kind}: {blocks} MiB to copy, proxy {proxy["name"]}')
@@ -422,6 +559,8 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None) -> None:
     db.update_chain(chain['id'], anchor_snapshot_uuid=snap_uuid, last_serials=serials, next_seq=seq + 1,
                     runs_since_full=0 if kind == 'full' else int(chain.get('runs_since_full') or 0) + 1, active_clones=leftover)
     _safe_delete_snapshot(hc, old_anchor, 'previous anchor')
+    if kind == 'full' and plan.get('force_full'):
+        db.update_schedule(plan['id'], force_full=False)
     msg = f'{kind} point {result["point_dir"]}: {blocks} MiB changed, {result.get("bytes_written", 0) // MiB} MiB written in {result.get("duration_s", 0):.0f}s'
     if quiesced is False:
         msg += ' (crash-consistent: the guest did not quiesce)'
@@ -429,10 +568,71 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None) -> None:
         msg = f'{note}. {msg}'
     if leftover:
         msg += f'; {len(leftover)} clone(s) could not be detached yet (the daily sweep retries)'
+    synth_s, notice = 0.0, None
+    if full == 'synthetic' and kind == 'delta':
+        t_syn = time.monotonic()
+        syn_msg, notice = synthesize_full(plan, run_id, dict(chain, anchor_snapshot_uuid=snap_uuid), seq, proxy, pc, share, loc,
+                                          vm, serials, definition, quiesced)
+        synth_s = time.monotonic() - t_syn
+        msg = f'{msg}; {syn_msg}'
     retention_msg = apply_retention(plan, pc, share)
-    db.update_run(run_id, status='COMPLETE', finished_at=_now(), point_id=point_id, bytes_written=result.get('bytes_written', 0),
-                  message=f'{msg}. {retention_msg}'.strip())
+    end = _now()
+    db.update_run(run_id, status='COMPLETE', finished_at=end, point_id=point_id, bytes_written=result.get('bytes_written', 0),
+                  message=f'{msg}. {retention_msg}'.strip(), **({'notice': notice} if notice else {}),
+                  **jobs.run_timing(work_started, lock_wait, float(result.get('duration_s') or 0), end, synth_s))
     log.info('[run %s] %s %s', run_id, msg, retention_msg)
+
+
+def synthesize_full(plan: dict, run_id: int, chain: dict, seq: int, proxy: dict, pc: ProxyClient, share: dict, loc: dict,
+                    vm: dict, serials: dict, definition: dict, quiesced) -> tuple[str, str | None]:
+    """A synthetic full after tonight's delta: verify the chain up to that point, have the proxy
+    build a new chain whose base is that point (no read from the VM), then move the anchor over and
+    retire the old chain. When the proxy cannot, or the chain fails its verification, the old chain
+    stays as it is and the plan takes a real full on its next run. Returns (message, notice code)."""
+    if 'synthesize' not in ((proxy.get('capabilities') or {}).get('jobs') or ['synthesize']):
+        db.update_schedule(plan['id'], force_full=True)
+        return f'synthetic full not built: proxy {proxy["name"]} is too old for it; the next run takes a real full', 'synthetic_failed'
+    db.update_run(run_id, message='synthetic full: verifying the chain')
+    try:
+        v = verify_chain(chain, share, pc, upto_seq=seq,
+                         on_progress=lambda p: _quiet(db.update_run, run_id, message=f'synthetic full: {verify_progress_text(p)}'))
+    except ProxyError as e:
+        db.update_schedule(plan['id'], force_full=True)
+        return f'synthetic full not built: verifying the chain failed ({e}); the next run takes a real full', 'synthetic_failed'
+    if not v['ok']:
+        db.update_schedule(plan['id'], force_full=True)
+        return (f'synthetic full not built: the chain failed its verification ({", ".join(v.get("failed") or []) or "see restore points"}); '
+                'the next run takes a real full'), 'synthetic_failed'
+    new_dir = f"{loc['tenant']}/{manifest_names.chain_dirname(vm['name'], vm['uuid'], time.strftime('%Y%m%d-%H%M%S'))}"
+    target = {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')}
+    db.update_run(run_id, message='synthetic full: building the new base')
+    try:
+        res = pc.wait(pc.submit('synthesize', {'target': target, 'chain_dir': chain['chain_dir'], 'seq': seq, 'new_chain_dir': new_dir,
+                                               'plan_id': plan['id'], 'run_id': run_id}),
+                      lambda p: _quiet(db.update_run, run_id, message=f'synthetic full: device {min(p.get("devices_done", 0) + 1, p.get("devices_total") or 1)}/{p.get("devices_total") or 1}'),
+                      timeout=CFG.task_timeout_hours * 3600)['result']
+    except ProxyError as e:
+        try:
+            pc.wait(pc.submit('delete_chain', {'target': target, 'chain_dir': new_dir}), timeout=3600)
+        except ProxyError:
+            log.warning('[run %s] leftover %s on the target after a failed synthetic full', run_id, new_dir)
+        db.update_schedule(plan['id'], force_full=True)
+        return f'synthetic full not built: {e}; the next run takes a real full', 'synthetic_failed'
+    new_id = db.add_chain(plan, share['id'], loc['tenant'], new_dir)
+    db.add_point(new_id, 0, 'full', res['point_dir'], serials, 0, res.get('bytes_written', 0), res.get('duration_s', 0),
+                 res.get('devices', []), definition, run_id, quiesced=quiesced, synthetic=True)
+    # the anchor now belongs to the new chain: the old one must never delete it when it expires
+    db.update_chain(new_id, anchor_snapshot_uuid=chain['anchor_snapshot_uuid'], last_serials=serials, next_seq=1, runs_since_full=0)
+    db.update_chain(chain['id'], status='retired', anchor_snapshot_uuid=None)
+    return f'synthetic full built: new chain, {res.get("bytes_written", 0) // MiB} MiB in {res.get("duration_s", 0):.0f}s', None
+
+
+def _quiet(fn, *a, **k):
+    """Progress text is cosmetic: a db hiccup must not abort a long proxy job."""
+    try:
+        fn(*a, **k)
+    except Exception as e:                      # noqa: BLE001
+        log.warning('progress update failed: %s', e)
 
 
 def jobs_blocks(intervals) -> int:

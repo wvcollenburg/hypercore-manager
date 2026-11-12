@@ -187,3 +187,12 @@ def test_plan_runs_in_the_cluster_zone(monkeypatch):
     assert nxt.astimezone(timezone.utc) == datetime(2026, 10, 23, 7, 0, tzinfo=timezone.utc)
     nxt = trig.get_next_fire_time(None, datetime(2026, 12, 1, 12, 0, tzinfo=timezone.utc))
     assert nxt.astimezone(timezone.utc) == datetime(2026, 12, 2, 8, 0, tzinfo=timezone.utc)
+
+
+def test_run_timing_splits_active_time():
+    from datetime import datetime, timedelta, timezone
+    t0 = datetime(2026, 10, 30, 1, 0, tzinfo=timezone.utc)
+    t = jobs.run_timing(t0, lock_wait=60, copy=300, end=t0 + timedelta(seconds=420))
+    assert t == {'lock_wait_seconds': 60, 'copy_seconds': 300, 'overhead_seconds': 60}
+    # a clock that disagrees never produces negative overhead
+    assert jobs.run_timing(t0, copy=500, end=t0 + timedelta(seconds=400))['overhead_seconds'] == 0

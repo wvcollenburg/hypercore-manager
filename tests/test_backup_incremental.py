@@ -45,6 +45,12 @@ def test_plan_point_decisions():
     assert kind == 'full' and 'reference snapshot missing' in note
     kind, _, _, note = inc.plan_point(dict(chain, runs_since_full=3), plan, {'seq': 3})
     assert kind == 'full' and 'scheduled full' in note
+    # a schedule's full rule replaces the count: its other days stay deltas, its full days are fulls
+    assert inc.plan_point(dict(chain, runs_since_full=3), plan, {'seq': 3}, 'none')[0] == 'delta'
+    assert inc.plan_point(dict(chain, runs_since_full=3), plan, {'seq': 3}, 'synthetic')[0] == 'delta'
+    assert inc.plan_point(chain, plan, {'seq': 1}, 'real')[0] == 'full'
+    kind, _, _, note = inc.plan_point(chain, dict(plan, force_full=True), {'seq': 1}, 'none')
+    assert kind == 'full' and 'synthetic full' in note
 
 
 def test_retention_by_count_and_age_never_drops_the_newest():
@@ -153,8 +159,14 @@ class _FakePC:
                                                 'bytes_written': 4 << 20, 'duration_s': 1.5, 'devices': [], 'chain_dir': 'x'}}
         if kind == 'verify':
             return {'state': 'done', 'result': dict(self.verify_result)}
+        if kind == 'synthesize':
+            if self.synth_error:
+                raise inc.ProxyError(self.synth_error)
+            return {'state': 'done', 'result': {'chain_dir': body['new_chain_dir'], 'point_dir': 'base', 'bytes_written': 6 << 20,
+                                                'duration_s': 2.0, 'devices': [{'uuid': 'disk-1'}]}}
         return {'state': 'done', 'result': {'dirs': {}}}
     verify_result = {'ok': True, 'points': {'base': {'ok': True, 'mismatches': []}}, 'bytes': 4 << 20, 'duration_s': 0.1}
+    synth_error = None
 
 
 class _FakeDB:
@@ -164,7 +176,7 @@ class _FakeDB:
                      'mode': 'incremental', 'retention': 14, 'retention_days': None, 'full_every_n': 14}
     def get_schedule(self, pid): return self.plan
     def is_run_active(self, pid): return False
-    def start_run(self, pid): self.runs[1] = {'id': 1}; return 1
+    def start_run(self, pid, policy_id=None, occurrence=None): self.runs[1] = {'id': 1}; return 1
     def update_run(self, rid, **f): self.runs[rid].update(f)
     def share_for_cluster(self, cid): return {'id': 9, 'uri_base': 'smb://nas/share', 'username': 'u', 'password': 'p'}
     def get_active_chain(self, pid):
@@ -179,9 +191,10 @@ class _FakeDB:
     def get_chain(self, cid): return self.chains.get(cid)
     def get_chains(self, cid, include_deleted=False): return [c for c in self.chains.values() if c['cluster_id'] == cid]
     def get_share(self, sid, with_secret=False): return {'id': 9, 'uri_base': 'smb://nas/share', 'username': 'u', 'password': 'p'}
-    def add_point(self, chain_id, seq, kind, dir_, serials, blocks, bw, dur, files, definition, run_id, quiesced=None):
+    def add_point(self, chain_id, seq, kind, dir_, serials, blocks, bw, dur, files, definition, run_id, quiesced=None, synthetic=False):
         pid = 100 + len(self.points); self.points.append({'id': pid, 'chain_id': chain_id, 'seq': seq, 'kind': kind, 'dir': dir_, 'status': 'ok',
-                                                          'created_at': NOW, 'serials': serials, 'definition': definition, 'quiesced': quiesced}); return pid
+                                                          'created_at': NOW, 'serials': serials, 'definition': definition, 'quiesced': quiesced,
+                                                          'synthetic': synthetic}); return pid
     def points_for_plan_retention(self, pid):
         return [dict(p, chain_dir=self.chains[p['chain_id']]['chain_dir'], target_id=9) for p in self.points if p['status'] == 'ok']
     def get_points(self, cid, include_pruned=False): return [p for p in self.points if p['chain_id'] == cid and (include_pruned or p['status'] == 'ok')]
@@ -285,6 +298,15 @@ def test_preflight_rules_and_a_deferred_run():
     assert pf({}, [])['ok'], 'a cluster that never updated has no status'
     up = pf({'updateStatus': {'masterState': 'RUNNING', 'toVersion': '9.9.0', 'percent': '40'}}, [{'networkStatus': 'ONLINE'}])
     assert not up['ok'] and up['kind'] == 'update' and '9.9.0' in up['detail'] and '40%' in up['detail']
+    # 9.8.7 lab, Nov 2026: a pre-check stopped the update and the file stays like this for good
+    term = {'updateStatus': {'masterState': 'TERMINATING', 'toVersion': '9.8.7.229077', 'percent': '4',
+            'status': {'node': '10.20.30.241', 'usernotes': 'UPDATE TERMINATED: SecureBoot needs to be disabled on this node.'}}}
+    t = pf(term, [{'networkStatus': 'ONLINE'}])
+    assert t['ok'] and t['warning']['kind'] == 'update_terminated'
+    assert t['warning']['detail'] == ('cluster update to 9.8.7.229077 was terminated at 4% on node 10.20.30.241: '
+                                      'SecureBoot needs to be disabled on this node')
+    assert pf(term, [{'lanIP': '10.0.0.242', 'networkStatus': 'OFFLINE'}])['kind'] == 'node', 'a missing node still blocks'
+    assert 'warning' not in pf({'updateStatus': {'masterState': 'COMPLETE'}}, [])
     node = pf({}, [{'lanIP': '10.0.0.242', 'networkStatus': 'OFFLINE', 'uuid': 'n2'}, {'lanIP': '10.0.0.241', 'networkStatus': 'ONLINE'}])
     assert not node['ok'] and node['kind'] == 'node' and node['nodes'] == [{'lan_ip': '10.0.0.242', 'status': 'OFFLINE', 'uuid': 'n2'}]
     assert 'Scale Computing support' in inc.jobs.DEFERRED_HINT['node']
@@ -486,3 +508,242 @@ def test_remove_proxy_vm_leaves_a_vm_it_did_not_deploy():
 def test_remove_proxy_vm_reports_a_vm_that_is_gone():
     hc = _VmHC([])
     assert inc.remove_proxy_vm(hc, 'pv') == 'not_found' and hc.calls == []
+
+
+def test_run_records_where_the_time_went(world):
+    """Learning backup durations needs the copy separated from the waits: the proxy's own copy time,
+    the wait for the proxy lock and the remaining overhead are stored on the run."""
+    inc.run_incremental(4)
+    run = world.db.runs[1]
+    assert run['work_started_at'] is not None
+    assert run['copy_seconds'] == 1.5 and run['lock_wait_seconds'] >= 0 and run['overhead_seconds'] >= 0
+
+
+def _next_run(world, full=None):
+    world.db.runs.clear(); world.db.start_run(4)
+    inc.run_incremental(4, full=full)
+    return world.db.runs[1]
+
+
+def test_synthetic_full_moves_the_chain_on_without_reading_the_vm(world):
+    """Tonight's delta is copied as usual; then the chain is verified up to it, the proxy builds a
+    new chain whose base is that point, the anchor moves to the new chain and the old one retires."""
+    world.db.update_schedule = lambda pid, **f: world.db.plan.update(f)
+    inc.run_incremental(4)                                                     # base of chain 1
+    run = _next_run(world, 'synthetic')
+    assert run['status'] == 'COMPLETE' and run['point_kind'] == 'delta', run
+    assert 'synthetic full built' in run['message'] and run['synth_seconds'] >= 0 and not run.get('notice')
+    kinds = [k for k, _ in world.pc.jobs]
+    assert kinds == ['backup', 'backup', 'verify', 'synthesize'], kinds
+    verify_body, synth_body = world.pc.jobs[2][1], world.pc.jobs[3][1]
+    assert verify_body['upto_seq'] == 1 and synth_body['seq'] == 1 and synth_body['chain_dir'] == world.db.chains[1]['chain_dir']
+    old, new = world.db.chains[1], world.db.chains[2]
+    assert old['status'] == 'retired' and old['anchor_snapshot_uuid'] is None, 'the old chain must never delete the anchor'
+    assert new['status'] == 'active' and new['anchor_snapshot_uuid'] == 'snap-4' and new['next_seq'] == 1 and new['chain_dir'] == synth_body['new_chain_dir']
+    syn = world.db.points[-1]
+    assert syn['chain_id'] == 2 and syn['kind'] == 'full' and syn['synthetic'] is True and syn['seq'] == 0
+    assert list(world.hc.snaps) == ['snap-4'], 'one anchor, held by the new chain'
+    # the next delta continues on the new chain against the same anchor: no full read
+    run = _next_run(world, 'none')
+    assert run['point_kind'] == 'delta' and world.pc.jobs[-1][1]['point'] == {'kind': 'delta', 'seq': 1, 'previous_seq': 0}
+    assert world.pc.jobs[-1][1]['chain_dir'] == new['chain_dir']
+
+
+def test_a_failed_synthetic_full_keeps_the_chain_and_asks_for_a_real_full(world):
+    world.db.update_schedule = lambda pid, **f: world.db.plan.update(f)
+    inc.run_incremental(4)
+    world.pc.verify_result = {'ok': False, 'points': {'delta-0001': {'ok': False, 'mismatches': ['x: checksum differs']}}}
+    run = _next_run(world, 'synthetic')
+    assert run['status'] == 'COMPLETE' and run['notice'] == 'synthetic_failed' and 'failed its verification' in run['message']
+    assert world.db.plan['force_full'] is True and world.db.chains[1]['status'] == 'active' and len(world.db.chains) == 1
+    assert 'synthesize' not in [k for k, _ in world.pc.jobs]
+    # the next run reads the VM in full and clears the request
+    run = _next_run(world, 'none')
+    assert run['point_kind'] == 'full' and 'synthetic full could not be built' in run['message']
+    assert world.db.plan['force_full'] is False
+
+
+def test_a_proxy_error_while_synthesizing_cleans_up_the_new_chain(world):
+    world.db.update_schedule = lambda pid, **f: world.db.plan.update(f)
+    inc.run_incremental(4)
+    world.pc.synth_error = 'disk full on target'
+    run = _next_run(world, 'synthetic')
+    assert run['status'] == 'COMPLETE' and run['notice'] == 'synthetic_failed' and 'disk full' in run['message']
+    assert world.pc.jobs[-1][0] == 'delete_chain' and world.pc.jobs[-1][1]['chain_dir'] == world.pc.jobs[-2][1]['new_chain_dir']
+    assert world.db.plan['force_full'] is True and len(world.db.chains) == 1 and world.db.chains[1]['anchor_snapshot_uuid'] == 'snap-4'
+
+
+def test_pick_proxy_prefers_an_idle_proxy(monkeypatch):
+    old = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    rows = [{'id': 71, 'vm_uuid': 'a', 'last_seen_at': old}, {'id': 72, 'vm_uuid': 'b', 'last_seen_at': old + timedelta(hours=1)}]
+    monkeypatch.setattr(inc, 'db', types.SimpleNamespace(get_proxies=lambda cid, enabled_only=False: rows,
+                                                         update_proxy=lambda *a, **k: None,
+                                                         get_proxy=lambda pid, with_secret=False: {'id': pid}))
+    assert inc.pick_proxy('c')['id'] == 71, 'least recently used first'
+    lock = inc.proxy_lock(71)
+    lock.acquire()
+    try:
+        assert inc.pick_proxy('c')['id'] == 72, 'a busy proxy goes last'
+    finally:
+        lock.release()
+
+
+def test_disk_images_are_not_capped_and_short_points_are_named():
+    """A guest sees its disk rounded up to whole MiB; points written capped at the API capacity
+    miss that end and are flagged."""
+    assert inc.image_size({'type': 'VIRTIO_DISK', 'capacity': 100_000_000_000}) == 0, 'the clone decides'
+    assert inc.image_size({'type': 'NVRAM', 'capacity': 540672}) == 540672
+    assert inc.guest_size(100_000_000_000) == 100_000_595_968 and inc.guest_size(6 << 30) == 6 << 30
+    definition = {'blockDevs': [{'uuid': 'd', 'type': 'VIRTIO_DISK', 'capacity': 100_000_000_000},
+                                {'uuid': 'n', 'type': 'NVRAM', 'capacity': 540672}]}
+    old = {'definition': definition, 'files': [{'uuid': 'd', 'size': 100_000_000_000}, {'uuid': 'n', 'size': 540672}]}
+    assert inc.short_disks(old) == [{'uuid': 'd', 'image_size': 100_000_000_000, 'guest_size': 100_000_595_968}]
+    new = dict(old, files=[{'uuid': 'd', 'size': 100_000_595_968}, {'uuid': 'n', 'size': 540672}])
+    assert inc.short_disks(new) == [] and inc.short_disks({}) == []
+
+
+# ------------------------------------------------------------------ a proxy on DHCP gets a new address
+FP = 'ab' * 32
+_MOVED_PROXY = {'id': 4, 'name': 'px', 'cluster_id': 'c', 'kind': 'remote', 'vm_uuid': 'pvm', 'token': 't',
+                'url': 'https://172.16.0.65:8083', 'tls_fingerprint': FP, 'tls_verify': False}
+
+
+class _AddrHC:
+    def __init__(self, *addrs):
+        self.addrs = list(addrs)
+    def get_vm(self, uuid):
+        assert uuid == 'pvm'
+        return {'uuid': uuid, 'netDevs': [{'ipv4Addresses': ['127.0.0.1', '169.254.1.1'] + self.addrs}]}
+
+
+def _relocate_db(monkeypatch):
+    updates = []
+    monkeypatch.setattr(inc, 'db', types.SimpleNamespace(update_proxy=lambda pid, **f: updates.append((pid, f))))
+    return updates
+
+
+def test_proxy_errors_say_whether_the_proxy_may_have_moved(monkeypatch):
+    import ssl
+    def eof(url, timeout=10):
+        raise ssl.SSLEOFError('EOF')
+    monkeypatch.setattr(pcm, 'certificate_fingerprint', eof)
+    with pytest.raises(pcm.ProxyError) as e:
+        pcm.ProxyClient('https://10.0.0.5:8083', 't', tls_fingerprint=FP).identity()
+    assert e.value.kind == 'unreachable'
+    monkeypatch.setattr(pcm, 'certificate_fingerprint', lambda url, timeout=10: 'cd' * 32)
+    with pytest.raises(pcm.ProxyError) as e:
+        pcm.ProxyClient('https://10.0.0.5:8083', 't', tls_fingerprint=FP).identity()
+    assert e.value.kind == 'wrong_certificate', 'another device took the old address'
+
+
+def test_only_a_pinned_proxy_registered_by_ip_is_followed():
+    assert inc.relocatable(_MOVED_PROXY)
+    assert not inc.relocatable({**_MOVED_PROXY, 'url': 'https://proxy.example.lan:8083'}), "DNS manages that address"
+    assert not inc.relocatable({**_MOVED_PROXY, 'url': 'http://172.16.0.65:8083'})
+    assert not inc.relocatable({**_MOVED_PROXY, 'tls_fingerprint': None}), 'no pin, nothing to prove it is the same proxy'
+    assert not inc.relocatable({**_MOVED_PROXY, 'vm_uuid': None})
+    assert not inc.relocatable({**_MOVED_PROXY, 'kind': 'local'})
+
+
+def test_a_moved_proxy_is_followed_when_the_pin_matches(monkeypatch):
+    updates = _relocate_db(monkeypatch)
+    tried = []
+    def factory(url):
+        tried.append(url)
+        class C:
+            def identity(self):
+                if url != 'https://172.16.0.80:8083':
+                    raise pcm.ProxyError('fingerprint mismatch', kind='wrong_certificate')
+                return {'version': '0.5.5'}
+        return C()
+    p = dict(_MOVED_PROXY)
+    r = inc.relocate_proxy(p, _AddrHC('172.16.0.79', '172.16.0.80'), client_factory=factory)
+    assert r['moved'] and r['from'] == 'https://172.16.0.65:8083' and r['to'] == 'https://172.16.0.80:8083'
+    assert tried == ['https://172.16.0.79:8083', 'https://172.16.0.80:8083'], 'loopback and link-local are not tried'
+    assert updates == [(4, {'url': 'https://172.16.0.80:8083', 'status': 'ok', 'status_detail': None})]
+    assert p['url'] == 'https://172.16.0.80:8083', 'the caller works with the new address right away'
+
+
+def test_a_proxy_is_not_moved_to_an_address_that_fails_the_pin(monkeypatch):
+    updates = _relocate_db(monkeypatch)
+    def factory(url):
+        class C:
+            def identity(self):
+                raise pcm.ProxyError('certificate does not match the pinned one', kind='wrong_certificate')
+        return C()
+    r = inc.relocate_proxy(dict(_MOVED_PROXY), _AddrHC('172.16.0.80'), client_factory=factory)
+    assert not r['moved'] and '172.16.0.80' in r['detail'] and 'pinned' in r['detail'] and updates == []
+
+
+def test_relocation_explains_why_the_proxy_stayed(monkeypatch):
+    _relocate_db(monkeypatch)
+    never = lambda url: pytest.fail('nothing to try')
+    assert 'guest agent' in inc.relocate_proxy(dict(_MOVED_PROXY), _AddrHC(), client_factory=never)['detail']
+    assert 'still reports this address' in inc.relocate_proxy(dict(_MOVED_PROXY), _AddrHC('172.16.0.65'), client_factory=never)['detail']
+    class Broken:
+        def get_vm(self, uuid):
+            raise hcm.HyperCoreError('login limit')
+    assert 'login limit' in inc.relocate_proxy(dict(_MOVED_PROXY), Broken(), client_factory=never)['detail']
+
+
+def test_probe_follows_a_moved_proxy(monkeypatch):
+    p = dict(_MOVED_PROXY)
+    updates = []
+    monkeypatch.setattr(inc, 'db', types.SimpleNamespace(get_proxy=lambda pid, with_secret=False: dict(p),
+                                                         update_proxy=lambda pid, **f: updates.append(f)))
+    class Old:
+        def identity(self):
+            raise pcm.ProxyError('proxy unreachable at https://172.16.0.65:8083', kind='unreachable')
+    monkeypatch.setattr(inc, 'proxy_client_for', lambda proxy: Old())
+    monkeypatch.setattr(inc, 'relocate_proxy', lambda proxy, hc=None: {'moved': True, 'from': proxy['url'], 'to': 'https://172.16.0.80:8083',
+                                                                      'identity': {'version': '0.5.5', 'macs': []}})
+    r = inc.probe_proxy(4, hc=object())
+    assert r['ok'] and r['moved'] == {'from': 'https://172.16.0.65:8083', 'to': 'https://172.16.0.80:8083'}
+    assert updates[-1]['status'] == 'ok' and updates[-1]['version'] == '0.5.5'
+
+
+def test_probe_reports_why_a_proxy_could_not_be_followed(monkeypatch):
+    updates = []
+    monkeypatch.setattr(inc, 'db', types.SimpleNamespace(get_proxy=lambda pid, with_secret=False: dict(_MOVED_PROXY),
+                                                         update_proxy=lambda pid, **f: updates.append(f)))
+    class Old:
+        def identity(self):
+            raise pcm.ProxyError('proxy unreachable at https://172.16.0.65:8083', kind='unreachable')
+    monkeypatch.setattr(inc, 'proxy_client_for', lambda proxy: Old())
+    monkeypatch.setattr(inc, 'relocate_proxy', lambda proxy, hc=None: {'moved': False, 'detail': 'its VM reports no IP address'})
+    r = inc.probe_proxy(4)
+    assert not r['ok'] and 'unreachable' in r['error'] and 'no IP address' in r['error']
+    assert updates[-1]['status'] == 'error' and 'no IP address' in updates[-1]['status_detail']
+
+
+def test_a_refused_token_is_not_a_move(monkeypatch):
+    monkeypatch.setattr(inc, 'db', types.SimpleNamespace(get_proxy=lambda pid, with_secret=False: dict(_MOVED_PROXY),
+                                                         update_proxy=lambda pid, **f: None))
+    class Old:
+        def identity(self):
+            raise pcm.ProxyError('proxy rejected the token (401)')
+    monkeypatch.setattr(inc, 'proxy_client_for', lambda proxy: Old())
+    monkeypatch.setattr(inc, 'relocate_proxy', lambda *a, **k: pytest.fail('a 401 comes from the proxy at its address'))
+    assert not inc.probe_proxy(4)['ok']
+
+
+def test_work_goes_to_the_new_address_and_a_reachable_proxy_costs_no_lookup(monkeypatch):
+    calls = []
+    class Client:
+        def __init__(self, url, token, **kw):
+            self.url = url
+        def health(self):
+            calls.append(self.url)
+            if self.url.endswith('.65:8083'):
+                raise pcm.ProxyError('unreachable', kind='unreachable')
+            return {'status': 'ok'}
+    monkeypatch.setattr(inc, 'ProxyClient', Client)
+    def relocate(proxy, hc=None):
+        proxy['url'] = 'https://172.16.0.80:8083'
+        return {'moved': True}
+    monkeypatch.setattr(inc, 'relocate_proxy', relocate)
+    assert inc.ensure_reachable(dict(_MOVED_PROXY))['url'] == 'https://172.16.0.80:8083'
+    monkeypatch.setattr(inc, 'relocate_proxy', lambda *a, **k: pytest.fail('it answers, no HyperCore lookup'))
+    assert inc.ensure_reachable({**_MOVED_PROXY, 'url': 'https://172.16.0.80:8083'})['url'] == 'https://172.16.0.80:8083'
+    monkeypatch.setattr(inc, 'relocate_proxy', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('boom')))
+    assert inc.ensure_reachable(dict(_MOVED_PROXY))['url'] == 'https://172.16.0.65:8083', 'a failed lookup never breaks the run'

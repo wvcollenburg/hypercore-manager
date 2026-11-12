@@ -14,7 +14,7 @@ import types
 import pytest
 
 _PROXY = os.path.join(os.path.dirname(__file__), '..', 'proxy')
-_CLASH = ('config', 'devices', 'copier', 'images', 'targets', 'manifest', 'identity', 'jobs', 'api', 'mounts', 'bench', 'log')
+_CLASH = ('config', 'devices', 'copier', 'images', 'targets', 'manifest', 'identity', 'jobs', 'api', 'mounts', 'bench', 'support', 'log')
 
 
 def _import():
@@ -320,6 +320,42 @@ def test_prune_commits_forward_and_delete_chain(stack):
     assert d['result'] == {'removed': True} and not os.path.exists(chain)
 
 
+def test_synthesize_builds_a_new_chain_from_a_point_without_touching_the_old_one(stack):
+    """A synthetic full: point 1 (a delta) becomes the base of a new chain with the same files,
+    devices and definition and fresh checksums; the source chain is left as it was."""
+    H = {'Authorization': 'Bearer t0k'}
+    disk = 'd0dd5d2c-9c7a-44ec-b6bc-d4ce06bb204d'
+    tgt = {'uri': 'smb://nas/share/hcm'}
+    base_req = {'target': tgt, 'folder': 'F', 'vm': {'uuid': 'vm-s', 'name': 's'}, 'chain_dir': 'F/s_old.chain', 'definition': {'name': 's'}}
+    srcs = []
+    for i, seed in enumerate((31, 32)):
+        cu = f'{i + 50:08d}-0000-0000-0000-000000000000'; pth = stack.dev / f'virtio-{cu[:8]}'; _random_file(str(pth), 3, seed); srcs.append(str(pth))
+        point = {'kind': 'full', 'seq': 0} if i == 0 else {'kind': 'delta', 'seq': 1, 'previous_seq': 0}
+        req = dict(base_req, point=point, devices=[{'uuid': disk, 'type': 'VIRTIO_DISK', 'clone_uuid': cu, 'size': 3 * MiB, 'map': [{'lower': 0, 'upper': 2}], 'serial': 7 + i}])
+        assert _wait(stack, stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id'])['state'] == 'done'
+    root = os.path.join(stack.mounter.root, P.targets.parse_uri(tgt['uri']).key, 'hcm', 'F')
+    before = json.load(open(os.path.join(root, 's_old.chain', 'chain.json')))
+    assert stack.client.post('/jobs/synthesize', json={'target': tgt, 'chain_dir': 'F/s_old.chain'}, headers=H).status_code == 400
+    j = _wait(stack, stack.client.post('/jobs/synthesize', json={'target': tgt, 'chain_dir': 'F/s_old.chain', 'seq': 1, 'new_chain_dir': 'F/s_new.chain',
+                                                                 'run_id': 99}, headers=H).get_json()['id'])
+    assert j['state'] == 'done', j
+    assert j['result']['point_dir'] == 'base' and j['result']['chain_dir'] == 'F/s_new.chain' and j['result']['bytes_written'] == 3 * MiB
+    new = os.path.join(root, 's_new.chain')
+    assert open(os.path.join(new, 'base', f'{disk}.qcow2'), 'rb').read() == open(srcs[1], 'rb').read()
+    pm = json.load(open(os.path.join(new, 'base', 'manifest.json')))
+    assert pm['kind'] == 'full' and pm['seq'] == 0 and pm['synthetic_from'] == {'chain_dir': 'F/s_old.chain', 'seq': 1}
+    assert pm['definition'] == {'name': 's'} and pm['devices'][0]['serial'] == 8 and pm['run_id'] == 99
+    assert [p['dir'] for p in json.load(open(os.path.join(new, 'chain.json')))['points']] == ['base']
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/s_new.chain'}, headers=H).get_json()['id'])
+    assert v['result']['ok'], v
+    after = json.load(open(os.path.join(root, 's_old.chain', 'chain.json')))
+    assert after['points'] == before['points'], 'the source chain is untouched'
+    again = _wait(stack, stack.client.post('/jobs/synthesize', json={'target': tgt, 'chain_dir': 'F/s_old.chain', 'seq': 1, 'new_chain_dir': 'F/s_new.chain'}, headers=H).get_json()['id'])
+    assert again['state'] == 'failed' and 'already has a base' in again['error']
+    bad = _wait(stack, stack.client.post('/jobs/synthesize', json={'target': tgt, 'chain_dir': 'F/s_old.chain', 'seq': 1, 'new_chain_dir': '../x'}, headers=H).get_json()['id'])
+    assert bad['state'] == 'failed'
+
+
 def test_extents_to_intervals_merges_and_rounds():
     f = P.images.extents_to_intervals
     assert f([(0, MiB), (MiB, MiB)]) == [{'lower': 0, 'upper': 1}]
@@ -352,6 +388,39 @@ def test_stage_writes_allocated_blocks_into_a_staging_device_and_flatten_filters
                                                               'only_uuids': [nvram], 'files': {nvram: 'NEW.qcow2'}, 'definition_xml': '<domain/>', 'definition_name': 'r.xml'}, headers=H).get_json()['id'])
     out = os.path.join(stack.mounter.root, P.targets.parse_uri(tgt['uri']).key, 'hcm', 'F', '_restore', 'r')
     assert sorted(os.listdir(out)) == ['NEW.qcow2', 'r.xml'] and f['result']['files'][0]['uuid'] == nvram
+
+
+def test_a_disk_image_takes_the_whole_clone_and_a_delta_copies_a_grown_tail(stack):
+    """HyperCore shows a guest its disk rounded up to whole MiB. An older backup service capped disk
+    images at the API capacity, cutting off that last partial MiB (and the backup GPT in it): the
+    cap now applies to NVRAM/vTPM only, and the first delta on such a chain copies the missing end."""
+    H = {'Authorization': 'Bearer t0k'}
+    disk = 'b1b1b1b1-0000-4000-8000-000000000001'
+    src = stack.dev / 'virtio-eeee0001'
+    data = bytearray(random.Random(7).randbytes(3 * MiB)); src.write_bytes(bytes(data))
+    tgt = {'uri': 'smb://nas/share/hcm'}
+    full = {'target': tgt, 'folder': 'F', 'vm': {'uuid': 'vm-t', 'name': 't'}, 'point': {'kind': 'full', 'seq': 0},
+            'devices': [{'uuid': disk, 'type': 'VIRTIO_DISK', 'clone_uuid': 'eeee0001-0000-0000-0000-000000000000', 'size': 3 * MiB,
+                         'image_size': 2 * MiB + 4096, 'map': [{'lower': 0, 'upper': 2}]}]}
+    j = _wait(stack, stack.client.post('/jobs/backup', json=full, headers=H).get_json()['id']); assert j['state'] == 'done', j
+    assert j['result']['devices'][0]['size'] == 3 * MiB, 'an image_size from an older backup service no longer caps a disk'
+    # a chain written capped: shorten the base image and its manifest, as the old code left it
+    chain = os.path.join(stack.mounter.root, P.targets.parse_uri(tgt['uri']).key, 'hcm', 'F', 't_vm-t.chain')
+    base = os.path.join(chain, 'base', next(f for f in os.listdir(os.path.join(chain, 'base')) if f.endswith('.qcow2')))
+    open(base, 'r+b').truncate(2 * MiB + 4096)
+    import json as _j
+    m = _j.load(open(os.path.join(chain, 'base', 'manifest.json'))); m['devices'][0]['size'] = 2 * MiB + 4096
+    _j.dump(m, open(os.path.join(chain, 'base', 'manifest.json'), 'w'))
+    # the next delta: nothing changed on the disk (empty snapDiff), yet the end the base lacks is copied
+    delta = dict(full, point={'kind': 'delta', 'seq': 1, 'previous_seq': 0},
+                 devices=[dict(full['devices'][0], image_size=0, map=[])])
+    j = _wait(stack, stack.client.post('/jobs/backup', json=delta, headers=H).get_json()['id']); assert j['state'] == 'done', j
+    d = j['result']['devices'][0]
+    assert d['size'] == 3 * MiB and d['blocks'] == 1, 'the block holding the old end, up to the new end'
+    img = os.path.join(chain, j['result']['point_dir'], d['file'])
+    assert open(img, 'rb').read()[2 * MiB:] == bytes(data[2 * MiB:])
+    assert P.jobs.grown_tail(None, 5) is None and P.jobs.grown_tail(3 * MiB, 3 * MiB) is None
+    assert P.jobs.grown_tail(100_000_000_000, 100_000_595_968) == {'lower': 95367, 'upper': 95367}
 
 
 def test_copier_clamps_to_a_smaller_destination(tmp_path):
@@ -454,6 +523,244 @@ def test_mount_browse_zip_and_unmount(flr):
     tail = [c[0] for c in flr.run.cmds[-8:]]
     assert tail.count('umount') == 2 and 'dmsetup' in tail and 'losetup' in tail and 'smb://nas/share/hcm' in flr.mounter.released
     assert not os.path.exists(m.root) and m.id not in flr.mm.mounts
+
+
+def test_nothing_mountable_names_the_reason_per_partition(flr):
+    """The proxy's log is out of reach for most admins: the error itself says why each partition
+    was left out."""
+    orig = flr.run.__call__
+    def run(cmd, **kw):
+        if cmd[0] == 'blkid':
+            return types.SimpleNamespace(returncode=0, stdout='TYPE=zfs_member\n' if cmd[-1] == '/dev/dm-1' else '', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    with pytest.raises(RuntimeError) as e:
+        flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert str(e.value) == ("no mountable filesystem found in this point (disk1-p1: unsupported filesystem 'zfs_member'; "
+                            "disk1-p2: no filesystem recognised (blkid returned nothing))")
+
+
+def test_an_unreadable_partition_table_and_a_failing_mount_are_reported(flr):
+    orig = flr.run.__call__
+    def run(cmd, **kw):
+        if cmd[0] == 'sfdisk':
+            return types.SimpleNamespace(returncode=1, stdout='', stderr='')
+        if cmd[0] == 'blkid':
+            return types.SimpleNamespace(returncode=0, stdout='PTUUID=x\nPTTYPE=gpt\n', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    with pytest.raises(RuntimeError, match=r'disk1-disk: a gpt partition table that could not be read'):
+        flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    # a filesystem that will not mount is left out with its reason; the others stay browsable
+    mounts = []
+    def run2(cmd, **kw):
+        if cmd[0] == 'mount':
+            mounts.append(cmd)
+            if len(mounts) == 1:
+                return types.SimpleNamespace(returncode=32, stdout='', stderr='wrong fs type, bad option, bad superblock')
+        return orig(cmd, **kw)
+    flr.mm.run = run2
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert [f['name'] for f in m.filesystems] == ['disk1-p2']
+    assert m.public()['skipped'][0]['name'] == 'disk1-p1' and 'mount failed' in m.public()['skipped'][0]['reason']
+    assert 'bad superblock' in m.public()['skipped'][0]['reason']
+
+
+def test_a_gpt_disk_read_as_its_protective_mbr_is_reported_with_what_sector_1_holds(flr, monkeypatch):
+    pmbr = '{"partitiontable": {"label": "dos", "unit": "sectors", "partitions": [{"node": "/dev/nbd2p1", "start": 1, "size": 195312499, "type": "ee"}]}}'
+    orig = flr.run.__call__
+    def run(cmd, **kw):
+        if cmd[0] == 'sfdisk':
+            return types.SimpleNamespace(returncode=0, stdout=pmbr, stderr='GPT PMBR size mismatch\n')
+        if cmd[:2] == ['blockdev', '--getss']:
+            return types.SimpleNamespace(returncode=0, stdout='512', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    monkeypatch.setattr(P.mounts.MountManager, '_sector', staticmethod(lambda dev, lba: b'\x00' * 512))
+    with pytest.raises(RuntimeError) as e:
+        flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert ('disk1: only the protective MBR of a GPT disk could be read; sector 1 holds zeros, sector size 512; '
+            'sfdisk: GPT PMBR size mismatch') in str(e.value)
+    assert not any(c[0] == 'losetup' for c in flr.run.cmds), 'nothing attached for a table that was not read'
+    assert P.mounts.describe_sector(b'EFI PART' + b'\x00' * 504) == 'a GPT header (EFI PART)'
+    assert P.mounts.describe_sector(b'\xeb\x63\x90' + b'\x00' * 509).startswith('other data: eb 63 90')
+
+
+def _gpt_disk(disk_sectors, parts):
+    """A GPT disk image (bytes up to the end of the partition table) with valid checksums."""
+    import struct, zlib, uuid as _u
+    ents = bytearray(128 * 128)
+    for i, (first, last, tguid) in enumerate(parts):
+        struct.pack_into('<16s16sQQ', ents, i * 128, _u.UUID(tguid).bytes_le, _u.uuid4().bytes_le, first, last)
+    hdr = bytearray(92)
+    struct.pack_into('<8sIIIIQQQQ16sQIII', hdr, 0, b'EFI PART', 0x10000, 92, 0, 0, 1, disk_sectors - 1, 34, disk_sectors - 34,
+                     _u.uuid4().bytes_le, 2, 128, 128, zlib.crc32(bytes(ents)) & 0xffffffff)
+    struct.pack_into('<I', hdr, 16, zlib.crc32(bytes(hdr)) & 0xffffffff)
+    mbr = bytearray(512); mbr[510:512] = b'\x55\xaa'
+    return bytes(mbr) + bytes(hdr) + bytes(420) + bytes(ents)
+
+
+def test_a_gpt_that_sfdisk_refuses_for_a_short_image_is_read_directly(flr, monkeypatch):
+    """container01: a 100,000,595,968-byte disk backed up as a 100,000,000,000-byte image. Its GPT
+    claims more disk than the image has, so sfdisk falls back to the protective MBR; the checksums
+    hold and every partition fits, so the proxy reads the table itself."""
+    esp, linux = 'C12A7328-F81F-11D2-BA4B-00A0C93EC93B', '0FC63DAF-8483-4772-8E79-3D69D8477DE4'
+    disk = _gpt_disk(195313664, [(2048, 2203647, esp), (2203648, 6397951, linux), (6397952, 195311615, linux)])
+    pmbr = '{"partitiontable": {"label": "dos", "unit": "sectors", "partitions": [{"node": "/dev/nbd2p1", "start": 1, "size": 195312499, "type": "ee"}]}}'
+    orig = flr.run.__call__
+    def run(cmd, **kw):
+        if cmd[0] == 'sfdisk':
+            return types.SimpleNamespace(returncode=0, stdout=pmbr, stderr='')
+        if cmd[0] == 'blockdev' and cmd[1] == '--getsize64':
+            return types.SimpleNamespace(returncode=0, stdout='100000000000', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    flr.run.fstypes = {'p1': 'vfat', 'p2': 'ext4', 'p3': 'ext4'}
+    monkeypatch.setattr(P.mounts.MountManager, '_read', staticmethod(lambda dev, off, n: disk[off:off + n]))
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert [f['name'] for f in m.filesystems] == ['disk1-p1', 'disk1-p2', 'disk1-p3']
+    loops = [c for c in flr.run.cmds if c[0] == 'losetup' and '--offset' in c]
+    assert loops[0][loops[0].index('--offset') + 1] == str(2048 * 512)
+    # a broken partition array is not trusted
+    bad = bytearray(disk); bad[1024 + 40] ^= 0xFF
+    assert P.mounts.parse_gpt(bytes(bad[512:1024]), lambda off, n: bytes(bad[off:off + n]), 100_000_000_000) is None
+    # a partition beyond the image is left out, the others kept
+    tight = P.mounts.parse_gpt(disk[512:1024], lambda off, n: disk[off:off + n], 6397952 * 512)
+    assert [p['name'] for p in tight] == ['p1', 'p2']
+
+
+BITLK_DUMP = """Info for BITLK device /dev/dm-3.
+Version:        2
+GUID:           0d2f9a6e-1111-4c4c-9b9b-123456789abc
+Sector size:    512 [bytes]
+Volume size:    49015734272 [bytes]
+Created:        Sat Oct 31 15:02:11 2026
+Description:    W11BTEST C: 31-10-2026
+Cipher name:    aes
+Cipher mode:    xts-plain64
+Cipher key:     128 bits
+
+Keyslots:
+ 0: VMK
+        GUID: 9f8e7d6c-0000-4111-8222-333344445555
+        Protection:     VMK protected with TPM
+        Salt:           00112233445566778899aabbccddeeff
+        Key data size:  44 [bytes]
+ 1: VMK
+        GUID: 4a3b9c1d-2e5f-4071-8899-aabbccddeeff
+        Protection:     VMK protected with recovery passphrase
+        Salt:           ffeeddccbbaa99887766554433221100
+        Key data size:  44 [bytes]
+ 2: FVEK
+        Key data size:  44 [bytes]
+"""
+
+
+def test_bitlk_dump_gives_the_recovery_key_id_and_the_description():
+    d = P.mounts.parse_bitlk_dump(BITLK_DUMP)
+    assert d == {'key_ids': ['4A3B9C1D-2E5F-4071-8899-AABBCCDDEEFF'], 'description': 'W11BTEST C: 31-10-2026'}
+    assert P.mounts.parse_bitlk_dump('') == {'key_ids': [], 'description': None}
+
+
+def _crypt_run(flr, inner='ntfs', good='111111-222222-333333-444444-555555-666666-777777-888888'):
+    """p2 is a BitLocker volume; cryptsetup opens it only with `good`, read on stdin."""
+    flr.run.fstypes = {'p1': 'vfat', 'p2': 'BitLocker'}
+    orig = flr.run.__call__
+    seen = {'inputs': [], 'cmds': []}
+    def run(cmd, **kw):
+        seen['cmds'].append(cmd)
+        if cmd[:2] == ['cryptsetup', 'open']:
+            seen['inputs'].append(kw.get('input'))
+            ok = kw.get('input') == good + '\n'
+            return types.SimpleNamespace(returncode=0 if ok else 2, stdout='', stderr='' if ok else 'No key available with this passphrase.')
+        if cmd[:2] == ['cryptsetup', 'bitlkDump']:
+            return types.SimpleNamespace(returncode=0, stdout=BITLK_DUMP, stderr='')
+        if cmd[:2] == ['dmsetup', 'info'] and cmd[-1].endswith('-open'):
+            return types.SimpleNamespace(returncode=0, stdout='77', stderr='')
+        if cmd[0] == 'blkid' and cmd[-1] == '/dev/dm-77':
+            return types.SimpleNamespace(returncode=0, stdout=f'TYPE={inner}\nLABEL=Data\n', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    return seen, good
+
+
+def test_a_bitlocker_volume_is_reported_locked_without_a_key(flr):
+    _crypt_run(flr)
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert [f['name'] for f in m.filesystems] == ['disk1-p1'], 'the unencrypted partition stays browsable'
+    locked = m.public()['locked']
+    assert [(v['name'], v['kind'], v['reason']) for v in locked] == [('disk1-p2', 'BitLocker', 'key needed')]
+    assert locked[0]['key_ids'] == ['4A3B9C1D-2E5F-4071-8899-AABBCCDDEEFF'] and locked[0]['description'].startswith('W11BTEST C:')
+    flr.mm.unmount(m.id)
+
+
+def test_a_bitlocker_volume_opens_read_only_with_its_recovery_key(flr):
+    seen, good = _crypt_run(flr)
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0, keys=['wrong-one', ' ' + good + ' '])
+    assert [f['name'] for f in m.filesystems] == ['disk1-p1', 'disk1-p2'] and m.filesystems[1]['fstype'] == 'ntfs'
+    assert m.locked == [] and m.keys == [], 'keys are dropped once the mount is made'
+    opens = [c for c in seen['cmds'] if c[0] == 'cryptsetup']
+    assert all(c[:4] == ['cryptsetup', 'open', '--readonly', '--type'] and c[4] == 'bitlk' for c in opens)
+    assert seen['inputs'] == ['wrong-one\n', good + '\n'], 'keys go on stdin, tried in turn, trimmed'
+    assert not any(good in ' '.join(c) for c in seen['cmds']), 'a key never appears on a command line'
+    assert any(c[:3] == ['mount', '-t', 'ntfs3'] and c[-2] == '/dev/dm-77' for c in flr.run.cmds), 'the opened volume is mounted'
+    flr.mm.unmount(m.id)
+    removes = [c[-1] for c in flr.run.cmds if c[:2] == ['dmsetup', 'remove']]
+    assert removes.index(next(r for r in removes if r.endswith('-open'))) < removes.index(next(r for r in removes if r.endswith('disk1-p2'))), \
+        'the opened volume is closed before the snapshot under it'
+
+
+def test_luks_opens_writable_on_the_private_view_so_lvm_inside_can_be_imported(flr):
+    """Ubuntu's encrypted layout: LUKS holding LVM. vgimportclone writes the temporary VG name, so
+    the LUKS volume opens writable on the copy-on-write view (never on the backup); BitLocker stays
+    read-only."""
+    seen, good = _crypt_run(flr, inner='LVM2_member')
+    flr.run.fstypes = {'p1': 'vfat', 'p2': 'crypto_LUKS'}
+    orig = flr.mm.run
+    def run(cmd, **kw):
+        if cmd[0] == 'pvs': return types.SimpleNamespace(returncode=0, stdout='  hcmflrabc\n', stderr='')
+        if cmd[0] == 'lvs': return types.SimpleNamespace(returncode=0, stdout='  ubuntu-lv 9\n', stderr='')
+        if cmd[0] == 'blkid' and cmd[-1] == '/dev/dm-9': return types.SimpleNamespace(returncode=0, stdout='TYPE=ext4\n', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0, keys=[good])
+    assert [f['name'] for f in m.filesystems] == ['disk1-p1', 'disk1-p2-ubuntu-lv']
+    opens = [c for c in seen['cmds'] if c[:2] == ['cryptsetup', 'open']]
+    assert opens and '--readonly' not in opens[0] and opens[0][2:4] == ['--type', 'luks']
+    assert any(c[0] == 'vgimportclone' and '/dev/dm-77' in c for c in seen['cmds']), 'LVM is imported from the opened volume'
+    flr.mm.unmount(m.id)
+
+
+def test_partitions_empty_by_design_are_not_reported(flr):
+    msr = '{"partitiontable": {"label": "gpt", "partitions": [{"start": 2048, "size": 32768, "type": "E3C9E316-0B5C-4DB8-817D-F92DF00215AE"}, {"start": 34816, "size": 3907584, "type": "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7"}]}}'
+    orig = flr.run.__call__
+    def run(cmd, **kw):
+        if cmd[0] == 'sfdisk': return types.SimpleNamespace(returncode=0, stdout=msr, stderr='')
+        if cmd[0] == 'blkid': return types.SimpleNamespace(returncode=0, stdout='' if cmd[-1] == '/dev/dm-1' else 'TYPE=ntfs\n', stderr='')
+        return orig(cmd, **kw)
+    flr.mm.run = run
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    assert [f['name'] for f in m.filesystems] == ['disk1-p2'] and m.skipped == [], 'the Microsoft reserved partition is not a "not mounted" line'
+    flr.mm.unmount(m.id)
+
+
+def test_only_locked_volumes_and_a_wrong_key_give_a_locked_answer(flr):
+    seen, good = _crypt_run(flr)
+    flr.run.fstypes = {'p1': 'crypto_LUKS', 'p2': 'BitLocker'}
+    with pytest.raises(P.mounts.LockedVolumes) as e:
+        flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0, keys=['nope'])
+    assert [(v['name'], v['kind'], v['reason']) for v in e.value.locked] == [('disk1-p1', 'LUKS', 'no key matched'),
+                                                                            ('disk1-p2', 'BitLocker', 'no key matched')]
+    assert 'key_ids' not in e.value.locked[0] and e.value.locked[1]['key_ids'] == ['4A3B9C1D-2E5F-4071-8899-AABBCCDDEEFF']
+    assert 'nope' not in str(e.value)
+    flr.run.dms = []                  # the fake numbers dm devices by creation; start again for the next mount
+    app = P.api.create_app(flr.cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}), flr.mm)
+    r = app.test_client().post('/mounts', json={'target': {'uri': 'smb://nas/share/hcm'}, 'chain_dir': 'F/v_vm-1.chain', 'seq': 0},
+                               headers={'Authorization': 'Bearer t0k'})
+    assert r.status_code == 422 and r.get_json()['locked'][0]['reason'] == 'key needed'
+    r = app.test_client().post('/mounts', json={'target': {'uri': 'smb://nas/share/hcm'}, 'chain_dir': 'F/v_vm-1.chain', 'seq': 0, 'keys': 'x'},
+                               headers={'Authorization': 'Bearer t0k'})
+    assert r.status_code == 400
 
 
 def test_lvm_member_is_imported_under_a_temporary_vg(flr):
@@ -847,3 +1154,217 @@ def test_update_hook_absent_without_a_directory(stack):
     assert stack.client.get('/identity', headers=H).get_json()['capabilities']['update'] is False
     r = stack.client.post('/update', data=b'x', headers={**H, 'X-Image-Tag': 't'})
     assert r.status_code == 501 and 'no update hook' in r.get_json()['error']
+
+
+# ----------------------------------------------------------------------------- support bundle
+def test_support_bundle_has_logs_jobs_mounts_and_system_state_without_secrets(tmp_path):
+    import zipfile, io
+    logs = tmp_path / 'data' / 'logs'; logs.mkdir(parents=True)
+    (logs / 'proxy.log').write_text('{"message": "disk1-p1 not mounted: ext4 mount failed"}\n')
+    (logs / 'proxy.log.1').write_text('older\n')
+    cfg = P.config.Config(api_token='s3cret-token', data_dir=str(tmp_path / 'data'), backend='file')
+    jobs = [{'id': 'j1', 'kind': 'backup', 'state': 'error', 'error': 'boom',
+             'params': {'target': {'uri': 'smb://nas/share', 'username': 'bk', 'password': 'hunter2'}}}]
+    seen = []
+    def run(cmd, **kw):
+        seen.append(cmd[0])
+        if cmd[0] == 'dmesg':
+            return types.SimpleNamespace(returncode=0, stdout='[Sat Oct 31] EXT4-fs (dm-3): unsupported feature\n', stderr='')
+        if cmd[0] == 'ps':
+            raise FileNotFoundError('ps')
+        return types.SimpleNamespace(returncode=0, stdout=f'{cmd[0]} output\n', stderr='')
+    data = P.support.bundle(cfg, {'version': '0.5.1', 'hostname': 'px'}, jobs, [{'id': 'm1', 'skipped': [{'name': 'disk1-p1', 'reason': 'x'}]}], run=run)
+    z = zipfile.ZipFile(io.BytesIO(data))
+    names = set(z.namelist())
+    assert {'proxy.json', 'jobs.json', 'mounts.json', 'logs/proxy.log', 'logs/proxy.log.1', 'system/dmesg.txt', 'system/lsblk.txt'} <= names
+    assert 'EXT4-fs (dm-3)' in z.read('system/dmesg.txt').decode()
+    assert 'not run' in z.read('system/ps.txt').decode(), 'a missing tool is noted, not fatal'
+    everything = b''.join(z.read(n) for n in names).decode()
+    assert 's3cret-token' not in everything and 'hunter2' not in everything, 'no secrets in the bundle'
+    assert json.loads(z.read('jobs.json'))[0]['params']['target'] == {'uri': 'smb://nas/share', 'username': 'bk', 'password': '***'}
+    assert json.loads(z.read('mounts.json'))[0]['skipped'][0]['name'] == 'disk1-p1'
+
+
+def _fake_proc(root, procs):
+    """procs: (pid, comm, state, ppid, threads, cmdline)"""
+    for pid, comm, state, ppid, threads, cmd in procs:
+        d = root / str(pid); d.mkdir(parents=True)
+        rest = [state, str(ppid)] + ['0'] * 15 + [str(threads), '0', '0', '0', '2560']   # f[17] threads, f[21] rss pages
+        (d / 'stat').write_text(f'{pid} ({comm}) ' + ' '.join(rest) + '\n')
+        (d / 'cmdline').write_text('\0'.join(cmd.split()) if cmd else '')
+    (root / 'sys' / 'kernel').mkdir(parents=True)
+    (root / 'sys' / 'kernel' / 'threads-max').write_text('31318\n')
+    (root / 'sys' / 'kernel' / 'pid_max').write_text('4194304\n')
+    (root / 'loadavg').write_text('0.10 0.20 0.30 2/4911 812\n')
+    (root / 'self').mkdir()
+    (root / 'self' / 'limits').write_text('Limit  Soft  Hard  Units\nMax processes  15659  15659  processes\nMax open files 1024 4096 files\n')
+
+
+def test_support_bundle_counts_zombies_and_reads_every_task_limit(tmp_path):
+    """0.5.4 ran out of threads after ~1000 jobs and the bundle could not say why: no procps, no cgroup
+    numbers. processes.txt and limits.txt read /proc and the cgroup files directly."""
+    import zipfile, io
+    proc = tmp_path / 'proc'
+    _fake_proc(proc, [(1, 'tini', 'S', 0, 1, '/usr/bin/tini -- python proxy.py'),
+                      (7, 'python', 'S', 1, 9, 'python proxy.py'),
+                      (40, 'qemu-nbd', 'Z', 1, 1, ''), (41, 'qemu-nbd', 'Z', 1, 1, ''),
+                      (42, 'ntfs-3g', 'Z', 1, 1, ''), (50, 'qemu-nbd', 'S', 1, 3, 'qemu-nbd -c /dev/nbd3 -r x.qcow2')])
+    table = P.support.process_table(str(proc))
+    assert 'processes: 6   threads: 16' in table and 'states: S=3, Z=3' in table
+    assert 'zombies: qemu-nbd (parent 1) x2, ntfs-3g (parent 1) x1' in table
+    assert 'qemu-nbd -c /dev/nbd3 -r x.qcow2' in table and '[qemu-nbd]' in table, 'a zombie has no cmdline: its name stands in'
+    own = tmp_path / 'cg'; own.mkdir()
+    (own / 'pids.current').write_text('4900\n'); (own / 'pids.max').write_text('max\n'); (own / 'memory.max').write_text('1073741824\n')
+    host = tmp_path / 'host'
+    scope = host / 'system.slice' / 'docker-9a59ab723977ffff.scope'; scope.mkdir(parents=True)
+    (scope / 'pids.current').write_text('4900\n'); (scope / 'pids.max').write_text('4915\n')
+    (host / 'system.slice' / 'pids.current').write_text('5200\n')
+    limits = P.support.task_limits(str(proc), str(own), str(host), container_id='9a59ab723977')
+    assert 'threads-max = 31318' in limits and 'pid_max = 4194304' in limits and '2/4911' in limits
+    assert 'Max processes  15659' in limits and 'Max open files' not in limits
+    assert 'pids.current = 4900' in limits and 'memory.max = 1073741824' in limits
+    (own / 'memory.events').write_text('low 0\nhigh 0\nmax 812\noom 0\noom_kill 0\n')
+    (own / 'memory.stat').write_text('anon 41943040\nfile 1006632960\nkernel 2097152\n')
+    limits = P.support.task_limits(str(proc), str(own), str(host), container_id='9a59ab723977')
+    assert 'memory.events = low 0, high 0, max 812, oom 0, oom_kill 0' in limits, 'a full cache is not an OOM'
+    assert 'memory.stat = anon 41943040, file 1006632960' in limits and 'kernel 2097152' not in limits
+    i = limits.index('host cgroup /system.slice/docker-9a59ab723977ffff.scope:')
+    assert 'pids.max = 4915' in limits[i:] and 'host cgroup /system.slice:' in limits[i:] and 'host cgroup /:' in limits[i:]
+    assert 'no directory naming' in P.support.task_limits(str(proc), str(own), str(host), container_id='nothere')
+    cfg = P.config.Config(api_token='t', data_dir=str(tmp_path / 'data'), backend='file')
+    run = lambda cmd, **kw: types.SimpleNamespace(returncode=0, stdout='', stderr='')
+    z = zipfile.ZipFile(io.BytesIO(P.support.bundle(cfg, {}, [], [], run=run, proc=str(proc), cgroup=str(own),
+                                                    host_cgroup=str(host), container_id='9a59ab723977')))
+    assert 'Z=3' in z.read('system/processes.txt').decode() and 'pids.max = 4915' in z.read('system/limits.txt').decode()
+    z = zipfile.ZipFile(io.BytesIO(P.support.bundle(cfg, {}, [], [], run=run, proc=str(tmp_path / 'none'))))
+    assert z.read('system/processes.txt').startswith(b'(not collected'), 'a diagnostic never breaks the bundle'
+
+
+def test_proxy_image_runs_under_an_init_that_reaps_orphans():
+    import pathlib
+    df = (pathlib.Path(__file__).resolve().parents[1] / 'proxy' / 'Dockerfile').read_text()
+    assert 'ENTRYPOINT ["/usr/bin/tini", "--"]' in df and ' tini ' in df and ' procps ' in df
+
+
+def test_support_bundle_route_needs_the_token(tmp_path):
+    cfg = P.config.Config(api_token='t0k', data_dir=str(tmp_path / 'data'), backend='file')
+    app = P.api.create_app(cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}))
+    c = app.test_client()
+    assert c.get('/support/bundle').status_code == 401
+    r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
+    assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
+    assert r.data[:2] == b'PK'
+    assert P.identity.VERSION == '0.5.6'
+
+
+def test_the_proxy_keeps_a_rotating_log_file(tmp_path):
+    import importlib.util, logging
+    try:
+        import pythonjsonlogger  # noqa: F401
+    except ImportError:          # not in the test requirements: a plain formatter stands in for the JSON one
+        jl = types.ModuleType('pythonjsonlogger.jsonlogger')
+        class JsonFormatter(logging.Formatter):
+            def format(self, record):
+                d = {'message': record.getMessage()}; self.add_fields(d, record, {}); return json.dumps(d)
+            def add_fields(self, log_record, record, message_dict): pass
+        jl.JsonFormatter = JsonFormatter
+        pkg = types.ModuleType('pythonjsonlogger'); pkg.jsonlogger = jl
+        sys.modules.setdefault('pythonjsonlogger', pkg); sys.modules.setdefault('pythonjsonlogger.jsonlogger', jl)
+    spec = importlib.util.spec_from_file_location('proxy_log_under_test', os.path.join(_PROXY, 'log.py'))
+    plog = importlib.util.module_from_spec(spec); spec.loader.exec_module(plog)
+    root = logging.getLogger(); before = list(root.handlers), root.level
+    try:
+        plog.configure('INFO', str(tmp_path / 'logs'))
+        logging.getLogger('proxy.mounts').warning('disk1-p1 not mounted: test')
+        for h in root.handlers: h.flush()
+        text = (tmp_path / 'logs' / 'proxy.log').read_text()
+        assert 'disk1-p1 not mounted: test' in text and '"level": "WARNING"' in text
+    finally:
+        for h in root.handlers:
+            if h not in before[0]: h.close()
+        root.handlers[:] = before[0]; root.setLevel(before[1])
+
+
+# ------------------------------------------------------------------ 0.5.6: image check after nbd disconnect
+def test_disconnect_waits_until_the_nbd_server_has_closed_the_image(tmp_path, monkeypatch):
+    """`qemu-nbd -d` returns before the server process has written its metadata and dropped the
+    image lock; 0.5.4/0.5.5 ran qemu-img check in that window and ~2-3 % of backups failed."""
+    proc = tmp_path / 'proc'
+    _fake_proc(proc, [(1, 'tini', 'S', 0, 1, '/usr/bin/tini -- python proxy.py'),
+                      (60, 'qemu-nbd', 'S', 1, 3, '/usr/bin/qemu-nbd -c /dev/nbd3 --cache=unsafe -f qcow2 a.qcow2'),
+                      (61, 'qemu-nbd', 'S', 1, 3, 'qemu-nbd -c /dev/nbd4 -r b.qcow2'),
+                      (62, 'qemu-nbd', 'Z', 1, 1, '')])
+    be = P.images.NbdBackend(P.images.NbdPool(8, '/dev'))
+    be.proc_dir = str(proc)
+    assert be._server_pids('/dev/nbd3') == [60] and be._server_pids('/dev/nbd4') == [61]
+    assert be._server_pids('/dev/nbd5') == [], 'a reaped or zombie server has closed its image'
+    runs = []
+    monkeypatch.setattr(P.images.subprocess, 'run', lambda cmd, **kw: runs.append(cmd) or types.SimpleNamespace(returncode=0, stdout='', stderr=''))
+    monkeypatch.setattr(P.images, '_run', lambda cmd, timeout=3600: runs.append(cmd) or '')
+    polls = []
+    def sleep(s):
+        polls.append(s)
+        if len(polls) == 3:                                 # the server exits a little later
+            (proc / '60' / 'cmdline').write_text('')
+    monkeypatch.setattr(P.images.time, 'sleep', sleep)
+    be._disconnect('/dev/nbd3', strict=True)
+    assert ['qemu-nbd', '-d', '/dev/nbd3'] in runs and len(polls) == 3
+    assert runs[-1] == ['sync'], 'the final sync runs after the server is gone'
+
+
+def test_disconnect_gives_up_waiting_on_a_hung_server(tmp_path, monkeypatch):
+    proc = tmp_path / 'proc'
+    _fake_proc(proc, [(60, 'qemu-nbd', 'S', 1, 3, 'qemu-nbd -c /dev/nbd3 a.qcow2')])
+    be = P.images.NbdBackend(P.images.NbdPool(8, '/dev'))
+    be.proc_dir, be.server_exit_timeout = str(proc), 0.0
+    monkeypatch.setattr(P.images.subprocess, 'run', lambda cmd, **kw: types.SimpleNamespace(returncode=0, stdout='', stderr=''))
+    monkeypatch.setattr(P.images, '_run', lambda cmd, timeout=3600: '')
+    be._disconnect('/dev/nbd3', strict=True)                # returns; the check then reports what it finds
+
+
+def _check_backend(monkeypatch, answers):
+    be = P.images.NbdBackend(P.images.NbdPool(1, '/dev'))
+    be.check_lock_wait = 0
+    calls = []
+    def run(cmd, **kw):
+        calls.append(cmd)
+        rc, out, err = answers.pop(0)
+        return types.SimpleNamespace(returncode=rc, stdout=out, stderr=err)
+    monkeypatch.setattr(P.images.subprocess, 'run', run)
+    return be, calls
+
+
+def test_image_check_says_why_and_lets_leaks_pass(monkeypatch):
+    be, calls = _check_backend(monkeypatch, [(0, 'No errors were found on the image.', '')])
+    assert be.check_detail('/t/a.qcow2') is None and calls[0] == ['qemu-img', 'check', '/t/a.qcow2']
+    be, _ = _check_backend(monkeypatch, [(3, 'Leaked cluster 17 refcount=1 reference=0\n2 leaked clusters were found on the image.\n'
+                                             'This means waste of disk space, but no harm to data.', '')])
+    assert be.check_detail('/t/a.qcow2') is None, 'leaked clusters waste space, the data is right'
+    be, _ = _check_backend(monkeypatch, [(2, 'ERROR cluster 5 refcount=0 reference=1\n1 errors were found on the image.\n'
+                                             'Data may be corrupted, or further writes to the image may corrupt it.', '')])
+    d = be.check_detail('/t/a.qcow2')
+    assert d.startswith('qemu-img check exit 2:') and '1 errors were found' in d and 'cluster 5' not in d, 'the summary, not the cluster list'
+    be, _ = _check_backend(monkeypatch, [(2, '', 'boom')])
+    assert not be.check('/t/x')
+    be, _ = _check_backend(monkeypatch, [(2, 'ERROR cluster 5 refcount=0 reference=1\n\n1 errors were found on the image.\n'
+                                             'Data may be corrupted, or further writes to the image may corrupt it.\n'
+                                             '120/4096 = 2.93% allocated, 0.00% fragmented, 0.00% compressed clusters\n'
+                                             'Image end offset: 126091264', '')])
+    d = be.check_detail('/t/a.qcow2')
+    assert '1 errors were found' in d and 'allocated' not in d and 'end offset' not in d, 'the verdict, not the statistics'
+
+
+def test_image_check_retries_a_lock_and_then_reports_it(monkeypatch):
+    lock = (1, '', 'qemu-img: Could not open \'/t/a.qcow2\': Failed to get shared "write" lock\nIs another process using the image [/t/a.qcow2]?')
+    be, calls = _check_backend(monkeypatch, [lock, (0, '', '')])
+    assert be.check_detail('/t/a.qcow2') is None and len(calls) == 2
+    be, calls = _check_backend(monkeypatch, [lock] * 4)
+    d = be.check_detail('/t/a.qcow2')
+    assert len(calls) == 4 and 'exit 1' in d and 'lock' in d
+
+
+def test_a_failed_image_check_names_the_reason_in_the_job_error(tmp_path):
+    be = P.images.FileBackend()
+    assert be.check_detail(str(tmp_path / 'missing')) == 'image missing' and not be.check(str(tmp_path / 'missing'))
+    src = open(P.jobs.__file__).read()
+    assert src.count("check_detail(") == 2 and "image check failed: {fname}: {problem}" in src

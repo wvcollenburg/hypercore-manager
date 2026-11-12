@@ -139,13 +139,34 @@ def derive_name(folder: str) -> str:
 # the REST API read-only for its whole duration; a missing node (failure group) stops HyperCore from
 # creating snapshots, and a snapshot is the first step of every export, backup, clone and restore.
 _UPDATE_IDLE = frozenset({'', 'COMPLETE', 'ERROR', 'FAILED', 'CANCELLED', 'CANCELED', 'NONE', 'IDLE'})
+# An update that a pre-check stopped stays in TERMINATING for good (seen on 9.8.7: "UPDATE TERMINATED:
+# SecureBoot needs to be disabled on this node", 4%, still on the old build). Nothing is applied and
+# nothing will finish it, so it must not defer backups; it is shown as a warning with the cluster's reason.
+_UPDATE_TERMINATED = frozenset({'TERMINATING', 'TERMINATED'})
+
+
+def _update_terminated(us: dict, stage: str) -> dict | None:
+    notes = str((us.get('status') or {}).get('usernotes') or '').strip()
+    if stage not in _UPDATE_TERMINATED and not notes.upper().startswith('UPDATE TERMINATED'):
+        return None
+    pct = us.get('percent'); ver = us.get('toVersion')
+    reason = re.sub(r'^UPDATE TERMINATED:\s*', '', notes, flags=re.I).rstrip('. ')
+    node = (us.get('status') or {}).get('node')
+    detail = (f'cluster update' + (f' to {ver}' if ver else '') + ' was terminated'
+              + (f' at {pct}%' if pct not in (None, '') else '') + (f' on node {node}' if node else '')
+              + (f': {reason}' if reason else ''))
+    # the key names this terminated update, so a mute of it does not hide the next one
+    key = f"update_terminated:{us.get('toBuild') or ver or ''}:{node or ''}"
+    return {'kind': 'update_terminated', 'key': key, 'detail': detail}
 
 
 def preflight_of(update_status: dict, nodes: list[dict]) -> dict:
-    """Pure: {'ok', 'kind': None|'update'|'node', 'detail', 'nodes': [...]} from the two API answers."""
+    """Pure: {'ok', 'kind': None|'update'|'node', 'detail', 'nodes': [...], 'warning'?} from the two
+    API answers. 'warning' does not block: a terminated update, reported until the cluster moves on."""
     us = (update_status or {}).get('updateStatus') or {}
     stage = str(us.get('masterState') or (update_status or {}).get('updateStage') or '').upper()
-    if stage not in _UPDATE_IDLE:
+    warning = _update_terminated(us, stage)
+    if stage not in _UPDATE_IDLE and not warning:
         pct = us.get('percent'); ver = us.get('toVersion')
         detail = f'cluster self-update in progress' + (f' to {ver}' if ver else '') + (f', {pct}%' if pct not in (None, '') else '')
         return {'ok': False, 'kind': 'update', 'detail': detail, 'nodes': []}
@@ -154,7 +175,8 @@ def preflight_of(update_status: dict, nodes: list[dict]) -> dict:
         names = ', '.join(f"{n.get('lanIP') or n.get('uuid', '')[:8]} ({n.get('networkStatus') or 'UNKNOWN'})" for n in bad)
         return {'ok': False, 'kind': 'node', 'detail': f'node not online: {names}',
                 'nodes': [{'lan_ip': n.get('lanIP'), 'status': n.get('networkStatus') or 'UNKNOWN', 'uuid': n.get('uuid')} for n in bad]}
-    return {'ok': True, 'kind': None, 'detail': '', 'nodes': []}
+    ok = {'ok': True, 'kind': None, 'detail': '', 'nodes': []}
+    return dict(ok, warning=warning) if warning else ok
 
 
 _PREFLIGHT_CACHE: dict[str, tuple[float, dict]] = {}
@@ -241,21 +263,35 @@ def wait_for_task(hc: HyperCoreClient, task_tag: str, on_progress) -> None:
 
 
 # ----------------------------------------------------------------------- plan
-def run_plan(plan_id: int) -> None:
-    """Scheduler entry point: dispatch on the plan's mode."""
+def run_timing(work_started: datetime, lock_wait: float = 0.0, copy: float = 0.0, end: datetime | None = None,
+               synth: float = 0.0) -> dict:
+    """Timing columns of a finished run (what backup durations are learned from): the active time
+    since the cluster was clear, split into waiting for the proxy, copying, building a synthetic
+    full and everything else."""
+    active = max(0.0, ((end or _now()) - work_started).total_seconds())
+    out = {'lock_wait_seconds': round(lock_wait, 1), 'copy_seconds': round(copy, 1),
+           'overhead_seconds': round(max(0.0, active - lock_wait - copy - synth), 1)}
+    if synth:
+        out['synth_seconds'] = round(synth, 1)
+    return out
+
+
+def run_plan(plan_id: int, policy_id: int | None = None, occurrence=None, full: str | None = None) -> None:
+    """Scheduler entry point: dispatch on the plan's mode. A policy run names its policy and occurrence,
+    and for backups what its full rule says (see incremental.plan_point)."""
     plan = db.get_schedule(plan_id)
     if plan is None:
         log.warning('Plan %s no longer exists, skipping', plan_id)
         return
     if plan.get('mode') == 'incremental':
         import incremental
-        incremental.run_incremental(plan_id)
+        incremental.run_incremental(plan_id, policy_id, occurrence, full)
     else:
-        run_export(plan_id)
+        run_export(plan_id, policy_id, occurrence)
 
 
 # --------------------------------------------------------------------- export
-def run_export(schedule_id: int) -> None:
+def run_export(schedule_id: int, policy_id: int | None = None, occurrence=None) -> None:
     """Entry point for the scheduler and the 'Run now' button."""
     sched = db.get_schedule(schedule_id)
     if sched is None:
@@ -271,7 +307,7 @@ def run_export(schedule_id: int) -> None:
         log.warning('Schedule %s (%s) still has a run in progress, skipping', schedule_id, sched['vm_name'])
         return
 
-    run_id = db.start_run(schedule_id)
+    run_id = db.start_run(schedule_id, policy_id, occurrence)
     db.update_run(run_id, mode='export')
     folder = f"{safe_name(sched['vm_name'])}_{datetime.now().strftime(TIMESTAMP_FMT)}"
     try:
@@ -296,9 +332,13 @@ def run_export(schedule_id: int) -> None:
             ensure_smb_dir(base, loc['user'], loc['password'] or None)
         elif loc.get('prune_path'):
             Path(loc['prune_path']).mkdir(parents=True, exist_ok=True)
+        work_started = _now()
+        db.update_run(run_id, work_started_at=work_started)
         task_tag = retry_transient(lambda: hc.export_vm(sched['vm_uuid'], path_uri, compress=bool(sched['compress'])), 'export')
         db.update_run(run_id, task_tag=task_tag)
+        copy_t0 = time.monotonic()
         wait_for_task(hc, task_tag, lambda state, pct: db.update_run(run_id, message=f'{state} {pct}%'))
+        copy_s = time.monotonic() - copy_t0
     except HyperCoreError as e:
         db.update_run(run_id, status='ERROR', message=str(e), finished_at=_now())
         log.error('[run %s] Export failed: %s', run_id, e)
@@ -309,7 +349,9 @@ def run_export(schedule_id: int) -> None:
         return
 
     prune_msg = prune_old_exports(sched)
-    db.update_run(run_id, status='COMPLETE', finished_at=_now(), message=f'Export complete. {prune_msg}')
+    end = _now()
+    db.update_run(run_id, status='COMPLETE', finished_at=end, message=f'Export complete. {prune_msg}',
+                  **run_timing(work_started, copy=copy_s, end=end))
     log.info('[run %s] Done. %s', run_id, prune_msg)
 
 

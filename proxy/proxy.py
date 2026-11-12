@@ -24,10 +24,10 @@ import tls
 
 
 def main() -> None:
-    log.configure(level=os.getenv('PROXY_LOG_LEVEL', 'INFO'))
-    logger = logging.getLogger('proxy.main')
     cfg = config.load()
     os.makedirs(cfg.data_dir, exist_ok=True)
+    log.configure(level=os.getenv('PROXY_LOG_LEVEL', 'INFO'), log_dir=os.path.join(cfg.data_dir, 'logs'))
+    logger = logging.getLogger('proxy.main')
     if not cfg.api_token:
         logger.warning('PROXY_API_TOKEN is not set; REST API authentication is disabled')
     backend = images.make_backend(cfg.backend, cfg.nbd_slots, cfg.dev_dir, lazy_refcounts=cfg.qcow2_lazy_refcounts, cache=cfg.nbd_cache)

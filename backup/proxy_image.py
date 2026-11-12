@@ -103,8 +103,9 @@ def prepare(proxy_id: int, *, force: bool = False, client_factory=None, info=sta
     if p.get('kind') == 'local':
         return {'skipped': 'the proxy in this stack is updated with the stack'}
     if client_factory is None:
-        from incremental import proxy_client_for               # local import: incremental imports db and jobs
+        from incremental import ensure_reachable, proxy_client_for   # local import: incremental imports db and jobs
         client_factory = proxy_client_for
+        p = ensure_reachable(p)                                 # a proxy VM on DHCP may have a new address
     stack = info()
     if not stack.get('available'):
         raise ProxyError(f"the installation has no proxy image to push: {stack.get('detail') or 'the dashboard did not report one'}")

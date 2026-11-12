@@ -619,6 +619,33 @@
   .ex-badge.run { background: rgba(6,182,212,0.15); color: var(--accent-cyan); }
   .ex-badge.off { background: rgba(148,163,184,0.15); color: var(--text-muted); }
   .ex-badge.warn { background: rgba(245,158,11,0.15); color: var(--accent-amber); }
+  /* notice: more than info, less than a warning (a run that ran into a blackout or past the preferred finish) */
+  .ex-badge.notice { background: rgba(59,130,246,0.15); color: var(--accent-blue); }
+  .pol-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: var(--bg-nested); }
+  .pol-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .pol-name { font-weight: 600; font-size: 14px; color: var(--text-primary); }
+  .pol-meta { font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.6; }
+  .pol-meta b { color: var(--text-secondary); font-weight: 500; }
+  .pol-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px; }
+  .pol-days { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+  .pol-days label { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; margin: 0; color: var(--text-secondary); }
+  .pol-blackout { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+  .pol-blackout input[type=time] { padding: 5px 8px; border-radius: 6px; font-size: 12px;
+    background: var(--bg-input, var(--bg-primary)); border: 1px solid var(--border); color: var(--text-primary); }
+  .pol-preview { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.7; }
+  .pol-tl { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .pol-tl-row { display: grid; grid-template-columns: 180px 1fr 150px; gap: 10px; align-items: center; font-size: 11px; padding: 3px 0; }
+  .pol-tl-track { position: relative; height: 14px; background: var(--bg-primary); border-radius: 3px; }
+  .pol-tl-bar { position: absolute; top: 2px; bottom: 2px; min-width: 3px; border-radius: 2px; background: var(--accent-cyan); opacity: 0.85; }
+  .pol-tl-bar.learning { background: var(--accent-purple); }
+  .pol-tl-bar.done { background: var(--accent-green); }
+  .pol-tl-bar.failed { background: var(--accent-red); }
+  .pol-tl-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; }
+  .pol-tl-mark.target { background: var(--accent-amber); }
+  .pol-tl-mark.finish { background: var(--accent-red); opacity: 0.7; }
+  .pol-tl-mark.now { background: var(--text-secondary); opacity: 0.6; }
+  .pol-tl-axis { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); }
+  @media (max-width: 760px) { .pol-tl-row { grid-template-columns: 1fr; } }
   .ex-preflight { display: none; margin: 0 0 12px 0; padding: 12px 16px; border-radius: 8px; font-size: 13px; line-height: 1.5; border: 1px solid; }
   .ex-preflight.visible { display: block; }
   .ex-preflight.update { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.5); color: var(--text-primary); }
@@ -669,6 +696,12 @@
   .community-notice-body { font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
   .community-notice-body a { color: var(--accent-cyan); }
   .community-notice-actions { display: flex; justify-content: flex-end; }
+  .cluster-notice { background: none; border: none; cursor: pointer; color: var(--accent-amber); font-size: 14px; line-height: 1; padding: 0 2px; vertical-align: baseline; }
+  .cluster-notice:hover { filter: brightness(1.25); }
+  .cluster-notice-body { font-size: 13px; line-height: 1.55; color: var(--text-primary); }
+  .cluster-notice-mute { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); justify-content: flex-end; }
+  .cluster-notice-mute input { width: 64px; padding: 4px 6px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-active); border-radius: 6px; }
+  .cluster-notice-msg { font-size: 12px; color: var(--accent-red); min-height: 1em; text-align: right; }
   .update-modal-backdrop {
     display: none; position: fixed; inset: 0; z-index: 10200;
     background: rgba(0,0,0,0.7); backdrop-filter: blur(2px);
@@ -692,6 +725,28 @@
     font-size: 18px; padding: 2px 6px; border-radius: 4px; line-height: 1;
   }
   .update-modal-close:hover { color: var(--text-primary); }
+  /* file browser of a restore point: fixed size, only the listing scrolls */
+  .flr-modal { width: min(1100px, 94vw); max-width: none; min-width: 0; height: min(720px, 86vh); padding: 18px 22px; gap: 10px; }
+  .flr-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .flr-list { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .flr-list .um-table { margin: 0; }
+  #flrMsg:empty { display: none; }
+  /* unlock form for encrypted volumes: read at a glance, about twice the size of the list text */
+  .flr-unlock { padding: 24px 28px; max-width: 860px; font-size: 16px; }
+  .flr-unlock-title { font-size: 22px; font-weight: 600; margin-bottom: 12px; }
+  .flr-unlock ul { margin: 0 0 18px 22px; padding: 0; }
+  .flr-unlock li { margin-bottom: 10px; }
+  .flr-unlock-keyid { font-family: 'JetBrains Mono', monospace; font-size: 14px; margin-top: 4px; }
+  .flr-unlock label { display: block; font-size: 14px; color: var(--text-muted); margin-bottom: 6px; }
+  .flr-unlock textarea { width: 100%; box-sizing: border-box; font-family: 'JetBrains Mono', monospace; font-size: 15px; padding: 8px 10px; }
+  .flr-unlock-hint { font-size: 13px; line-height: 1.5; color: var(--text-muted); margin-top: 8px; }
+  .flr-unlock .update-apply-btn.flr-unlock-btn { font-size: 15px; padding: 9px 22px; }
+  /* a point with readable and still-locked volumes: the bar above the list must not be missed */
+  .flr-locked-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 14px 18px; font-size: 20px;
+                    border-bottom: 1px solid var(--border); border-left: 4px solid var(--accent-amber, #f59e0b); }
+  .flr-locked-bar .update-apply-btn.flr-unlock-btn { font-size: 15px; padding: 9px 22px; }
+  .flr-skipped { padding: 8px 18px; font-size: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border); word-break: break-word; }
+  .flr-list .loading, .flr-list .empty-state { height: 100%; }
   .update-meta {
     display: flex; gap: 20px; font-family: 'JetBrains Mono', monospace;
     font-size: 11px; color: var(--text-muted); flex-wrap: wrap;
@@ -949,6 +1004,7 @@
   }
   .um-action-btn:hover { border-color: var(--border-active); color: var(--text-primary); }
   .um-action-btn.danger:hover { border-color: rgba(239,68,68,0.5); color: #ef4444; background: rgba(239,68,68,0.08); }
+  .um-action-btn:disabled, .um-action-btn:disabled:hover { opacity: 0.45; cursor: not-allowed; border-color: var(--border); color: var(--text-muted); background: var(--bg-nested); }
   .um-add-row {
     display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     padding: 12px 0 4px; border-top: 1px solid var(--border); margin-top: 12px;
@@ -1403,14 +1459,16 @@
   <!-- ─── Exports tab (optional `exports` profile) ─── -->
   <div class="tab-content" id="tab-exports">
     <div class="exports-sub-nav">
-      <div class="exports-sub-tab active" data-expanel="schedules" data-i18n="ex.tab.schedules" onclick="switchExportsPanel('schedules')">Plans</div>
+      <div class="exports-sub-tab active" data-expanel="policies"  data-i18n="ex.tab.policies"  onclick="switchExportsPanel('policies')">Schedules</div>
+      <div class="exports-sub-tab"        data-expanel="schedules" data-i18n="ex.tab.schedules" onclick="switchExportsPanel('schedules')">Plans</div>
       <div class="exports-sub-tab"        data-expanel="vms"       data-i18n="ex.tab.vms"       onclick="switchExportsPanel('vms')">VMs</div>
       <div class="exports-sub-tab"        data-expanel="import"    data-i18n="ex.tab.import"    onclick="switchExportsPanel('import')">Import</div>
       <div class="exports-sub-tab"        data-expanel="points"    data-i18n="ex.tab.points"    onclick="switchExportsPanel('points')">Restore points</div>
       <div class="exports-sub-tab"        data-expanel="runs"      data-i18n="ex.tab.runs"      onclick="switchExportsPanel('runs')">Runs</div>
     </div>
     <div class="ex-preflight" id="exPreflightBanner" role="alert"></div>
-    <div class="exports-panel active" id="expanel-schedules"></div>
+    <div class="exports-panel active" id="expanel-policies"></div>
+    <div class="exports-panel" id="expanel-schedules"></div>
     <div class="exports-panel" id="expanel-points"></div>
     <div class="exports-panel" id="expanel-vms"></div>
     <div class="exports-panel" id="expanel-import"></div>
@@ -3731,6 +3789,7 @@ async function _loadProxiesPanel() {
         <button class="um-action-btn" onclick="pxTest(${p.id})">${t('clusters.test')}</button>
         <button class="um-action-btn" onclick="pxToggle(${p.id}, ${p.enabled ? 'false' : 'true'})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
         <button class="um-action-btn" onclick="pxBench(${p.id})" title="${_clEsc(t('proxies.bench_hint'))}">${t('proxies.bench')}</button>
+        <button class="um-action-btn" onclick="pxLogs(${p.id}, this)" title="${_clEsc(t('proxies.logs_hint'))}">${t('proxies.logs')}</button>
         <button class="um-action-btn danger" onclick="pxRemove(${p.id}, '${_clEsc(p.name)}', '${_clEsc(p.vm_uuid || '')}', '${_clEsc(p.kind || '')}')">${t('clusters.remove')}</button>
         <div class="cl-msg" id="px-${p.id}-msg"></div>
       </td>
@@ -3803,7 +3862,7 @@ async function pxAdd() {
 }
 async function pxTest(id) {
   _shMsg(`px-${id}-msg`, t('clusters.testing'), '');
-  try { const d = await _exCall('POST', `/api/backup/proxies/${id}/test`); _shMsg(`px-${id}-msg`, d.ok ? t('proxies.added_ok', {vm: d.vm ? d.vm.name : '?'}) : (d.detail || d.error || ''), d.ok ? 'ok' : 'err'); await _loadProxiesPanel(); }
+  try { const d = await _exCall('POST', `/api/backup/proxies/${id}/test`); _shMsg(`px-${id}-msg`, d.ok ? (d.moved ? t('proxies.moved_ok', {vm: d.vm ? d.vm.name : '?', from: d.moved.from, to: d.moved.to}) : t('proxies.added_ok', {vm: d.vm ? d.vm.name : '?'})) : (d.detail || d.error || ''), d.ok ? 'ok' : 'err'); await _loadProxiesPanel(); }
   catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
 }
 async function pxBench(id) {
@@ -3823,6 +3882,26 @@ async function pxBench(id) {
     const detail = Object.entries(modes).map(([k, v]) => `${k} ${v.mib_s != null ? v.mib_s : (v.skipped ? '–' : 'error')}`).join(' · ');
     _shMsg(`px-${id}-msg`, t('proxies.bench_result', {target: s.target || '?', size: d.result.size_mib, detail}), 'ok');
   } catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
+}
+async function pxLogs(id, btn) {
+  // the proxy's support bundle (zip): log, recent jobs, open mounts, kernel messages and devices
+  btn.disabled = true; _shMsg(`px-${id}-msg`, t('proxies.logs_busy'), 'ok');
+  try {
+    const resp = await fetch(`${API_BASE}/api/backup/proxies/${id}/logs`);
+    if (!resp.ok) {
+      let detail = `HTTP ${resp.status}`;
+      try { const j = await resp.json(); detail = j.error || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const m = /filename="?([^";]+)"?/.exec(cd);
+    const url = URL.createObjectURL(await resp.blob());
+    const a = document.createElement('a');
+    a.href = url; a.download = m ? m[1] : `hcm-proxy-${id}-logs.zip`; a.click();
+    URL.revokeObjectURL(url);
+    _shMsg(`px-${id}-msg`, '', 'ok');
+  } catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
+  finally { btn.disabled = false; }
 }
 async function pxToggle(id, enabled) { try { await _exCall('PUT', `/api/backup/proxies/${id}`, {enabled}); await _loadProxiesPanel(); } catch (e) { showToast(e.message, 'err'); } }
 function _pxUpdateCell(p, stackImage) {
@@ -4609,7 +4688,7 @@ function _renderClusterRail(enabled) {
     <div class="cluster-item ${c.cluster_id === currentCluster ? 'active' : ''}" onclick="selectCluster('${c.cluster_id}')" title="${_clEsc(c.host)}">
       <span class="cluster-dot" style="background:${_clColour(c, i)}"></span>
       <div style="min-width:0;flex:1;">
-        <div class="cluster-item-name">${_clEsc(c.name)}${dupIds.has(c.cluster_id) ? ' <span title="' + _clEsc(t('clusters.dup_short')) + '" style="color:var(--accent-amber)">⚠</span>' : ''}</div>
+        <div class="cluster-item-name">${_clEsc(c.name)}${dupIds.has(c.cluster_id) ? ' <span title="' + _clEsc(t('clusters.dup_short')) + '" style="color:var(--accent-amber)">⚠</span>' : ''}${_activeNotice(c.cluster_id) ? ` <button class="cluster-notice" title="${_clEsc(t('notice.update_terminated_title'))}" onclick="event.stopPropagation(); openClusterNotice('${c.cluster_id}')">⚠</button>` : ''}</div>
         <div class="cluster-item-sub ${c.last_error ? 'err' : ''}">${c.last_error ? t('clusters.status_error') : _clAgo(c.last_seen_at)}</div>
         <div class="cluster-item-sub" style="display:flex;gap:6px;margin-top:3px;">
           ${c.dry_run === null || c.dry_run === undefined ? '' : `<span style="color:${c.dry_run ? 'var(--accent-amber)' : 'var(--accent-green)'}">${c.dry_run ? t('clusters.mode_dry') : t('clusters.mode_live')}</span>`}
@@ -5225,6 +5304,7 @@ async function _exProbe() {
   const tab = document.getElementById('navTabExports');
   if (tab) tab.hidden = !_exAvailable;
   _exPreflightBanner(d && d.available ? d.preflight : null);
+  loadClusterNotices();
   return _exAvailable;
 }
 // cluster self-update or a node missing: HyperCore cannot snapshot, so every backup, export and
@@ -5242,10 +5322,60 @@ function _exPreflightBanner(pf) {
 }
 document.addEventListener('DOMContentLoaded', () => { setTimeout(_exProbe, 800); setInterval(_exProbe, 120000); });
 
+// cluster notices: warnings that block nothing (a terminated HyperCore update), shown as a warning
+// sign on the cluster's card; a notice can be muted for some days, for every user
+var _clusterNotices = {};   // var: the rail can render before this line has run
+let _noticeOpen = null;
+function _activeNotice(cid) {
+  return (_clusterNotices[cid] || []).find(n => !n.muted_until) || null;
+}
+async function loadClusterNotices() {
+  const enabled = CLUSTERS.filter(c => c.enabled);
+  if (!_exAvailable || !enabled.length) { _clusterNotices = {}; return; }
+  const pairs = await Promise.all(enabled.map(c =>
+    apiFetch(`/api/backup/notices?cluster=${encodeURIComponent(c.cluster_id)}`).then(d => [c.cluster_id, (d && d.notices) || []])));
+  const next = Object.fromEntries(pairs);
+  if (JSON.stringify(next) === JSON.stringify(_clusterNotices)) return;
+  _clusterNotices = next;
+  _renderClusterRail(enabled);
+}
+function openClusterNotice(cid) {
+  const n = _activeNotice(cid);
+  if (!n) return;
+  _noticeOpen = {cid, key: n.key};
+  const c = CLUSTERS.find(x => x.cluster_id === cid);
+  document.getElementById('clusterNoticeTitle').textContent = t('notice.update_terminated_title') + (c ? ` · ${c.name}` : '');
+  const detail = (n.detail || '').charAt(0).toUpperCase() + (n.detail || '').slice(1);
+  document.getElementById('clusterNoticeBody').innerHTML = t('notice.update_terminated', {detail: _exEsc(detail)});
+  document.getElementById('clusterNoticeMsg').textContent = '';
+  document.getElementById('clusterNoticeBackdrop').classList.add('visible');
+}
+function closeClusterNotice(e) {
+  if (e && e.target !== document.getElementById('clusterNoticeBackdrop')) return;
+  document.getElementById('clusterNoticeBackdrop').classList.remove('visible');
+  _noticeOpen = null;
+}
+async function muteClusterNotice() {
+  if (!_noticeOpen) return;
+  const days = parseInt(document.getElementById('clusterNoticeDays').value, 10);
+  const msg = document.getElementById('clusterNoticeMsg');
+  if (!(days >= 1 && days <= 365)) { msg.textContent = t('notice.days_range'); return; }
+  try {
+    const r = await fetch(`${API_BASE}/api/backup/notices/mute?cluster=${encodeURIComponent(_noticeOpen.cid)}`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key: _noticeOpen.key, days})});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  } catch (e) { msg.textContent = e.message; return; }
+  (_clusterNotices[_noticeOpen.cid] || []).forEach(n => { if (n.key === _noticeOpen.key) n.muted_until = 'muted'; });
+  document.getElementById('clusterNoticeBackdrop').classList.remove('visible');
+  _noticeOpen = null;
+  _renderClusterRail(CLUSTERS.filter(c => c.enabled));
+}
+
 async function _exCall(method, path, body) {
   const r = await fetch(_withCluster(path), { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  if (!r.ok) { const err = new Error(d.error || `HTTP ${r.status}`); err.status = r.status; err.data = d; throw err; }
   return d;
 }
 const _exEsc = v => _clEsc(v);
@@ -5264,6 +5394,7 @@ function switchExportsPanel(p) {
   document.querySelectorAll('.exports-panel').forEach(e => e.classList.remove('active'));
   document.querySelector(`[data-expanel="${p}"]`)?.classList.add('active');
   document.getElementById(`expanel-${p}`)?.classList.add('active');
+  if (p === 'policies')  exLoadPolicies();
   if (p === 'schedules') exLoadSchedules();
   if (p === 'vms')       exLoadVms();
   if (p === 'import')    exLoadImport();
@@ -5273,10 +5404,10 @@ function switchExportsPanel(p) {
 
 async function loadExports() {
   if (!(await _exProbe())) {
-    document.getElementById('expanel-schedules').innerHTML = `<div class="empty-state">${t('ex.unavailable')}</div>`;
+    document.getElementById('expanel-policies').innerHTML = `<div class="empty-state">${t('ex.unavailable')}</div>`;
     return;
   }
-  const p = document.querySelector('.exports-sub-tab.active')?.dataset.expanel || 'schedules';
+  const p = document.querySelector('.exports-sub-tab.active')?.dataset.expanel || 'policies';
   switchExportsPanel(p);
 }
 
@@ -5297,8 +5428,8 @@ async function exLoadSchedules() {
         <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="qcow2 compression">zip</span>` : ''}<div><span class="ex-badge ${s.mode === 'incremental' ? 'run' : 'off'}" title="${_exEsc(t('ex.f_mode'))}">${t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')}</span></div></td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_exLocation ? `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/` : _exEsc(s.effective_base || s.path_uri_base || '—')}</td>
         <td><span class="ex-slots">${'<i></i>'.repeat(Math.min(s.retention, 14))}</span><span style="font-size:11px;color:var(--text-muted)">×${s.retention}${s.retention_days ? ` / ${s.retention_days}d` : ''}${s.mode === 'incremental' ? ` · ${t('ex.full_every', {n: s.full_every_n})}` : ''}</span></td>
-        <td style="font-family:'JetBrains Mono',monospace;">${_exTimeLabel(s.run_time, s.timezone)}</td>
-        <td>${s.last_run ? `${_exStatusBadge(s.last_run.status, s.last_run.message)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(s.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
+        <td style="font-family:'JetBrains Mono',monospace;">${s.policy_id ? `<span class="ex-badge run" title="${_exEsc(t('ex.pol_member_hint'))}">${t('ex.pol_member_of', {name: _exEsc(s.policy_name || '')})}</span>` : _exTimeLabel(s.run_time, s.timezone)}</td>
+        <td>${s.last_run ? `${_exStatusBadge(s.last_run.status, s.last_run.message)}${s.last_run.notice ? ' ' + _exNoticeBadge(s.last_run.notice) : ''}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(s.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted)">${_exFmt(s.next_run)}</td>
         <td style="white-space:nowrap;">${admin ? `
           <button class="um-action-btn" onclick="exRunNow(${s.id})" ${s.enabled ? '' : 'disabled'}>${t('ex.run_now')}</button>
@@ -5315,6 +5446,383 @@ async function exRemove(id, name) {
   try { await _exCall('DELETE', `/api/backup/plans/${id}`); exLoadSchedules(); } catch (e) { showToast(e.message, 'err'); }
 }
 function exHistory(id) { _exRunsFilter = id; switchExportsPanel('runs'); }
+
+// ── backup schedules (policies) ─────────────────────────────────────────────
+// A schedule belongs to the folder of the selected cluster and holds VMs of every cluster in it;
+// VMs are added from the cluster they live on. Times are read in the schedule's own zone.
+const _POL_DAYS = ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su'];
+const _POL_BDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+let _polData = { policies: [] };
+let _polEditing = null;            // policy id being edited, 'new-incremental' / 'new-export', or null
+let _polMembersOpen = null;
+let _polNightOpen = null;          // [policy id, 'current' | 'next'] whose night plan is shown
+
+const _polDayName = d => t(`ex.pol_day_${d}`);
+const _polNth = n => t(`ex.pol_nth_${n === '-1' ? 'last' : n}`);
+// rule <-> builder: daily, weekly (interval + days), monthly on the nth weekday, monthly on a day, custom
+function _polParseRule(rule) {
+  const parts = Object.fromEntries((rule || '').split(';').filter(Boolean).map(x => x.split('=')));
+  const keys = Object.keys(parts).filter(k => k !== 'FREQ' && k !== 'INTERVAL' && k !== 'BYDAY' && k !== 'BYMONTHDAY');
+  const interval = parseInt(parts.INTERVAL || '1', 10);
+  if (keys.length) return { preset: 'custom' };
+  if (parts.FREQ === 'HOURLY') return parts.BYDAY || parts.BYMONTHDAY ? { preset: 'custom' } : { preset: 'hourly', interval };
+  if (parts.FREQ === 'DAILY' && !parts.BYDAY && !parts.BYMONTHDAY) return { preset: 'daily', interval };
+  if (parts.FREQ === 'WEEKLY' && !parts.BYMONTHDAY) {
+    const days = (parts.BYDAY || '').toLowerCase().split(',').filter(d => _POL_DAYS.includes(d));
+    if (days.length === (parts.BYDAY || '').split(',').filter(Boolean).length) return { preset: 'weekly', interval, days };
+  }
+  if (parts.FREQ === 'MONTHLY' && interval === 1) {
+    const m = /^(-1|[1-4])(MO|TU|WE|TH|FR|SA|SU)$/.exec(parts.BYDAY || '');
+    if (m && !parts.BYMONTHDAY) return { preset: 'monthly_nth', nth: m[1], weekday: m[2].toLowerCase() };
+    if (!parts.BYDAY && /^\d+$/.test(parts.BYMONTHDAY || '')) return { preset: 'monthly_day', monthday: parseInt(parts.BYMONTHDAY, 10) };
+  }
+  return { preset: 'custom' };
+}
+function _polDescribe(rule) {
+  const r = _polParseRule(rule);
+  if (r.preset === 'hourly') return r.interval > 1 ? t('ex.pol_desc_every_n_hours', {n: r.interval}) : t('ex.pol_desc_hourly');
+  if (r.preset === 'daily') return r.interval > 1 ? t('ex.pol_desc_every_n_days', {n: r.interval}) : t('ex.pol_desc_daily');
+  if (r.preset === 'weekly') {
+    const days = r.days.length === 5 && !r.days.includes('sa') && !r.days.includes('su') ? t('ex.pol_weekdays') : r.days.map(_polDayName).join(', ');
+    return r.interval > 1 ? t('ex.pol_desc_every_n_weeks', {n: r.interval, days}) : t('ex.pol_desc_weekly', {days});
+  }
+  if (r.preset === 'monthly_nth') return t('ex.pol_desc_monthly_nth', {nth: _polNth(r.nth), day: _polDayName(r.weekday)});
+  if (r.preset === 'monthly_day') return t('ex.pol_desc_monthly_day', {n: r.monthday});
+  return rule;
+}
+function _polWhen(iso, tz) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const zone = d.toLocaleString('en-GB', {timeZone: tz, weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'});
+  return tz && tz !== _exViewerZone() ? `${_exEsc(zone)} <span style="opacity:0.7">(${t('ex.your_time', {time: d.toLocaleString('en-GB', {hour: '2-digit', minute: '2-digit'})})})</span>` : _exEsc(zone);
+}
+function _polBlackoutText(b) {
+  const days = b.days.length === 7 ? t('ex.pol_every_day') : b.days.map(d => _polDayName(d.slice(0, 2))).join(', ');
+  return `${days} ${_exEsc(b.from)}–${_exEsc(b.to)}`;
+}
+
+const _polIsHourly = p => /FREQ=HOURLY/.test(p.rrule || '');
+// an occurrence is the moment its window opened: hourly schedules show it in full, others by day
+function _polOcc(iso, p) {
+  if (!iso) return '—';
+  if (_polIsHourly(p)) return _polWhen(iso, p.timezone);
+  return _exEsc(new Date(iso).toLocaleDateString('en-CA', {timeZone: p.timezone || undefined}));
+}
+
+async function exLoadPolicies() {
+  const el = document.getElementById('expanel-policies');
+  try { _polData = await _exCall('GET', '/api/backup/policies'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  const scope = _polData.folder_name ? t('ex.pol_scope_folder', {folder: _exEsc(_polData.folder_name)}) : t('ex.pol_scope_unfiled');
+  const section = (kind) => {
+    const rows = _polData.policies.filter(p => p.kind === kind);
+    const title = kind === 'incremental' ? t('ex.pol_backup_schedules') : t('ex.pol_export_schedules');
+    const disabled = kind === 'incremental' && !_exDefaults.proxies;
+    return `<div class="settings-group">
+      <div class="settings-group-header"><div class="chart-title-dot" style="background:${kind === 'incremental' ? 'var(--accent-cyan)' : 'var(--accent-purple)'}"></div>
+        <span class="settings-group-title">${title}</span>
+        <button class="um-action-btn" onclick="exPolicyEdit('new-${kind}')" ${disabled ? `disabled title="${_exEsc(t('ex.mode_hint_no_proxy'))}"` : ''}>${t('ex.pol_new')}</button></div>
+      ${_polEditing === `new-${kind}` ? _polForm(null, kind) : ''}
+      ${rows.length ? rows.map(_polCard).join('') : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.pol_none')}</div>`}
+    </div>`;
+  };
+  el.innerHTML = `${_exLocationLine(null)}<div class="ex-hint" style="margin-bottom:10px;">${scope} ${t('ex.pol_intro')}</div>` + section('incremental') + section('export');
+  if (_polEditing) _polFormInit(_polEditing);
+  if (_polMembersOpen) exPolicyMembers(_polMembersOpen, true);
+  if (_polNightOpen) exPolicyNight(_polNightOpen[0], _polNightOpen[1], true);
+}
+const _polHM = (iso, tz) => iso ? new Date(iso).toLocaleTimeString('en-GB', {timeZone: tz || undefined, hour: '2-digit', minute: '2-digit'}) : '—';
+const _polDur = sec => sec == null ? '—' : sec < 90 ? `${Math.round(sec)} s` : sec < 5400 ? `${Math.round(sec / 60)} min` : `${(sec / 3600).toFixed(1)} h`;
+function _polNightLine(p) {
+  const n = p.night;
+  if (!n) return '';
+  const when = _polIsHourly(p) ? (n.open ? t('ex.pol_occ_now') : t('ex.pol_occ_next', {time: _polOcc(n.occurrence, p)}))
+    : n.open ? t('ex.pol_night_tonight') : t('ex.pol_night_next', {date: _polOcc(n.occurrence, p)});
+  const learning = n.members - n.learned;
+  const state = n.learned === 0 ? t('ex.pol_night_learning_all')
+    : n.overrun_seconds > 0 ? `<span class="ex-badge notice">${t('ex.pol_night_overrun', {time: _polHM(n.end, p.timezone), n: Math.round(n.overrun_seconds / 60)})}</span>`
+    : _polIsHourly(p) ? t('ex.pol_occ_done_by', {time: _polHM(n.end, p.timezone)})
+    : t('ex.pol_night_done_by', {time: _polHM(n.end, p.timezone), buffer: p.buffer_minutes});
+  return `<br>${when}${n.full ? ` <span class="ex-badge ok">${t('ex.pol_full_night')}</span>` : ''}: ${state}${learning && n.learned ? ` · ${t('ex.pol_night_still_learning', {n: learning})}` : ''}`;
+}
+async function exPolicyNight(id, which, keep) {
+  const box = document.getElementById(`pol-night-${id}`);
+  if (!box) return;
+  if (!keep && _polNightOpen && _polNightOpen[0] === id && _polNightOpen[1] === which) { _polNightOpen = null; box.innerHTML = ''; return; }
+  _polNightOpen = [id, which];
+  const p = _polData.policies.find(x => x.id === id);
+  let n;
+  try { n = await _exCall('GET', `/api/backup/policies/${id}/night?which=${which}`); } catch (e) { box.innerHTML = `<div class="cl-msg err">${_exEsc(e.message)}</div>`; return; }
+  if (!n || !n.items.length) { box.innerHTML = `<div class="pol-tl" style="color:var(--text-muted);font-size:12px;">${t('ex.pol_no_members')}</div>`; return; }
+  const tz = p.timezone;
+  const t0 = new Date(n.opens).getTime();
+  const t1 = Math.max(new Date(n.finish).getTime(), new Date(n.end).getTime(), ...n.items.map(i => i.run && i.run.finished_at ? new Date(i.run.finished_at).getTime() : 0)) + 15 * 60000;
+  const pct = iso => Math.max(0, Math.min(100, (new Date(iso).getTime() - t0) / (t1 - t0) * 100));
+  const mark = (iso, cls, title) => `<div class="pol-tl-mark ${cls}" style="left:${pct(iso)}%" title="${_exEsc(title)}"></div>`;
+  const marks = mark(n.target, 'target', t('ex.pol_tl_target', {time: _polHM(n.target, tz)})) + mark(n.finish, 'finish', t('ex.pol_tl_finish', {time: _polHM(n.finish, tz)}))
+    + (n.open ? mark(new Date().toISOString(), 'now', t('ex.pol_tl_now')) : '');
+  const rows = n.items.map(i => {
+    const r = i.run;
+    const start = r && (r.work_started_at || r.started_at) ? (r.work_started_at || r.started_at) : i.planned_start;
+    const end = r && r.finished_at ? r.finished_at : (r ? new Date(Math.max(Date.now(), new Date(i.predicted_finish).getTime())).toISOString() : i.predicted_finish);
+    const cls = r ? (r.status === 'COMPLETE' ? 'done' : r.status === 'ERROR' ? 'failed' : '') : (i.learned ? '' : 'learning');
+    const status = r ? `${_exStatusBadge(r.status, '')}${r.notice ? ' ' + _exNoticeBadge(r.notice) : ''}`
+      : i.learned ? t('ex.pol_tl_planned', {start: _polHM(i.planned_start, tz), dur: _polDur(i.seconds)})
+      : t('ex.pol_tl_learning', {n: i.samples, of: i.needed || 5});
+    return `<div class="pol-tl-row"><div class="um-username" title="${_exEsc(i.cluster_name || '')}">${_exEsc(i.vm_name)} <span style="color:var(--text-muted);font-size:10px;">${_exEsc(i.cluster_name || '')} · ${t('ex.pol_tl_slot', {n: i.slot + 1})}</span></div>
+      <div class="pol-tl-track">${marks}<div class="pol-tl-bar ${cls}" style="left:${pct(start)}%;width:${Math.max(0.4, pct(end) - pct(start))}%" title="${_exEsc(_polHM(start, tz) + ' – ' + _polHM(end, tz))}"></div></div>
+      <div style="color:var(--text-muted);">${status}</div></div>`;
+  }).join('');
+  box.innerHTML = `<div class="pol-tl">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px;font-size:12px;">
+      <b>${_polIsHourly(p) ? (n.open ? t('ex.pol_occ_now') : t('ex.pol_occ_next', {time: _polOcc(n.occurrence, p)})) : n.open ? t('ex.pol_night_tonight') : t('ex.pol_night_next', {date: _polOcc(n.occurrence, p)})}</b>
+      <span style="color:var(--text-muted);font-size:11px;">${t('ex.pol_tl_legend', {target: _polHM(n.target, tz), finish: _polHM(n.finish, tz), end: _polHM(n.end, tz)})}</span>
+      <span style="margin-left:auto;display:flex;gap:4px;">
+        <button class="um-action-btn" onclick="exPolicyNight(${id}, 'current', true)" ${which === 'current' ? 'disabled' : ''}>${t('ex.pol_tl_current')}</button>
+        <button class="um-action-btn" onclick="exPolicyNight(${id}, 'next', true)" ${which === 'next' ? 'disabled' : ''}>${t('ex.pol_tl_next')}</button></span></div>
+    ${rows}
+    <div class="pol-tl-row"><div></div><div class="pol-tl-axis"><span>${_polHM(n.opens, tz)}</span><span>${_polHM(new Date((t0 + t1) / 2).toISOString(), tz)}</span><span>${_polHM(new Date(t1).toISOString(), tz)}</span></div><div></div></div>
+    <div class="ex-hint">${t('ex.pol_tl_hint')}</div></div>`;
+}
+
+function _polCard(p) {
+  const last = p.last_occurrence;
+  const st = last ? last.by_status || {} : {};
+  const lastLine = last ? `${t('ex.pol_last_night', {date: _polOcc(last.occurrence, p)})}: ${st.COMPLETE ? `<span class="ex-badge ok">${st.COMPLETE} ${t('ex.status_ok')}</span> ` : ''}${st.ERROR ? `<span class="ex-badge err">${st.ERROR} ${t('ex.status_failed')}</span> ` : ''}${st.SKIPPED ? `<span class="ex-badge warn">${st.SKIPPED} ${t('ex.status_deferred')}</span> ` : ''}${st.RUNNING ? `<span class="ex-badge run">${st.RUNNING} ${t('ex.status_running')}</span> ` : ''}${last.notices ? `<span class="ex-badge notice">${t('ex.pol_notices', {n: last.notices})}</span>` : ''}` : t('ex.pol_not_run_yet');
+  const next = (p.next || []).filter(w => !_polIsHourly(p) || new Date(w.opens) > new Date()).slice(0, 3).map(w => _polWhen(w.first_start || w.opens, p.timezone) + (w.full ? ` <span class="ex-badge ok">${t('ex.pol_full_night')}</span>` : '')).join(' · ');
+  return `<div class="pol-card">
+    <div class="pol-head">
+      <span class="pol-name">${_exEsc(p.name)}</span>
+      ${p.enabled ? '' : `<span class="ex-badge off">${t('ex.paused')}</span>`}
+      ${p.open_now && p.enabled ? `<span class="ex-badge run">${t('ex.pol_window_open')}</span>` : ''}
+      ${p.manual_at ? `<span class="ex-badge run" title="${_exEsc(t('ex.pol_manual_running_hint'))}">${t('ex.pol_manual_running')}</span>` : ''}
+      ${p.rule_error ? `<span class="ex-badge err" title="${_exEsc(p.rule_error)}">${t('ex.pol_rule_error')}</span>` : ''}
+      <span class="pol-actions">
+        <button class="um-action-btn" onclick="exPolicyMembers(${p.id})">${t('ex.pol_members', {n: p.members.length})}</button>
+        ${p.members.length ? `<button class="um-action-btn" onclick="exPolicyNight(${p.id}, 'current')">${t('ex.pol_night_plan')}</button>` : ''}
+        <button class="um-action-btn" onclick="exPolicyRunNow(${p.id}, '${_exEsc(p.name)}')" ${p.members.length && !p.manual_at ? '' : 'disabled'} title="${_exEsc(t('ex.pol_run_now_hint'))}">${t('ex.run_now')}</button>
+        <button class="um-action-btn" onclick="exPolicyEdit(${p.id})">${t('ex.pol_edit')}</button>
+        <button class="um-action-btn" onclick="exPolicyToggle(${p.id})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
+        <button class="um-action-btn danger" onclick="exPolicyDelete(${p.id}, '${_exEsc(p.name)}')">${t('ex.remove')}</button>
+      </span>
+    </div>
+    <div class="pol-meta">
+      <b>${_exEsc(_polDescribe(p.rrule))}</b> · ${_polIsHourly(p) ? t('ex.pol_hourly_window') : `${t('ex.pol_window', {open: _exTimeLabel(p.window_open, p.timezone), finish: _exEsc(p.preferred_finish)})} · ${t('ex.pol_buffer', {n: p.buffer_minutes})}`}
+      ${(p.blackouts || []).length ? `<br>${t('ex.pol_blackouts')}: ${p.blackouts.map(_polBlackoutText).join('; ')}` : ''}
+      <br>${t('ex.pol_keeps', {n: p.retention})}${p.retention_days ? ` / ${p.retention_days}d` : ''}${p.kind !== 'incremental' ? '' : p.full_rrule ? ` · ${t('ex.pol_full_rule', {rule: _exEsc(_polDescribe(p.full_rrule)), kind: t('ex.pol_full_kind_' + p.full_kind)})}` : ` · ${t('ex.full_every', {n: p.full_every_n})}`}${p.compress ? ' · zip' : ''}
+      <br>${t('ex.pol_next')}: ${next || '—'}${_polNightLine(p)}
+      <br>${lastLine}
+    </div>
+    ${_polEditing === p.id ? _polForm(p, p.kind) : ''}
+    <div id="pol-night-${p.id}"></div>
+    <div id="pol-members-${p.id}"></div>
+  </div>`;
+}
+
+function exPolicyEdit(id) { _polEditing = _polEditing === id ? null : id; _polMembersOpen = null; _polNightOpen = null; exLoadPolicies(); }
+
+function _polForm(p, kind) {
+  const f = `polf`;
+  const v = p || { name: '', rrule: 'FREQ=DAILY', window_open: '22:00', preferred_finish: '06:00', buffer_minutes: 60, blackouts: [],
+                   retention: kind === 'incremental' ? 14 : (_exDefaults.default_retention || 7), retention_days: null, full_every_n: 14,
+                   compress: false, timezone: _exClusterZone || _exViewerZone(), starts_on: '' };
+  const r = _polParseRule(v.rrule);
+  const dayBoxes = (cls, chosen) => `<span class="pol-days">${_POL_DAYS.map(d => `<label><input type="checkbox" class="${cls}" value="${d}" ${chosen.includes(d) ? 'checked' : ''}>${_polDayName(d)}</label>`).join('')}</span>`;
+  const zones = (Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : []).map(z => `<option value="${_exEsc(z)}">`).join('');
+  return `<div class="pol-form" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+    <div class="ex-form">
+      <div><label>${t('ex.pol_f_name')}</label><input type="text" id="${f}-name" maxlength="80" value="${_exEsc(v.name)}"></div>
+      <div><label>${t('ex.pol_f_repeat')}</label><select id="${f}-preset" onchange="_polPresetChanged()">
+        ${['hourly', 'daily', 'weekly', 'monthly_nth', 'monthly_day', 'custom'].map(x => `<option value="${x}" ${r.preset === x ? 'selected' : ''}>${t('ex.pol_preset_' + x)}</option>`).join('')}</select></div>
+      <div class="polp polp-hourly polp-daily polp-weekly"><label>${t('ex.pol_f_interval')}</label><input type="number" id="${f}-interval" min="1" max="168" value="${r.interval || 1}">
+        <div class="ex-hint polh polh-days">${t('ex.pol_f_interval_hint')}</div><div class="ex-hint polh polh-hours">${t('ex.pol_f_interval_hint_hours')}</div></div>
+      <div class="polp polp-weekly" style="grid-column:1/-1;"><label>${t('ex.pol_f_days')}</label>${dayBoxes('polf-day', r.days || ['mo', 'tu', 'we', 'th', 'fr'])}</div>
+      <div class="polp polp-monthly_nth"><label>${t('ex.pol_f_nth')}</label><select id="${f}-nth">${['1', '2', '3', '4', '-1'].map(n => `<option value="${n}" ${r.nth === n ? 'selected' : ''}>${_polNth(n)}</option>`).join('')}</select>
+        <select id="${f}-weekday" style="margin-top:4px;">${_POL_DAYS.map(d => `<option value="${d}" ${(r.weekday || 'su') === d ? 'selected' : ''}>${_polDayName(d)}</option>`).join('')}</select></div>
+      <div class="polp polp-monthly_day"><label>${t('ex.pol_f_monthday')}</label><input type="number" id="${f}-monthday" min="1" max="31" value="${r.monthday || 1}"></div>
+      <div class="polp polp-custom" style="grid-column:1/-1;"><label>${t('ex.pol_f_rrule')}</label><input type="text" id="${f}-rrule" value="${_exEsc(v.rrule)}" placeholder="FREQ=MONTHLY;BYDAY=-1SU">
+        <div class="ex-hint">${t('ex.pol_f_rrule_hint')}</div></div>
+      <div class="polp polp-hourly polp-daily polp-weekly"><label>${t('ex.pol_f_starts_on')}</label><input type="text" id="${f}-starts_on" placeholder="YYYY-MM-DD" value="${_exEsc(v.starts_on || '')}">
+        <div class="ex-hint">${t('ex.pol_f_starts_on_hint')}</div></div>
+    </div>
+    <div class="ex-hint polw-hourly" style="margin:6px 0;">${t('ex.pol_f_hourly_window')}</div>
+    <div class="ex-form">
+      <div class="polw"><label>${t('ex.pol_f_window_open')}</label><input type="time" id="${f}-window_open" value="${_exEsc(v.window_open)}"><div class="ex-hint">${t('ex.pol_f_window_open_hint')}</div></div>
+      <div class="polw"><label>${t('ex.pol_f_finish')}</label><input type="time" id="${f}-preferred_finish" value="${_exEsc(v.preferred_finish)}"><div class="ex-hint">${t('ex.pol_f_finish_hint')}</div></div>
+      <div class="polw"><label>${t('ex.pol_f_buffer')}</label><input type="number" id="${f}-buffer_minutes" min="0" max="720" value="${v.buffer_minutes}"><div class="ex-hint">${t('ex.pol_f_buffer_hint')}</div></div>
+      <div><label>${t('ex.pol_f_timezone')}</label><input type="text" id="${f}-timezone" list="polf-zones" value="${_exEsc(v.timezone)}"><datalist id="polf-zones">${zones}</datalist>
+        <div class="ex-hint">${t('ex.pol_f_timezone_hint')}</div></div>
+    </div>
+    <div style="margin:6px 0;"><label style="font-size:11px;color:var(--text-muted);">${t('ex.pol_blackouts')}</label>
+      <div class="ex-hint">${t('ex.pol_f_blackouts_hint')}</div>
+      <div id="${f}-blackouts">${(v.blackouts || []).map(_polBlackoutRow).join('')}</div>
+      <button class="um-action-btn" onclick="_polAddBlackout()">${t('ex.pol_f_add_blackout')}</button></div>
+    <div class="ex-form">
+      <div><label>${t('ex.f_retention')}</label><input type="number" id="${f}-retention" min="1" max="365" value="${v.retention}"></div>
+      <div><label>${t('ex.f_retention_days')}</label><input type="number" id="${f}-retention_days" min="0" max="3650" value="${v.retention_days || ''}" placeholder="—"></div>
+      ${kind === 'incremental' ? '' : `<div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="${f}-compress" ${v.compress ? 'checked' : ''}><label for="${f}-compress" style="margin:0;">${t('ex.f_compress')}</label></div>`}
+    </div>
+    ${kind === 'incremental' ? _polFullFields(v) : ''}
+    <div class="cl-actions">
+      <button class="update-apply-btn" onclick="exPolicySave(${p ? p.id : `'${kind}'`})">${p ? t('ex.pol_save') : t('ex.pol_create')}</button>
+      <button class="refresh-btn" onclick="exPolicyPreview()">${t('ex.pol_preview')}</button>
+      <button class="um-action-btn" onclick="exPolicyEdit(null)">${t('ex.pol_cancel')}</button>
+      <span class="cl-msg" id="${f}-msg"></span></div>
+    <div class="pol-preview" id="${f}-preview"></div>
+  </div>`;
+}
+const _POL_FULL_PRESETS = ['FREQ=WEEKLY;BYDAY=SU', 'FREQ=MONTHLY;BYDAY=1SU', 'FREQ=MONTHLY;BYDAY=-1SU', 'FREQ=MONTHLY;BYDAY=1SA'];
+function _polFullFields(v) {
+  const preset = !v.full_rrule ? _POL_FULL_PRESETS[1] : _POL_FULL_PRESETS.includes(v.full_rrule) ? v.full_rrule : 'custom';
+  return `<div class="ex-form">
+      <div><label>${t('ex.pol_f_fulls')}</label><select id="polf-full_mode" onchange="_polFullChanged()">
+        <option value="every_n" ${v.full_rrule ? '' : 'selected'}>${t('ex.pol_f_fulls_every_n')}</option>
+        <option value="rule" ${v.full_rrule ? 'selected' : ''}>${t('ex.pol_f_fulls_rule')}</option></select></div>
+      <div class="polfull-n"><label>${t('ex.f_full_every')}</label><input type="number" id="polf-full_every_n" min="1" max="365" value="${v.full_every_n}"></div>
+      <div class="polfull-rule"><label>${t('ex.pol_f_full_days')}</label><select id="polf-full_preset" onchange="_polFullChanged()">
+        ${_POL_FULL_PRESETS.map(r => `<option value="${r}" ${preset === r ? 'selected' : ''}>${_exEsc(_polDescribe(r))}</option>`).join('')}
+        <option value="custom" ${preset === 'custom' ? 'selected' : ''}>${t('ex.pol_preset_custom')}</option></select>
+        <input type="text" id="polf-full_rrule" style="margin-top:4px;" value="${_exEsc(preset === 'custom' ? v.full_rrule : '')}" placeholder="FREQ=MONTHLY;BYDAY=1SU">
+        <div class="ex-hint">${t('ex.pol_f_full_days_hint')}</div></div>
+      <div class="polfull-rule"><label>${t('ex.pol_f_full_kind')}</label><select id="polf-full_kind">
+        <option value="real" ${v.full_kind === 'synthetic' ? '' : 'selected'}>${t('ex.pol_full_kind_real')}</option>
+        <option value="synthetic" ${v.full_kind === 'synthetic' ? 'selected' : ''}>${t('ex.pol_full_kind_synthetic')}</option></select>
+        <div class="ex-hint">${t('ex.pol_f_full_kind_hint')}</div></div>
+    </div>`;
+}
+function _polFullChanged() {
+  const mode = document.getElementById('polf-full_mode'); if (!mode) return;
+  document.querySelectorAll('.polfull-n').forEach(el => el.style.display = mode.value === 'every_n' ? '' : 'none');
+  document.querySelectorAll('.polfull-rule').forEach(el => el.style.display = mode.value === 'rule' ? '' : 'none');
+  const custom = document.getElementById('polf-full_rrule');
+  if (custom) custom.style.display = document.getElementById('polf-full_preset').value === 'custom' ? '' : 'none';
+}
+function _polBlackoutRow(b) {
+  const days = (b && b.days) || ['mon', 'tue', 'wed', 'thu', 'fri'];
+  return `<div class="pol-blackout"><span class="pol-days">${_POL_BDAYS.map(d => `<label><input type="checkbox" class="polb-day" value="${d}" ${days.includes(d) ? 'checked' : ''}>${_polDayName(d.slice(0, 2))}</label>`).join('')}</span>
+    <input type="time" class="polb-from" value="${_exEsc((b && b.from) || '07:00')}"> – <input type="time" class="polb-to" value="${_exEsc((b && b.to) || '19:00')}">
+    <button class="um-action-btn danger" onclick="this.parentElement.remove()">×</button></div>`;
+}
+function _polAddBlackout() { document.getElementById('polf-blackouts')?.insertAdjacentHTML('beforeend', _polBlackoutRow(null)); }
+function _polPresetChanged() {
+  const preset = document.getElementById('polf-preset')?.value;
+  document.querySelectorAll('.polp').forEach(el => { el.style.display = el.classList.contains(`polp-${preset}`) ? '' : 'none'; });
+  // an hourly schedule has no window: each occurrence lasts until the next
+  const hourly = preset === 'hourly';
+  document.querySelectorAll('.polw').forEach(el => { el.style.display = hourly ? 'none' : ''; });
+  document.querySelectorAll('.polw-hourly').forEach(el => { el.style.display = hourly ? '' : 'none'; });
+  document.querySelectorAll('.polh-days').forEach(el => { el.style.display = hourly ? 'none' : ''; });
+  document.querySelectorAll('.polh-hours').forEach(el => { el.style.display = hourly ? '' : 'none'; });
+}
+function _polFormInit() { _polPresetChanged(); _polFullChanged(); }
+function _polReadForm() {
+  const g = id => document.getElementById(`polf-${id}`);
+  const preset = g('preset').value, interval = Math.max(1, parseInt(g('interval').value || '1', 10));
+  let rrule;
+  if (preset === 'hourly') rrule = 'FREQ=HOURLY' + (interval > 1 ? `;INTERVAL=${interval}` : '');
+  else if (preset === 'daily') rrule = 'FREQ=DAILY' + (interval > 1 ? `;INTERVAL=${interval}` : '');
+  else if (preset === 'weekly') {
+    const days = [...document.querySelectorAll('.polf-day:checked')].map(x => x.value.toUpperCase());
+    rrule = 'FREQ=WEEKLY' + (interval > 1 ? `;INTERVAL=${interval}` : '') + (days.length ? `;BYDAY=${days.join(',')}` : '');
+  } else if (preset === 'monthly_nth') rrule = `FREQ=MONTHLY;BYDAY=${g('nth').value}${g('weekday').value.toUpperCase()}`;
+  else if (preset === 'monthly_day') rrule = `FREQ=MONTHLY;BYMONTHDAY=${Math.min(31, Math.max(1, parseInt(g('monthday').value || '1', 10)))}`;
+  else rrule = g('rrule').value.trim();
+  const blackouts = [...document.querySelectorAll('#polf-blackouts .pol-blackout')].map(row => ({
+    days: [...row.querySelectorAll('.polb-day:checked')].map(x => x.value), from: row.querySelector('.polb-from').value, to: row.querySelector('.polb-to').value }));
+  const body = { name: g('name').value.trim(), rrule, window_open: g('window_open').value, preferred_finish: g('preferred_finish').value,
+                 buffer_minutes: parseInt(g('buffer_minutes').value || '60', 10), timezone: g('timezone').value.trim(), blackouts,
+                 retention: parseInt(g('retention').value || '7', 10), retention_days: parseInt(g('retention_days').value || '0', 10) || null };
+  if (['hourly', 'daily', 'weekly'].includes(preset) && g('starts_on').value.trim()) body.starts_on = g('starts_on').value.trim();
+  if (g('full_every_n')) body.full_every_n = parseInt(g('full_every_n').value || '14', 10);
+  if (g('full_mode')) {
+    const rule = g('full_preset').value === 'custom' ? g('full_rrule').value.trim() : g('full_preset').value;
+    body.full_rrule = g('full_mode').value === 'rule' ? rule : '';
+    body.full_kind = g('full_kind').value;
+  }
+  if (g('compress')) body.compress = g('compress').checked;
+  return body;
+}
+function _polFormKind() { return document.getElementById('polf-full_mode') ? 'incremental' : 'export'; }
+async function exPolicyPreview() {
+  const out = document.getElementById('polf-preview'), msg = document.getElementById('polf-msg');
+  const body = _polReadForm();
+  try {
+    const d = await _exCall('POST', '/api/backup/policies/preview', {...body, kind: _polFormKind(), count: 6});
+    msg.textContent = ''; msg.className = 'cl-msg';
+    out.innerHTML = `${t('ex.pol_preview_title')}<br>` + d.windows.map(w => `${_polWhen(w.opens, body.timezone)} → ${_polWhen(w.finish, body.timezone)}${w.first_start && w.first_start !== w.opens ? ` · ${t('ex.pol_first_start', {time: _polWhen(w.first_start, body.timezone)})}` : ''}${w.first_start ? '' : ` · ${t('ex.pol_fully_blacked_out')}`}${w.full ? ` · ${t('ex.pol_full_night')}` : ''}`).join('<br>');
+  } catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
+}
+async function exPolicySave(idOrKind) {
+  const msg = document.getElementById('polf-msg');
+  const body = _polReadForm();
+  try {
+    if (typeof idOrKind === 'number') await _exCall('PUT', `/api/backup/policies/${idOrKind}`, body);
+    else await _exCall('POST', '/api/backup/policies', {...body, kind: idOrKind});
+    showToast(t('ex.pol_saved', {name: body.name}), 'ok'); _polEditing = null; exLoadPolicies();
+  } catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
+}
+async function exPolicyRunNow(id, name) {
+  if (!confirm(t('ex.pol_run_now_confirm', {name}))) return;
+  try { await _exCall('POST', `/api/backup/policies/${id}/run`); showToast(t('ex.pol_run_now_started', {name}), 'ok'); exLoadPolicies(); }
+  catch (e) { showToast(e.message, 'err'); }
+}
+async function exPolicyToggle(id) { try { await _exCall('POST', `/api/backup/policies/${id}/toggle`); exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); } }
+async function exPolicyDelete(id, name) {
+  if (!confirm(t('ex.pol_confirm_delete', {name}))) return;
+  try { await _exCall('DELETE', `/api/backup/policies/${id}`); _polEditing = null; _polMembersOpen = null; exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); }
+}
+
+async function exPolicyMembers(id, keepOpen) {
+  const box = document.getElementById(`pol-members-${id}`);
+  if (!box) return;
+  if (!keepOpen && _polMembersOpen === id) { _polMembersOpen = null; box.innerHTML = ''; return; }
+  if (!keepOpen) { _polMembersOpen = id; _polEditing = null; }
+  const p = _polData.policies.find(x => x.id === id);
+  const cur = CLUSTERS.find(c => c.cluster_id === currentCluster);
+  box.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+  let vms = [];
+  try { vms = await _exCall('GET', '/api/backup/vms'); } catch (e) { vms = []; }
+  const memberIds = new Set(p.members.map(m => m.vm_uuid + '@' + m.cluster_id));
+  const candidates = vms.filter(vm => !memberIds.has(vm.uuid + '@' + currentCluster));
+  box.innerHTML = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+    ${p.members.length ? `<table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.pol_col_cluster')}</th><th>${t('ex.pol_col_duration')}</th><th>${t('ex.col_last_run')}</th><th></th></tr></thead><tbody>
+      ${p.members.map(m => `<tr><td class="um-username">${_exEsc(m.vm_name)}${m.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}</td>
+        <td style="font-size:11px;">${_exEsc(m.cluster_name)}</td>
+        <td style="font-size:11px;">${!m.prediction ? '—' : m.prediction.learned ? `<span title="${_exEsc(t('ex.pol_tl_planned', {start: _polHM(m.prediction.planned_start, p.timezone), dur: _polDur(m.prediction.seconds)}))}">~${_polDur(m.prediction.seconds)}</span>` : `<span class="ex-badge off" title="${_exEsc(t('ex.pol_learning_hint'))}">${t('ex.pol_tl_learning', {n: m.prediction.samples, of: m.prediction.needed || 5})}</span>`}</td>
+        <td>${m.last_run ? `${_exStatusBadge(m.last_run.status, m.last_run.message)}${m.last_run.notice ? ' ' + _exNoticeBadge(m.last_run.notice) : ''}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(m.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
+        <td style="white-space:nowrap;">${m.cluster_id === currentCluster ? `<button class="um-action-btn" onclick="exToggle(${m.id}).then(exLoadPolicies)">${m.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
+          <button class="um-action-btn danger" onclick="exPolicyRemoveMember(${id}, ${m.id}, '${_exEsc(m.vm_name)}')">${t('ex.pol_remove_member')}</button></td></tr>`).join('')}
+    </tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.pol_no_members')}</div>`}
+    <div style="margin-top:10px;"><label style="font-size:11px;color:var(--text-muted);">${t('ex.pol_add_from', {cluster: _exEsc(cur ? cur.name : '')})}</label>
+      <div class="ex-hint">${t('ex.pol_add_hint')}</div>
+      ${candidates.length ? `<div class="ex-folder-list">${candidates.map(vm => {
+        const s = vm.schedule;
+        const note = !s ? '' : s.policy_id ? t('ex.pol_moves_from', {name: _exEsc(s.policy_name || '')}) : t('ex.pol_joins_own_plan', {mode: t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')});
+        return `<label><input type="checkbox" class="pol-add" value="${_exEsc(vm.uuid)}" data-name="${_exEsc(vm.name)}">${_exEsc(vm.name)}${note ? ` <span class="ex-hint" style="display:inline;">— ${note}</span>` : ''}</label>`;
+      }).join('')}</div>
+      <div class="cl-actions"><button class="update-apply-btn" onclick="exPolicyAddMembers(${id})">${t('ex.pol_add_selected')}</button><span class="cl-msg" id="pol-add-msg-${id}"></span></div>`
+      : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.pol_nothing_to_add')}</div>`}
+    </div></div>`;
+}
+async function exPolicyAddMembers(id) {
+  const msg = document.getElementById(`pol-add-msg-${id}`);
+  const picks = [...document.querySelectorAll('.pol-add:checked')];
+  if (!picks.length) return;
+  let added = 0;
+  for (const el of picks) {
+    try { await _exCall('POST', `/api/backup/policies/${id}/members`, {cluster_id: currentCluster, vm_uuid: el.value, vm_name: el.dataset.name}); added++; }
+    catch (e) { msg.textContent = `${el.dataset.name}: ${e.message}`; msg.className = 'cl-msg err'; }
+  }
+  if (added) { showToast(t('ex.pol_members_added', {n: added}), 'ok'); exLoadPolicies(); }
+}
+async function exPolicyRemoveMember(id, planId, name) {
+  if (!confirm(t('ex.pol_confirm_remove_member', {name}))) return;
+  try { await _exCall('DELETE', `/api/backup/policies/${id}/members/${planId}`); exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); }
+}
+function _exNoticeBadge(notice) {
+  const codes = (notice || '').split(',').filter(Boolean);
+  if (!codes.length) return '';
+  return `<span class="ex-badge notice" title="${_exEsc(codes.map(c => t('ex.notice_' + c + '_hint')).join(' '))}">${codes.map(c => _exEsc(t('ex.notice_' + c))).join(' · ')}</span>`;
+}
 
 // ── VMs ─────────────────────────────────────────────────────────────────────
 async function exLoadVms() {
@@ -5336,7 +5844,9 @@ async function exLoadVms() {
         <td>${vm.numVCPU}</td>
         <td>${(vm.mem / 1024 ** 3).toFixed(0)} GiB</td>
         <td style="font-size:11px;white-space:nowrap;">${vm.churn && vm.churn.mib != null ? `${_exMiB(vm.churn.mib)}<div style="font-size:10px;color:var(--text-muted);">${_exFmt(new Date(vm.churn.at * 1000).toISOString())}</div>` : '<span style="color:var(--text-muted)">—</span>'}</td>
-        <td style="white-space:nowrap;">${vm.schedule
+        <td style="white-space:nowrap;">${vm.schedule && vm.schedule.policy_id
+          ? `<span class="ex-badge run">${t('ex.pol_member_of', {name: _exEsc(vm.schedule.policy_name || '')})}</span>`
+          : vm.schedule
           ? `<span class="ex-badge run" title="${_exEsc(vm.schedule.timezone || '')}">${t('ex.daily_at', {time: vm.schedule.run_time + (vm.schedule.timezone && vm.schedule.timezone !== _exViewerZone() ? ' ' + vm.schedule.timezone : '')})}</span>`
           : (admin ? `<button class="um-action-btn" onclick="exToggleForm(${i})">${t('ex.schedule_export')}</button>` : `<span style="color:var(--text-muted);font-size:11px;">—</span>`)}</td>
       </tr>
@@ -5444,7 +5954,7 @@ async function exLoadRuns() {
         <tbody>${rows.map(r => `<tr>
           <td class="um-username">${_exEsc(kind === 'imp' ? r.source_uri : r.vm_name)}${(kind === 'imp' || kind === 'rst') && r.target_name ? ` → ${_exEsc(r.target_name)}` : ''}${kind === 'run' && r.export_path ? `<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(r.export_path)}</div>` : ''}</td>
           <td style="font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap;">${_exFmt(r.started_at)}</td>
-          <td>${_exStatusBadge(r.status, r.message)}</td>
+          <td>${_exStatusBadge(r.status, r.message)}${kind === 'run' && r.notice ? ' ' + _exNoticeBadge(r.notice) : ''}</td>
           <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${kind === 'run' && r.mode ? `<span class="ex-badge ${r.mode === 'incremental' ? 'run' : 'off'}">${r.mode === 'incremental' ? t(r.point_kind === 'full' ? 'ex.point_full' : 'ex.point_delta') : t('ex.mode_export')}</span> ` : ''}${kind === 'rst' && r.kind === 'files' ? `<span class="ex-badge off">${t('ex.files')}</span> ` : ''}${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${kind === 'rst' && r.kind === 'files' && r.created_uuid && r.status === 'COMPLETE' ? ` <button class="um-action-btn" onclick="exEjectIso(${r.id})">${t('ex.flr_eject')}</button>` : ''}${r.task_tag ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
         </tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.no_runs')}</div>`}
     </div>`;
@@ -5476,27 +5986,34 @@ async function exLoadPoints() {
         <td>${c.point_count}</td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted)">${_exFmt(c.last_point_at)}</td>
         <td style="white-space:nowrap;">
-          <button class="um-action-btn" onclick="exTogglePoints(${c.id})">${t('ex.show_points')}</button>
+          <button class="um-action-btn" onclick="exPointsOpen(${c.id}, '${_exEsc(c.vm_name)}')">${t('ex.show_points')}</button>
           ${admin ? `<button class="um-action-btn" onclick="exVerifyChain(${c.id})">${t('ex.verify')}</button>
           <button class="um-action-btn danger" onclick="exDeleteChain(${c.id}, '${_exEsc(c.vm_name)}')">${t('ex.delete_data')}</button>` : ''}
           <div class="cl-msg" id="ch-${c.id}-msg"></div>
         </td>
-      </tr>
-      <tr id="ch-points-${c.id}" hidden><td colspan="6" style="background:var(--bg-card);" id="ch-points-${c.id}-body"></td></tr>`).join('')}</tbody></table></div>`;
+      </tr>`).join('')}</tbody></table></div>`;
 }
-async function exTogglePoints(id) {
-  const row = document.getElementById(`ch-points-${id}`); if (!row) return;
-  row.hidden = !row.hidden; if (row.hidden) return;
-  const body = document.getElementById(`ch-points-${id}-body`); body.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+// ── restore points window: the points of one VM; Files turns it into the browser of a point ──────
+let _pts = null;   // {chain, vm}: the chain whose points the window shows
+async function exPointsOpen(id, vm) {
+  if (_flr) await _flrUnmount();
+  _pts = {chain: id, vm};
+  document.getElementById('flrTitle').textContent = `${vm} · ${t('ex.tab.points')}`;
+  document.getElementById('flrToolbar').innerHTML = '';
+  document.getElementById('flrMsg').textContent = '';
+  document.getElementById('flrHint').textContent = '';
+  const body = document.getElementById('flrList');
+  body.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+  document.getElementById('flrBackdrop').classList.add('visible');
   try {
     const pts = await _exCall('GET', `/api/backup/chains/${id}/points`);
+    if (!_pts || _pts.chain !== id || _flr) return;   // closed or moved on meanwhile
     body.innerHTML = pts.length ? `<table class="um-table"><thead><tr><th>#</th><th>${t('ex.col_kind')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_changed')}</th><th>${t('ex.col_written')}</th><th>${t('ex.col_verified')}</th><th></th></tr></thead><tbody>${pts.map(p => `
-      <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted)">${_exEsc(p.dir)}</span>${p.quiesced === true ? ` <span class="ex-badge off" title="${_exEsc(t('ex.quiesced_hint'))}">${t('ex.quiesced')}</span>` : p.quiesced === false ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.crash_consistent_hint'))}">${t('ex.crash_consistent')}</span>` : ''}</td>
+      <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted)">${_exEsc(p.dir)}</span>${p.synthetic ? ` <span class="ex-badge off" title="${_exEsc(t('ex.synthetic_hint'))}">${t('ex.synthetic')}</span>` : ''}${(p.short_disks || []).length ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.short_disk_hint', {n: Math.round((p.short_disks[0].guest_size - p.short_disks[0].image_size) / 1024)}))}">${t('ex.short_disk')}</span>` : ''}${p.quiesced === true ? ` <span class="ex-badge off" title="${_exEsc(t('ex.quiesced_hint'))}">${t('ex.quiesced')}</span>` : p.quiesced === false ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.crash_consistent_hint'))}">${t('ex.crash_consistent')}</span>` : ''}</td>
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
       <td style="font-size:11px;color:var(--text-muted)">${p.verify_error ? `<span class="ex-badge err" title="${_exEsc(p.verify_error)}">${t('ex.point_corrupt')}</span>` : p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
-      <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" onclick="exFilesOpen(${p.id})">${t('ex.files')}</button></td></tr>
-      <tr id="rs-form-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);">${_exRestoreFormHtml(p, id)}</td></tr>
-      <tr id="flr-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);" id="flr-${p.id}-body"></td></tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.no_points')}</div>`;
+      <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" onclick="exFilesOpen(${p.id}, ${p.seq}, '${_exEsc(_exFmt(p.created_at))}')">${t('ex.files')}</button></td></tr>
+      <tr id="rs-form-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);">${_exRestoreFormHtml(p, id)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty-state">${t('ex.no_points')}</div>`;
   } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
 }
 function _exRestoreFormHtml(p, chainId) {
@@ -5526,76 +6043,134 @@ async function exRestoreStart(pointId) {
   catch (e) { _shMsg(`rs-${pointId}-msg`, e.message, 'err'); }
 }
 // ── file-level recovery ─────────────────────────────────────────────────────
-const _flr = {};   // point id -> {mount, path, selected:Set}
-async function exFilesOpen(pointId) {
-  const row = document.getElementById(`flr-${pointId}`); if (!row) return;
-  if (!row.hidden) { row.hidden = true; return; }
-  row.hidden = false;
-  const body = document.getElementById(`flr-${pointId}-body`);
-  if (_flr[pointId] && _flr[pointId].mount) { _flrRender(pointId); return; }
-  body.innerHTML = `<div class="loading"><div class="spinner"></div><span>${t('ex.flr_mounting')}</span></div>`;
-  try {
-    const m = await _exCall('POST', '/api/backup/flr/mounts', {point_id: pointId});
-    _flr[pointId] = {mount: m.id, path: '/', selected: new Set(), entries: [], vms: []};
-    try { _flr[pointId].vms = (await _exCall('GET', '/api/backup/vms')).map(v => ({uuid: v.uuid, name: v.name})); } catch (e) {}
-    await _flrLoad(pointId, '/');
-  } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
+let _flr = null;   // the open file browser: {point, mount, path, selected:Set, entries, vms}
+async function exFilesOpen(pointId, seq, date) {
+  if (_flr) await _flrUnmount();
+  _flr = {point: pointId, mount: null, path: '/', selected: new Set(), entries: [], vms: [], locked: []};
+  document.getElementById('flrTitle').textContent = `${_pts ? _pts.vm + ' · ' : ''}${t('ex.flr_title', {seq, date})}`;
+  document.getElementById('flrToolbar').innerHTML = '';
+  document.getElementById('flrMsg').textContent = '';
+  document.getElementById('flrHint').textContent = t('ex.flr_hint');
+  document.getElementById('flrList').innerHTML = `<div class="loading"><div class="spinner"></div><span>${t('ex.flr_mounting')}</span></div>`;
+  document.getElementById('flrBackdrop').classList.add('visible');
+  await _flrMount();
 }
-async function _flrLoad(pointId, path) {
-  const st = _flr[pointId]; st.path = path;
-  const d = await _exCall('GET', `/api/backup/flr/mounts/${st.mount}/ls?path=${encodeURIComponent(path)}`);
-  st.entries = d.entries || []; _flrRender(pointId);
+// mount the open point; keys (BitLocker recovery passwords, LUKS passphrases) go along for this one
+// request only and are never kept in the page
+async function _flrMount(keys) {
+  const st = _flr; if (!st) return;
+  const pointId = st.point;
+  try {
+    const m = await _exCall('POST', '/api/backup/flr/mounts', keys && keys.length ? {point_id: pointId, keys} : {point_id: pointId});
+    if (_flr !== st) { _exCall('DELETE', `/api/backup/flr/mounts/${m.id}`).catch(() => {}); return; }   // closed meanwhile
+    st.mount = m.id; st.locked = m.locked || []; st.skipped = m.skipped || [];
+    if (!st.vms.length) { try { st.vms = (await _exCall('GET', '/api/backup/vms')).map(v => ({uuid: v.uuid, name: v.name})); } catch (e) {} }
+    await _flrLoad('/');
+  } catch (e) {
+    if (_flr !== st) return;
+    if (e.status === 422 && e.data && e.data.locked) { st.locked = e.data.locked; _flrUnlockForm(); return; }
+    document.getElementById('flrList').innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`;
+  }
+}
+const _flrKindHint = kind => t(kind === 'BitLocker' ? 'ex.flr_key_hint_bitlocker' : 'ex.flr_key_hint_luks');
+function _flrUnlockForm() {
+  const st = _flr; if (!st) return;
+  // BitLocker: the recovery key ID tells the admin which key AD/Entra/Intune hold for this point (keys rotate)
+  const keyIds = v => (v.key_ids || []).map(id => `<div class="flr-unlock-keyid">${t('ex.flr_key_id')}: <b>${_exEsc(id.slice(0, 8))}</b>${_exEsc(id.slice(8))}</div>`).join('');
+  const vols = st.locked.map(v => `<li><b>${_exEsc(v.name)}</b> · ${_exEsc(v.kind)}${v.description ? ` · <span style="color:var(--text-muted)">${_exEsc(v.description)}</span>` : ''}${v.reason === 'no key matched' ? ` · <span style="color:var(--accent-red)">${t('ex.flr_key_no_match')}</span>` : ''}${keyIds(v)}</li>`).join('');
+  const anyIds = st.locked.some(v => (v.key_ids || []).length);
+  const kinds = [...new Set(st.locked.map(v => v.kind))];
+  document.getElementById('flrToolbar').innerHTML = _pts ? `<a href="#" onclick="exFilesBack(); return false;" style="color:var(--accent-cyan);font-family:'JetBrains Mono',monospace;font-size:12px;">← ${t('ex.tab.points')}</a>` : '';
+  document.getElementById('flrList').innerHTML = `<div class="flr-unlock">
+    <div class="flr-unlock-title">${t('ex.flr_locked_title')}</div>
+    <ul>${vols}</ul>
+    <label for="flrKeys">${t('ex.flr_keys')}</label>
+    <textarea id="flrKeys" rows="3" autocomplete="off" spellcheck="false" placeholder="123456-123456-123456-123456-123456-123456-123456-123456"></textarea>
+    <div class="flr-unlock-hint">${kinds.map(_flrKindHint).join(' ')}${anyIds ? ' ' + t('ex.flr_key_id_hint') : ''} ${t('ex.flr_keys_never_stored')}</div>
+    <div class="cl-actions"><button class="update-apply-btn flr-unlock-btn" id="flrUnlockBtn" onclick="exFilesUnlock()">${t('ex.flr_unlock')}</button></div>
+  </div>`;
+  document.getElementById('flrKeys').focus();
+}
+async function exFilesUnlock() {
+  const st = _flr; const box = document.getElementById('flrKeys'); if (!st || !box) return;
+  const keys = box.value.split('\n').map(k => k.trim()).filter(Boolean);
+  if (!keys.length) { _shMsg('flrMsg', t('ex.flr_keys_missing'), 'err'); return; }
+  box.value = ''; _shMsg('flrMsg', '', '');
+  if (st.mount) { const old = st.mount; st.mount = null; try { await _exCall('DELETE', `/api/backup/flr/mounts/${old}`); } catch (e) {} }
+  document.getElementById('flrList').innerHTML = `<div class="loading"><div class="spinner"></div><span>${t('ex.flr_unlocking')}</span></div>`;
+  await _flrMount(keys);
+}
+async function _flrLoad(path) {
+  if (!_flr || !_flr.mount) return;
+  try {
+    const d = await _exCall('GET', `/api/backup/flr/mounts/${_flr.mount}/ls?path=${encodeURIComponent(path)}`);
+    _flr.path = path; _flr.entries = d.entries || []; _flrRender();
+    document.getElementById('flrList').scrollTop = 0;
+  } catch (e) { _shMsg('flrMsg', e.message, 'err'); }
 }
 function _flrJoin(path, name) { return (path === '/' ? '' : path.replace(/\/$/, '')) + '/' + name; }
-function _flrRender(pointId) {
-  const st = _flr[pointId]; const body = document.getElementById(`flr-${pointId}-body`); if (!body) return;
+function _flrRender() {
+  const st = _flr; if (!st) return;
   const crumbs = ['/'].concat(st.path.split('/').filter(Boolean));
   let acc = '';
-  const crumbHtml = crumbs.map((c, i) => { if (i > 0) acc += '/' + c; const p = i === 0 ? '/' : acc; return `<a href="#" onclick="_flrLoad(${pointId}, '${_exEsc(p)}'); return false;" style="color:var(--accent-cyan);">${_exEsc(i === 0 ? t('ex.flr_root') : c)}</a>`; }).join(' <span style="color:var(--text-muted)">/</span> ');
+  const back = _pts ? `<a href="#" onclick="exFilesBack(); return false;" style="color:var(--accent-cyan);">← ${t('ex.tab.points')}</a> <span style="color:var(--text-muted)">·</span> ` : '';
+  const crumbHtml = back + crumbs.map((c, i) => { if (i > 0) acc += '/' + c; const p = i === 0 ? '/' : acc; return `<a href="#" onclick="_flrLoad('${_exEsc(p)}'); return false;" style="color:var(--accent-cyan);">${_exEsc(i === 0 ? t('ex.flr_root') : c)}</a>`; }).join(' <span style="color:var(--text-muted)">/</span> ');
   const rows = st.entries.map(e => {
     const full = _flrJoin(st.path, e.name); const sel = st.selected.has(full);
     const icon = e.kind === 'dir' ? '📁' : e.kind === 'link' ? '🔗' : '📄';
-    const name = e.kind === 'dir' ? `<a href="#" onclick="_flrLoad(${pointId}, '${_exEsc(full)}'); return false;" style="color:var(--text-primary);">${_exEsc(e.name)}</a>` : _exEsc(e.name);
+    const name = e.kind === 'dir' ? `<a href="#" onclick="_flrLoad('${_exEsc(full)}'); return false;" style="color:var(--text-primary);">${_exEsc(e.name)}</a>` : _exEsc(e.name);
     const size = e.size != null ? (e.size >= 1048576 ? (e.size / 1048576).toFixed(1) + ' MiB' : e.size >= 1024 ? (e.size / 1024).toFixed(0) + ' KiB' : e.size + ' B') : (e.fstype ? `${_exEsc(e.fstype)} · ${(e.size || 0) / 1073741824 | 0} GiB` : '');
-    return `<tr><td style="width:24px;"><input type="checkbox" ${sel ? 'checked' : ''} onchange="_flrToggle(${pointId}, '${_exEsc(full)}', this.checked)"></td>
+    return `<tr><td style="width:24px;"><input type="checkbox" ${sel ? 'checked' : ''} onchange="_flrToggle('${_exEsc(full)}', this.checked)"></td>
       <td>${icon} ${name}</td><td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${size}</td>
       <td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${e.mtime ? _exFmt(new Date(e.mtime * 1000).toISOString()) : ''}</td>
       <td style="white-space:nowrap;">${e.kind === 'file' ? `<a class="um-action-btn" href="${API_BASE}/api/backup/flr/mounts/${st.mount}/file?path=${encodeURIComponent(full)}&cluster=${currentCluster}">${t('ex.flr_download')}</a>` : ''}</td></tr>`;
   }).join('');
   const n = st.selected.size;
-  body.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+  const vm = document.getElementById('flrVm')?.value || '';
+  document.getElementById('flrToolbar').innerHTML = `
       <span style="font-family:'JetBrains Mono',monospace;font-size:12px;">${crumbHtml}</span>
       <span style="flex:1"></span>
-      <a class="um-action-btn ${n ? '' : 'disabled'}" ${n ? `href="${API_BASE}/api/backup/flr/mounts/${st.mount}/zip?paths=${encodeURIComponent([...st.selected].join(','))}&name=recovered-${pointId}.zip&cluster=${currentCluster}"` : ''}>${t('ex.flr_zip', {n})}</a>
-      <select id="flr-${pointId}-vm" style="max-width:220px;" title="${_exEsc(t('ex.flr_iso_vm'))}"><option value="">${t('ex.flr_iso_vm')}</option>${(st.vms || []).map(v => `<option value="${_exEsc(v.uuid)}">${_exEsc(v.name)}</option>`).join('')}</select>
-      <button class="um-action-btn" ${n ? '' : 'disabled'} onclick="exFilesIso(${pointId})">${t('ex.flr_iso', {n})}</button>
-      <button class="um-action-btn" onclick="exFilesClose(${pointId})">${t('ex.flr_unmount')}</button>
-    </div>
-    <div class="cl-msg" id="flr-${pointId}-msg"></div>
-    ${st.entries.length ? `<table class="um-table"><tbody>${rows}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.flr_empty')}</div>`}
-    <div class="ex-hint" style="margin-top:6px;">${t('ex.flr_hint')}</div>`;
+      <a class="um-action-btn ${n ? '' : 'disabled'}" ${n ? `href="${API_BASE}/api/backup/flr/mounts/${st.mount}/zip?paths=${encodeURIComponent([...st.selected].join(','))}&name=recovered-${st.point}.zip&cluster=${currentCluster}"` : ''}>${t('ex.flr_zip', {n})}</a>
+      <select id="flrVm" style="max-width:220px;" title="${_exEsc(t('ex.flr_iso_vm'))}"><option value="">${t('ex.flr_iso_vm')}</option>${(st.vms || []).map(v => `<option value="${_exEsc(v.uuid)}" ${v.uuid === vm ? 'selected' : ''}>${_exEsc(v.name)}</option>`).join('')}</select>
+      <button class="um-action-btn" ${n ? '' : 'disabled'} onclick="exFilesIso()">${t('ex.flr_iso', {n})}</button>
+      <button class="um-action-btn" onclick="exFilesClose()">${t('ex.flr_unmount')}</button>`;
+  const locked = (st.locked || []).length && st.path === '/'
+    ? `<div class="flr-locked-bar"><span>🔒 ${t('ex.flr_some_locked', {names: st.locked.map(v => `<b>${_exEsc(v.name)}</b> (${_exEsc(v.kind)})`).join(', ')})}</span><button class="update-apply-btn flr-unlock-btn" onclick="_flrUnlockForm()">${t('ex.flr_unlock')}</button></div>` : '';
+  // volumes that were found but could not be mounted: say so, or they silently look absent
+  const skipped = (st.skipped || []).length && st.path === '/'
+    ? `<div class="flr-skipped">${t('ex.flr_not_shown')} ${st.skipped.map(v => `<b>${_exEsc(v.name)}</b>: ${_exEsc(v.reason)}`).join(' · ')}</div>` : '';
+  const list = document.getElementById('flrList'), top = list.scrollTop;
+  list.innerHTML = locked + skipped + (st.entries.length ? `<table class="um-table"><tbody>${rows}</tbody></table>` : `<div class="empty-state">${t('ex.flr_empty')}</div>`);
+  list.scrollTop = top;
 }
-async function exFilesIso(pointId) {
-  const st = _flr[pointId]; const vm = document.getElementById(`flr-${pointId}-vm`)?.value;
-  if (!vm) { _shMsg(`flr-${pointId}-msg`, t('ex.flr_iso_pick_vm'), 'err'); return; }
+async function exFilesIso() {
+  const st = _flr; const vm = document.getElementById('flrVm')?.value;
+  if (!st) return;
+  if (!vm) { _shMsg('flrMsg', t('ex.flr_iso_pick_vm'), 'err'); return; }
   const vmName = (st.vms.find(v => v.uuid === vm) || {}).name || vm;
   if (!confirm(t('ex.flr_iso_confirm', {n: st.selected.size, vm: vmName}))) return;
-  _shMsg(`flr-${pointId}-msg`, t('ex.i_starting'), '');
-  try { await _exCall('POST', `/api/backup/flr/mounts/${st.mount}/iso`, {paths: [...st.selected], vm_uuid: vm}); _shMsg(`flr-${pointId}-msg`, t('ex.flr_iso_started'), 'ok'); }
-  catch (e) { _shMsg(`flr-${pointId}-msg`, e.message, 'err'); }
+  _shMsg('flrMsg', t('ex.i_starting'), '');
+  try { await _exCall('POST', `/api/backup/flr/mounts/${st.mount}/iso`, {paths: [...st.selected], vm_uuid: vm}); _shMsg('flrMsg', t('ex.flr_iso_started'), 'ok'); }
+  catch (e) { _shMsg('flrMsg', e.message, 'err'); }
 }
 async function exEjectIso(rid) {
   if (!confirm(t('ex.flr_eject_confirm'))) return;
   try { await _exCall('POST', `/api/backup/flr/iso/${rid}/eject`); showToast(t('ex.flr_ejected'), 'ok'); exLoadRuns(); } catch (e) { showToast(e.message, 'err'); }
 }
-function _flrToggle(pointId, full, on) { const st = _flr[pointId]; if (on) st.selected.add(full); else st.selected.delete(full); _flrRender(pointId); }
-async function exFilesClose(pointId) {
-  const st = _flr[pointId];
+function _flrToggle(full, on) { if (!_flr) return; if (on) _flr.selected.add(full); else _flr.selected.delete(full); _flrRender(); }
+async function _flrUnmount() {
+  // leaving a point's files unmounts it (the hint says so); a mount still being made is dropped when it answers
+  const st = _flr; _flr = null;
   if (st && st.mount) { try { await _exCall('DELETE', `/api/backup/flr/mounts/${st.mount}`); } catch (e) {} }
-  delete _flr[pointId];
-  const row = document.getElementById(`flr-${pointId}`); if (row) row.hidden = true;
 }
+async function exFilesBack() { await _flrUnmount(); if (_pts) exPointsOpen(_pts.chain, _pts.vm); }
+// Close in the browser closes the window, as do the X, Escape and a click beside it
+async function exFilesClose() {
+  document.getElementById('flrBackdrop').classList.remove('visible');
+  _pts = null;
+  await _flrUnmount();
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.getElementById('flrBackdrop')?.classList.contains('visible')) exFilesClose(); });
 async function exVerifyChain(id) {
   // the service re-hashes the chain in the background; this follows it until it is done
   _shMsg(`ch-${id}-msg`, t('ex.verifying'), '');
@@ -5610,8 +6185,7 @@ async function exVerifyChain(id) {
     if (d.state === 'failed') throw new Error(d.error || 'verify failed');
     const detail = Object.entries(d.failed || {}).map(([k, v]) => `${k}: ${v}`).join('; ');
     _shMsg(`ch-${id}-msg`, d.ok ? t('ex.verify_ok') : t('ex.verify_fail', {detail}), d.ok ? 'ok' : 'err');
-    const row = document.getElementById(`ch-points-${id}`);
-    if (row && !row.hidden) { row.hidden = true; exTogglePoints(id); }   // refresh the Verified column
+    if (_pts && _pts.chain === id && !_flr) exPointsOpen(id, _pts.vm);   // refresh the Verified column
   } catch (e) { _shMsg(`ch-${id}-msg`, e.message, 'err'); }
 }
 async function exDeleteChain(id, name) {
@@ -5874,6 +6448,36 @@ document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality,
     <div class="community-notice-actions">
       <button class="update-apply-btn" id="communityAckBtn" onclick="acknowledgeCommunityNotice()" data-i18n="community.ack">I understand</button>
     </div>
+  </div>
+</div>
+
+<!-- file browser of a restore point -->
+<div class="update-modal-backdrop" id="clusterNoticeBackdrop" onclick="closeClusterNotice(event)">
+  <div class="update-modal">
+    <div class="update-modal-header">
+      <span class="update-modal-title" id="clusterNoticeTitle" style="color:var(--accent-amber)"></span>
+      <button class="update-modal-close" onclick="closeClusterNotice()">✕</button>
+    </div>
+    <div class="cluster-notice-body" id="clusterNoticeBody"></div>
+    <div class="cluster-notice-mute">
+      <label for="clusterNoticeDays" data-i18n="notice.mute_for">Mute for</label>
+      <input type="number" id="clusterNoticeDays" min="1" max="365" value="7">
+      <span data-i18n="notice.days">days</span>
+      <button class="refresh-btn" onclick="muteClusterNotice()" data-i18n="notice.mute">Mute</button>
+    </div>
+    <div class="cluster-notice-msg" id="clusterNoticeMsg"></div>
+  </div>
+</div>
+<div class="update-modal-backdrop" id="flrBackdrop" onclick="if (event.target === this) exFilesClose()">
+  <div class="update-modal flr-modal" role="dialog" aria-modal="true" aria-labelledby="flrTitle">
+    <div class="update-modal-header">
+      <span class="update-modal-title" id="flrTitle"></span>
+      <button class="update-modal-close" onclick="exFilesClose()" aria-label="Close">✕</button>
+    </div>
+    <div id="flrToolbar" class="flr-toolbar"></div>
+    <div class="cl-msg" id="flrMsg"></div>
+    <div id="flrList" class="flr-list"></div>
+    <div class="ex-hint" id="flrHint"></div>
   </div>
 </div>
 

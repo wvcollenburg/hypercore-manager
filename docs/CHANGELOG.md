@@ -4,6 +4,139 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0]
+
+### Added
+- **Browse BitLocker and LUKS volumes with a key** (proxy `0.5.3`). File browsing used to show an
+  encrypted volume as an unsupported filesystem. It now lists it as locked and asks for the key (a
+  BitLocker recovery password or a LUKS passphrase; several keys are tried on every volume); the proxy
+  opens the volume read-only with `cryptsetup` and browses it like any other. Keys are passed for that
+  one mount only, on cryptsetup's stdin, and never stored or logged. For BitLocker the window shows
+  the recovery key ID and the volume description, so the admin can find the key that was valid for
+  that point in AD or Entra ID. Verified with a real LUKS volume;
+  BitLocker is still to be tried on a real Windows point.
+- **Proxy log bundle** (proxy `0.5.1`). **Download logs** on a backup proxy (Settings) fetches a zip
+  with the proxy's log, its recent jobs and file-level mounts, and its kernel messages, devices,
+  mounts, disk space, memory and processes; passwords and tokens are left out. The proxy now also
+  keeps its log in a rotating file on its data volume (at most ~20 MiB). The backup service pushes
+  0.5.1 to every idle proxy after the stack update.
+- **Backup schedules** (migration `036`). Create a schedule, then add VMs to it, from every cluster
+  in the folder. Backup schedules (incremental) and export schedules are separate kinds. A
+  schedule repeats on an RFC 5545 rule (every N days, chosen weekdays every N weeks, the Nth or last
+  weekday of the month, a day of the month, or any custom RRULE) and has an earliest start, a
+  preferred finish, a buffer, blackout periods and its own time zone. Members start when the window
+  opens, at most one backup per proxy (one export per cluster) at a time, so no run takes its
+  snapshot and then waits for a proxy. Adding a VM with a plan of its own takes that plan in with
+  its chain (no new full); the newest assignment wins. A run that ran into a blackout or finished
+  after the preferred finish gets a **notice**, a new level between information and warning.
+  Existing per-VM plans keep running on their own time.
+- **Predicted finish for backup schedules** (migration `038`). Each VM's backup time is learned from
+  its own runs: the 80th percentile of what changes on that weekday, the cluster's measured read
+  rate and the fixed work around a copy (a small model, not the balancer's forecasting: one sample
+  per night is too little for that). When a window opens the night is planned once: VMs still
+  learning start right away, learned VMs (five timed incrementals) are placed backwards so the night
+  ends at the preferred finish minus the buffer; a VM behind plan starts as soon as a proxy is free.
+  **Night plan** shows the plan per VM next to what ran, the card shows the predicted end or the
+  predicted overrun, and runs that end inside the buffer get a notice. Proxy selection now prefers
+  an idle proxy.
+- **Full backups on chosen days, real or synthetic** (migration `037`, proxy `0.5.0`). A backup
+  schedule can take its fulls on a rule (for example the first Sunday of the month) instead of every
+  N runs. A *real* full reads the whole VM again; a *synthetic* full runs the normal incremental,
+  verifies the chain up to it and has the proxy build a new chain from it on the target (new
+  `synthesize` job), so the cluster sees only the incremental. The anchor snapshot moves to the new
+  chain and the old chain retires. When the chain fails its verification or the proxy cannot build
+  the full, the old chain stays as it is, the run gets a notice and the next run reads the VM in
+  full. Restore points show which fulls were synthetic.
+- **Hourly backup schedules and Run now** (migration `039`). A schedule can repeat every hour or every
+  N hours (counted from midnight), for smaller increments; such a schedule has no start and finish
+  time, each run may start until the next one is due. **Run now** on a schedule backs up every VM of
+  it once, straight away, regardless of its window and blackouts, one backup per proxy at a time. An
+  occurrence is now stored as the moment its window opened instead of its day; existing runs are
+  converted.
+- **Whole-day blackouts.** A blackout period ending at 23:59 now lasts until midnight, so
+  00:00–23:59 blacks out the whole day; before, a run could still start in the last minute.
+- **Run timing** (migration `035`). Every backup and export run records where its time went: when
+  the work began after the pre-flight wait, the wait for a free proxy, the copy itself and the
+  remaining overhead. Backup schedules learn their durations from these columns.
+
+### Security
+- **Backup data of another cluster was readable by naming it.** The dashboard forwarded the
+  browser's `cluster` parameter to the backup service ahead of the one it had checked, and the
+  backup service used the first. A folder member could read the plans, runs and restore points of a
+  cluster outside their folders. Only the checked cluster is forwarded now.
+
+### Fixed
+- **About 2-3 % of backups failed with "image check failed"** (proxy `0.5.6`). After writing an
+  image the proxy disconnects it from `qemu-nbd` and checks it with `qemu-img check`. The
+  disconnect returns before the `qemu-nbd` server has closed the image (written its metadata,
+  released its lock), and the check sometimes ran in that window. The proxy now waits until the
+  server is gone. The check also says why it failed (the reason is in the run's error and the
+  proxy log, it used to be thrown away), retries briefly when the image is still locked, and lets
+  an image with only leaked clusters pass (wasted space, no wrong data). The log bundle now
+  includes the container's `memory.events` and anon/file memory, which tell a real out-of-memory
+  apart from a full page cache.
+- **A proxy on DHCP that got a new address was lost.** HyperCore Manager kept calling the address
+  it had at registration. When a proxy no longer answers there, the address its VM has now is read
+  from HyperCore (reported by the guest agent) and the registration follows it, but only when the
+  proxy at that address shows the pinned certificate and accepts its token. This happens before
+  every run, restore, file browse, verify and image update, and on "Test" in Settings → Proxies,
+  which says where the proxy was found. The connection stays one-way (HyperCore Manager → proxy),
+  so no firewall opening towards HyperCore Manager is needed. A proxy registered by DNS name is
+  left to DNS.
+- **A proxy stopped working after about a thousand jobs** (proxy `0.5.5`). After four days of hourly
+  backups every job failed with `qemu_thread_create: Resource temporarily unavailable`, and so did
+  the proxy's own clean-up of file-browsing mounts. The proxy ran as PID 1 in its container, where
+  nothing collects the daemons that `qemu-nbd` and `ntfs-3g` leave behind when they exit; these
+  most likely piled up until no new thread could start. The image now runs under `tini`, which
+  collects them. Proxies that are already deployed get it with the update. The log bundle now also
+  holds `processes.txt` (every process with its state, and a count of exited-but-uncollected ones)
+  and `limits.txt` (the kernel, process and cgroup limits that can refuse a new thread), and `ps`
+  and `free` work again in it.
+- **A terminated cluster update deferred every backup.** When an update pre-check stops a HyperCore
+  update (seen on 9.8.7: "SecureBoot needs to be disabled on this node"), the cluster reports the
+  update as `TERMINATING` indefinitely while still running the old version. Backups and restores
+  took that for an update in progress and were deferred for days. They now run. The cluster's card
+  in the sidebar shows a warning sign; it opens the cluster's reason, and the warning can be muted
+  for 1 to 365 days (migration `040`). A mute is shared by all users and holds for that update only:
+  the next update that is terminated shows again.
+- **File browsing: LVM inside LUKS, NTFS fallback, hidden skips** (proxy `0.5.4`). A LUKS volume
+  holding LVM (Ubuntu's encrypted layout) opened but its logical volumes did not appear: LVM could not
+  write its temporary name on a read-only LUKS device. LUKS now opens writable on the private
+  copy-on-write view (the backup is never written). The `ntfs-3g` fallback for an NTFS volume the
+  kernel driver refuses failed for want of a `/dev/mapper` node; the node is now made first.
+  Volumes that are found but cannot be mounted are listed in the window instead of looking absent;
+  Microsoft reserved and BIOS boot partitions, empty by design, are not.
+- **Restore points and file browsing open in a window of fixed size.** Both were inline in the
+  restore points list, so the page grew and shrank with every folder. **Points** now opens a window
+  with the VM's points (restore forms open in it), **Files** turns it into the browser of a point with
+  a way back to the points, and only the list inside scrolls. Leaving or closing the browser unmounts
+  the point.
+- **Backups missed the end of disks whose size is not a whole number of MiB** (proxy `0.5.2`).
+  HyperCore shows a guest such a disk rounded up to whole MiB (a "100 GB" disk is 100,000,595,968
+  bytes), but disk images were capped at the API capacity, so the last partial MiB, with the backup
+  copy of the GPT, was not backed up. Restores booted (the primary GPT was intact) but file browsing
+  of those points failed. Images now take the clone's full size; the first delta on an existing chain
+  copies the missing end, and older points show *end of disk missing*. File browsing reads a GPT
+  that `sfdisk` refuses for such a short image directly when its checksums hold, so existing points
+  are browsable too.
+- **File browsing: why nothing could be mounted.** *No mountable filesystem found in this point* now
+  names the reason for every partition (unsupported filesystem, unreadable partition table, mount
+  error), and a partition that will not mount is left out instead of failing the whole point (proxy
+  `0.5.1`). A GPT disk read as only its protective MBR says so, with what its first sector after the
+  MBR holds.
+- **Migrations stuck at `015`.** On installs where `015_sharing_prefs.sql` ran before the migration
+  runner recorded it, the runner re-ran it on every start and failed (`'default'` is no UUID since
+  `020`), so no later migration was applied. `015` now seeds its row only while the column is still
+  text.
+- **Backup service crash on upgrade.** When the dashboard had not yet applied a new migration the
+  backup service needs, it exited at start and restarted in a loop; it now logs the error and its
+  periodic sync catches up once the tables are there.
+- **Migrations retried instead of given up.** The dashboard stopped trying after eight failed
+  attempts at start, so a migration fixed afterwards waited for a dashboard restart. It now retries
+  every five minutes and logs that migrations are not applied.
+- **Disabled action buttons look disabled** (for example *New schedule* for backup schedules when the
+  cluster has no backup proxy); before they looked the same as enabled ones.
+
 ## [1.0.0]
 
 The community release: one installation for many clusters, folders and users, incremental

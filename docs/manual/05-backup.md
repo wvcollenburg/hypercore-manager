@@ -12,6 +12,94 @@ and old points are merged away by retention. **Export** mode uses HyperCore's ow
 run, into a timestamped folder; it needs no proxy and suits small VMs. A cluster with a
 registered proxy defaults to incremental.
 
+## Schedules
+
+![Schedules](img/backup-policies.png)
+
+A schedule backs up many VMs on one timetable: create the schedule first, then add VMs to it.
+Schedules belong to the folder of the selected cluster and can hold VMs of every cluster in that
+folder; select another cluster of the folder in the sidebar to add its VMs. **Backup schedules**
+run incremental backups and **export schedules** run exports; a schedule never mixes the two.
+
+- **Repeats** picks the days: every day or every N days, chosen weekdays every N weeks, the Nth or
+  last weekday of the month, a day of the month, or any RFC 5545 rule (RRULE) for anything else,
+  such as `FREQ=MONTHLY;BYDAY=-1SU` for the last Sunday of the month.
+- **Every hour (or every N hours)** backs up more often than once a night, for smaller increments.
+  The hours count from midnight: every 3 hours runs at 00:00, 03:00, 06:00 and so on. An hourly
+  schedule has no earliest start, preferred finish or buffer: each run may start until the next one
+  is due, and a run that is still busy then gets a *past preferred finish* notice. Blackouts still
+  apply. With fulls on chosen days, the full is taken in the first run of that day.
+- **Earliest start** is when backups of an occurrence may begin; **Preferred finish** is when the
+  night should be done (earlier than the start means the next day). Runs that finish later get a
+  notice.
+- **No backups start** lists weekly periods in which nothing of this schedule starts, such as
+  office hours. A run that is still busy when one begins is allowed to finish and gets a notice.
+  A period ending at 23:59 lasts until midnight, so 00:00–23:59 covers a whole day: Saturday and
+  Sunday 00:00–23:59 keeps an hourly schedule off for the weekend. On an hourly schedule, also
+  consider **Keep for days**: *Copies to keep* counts restore points, and a weekend of hourly runs
+  would otherwise push Friday's out.
+- **Buffer** is the margin kept free before the preferred finish once durations are learned.
+- **Time zone**: every time of the schedule is read in this zone, for every cluster in it. It
+  defaults to the zone of the cluster the schedule was created on.
+
+**Full backups** (backup schedules): every N runs, as for a plan of its own, or **on chosen days**,
+such as the first Sunday of the month; on the other days every run is incremental. A full day only
+counts when the schedule runs that day (the preview marks those windows *full*). Choose the kind:
+
+- **Real** reads the whole VM again: the most independent copy, and the heaviest night for the
+  cluster.
+- **Synthetic** runs the normal incremental, checks the chain up to it, and then builds a new full
+  from it on the target, without reading the VM again. The new full starts a new chain, so damage in
+  the old chain can no longer reach later restore points; it costs one more full's worth of space
+  on the target. If the chain fails its check, or the proxy cannot build the full, nothing is
+  changed, the run gets a notice and the next run reads the VM in full. Restore points mark these
+  fulls *synthetic*.
+
+When a window opens, the members start one after the other: at most one backup per proxy of a
+cluster at a time (one export per cluster). A VM is taken only once per occurrence. **Preview** in
+the form lists the next windows.
+
+**Run now** backs up every VM of the schedule once, straight away, regardless of its window and its
+blackouts, and also when the schedule is paused. It still runs one backup per proxy at a time, so a
+large schedule takes a while; the card shows *manual run* until every VM has had its turn. A manual
+run is always an incremental (or the full the chain needs), never the full of a full day, and it
+gets no window notices. The schedule's own runs carry on as usual.
+
+### Predicted finish
+
+![Night plan](img/backup-policy-night.png)
+
+Each VM's backup time is learned from its own runs: how much usually changes on that weekday,
+how fast the cluster's proxies read, and the fixed work around a copy (snapshot, clones,
+cleanup). A full or synthetic full night adds the size of the VM's last full. A VM counts as
+**learned** after five timed incrementals; until then it shows *learning n/5*.
+
+When the window opens, the night is planned once:
+
+- VMs still learning start right away, as before.
+- Learned VMs are placed so the night ends at the **target**, the preferred finish minus the
+  buffer: the backups run as late as possible, so they hold the freshest data and leave the early
+  night quiet, and the buffer absorbs a slower night.
+- A VM whose planned start has passed (the night runs behind) starts as soon as a proxy is free; a
+  VM ahead of plan waits for its planned start.
+- When the learned VMs do not fit between the opening and the target, they start right away and
+  the card says by how much the night is predicted to run over.
+
+**Night plan** on a schedule shows tonight (or the next night) per VM: the slot it runs in, the
+planned start, the predicted end, and what actually ran. The amber line is the target, the red
+line the preferred finish. Runs that end inside the buffer get the notice *into the buffer*; runs
+that end after the preferred finish get *past preferred finish*. The members list shows each VM's
+learned duration.
+
+A VM belongs to one schedule at a time. Adding a VM that has a plan of its own takes that plan
+into the schedule with its backups and chain kept (no new full); adding it to another schedule
+moves it there. Removing a VM from a schedule, or deleting the schedule, leaves its plan paused
+with its backups. VMs that keep a plan of their own run on their own time as before.
+
+A **notice** (blue) is more than information and less than a warning: the run succeeded, but ran
+into a blackout period, ended inside the buffer or past the preferred finish, or could not build
+its synthetic full.
+
 ## Plans
 
 ![Plans](img/backup-schedules.png)
@@ -19,8 +107,9 @@ registered proxy defaults to incremental.
 One row per plan: the VM, the destination (the target assigned to the cluster's folder and the
 folder on it), retention, the daily time, the last and the next run. Times are in the cluster's
 own time zone, read from HyperCore; where that differs from yours, the row shows your local
-equivalent next to it ("03:00 US/Eastern · 09:00 your time"). Run now starts a run outside the
-schedule, Pause stops the schedule without deleting anything, History opens the plan's runs.
+equivalent next to it ("03:00 US/Eastern · 09:00 your time"). A VM in a schedule shows the
+schedule's name instead of a time. Run now starts a run outside the schedule, Pause stops the
+schedule without deleting anything, History opens the plan's runs.
 
 ## VMs
 
@@ -35,7 +124,8 @@ days, and how many runs between fulls. The form says which time zone the time is
 
 ![Restore points](img/backup-points.png)
 
-One chain per VM: the base and the deltas after it, each a point you can restore. A point shows
+One chain per VM: the base and the deltas after it, each a point you can restore. **Points** opens
+them in a window of fixed size, where **Restore** and **Files** work on each point. A point shows
 when it was taken, how much changed and was written, whether the guest was **quiesced** (the
 guest flushed its state) or the point is **crash-consistent**, and when its files were last
 verified. **Verify** re-reads every file of the chain against the checksums written at backup
@@ -62,11 +152,33 @@ writing the disks, attaching them.
 
 ### Recovering single files
 
-**Files** on a point mounts it read-only on the proxy and opens a browser of its filesystems
+**Files** on a point mounts it read-only on the proxy and turns the window into a browser of its filesystems
 (ext4, XFS, btrfs, NTFS, LVM). Download a file or a selection as a zip, or deliver the
 selection as an ISO straight into a running VM's CD-ROM, which needs no credentials for the
 guest; eject it afterwards from the Runs panel. Nothing is written into a guest through the
-hypervisor.
+hypervisor. **← Restore points** goes back to the list and closing the window (✕, Escape or a
+click beside it) does the same; both unmount the point.
+
+A partition that cannot be mounted (an unknown filesystem, a damaged one, or a partition table the
+proxy cannot read) is left out and the others stay browsable. When nothing in a point can be
+mounted, the message names the reason for every partition; the proxy's **Download logs** (Settings)
+has the details, including the kernel's own messages.
+
+**Encrypted volumes** (BitLocker, LUKS) are found but stay locked until you give a key: the window
+lists them and asks for one. For BitLocker that is the 48-digit recovery password, kept in Active
+Directory, Entra ID or wherever it was saved when BitLocker was turned on; for LUKS the volume's
+passphrase. Enter one key per line when volumes have different keys; each key is tried on every
+volume. For BitLocker the window shows the volume's description (computer, drive, date) and the
+**recovery key ID**: look the key up by that ID (in Active Directory Users and Computers or Entra ID
+the first eight characters are enough), because a key that was rotated after the point was made
+will not open it. The volume is opened read-only on the proxy for this browse only: the key is never stored or
+logged, and the next time you open the point you enter it again. When a point holds both, the
+unencrypted volumes are browsable at once and a line above the list offers to unlock the rest.
+
+Points written before HyperCore Manager took a disk's full size show **end of disk missing**: for a
+disk whose size is not a whole number of MiB, the last partial MiB (with the backup copy of the
+partition table) is not in them. Restores and file browsing of those points work; the next backup
+of the VM adds the missing end.
 
 ## Import
 

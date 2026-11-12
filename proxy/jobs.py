@@ -3,6 +3,7 @@ jobs.py — the proxy's job engine: a small registry plus the four job kinds.
 
 backup   write one point (full or delta) of a chain from hot-added devices onto the target
 flatten  materialise one point as flat qcow2 files + the supplied definition (restore directory)
+synthesize  a point, read through its chain, as the base of a new chain (a synthetic full)
 verify   re-hash the points of a chain (one, all, or everything up to a seq) against their manifests
 sweep    remove stale restore directories under a folder on the target
 bench    measure write/read throughput onto a target through the paths a backup and a restore use
@@ -58,6 +59,14 @@ class Job:
                 'result': self.result, 'error': self.error, 'created_at': self.created_at, 'updated_at': self.updated_at}
 
 
+def grown_tail(prev_size: int | None, size: int) -> dict | None:
+    """The block interval a delta must copy because its image is larger than the previous point's
+    (None when it is not): from the block holding the old end up to the new end, whole MiB blocks."""
+    if not prev_size or size <= prev_size:
+        return None
+    return {'lower': prev_size // copier.MiB, 'upper': (size - 1) // copier.MiB}
+
+
 class Engine:
     def __init__(self, cfg, backend, mounter):
         self.cfg, self.backend, self.mounter = cfg, backend, mounter
@@ -68,7 +77,7 @@ class Engine:
 
     # ---------------------------------------------------------------- registry
     def submit(self, kind: str, request: dict) -> Job:
-        runner = {'backup': self.run_backup, 'flatten': self.run_flatten, 'verify': self.run_verify, 'sweep': self.run_sweep,
+        runner = {'backup': self.run_backup, 'flatten': self.run_flatten, 'synthesize': self.run_synthesize, 'verify': self.run_verify, 'sweep': self.run_sweep,
                   'prune': self.run_prune, 'delete_chain': self.run_delete_chain, 'stage': self.run_stage, 'bench': self.run_bench}[kind]
         job = Job(kind, request)
         with self._lock:
@@ -152,6 +161,10 @@ class Engine:
                 if not prev:
                     raise RuntimeError(f'previous point {prev_seq} not in chain')
                 prev_dir = os.path.join(chain_dir, prev['dir'])
+            prev_sizes = {}
+            if prev_dir:
+                pm = manifest.read_json(os.path.join(prev_dir, manifest.POINT_FILE)) or {}
+                prev_sizes = {d.get('uuid'): int(d.get('size') or 0) for d in pm.get('devices', [])}
             total_blocks = sum(copier.blocks_in(d['map']) for d in req['devices'])
             job.progress = {'devices_total': len(req['devices']), 'devices_done': 0, 'blocks_total': total_blocks, 'blocks_done': 0}
             # a second of self-check before the first clone is read: a reader whose qemu-nbd or qcow2
@@ -163,8 +176,10 @@ class Engine:
                 job.progress['current_device'] = dev['uuid'][:8]
                 src = devices.wait_for_device(dev['clone_uuid'], self.cfg.device_wait_seconds, self.cfg.dev_dir)
                 size = devices.device_size(src)
-                if dev.get('image_size'):
+                if dev.get('image_size') and dev.get('type') in ('NVRAM', 'VTPM'):
                     size = min(size, int(dev['image_size']))      # NVRAM: the firmware wants its exact size
+                # disks keep the clone's size: the guest's whole disk (an older backup service capped
+                # them at the API capacity, which cut off the last partial MiB)
                 fname = self._device_file(dev)
                 path = os.path.join(point_dir, fname)
                 backing = os.path.join(prev_dir, fname) if prev_dir else None
@@ -176,6 +191,12 @@ class Engine:
                     dev_map = dev.get('full_map') or dev['map']
                 else:
                     dev_map = dev['map']
+                    tail = grown_tail(prev_sizes.get(dev['uuid']), size)
+                    if tail:
+                        # the previous point's image was shorter than the disk (written capped): copy
+                        # the end it never had, or it would read as zeros through every later point
+                        dev_map = list(dev_map) + [tail]
+                        job.progress['blocks_total'] += copier.blocks_in([tail])
                 base_done = job.progress['blocks_done']
 
                 def prog(done, total, _b=base_done):
@@ -185,8 +206,9 @@ class Engine:
                     written = copier.copy_intervals(src, writable, dev_map, writers=self.cfg.writers, progress=prog, cancelled=job.cancelled)
                 if job.cancelled():
                     raise RuntimeError('cancelled')
-                if not self.backend.check(path):
-                    raise RuntimeError(f'image check failed: {fname}')
+                problem = self.backend.check_detail(path)
+                if problem:
+                    raise RuntimeError(f'image check failed: {fname}: {problem}')
                 out_devices.append({'uuid': dev['uuid'], 'type': dev.get('type', 'VIRTIO_DISK'), 'file': fname, 'size': size,
                                     'serial': dev.get('serial'), 'blocks': copier.blocks_in(dev_map), 'bytes_written': written,
                                     'full': backing is None and kind == 'delta', 'sha256': manifest.sha256_file(path)})
@@ -299,6 +321,61 @@ class Engine:
                         shutil.rmtree(p, ignore_errors=True)
                         removed.append(name)
             return {'removed': removed}
+        finally:
+            self._release_target(req)
+
+    # ---------------------------------------------------------------- synthesize
+    def run_synthesize(self, job: Job) -> dict:
+        """
+        request: {target, chain_dir, seq, new_chain_dir, plan_id?, run_id?}
+        A synthetic full: point `seq` of a chain, read through its backing chain, becomes the base of
+        a new chain (same files, devices, serials and definition, fresh checksums), without reading
+        the VM again. The service verifies the source chain first; nothing is touched in it.
+        """
+        req = job.request
+        root = self._with_target(req)
+        try:
+            rel = req['new_chain_dir']
+            if rel.startswith('/') or '..' in rel.split('/'):
+                raise ValueError('new_chain_dir must be a relative path inside the target')
+            src_chain_dir = os.path.join(root, req['chain_dir'])
+            chain = manifest.load_chain(src_chain_dir)
+            point = next((p for p in chain['points'] if p['seq'] == int(req['seq'])), None)
+            if not point:
+                raise RuntimeError(f'point {req["seq"]} not found')
+            pm = manifest.read_json(os.path.join(src_chain_dir, point['dir'], manifest.POINT_FILE)) or {}
+            new_chain_dir = os.path.join(root, rel)
+            base_dir = os.path.join(new_chain_dir, manifest.point_dirname('full', 0))
+            if os.path.exists(os.path.join(base_dir, manifest.POINT_FILE)):
+                raise RuntimeError(f'{rel} already has a base')
+            os.makedirs(base_dir, exist_ok=True)
+            job.progress = {'devices_total': len(pm.get('devices', [])), 'devices_done': 0}
+            t0 = time.time()
+            out = []
+            for d in pm.get('devices', []):
+                job.progress['current_device'] = d['uuid'][:8]
+                dst = os.path.join(base_dir, d['file'])
+                self.backend.synthesize(os.path.join(src_chain_dir, point['dir'], d['file']), dst)
+                if job.cancelled():
+                    raise RuntimeError('cancelled')
+                problem = self.backend.check_detail(dst)
+                if problem:
+                    raise RuntimeError(f'image check failed: {d["file"]}: {problem}')
+                out.append({'uuid': d['uuid'], 'type': d.get('type', 'VIRTIO_DISK'), 'file': d['file'], 'size': d.get('size'),
+                            'serial': d.get('serial'), 'blocks': d.get('blocks'), 'bytes_written': os.path.getsize(dst),
+                            'full': False, 'sha256': manifest.sha256_file(dst)})
+                job.progress['devices_done'] += 1
+                self._persist(job)
+            base = {'kind': 'full', 'seq': 0, 'dir': os.path.basename(base_dir), 'previous_seq': None,
+                    'created_at': pm.get('created_at') or point.get('created_at') or _now(),
+                    'duration_s': round(time.time() - t0, 1), 'devices': out, 'definition': pm.get('definition'),
+                    'plan_id': req.get('plan_id', pm.get('plan_id')), 'run_id': req.get('run_id', pm.get('run_id')),
+                    'proxy_backend': self.backend.name, 'synthetic_from': {'chain_dir': req['chain_dir'], 'seq': point['seq']}}
+            manifest.write_json(os.path.join(base_dir, manifest.POINT_FILE), base)
+            manifest.save_chain(new_chain_dir, {'vm': chain.get('vm'), 'created_at': _now(),
+                                                'points': [{k: base[k] for k in ('kind', 'seq', 'dir', 'previous_seq', 'created_at')}]})
+            return {'chain_dir': rel, 'point_dir': base['dir'], 'devices': [{k: v for k, v in x.items() if k != 'serial'} for x in out],
+                    'bytes_written': sum(x['bytes_written'] for x in out), 'duration_s': base['duration_s']}
         finally:
             self._release_target(req)
 

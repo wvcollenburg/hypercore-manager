@@ -18,7 +18,14 @@ import requests
 
 
 class ProxyError(Exception):
-    pass
+    """payload: the proxy's JSON answer to a refused request, when it sent one (e.g. locked volumes).
+    kind: 'unreachable' (nothing answered at the URL), 'wrong_certificate' (something answered with
+    another certificate than the pinned one), or None for every other refusal. The first two mean
+    the proxy may have moved to another address (see incremental.relocate_proxy)."""
+    def __init__(self, msg: str = '', payload: dict | None = None, kind: str | None = None):
+        super().__init__(msg)
+        self.payload = payload or {}
+        self.kind = kind
 
 
 def certificate_fingerprint(url: str, timeout: float = 10) -> str:
@@ -57,9 +64,10 @@ class ProxyClient:
             try:
                 seen = certificate_fingerprint(self.url)
             except OSError as e:                 # refused, reset, or a TLS EOF while the proxy (re)starts: retryable
-                raise ProxyError(f'proxy unreachable at {self.url}: {e}') from e
+                raise ProxyError(f'proxy unreachable at {self.url}: {e}', kind='unreachable') from e
             if seen != self.fingerprint:
-                raise ProxyError(f'proxy certificate fingerprint {seen[:16]}… does not match the pinned {self.fingerprint[:16]}…')
+                raise ProxyError(f'proxy certificate fingerprint {seen[:16]}… does not match the pinned {self.fingerprint[:16]}…',
+                                 kind='wrong_certificate')
             self._pinned_ok = True
 
     def _request(self, method: str, path: str, extra_headers: dict | None = None, **kw):
@@ -74,18 +82,46 @@ class ProxyClient:
             r = requests.request(method, f'{self.url}{path}', headers=headers, timeout=kw.pop('timeout', self.timeout),
                                  verify=verify if not self.fingerprint else False, **kw)
         except requests.exceptions.RequestException as e:
-            raise ProxyError(f'proxy unreachable at {self.url}: {e}') from e
+            raise ProxyError(f'proxy unreachable at {self.url}: {e}', kind='unreachable') from e
         if r.status_code == 401:
             raise ProxyError('proxy rejected the token (401)')
         if r.status_code >= 400:
             try:
-                detail = r.json().get('error', r.text[:200])
-            except ValueError:
-                detail = r.text[:200]
-            raise ProxyError(f'proxy returned {r.status_code}: {detail}')
+                payload = r.json()
+                detail = payload.get('error', r.text[:200])
+            except (ValueError, AttributeError):
+                payload, detail = None, r.text[:200]
+            raise ProxyError(f'proxy returned {r.status_code}: {detail}', payload if isinstance(payload, dict) else None)
         return r.json() if r.text else None
 
+    def _raw(self, method: str, path: str, timeout: float = 120) -> requests.Response:
+        """A non-JSON answer (a file), with the same pinning and error handling as _request."""
+        if self.url.startswith('https://'):
+            if not self.fingerprint and not self.tls_verify:
+                raise ProxyError('https proxy without a pinned certificate fingerprint or CA verification; probe it first')
+            self._check_pin()
+        headers = {'Authorization': f'Bearer {self.token}'} if self.token else {}
+        verify = (self.tls_verify if self.url.startswith('https://') else True) if not self.fingerprint else False
+        try:
+            r = requests.request(method, f'{self.url}{path}', headers=headers, timeout=timeout, verify=verify)
+        except requests.exceptions.RequestException as e:
+            raise ProxyError(f'proxy unreachable at {self.url}: {e}', kind='unreachable') from e
+        if r.status_code == 401:
+            raise ProxyError('proxy rejected the token (401)')
+        if r.status_code == 404:
+            raise ProxyError('this proxy cannot make a support bundle yet; update it to 0.5.1 or later')
+        if r.status_code >= 400:
+            raise ProxyError(f'proxy returned {r.status_code}: {r.text[:200]}')
+        return r
+
     # ------------------------------------------------------------------ calls
+    def support_bundle(self) -> tuple[bytes, str]:
+        """(zip bytes, file name) of the proxy's log, jobs, mounts and system state."""
+        r = self._raw('GET', '/support/bundle')
+        cd = r.headers.get('Content-Disposition', '')
+        name = cd.split('filename=', 1)[1].strip('"') if 'filename=' in cd else 'hcm-proxy-logs.zip'
+        return r.content, name
+
     def health(self) -> dict:
         return self._request('GET', '/health') or {}
 

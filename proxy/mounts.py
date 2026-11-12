@@ -7,6 +7,9 @@ For every disk image of a point:
       and LVM metadata changes never reach the backup)  ->  mount read-only
 LVM physical volumes are imported under a temporary volume-group name (vgimportclone on the
 COW device), so a guest whose root VG has the same name as the proxy's own does not collide.
+BitLocker and LUKS volumes are opened read-only with cryptsetup when the request carries a key
+(a BitLocker recovery password or a LUKS passphrase; several keys are tried in turn). Keys go to
+cryptsetup on stdin, are never logged or kept, and live only as long as the mount request.
 
 Everything that touches the system goes through `run` (injectable), so the planning and the
 browse/zip logic are unit-tested without root; the real thing is exercised on the lab proxy.
@@ -20,17 +23,24 @@ import os
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import threading
 import time
 import uuid as uuidlib
 import zipfile
+import zlib
 from contextlib import ExitStack
 
 import manifest
 
 log = logging.getLogger('proxy.mounts')
 SECTOR = 512
+# blkid TYPE -> (cryptsetup --type, name shown to the admin)
+_ENCRYPTED = {'bitlocker': ('bitlk', 'BitLocker'), 'crypto_luks': ('luks', 'LUKS')}
+# partitions that hold no filesystem by design: not worth a "not mounted" line
+_EMPTY_BY_DESIGN = {'e3c9e316-0b5c-4db8-817d-f92df00215ae': 'Microsoft reserved partition',
+                    '21686148-6449-6e6f-744e-656564454649': 'BIOS boot partition'}
 _FS_OPTS = {
     'ext4': ('ext4', 'ro,noload'), 'ext3': ('ext4', 'ro,noload'), 'ext2': ('ext2', 'ro'),
     'xfs': ('xfs', 'ro,norecovery,nouuid'), 'btrfs': ('btrfs', 'ro'), 'vfat': ('vfat', 'ro'),
@@ -63,6 +73,60 @@ def partitions_from_sfdisk(sfdisk_json: str, device: str, device_size: int) -> l
     return out
 
 
+def protective_only(sfdisk_json: str) -> bool:
+    """An MBR whose only entry is the 0xEE placeholder of a GPT disk: sfdisk fell back to it because
+    it could not use the GPT itself."""
+    try:
+        t = json.loads(sfdisk_json).get('partitiontable', {})
+    except (ValueError, AttributeError):
+        return False
+    parts = t.get('partitions') or []
+    return t.get('label') == 'dos' and len(parts) == 1 and str(parts[0].get('type', '')).lower() in ('ee', '0xee')
+
+
+def parse_gpt(header: bytes, read, device_size: int) -> list[dict] | None:
+    """Partitions from a primary GPT header whose checksums hold, for a disk sfdisk refused. sfdisk
+    also checks the header against the device size, and an image shorter than the disk it came from
+    (a point written before disk images got the guest's full size) fails that check although every
+    partition is inside it. read(offset, length) -> bytes. Partitions that do not fit are left out.
+    None when the header or its partition array is not valid."""
+    if len(header) < 92 or header[:8] != b'EFI PART':
+        return None
+    hsize, hcrc = struct.unpack_from('<II', header, 12)
+    if not 92 <= hsize <= len(header):
+        return None
+    if zlib.crc32(header[:16] + b'\0\0\0\0' + header[20:hsize]) & 0xffffffff != hcrc:
+        return None
+    elba, count, esize, ecrc = struct.unpack_from('<QIII', header, 72)
+    if not (128 <= esize <= 4096 and 0 < count <= 1024):
+        return None
+    entries = read(elba * SECTOR, count * esize)
+    if len(entries) != count * esize or zlib.crc32(entries) & 0xffffffff != ecrc:
+        return None
+    out = []
+    for i in range(count):
+        e = entries[i * esize:(i + 1) * esize]
+        if not e[:16].strip(b'\0'):
+            continue
+        first, last = struct.unpack_from('<QQ', e, 32)
+        start, size = first * SECTOR, (last - first + 1) * SECTOR
+        if last >= first and start + size <= device_size:
+            out.append({'name': f'p{len(out) + 1}', 'start_bytes': start, 'size_bytes': size,
+                        'type': str(uuidlib.UUID(bytes_le=bytes(e[:16])))})
+    return out
+
+
+def describe_sector(data: bytes) -> str:
+    """What a sector holds, in a few words: a GPT header, zeros, or its first bytes."""
+    if not data:
+        return 'unreadable'
+    if data[:8] == b'EFI PART':
+        return 'a GPT header (EFI PART)'
+    if not data.strip(b'\x00'):
+        return 'zeros'
+    return 'other data: ' + data[:16].hex(' ')
+
+
 def parse_blkid(text: str) -> dict:
     """`blkid -o export` -> {TYPE, LABEL, UUID, ...}"""
     out = {}
@@ -78,6 +142,9 @@ class Mount:
         self.id = mid
         self.root = root                     # directory under which filesystems are mounted
         self.filesystems: list[dict] = []    # {name, fstype, mountpoint, label, size_bytes}
+        self.skipped: list[dict] = []        # {name, reason}: partitions and volumes that were not mounted
+        self.locked: list[dict] = []         # {name, kind, reason}: encrypted volumes no key opened
+        self.keys: list[str] = []            # unlock keys, only while mounting (cleared afterwards)
         self.cleanup: list[list[str]] = []   # commands to run in reverse on unmount
         self.stack = ExitStack()             # keeps nbd attachments alive
         self.created = time.time()
@@ -89,7 +156,49 @@ class Mount:
 
     def public(self) -> dict:
         return {'id': self.id, 'filesystems': [{k: v for k, v in f.items() if k != 'mountpoint'} for f in self.filesystems],
-                'created': self.created, 'last_used': self.last_used}
+                'skipped': self.skipped, 'locked': self.locked, 'created': self.created, 'last_used': self.last_used}
+
+    def skip(self, name: str, reason: str) -> None:
+        reason = ' '.join(reason.split())            # tool output spans lines; the error is one line
+        log.warning('%s not mounted: %s', name, reason)
+        self.skipped.append({'name': name, 'reason': reason})
+
+
+def parse_bitlk_dump(text: str) -> dict:
+    """From `cryptsetup bitlkDump`: the key IDs of the recovery-password protectors (what AD, Entra and
+    Intune list a recovery key under) and the volume description Windows wrote (computer, drive, date)."""
+    out = {'key_ids': [], 'description': None}
+    guid = None
+    in_slots = False
+    for raw in (text or '').splitlines():
+        line = raw.strip()
+        if line.lower().startswith('description:'):
+            out['description'] = line.split(':', 1)[1].strip() or None
+        elif line.lower().startswith('keyslots:'):
+            in_slots = True
+        elif in_slots and line.lower().startswith('guid:'):
+            guid = line.split(':', 1)[1].strip().upper()
+        elif in_slots and line.lower().startswith('protection:') and 'recovery' in line.lower() and guid:
+            if guid not in out['key_ids']:
+                out['key_ids'].append(guid)
+    return out
+
+
+class LockedVolumes(RuntimeError):
+    """Nothing could be mounted but there are encrypted volumes a key would open."""
+    def __init__(self, msg: str, locked: list[dict]):
+        super().__init__(msg)
+        self.locked = locked
+
+
+def no_filesystem_error(skipped: list[dict], limit: int = 900) -> str:
+    """The error of a point in which nothing could be mounted, with the reason per partition, so the
+    cause reaches the dashboard without a login on the proxy."""
+    msg = 'no mountable filesystem found in this point'
+    if skipped:
+        why = '; '.join(f"{s['name']}: {s['reason']}" for s in skipped)
+        msg += f' ({why[:limit] + "…" if len(why) > limit else why})'
+    return msg
 
 
 class MountManager:
@@ -102,10 +211,11 @@ class MountManager:
         os.makedirs(self.base, exist_ok=True)
 
     # ------------------------------------------------------------------ mount
-    def mount(self, target: dict, chain_dir: str, seq: int) -> Mount:
+    def mount(self, target: dict, chain_dir: str, seq: int, keys: list[str] | None = None) -> Mount:
         root = self.mounter.acquire(target['uri'], target.get('username'), target.get('password'))
         mid = uuidlib.uuid4().hex[:12]
         m = Mount(mid, os.path.join(self.base, mid))
+        m.keys = [k.strip() for k in (keys or []) if k and k.strip()]
         os.makedirs(m.root, exist_ok=True)
         m.cleanup.append(['__release_target__', target['uri']])
         try:
@@ -123,10 +233,15 @@ class MountManager:
                 dev = m.stack.enter_context(self.backend.open_readonly(image))
                 self._attach_disk(m, dev, f'disk{di}', int(d.get('size') or 0))
             if not m.filesystems:
-                raise RuntimeError('no mountable filesystem found in this point')
+                if m.locked:
+                    raise LockedVolumes('encrypted volume(s) need a key: ' + ', '.join(
+                        f"{v['name']} ({v['kind']}{'' if v['reason'] == 'key needed' else ': ' + v['reason']})" for v in m.locked), m.locked)
+                raise RuntimeError(no_filesystem_error(m.skipped))
         except Exception:
+            m.keys = []
             self._teardown(m)
             raise
+        m.keys = []
         with self._lock:
             self.mounts[mid] = m
         log.info('point mounted', extra={'mount': mid, 'filesystems': [f['name'] for f in m.filesystems]})
@@ -134,22 +249,120 @@ class MountManager:
 
     def _attach_disk(self, m: Mount, dev: str, disk_name: str, size_hint: int) -> None:
         size = int(_run(['blockdev', '--getsize64', dev], run=self.run) or size_hint or 0) if os.path.exists(dev) else size_hint
-        table = _run(['sfdisk', '--json', dev], check=False, run=self.run)
-        for part in partitions_from_sfdisk(table, dev, size):
+        r = self.run(['sfdisk', '--json', dev], capture_output=True, text=True, timeout=600)
+        table, warnings = (r.stdout or '').strip(), ' '.join((r.stderr or '').split())[:300]
+        if protective_only(table):
+            # the GPT is there (the MBR says so) but sfdisk would not use it: read it ourselves
+            parts = parse_gpt(self._read(dev, SECTOR, SECTOR), lambda off, n: self._read(dev, off, n), size)
+            if not parts:
+                m.skip(disk_name, 'only the protective MBR of a GPT disk could be read; sector 1 holds '
+                                  f'{describe_sector(self._sector(dev, 1))}, sector size {self._sector_size(dev)}'
+                                  + (f'; sfdisk: {warnings}' if warnings else ''))
+                return
+            log.info('%s: GPT read directly (sfdisk refused it%s)', disk_name, f': {warnings}' if warnings else '')
+        else:
+            parts = partitions_from_sfdisk(table, dev, size)
+        whole = len(parts) == 1 and parts[0]['name'] == 'disk'
+        for part in parts:
             name = f'{disk_name}-{part["name"]}'
             try:
                 cow = self._cow_device(m, dev, part, name)
             except RuntimeError as e:
-                log.warning('partition %s skipped: %s', name, e)
+                m.skip(name, f'no read-only view: {e}')
                 continue
-            info = parse_blkid(_run(['blkid', '-p', '-o', 'export', cow], check=False, run=self.run))
+            blkid = _run(['blkid', '-p', '-o', 'export', cow], check=False, run=self.run)
+            info = parse_blkid(blkid)
             fstype = (info.get('TYPE') or '').lower()
-            if fstype == 'lvm2_member':
-                self._attach_lvm(m, cow, name)
-            elif fstype in _FS_OPTS:
-                self._mount_fs(m, cow, name, fstype, info.get('LABEL'), part['size_bytes'])
+            if fstype == 'lvm2_member' or fstype in _ENCRYPTED or fstype in _FS_OPTS:
+                self._attach_volume(m, cow, name, part['size_bytes'], info)
+            elif fstype:
+                m.skip(name, f'unsupported filesystem {fstype!r}')
+            elif whole and info.get('PTTYPE'):
+                m.skip(name, f"a {info['PTTYPE']} partition table that could not be read ({size} bytes)")
+            elif str(part.get('type') or '').lower() in _EMPTY_BY_DESIGN:
+                log.info('partition %s: %s, no filesystem by design', name, _EMPTY_BY_DESIGN[str(part['type']).lower()])
+            elif part['size_bytes'] < (8 << 20):
+                log.info('partition %s: %d bytes, no filesystem (boot loader area)', name, part['size_bytes'])
             else:
-                log.info('partition %s: unsupported or empty filesystem %r', name, fstype)
+                m.skip(name, 'no filesystem recognised' + ('' if blkid else ' (blkid returned nothing)'))
+
+    def _attach_volume(self, m: Mount, dev: str, name: str, size_bytes: int, info: dict | None = None) -> None:
+        """What a partition, logical volume or opened encrypted volume holds: a filesystem, an LVM
+        physical volume, or an encrypted volume (which may hold either again)."""
+        if info is None:
+            info = parse_blkid(_run(['blkid', '-p', '-o', 'export', dev], check=False, run=self.run))
+        fstype = (info.get('TYPE') or '').lower()
+        if fstype == 'lvm2_member':
+            self._attach_lvm(m, dev, name)
+        elif fstype in _ENCRYPTED:
+            self._unlock(m, dev, name, fstype, size_bytes)
+        elif fstype in _FS_OPTS:
+            self._mount_fs(m, dev, name, fstype, info.get('LABEL'), size_bytes)
+        else:
+            m.skip(name, f'unsupported filesystem {fstype!r}' if fstype else 'no filesystem recognised')
+
+    def _unlock(self, m: Mount, dev: str, name: str, fstype: str, size_bytes: int) -> None:
+        """Open an encrypted volume read-only with the first key that fits; a volume no key opens
+        is listed in m.locked so the caller can ask for one."""
+        ctype, kind = _ENCRYPTED[fstype]
+        if not m.keys:
+            m.locked.append(self._locked_entry(dev, name, kind, 'key needed'))
+            return
+        dm = f'hcmflr-{m.id}-{name}-open'
+        env = dict(os.environ, DM_DISABLE_UDEV='1')        # no udev in the container: cryptsetup must not wait for it
+        # `dev` is the private copy-on-write view (or an LV on one), so writes never reach the backup.
+        # LUKS opens writable: LVM inside it (Ubuntu's encrypted layout) must write its temporary VG
+        # name. BitLocker holds NTFS, which mounts read-only, so it opens read-only.
+        mode = ['--readonly'] if ctype == 'bitlk' else []
+        opened = False
+        for key in m.keys:
+            try:
+                r = self.run(['cryptsetup', 'open', *mode, '--type', ctype, dev, dm], input=key + '\n',
+                             capture_output=True, text=True, timeout=120, env=env)
+            except (OSError, subprocess.SubprocessError) as e:
+                m.skip(name, f'{kind} volume could not be opened: {e}')
+                return
+            if getattr(r, 'returncode', 1) == 0:
+                opened = True
+                break
+        if not opened:
+            m.locked.append(self._locked_entry(dev, name, kind, 'no key matched'))
+            return
+        m.cleanup.append(['dmsetup', 'remove', '--noudevsync', '--retry', dm])     # = cryptsetup close, without udev
+        minor = _run(['dmsetup', 'info', '-c', '--noheadings', '-o', 'minor', dm], run=self.run).strip()
+        inner = f'/dev/dm-{minor}' if minor.isdigit() else f'/dev/mapper/{dm}'
+        log.info('%s: %s volume opened read-only', name, kind)
+        self._attach_volume(m, inner, name, size_bytes)
+
+    def _locked_entry(self, dev: str, name: str, kind: str, reason: str) -> dict:
+        """A locked volume as the window shows it; BitLocker adds the recovery key IDs so the admin can
+        look up the key that was valid for this point (it changes when a key is rotated)."""
+        entry = {'name': name, 'kind': kind, 'reason': reason}
+        if kind == 'BitLocker':
+            try:
+                entry.update(parse_bitlk_dump(_run(['cryptsetup', 'bitlkDump', dev], check=False, run=self.run, timeout=60)))
+            except (OSError, subprocess.SubprocessError, RuntimeError):
+                pass
+        return entry
+
+    def _sector_size(self, dev: str) -> str:
+        try:
+            return _run(['blockdev', '--getss', dev], run=self.run) or '?'
+        except RuntimeError:
+            return '?'
+
+    @classmethod
+    def _sector(cls, dev: str, lba: int) -> bytes:
+        return cls._read(dev, lba * SECTOR, SECTOR)
+
+    @staticmethod
+    def _read(dev: str, offset: int, length: int) -> bytes:
+        try:
+            with open(dev, 'rb') as fh:
+                fh.seek(offset)
+                return fh.read(length)
+        except OSError:
+            return b''
 
     def _cow_device(self, m: Mount, dev: str, part: dict, name: str) -> str:
         """read-only loop over the partition + dm snapshot with a sparse COW file -> writable, private view."""
@@ -173,12 +386,24 @@ class MountManager:
         mp = os.path.join(m.root, name)
         os.makedirs(mp, exist_ok=True)
         try:
-            _run(['mount', '-t', mtype, '-o', opts, dev, mp], run=self.run)
+            try:
+                _run(['mount', '-t', mtype, '-o', opts, dev, mp], run=self.run)
+            except RuntimeError:
+                if fstype != 'ntfs':
+                    raise
+                # kernel ntfs3 refused it: the userspace driver, which resolves /dev/dm-N to its
+                # /dev/mapper name; without udev that node has to be made first
+                if dev.startswith('/dev/dm-'):
+                    try:
+                        with open(f'/sys/block/{os.path.basename(dev)}/dm/name') as fh:
+                            _run(['dmsetup', 'mknodes', fh.read().strip()], check=False, run=self.run)
+                    except OSError:
+                        pass
+                _run(['mount', '-t', 'ntfs-3g', '-o', 'ro', dev, mp], run=self.run)
         except RuntimeError as e:
-            if fstype == 'ntfs':
-                _run(['mount', '-t', 'ntfs-3g', '-o', 'ro', dev, mp], run=self.run)   # kernel ntfs3 missing: userspace driver
-            else:
-                raise e
+            # one filesystem that will not mount (say a damaged EFI partition) must not hide the others
+            m.skip(name, f'{fstype} mount failed: {e}')
+            return
         m.cleanup.append(['umount', mp])
         m.filesystems.append({'name': name, 'fstype': fstype, 'mountpoint': mp, 'label': label, 'size_bytes': size_bytes})
 
@@ -197,22 +422,17 @@ class MountManager:
             rows = [l.split() for l in _run(['lvs', '--noheadings', '--separator', ' ', '-o', 'lv_name,lv_kernel_minor'] + dev + [vg_name], run=self.run).splitlines() if l.strip()]
             lvs = [(r[0], f'/dev/dm-{r[1]}') for r in rows if len(r) == 2 and r[1].isdigit()]
         except RuntimeError as e:
-            log.warning('LVM import on %s failed: %s', name, e)
+            m.skip(name, f'LVM import failed: {e}')
             return
         if not lvs:
-            log.warning('LVM import on %s: no active logical volume found', name)
+            m.skip(name, 'LVM physical volume without an active logical volume')
         for lv_label, lv in lvs:
             info = parse_blkid(_run(['blkid', '-p', '-o', 'export', lv], check=False, run=self.run))
-            fstype = (info.get('TYPE') or '').lower()
-            lv_name = f'{name}-{lv_label}'
-            if fstype not in _FS_OPTS:
-                log.info('logical volume %s: unsupported or empty filesystem %r', lv_name, fstype)
-            if fstype in _FS_OPTS:
-                try:
-                    size = int(_run(['blockdev', '--getsize64', lv], run=self.run) or 0)
-                except RuntimeError:
-                    size = 0
-                self._mount_fs(m, lv, lv_name, fstype, info.get('LABEL'), size)
+            try:
+                size = int(_run(['blockdev', '--getsize64', lv], run=self.run) or 0)
+            except RuntimeError:
+                size = 0
+            self._attach_volume(m, lv, f'{name}-{lv_label}', size, info)
 
     # ---------------------------------------------------------------- browse
     def get(self, mid: str) -> Mount:
@@ -371,10 +591,10 @@ class MountManager:
         for vg in _run(['vgs', '--noheadings', '-o', 'vg_name'], check=False, run=self.run).split():
             if vg.startswith('hcmflr'):
                 _run(['vgchange', '-an', vg], check=False, run=self.run); n['vgs'] += 1
-        for line in _run(['dmsetup', 'ls'], check=False, run=self.run).splitlines():
-            name = line.split()[0] if line.split() else ''
-            if name.startswith('hcmflr-'):
-                _run(['dmsetup', 'remove', '--noudevsync', '--retry', name], check=False, run=self.run); n['dm'] += 1
+        names = [ln.split()[0] for ln in _run(['dmsetup', 'ls'], check=False, run=self.run).splitlines() if ln.split()]
+        # opened encrypted volumes (-open) sit on top of the snapshots: remove them first
+        for name in sorted((x for x in names if x.startswith('hcmflr-')), key=lambda x: not x.endswith('-open')):
+            _run(['dmsetup', 'remove', '--noudevsync', '--retry', name], check=False, run=self.run); n['dm'] += 1
         for line in _run(['losetup', '-a'], check=False, run=self.run).splitlines():
             dev = line.split(':')[0]
             if dev.startswith('/dev/loop') and (self.base in line or '(/dev/nbd' in line):
