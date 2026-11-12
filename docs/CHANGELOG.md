@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.1]
+
+### Fixed
+- **A backup proxy deployed or registered for one cluster ended up on another.** The proxy forms
+  in Settings have their own cluster choice, but the dashboard replaced the cluster in every
+  forwarded request with the cluster selected in the sidebar. With more than one cluster, a proxy
+  meant for the second cluster was deployed on (or registered for) the selected one. A cluster
+  named in a request is now checked against the clusters the user may manage and kept; one the
+  user may not manage is refused instead of swapped.
+
 ## [1.1.0]
 
 ### Added

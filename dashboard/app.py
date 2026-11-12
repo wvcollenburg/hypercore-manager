@@ -61,6 +61,7 @@ import hypercore_tasks
 import hcm_crypto
 import storage_summary
 from versioning import latest_semver_tag, is_newer, origin_to_web_url
+from forwarding import body_cluster
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
@@ -1458,9 +1459,14 @@ def backup_proxy(sub):
     headers = {'Authorization': f'Bearer {token}'} if token else {}
     if request.method in ('POST', 'PUT'):
         payload = request.get_json(silent=True) or {}
-        # the body's cluster is always the one the user has selected and may see
-        if 'cluster_id' in payload or sub.endswith(('plans', 'import/start')):
-            payload['cluster_id'] = cid
+        # a cluster named in the body is checked, not replaced (forms with their own cluster choice,
+        # e.g. proxy deployment); a body without one gets the selected cluster where it is needed
+        body_cid, err = body_cluster(payload, cid, {c.cluster_id for c in _visible_clusters()},
+                                     fill='cluster_id' in payload or sub.endswith(('plans', 'import/start')))
+        if err:
+            return jsonify({'error': err}), 403
+        if body_cid:
+            payload['cluster_id'] = body_cid
         if sub == 'notices/mute':                    # who muted it is the session's user, not the body's
             payload['muted_by'] = session.get('username') or None
         body = json.dumps(payload).encode()
