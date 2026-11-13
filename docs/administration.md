@@ -202,7 +202,8 @@ Rules that always hold:
 - The last enabled administrator of the whole installation cannot lose that role.
 - One account per email address across the installation.
 
-Two-factor (TOTP) is set up by each user on their own **Account** page.
+Two-factor (TOTP) is set up by each user on their own **Account** page; an administrator of the
+whole installation can reset it (**Reset 2FA**) for someone who lost the device.
 
 The initial administrator comes from `SC_DASHBOARD_USER` / `SC_DASHBOARD_PASSWORD` in `.env` and
 is seeded only once; manage accounts here afterwards.
@@ -489,6 +490,19 @@ the copies already on the target.
 
 ## Account
 
-Everyone has an **Account** page in the rail footer: change the own password, enable or disable
-TOTP two-factor (scan the QR code, confirm with a code), and see the language selector in the
+Everyone has an **Account** page in the rail footer: the own name and email address, the own
+password, TOTP two-factor (scan the QR code, confirm with a code), and the language selector in the
 header. Administrators use the same page for their own account.
+
+Credentials are the person's own; nobody below the top level touches them:
+
+- **Forgot your password?** on the sign-in page mails a link to the account's address (it works
+  once, for 60 minutes; at most three an hour). The page says the same whether or not the address
+  has an account. Without a mail server it says to ask an administrator.
+- **Changing the address** asks for the current password and mails a link to the new address (once,
+  24 hours); only opening it changes the login. The old address gets a notice. The old address
+  stays known to HCM, so log entries written under it still name the same person.
+- Administrators of the whole installation can **Reset password** and **Reset 2FA** for someone
+  who is locked out, and change an address directly.
+- The initial administrator (`SC_DASHBOARD_USER`) has no address: its password is changed on the
+  Account page or in `.env` before the first start.

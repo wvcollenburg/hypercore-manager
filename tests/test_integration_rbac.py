@@ -561,7 +561,7 @@ def test_guest_routes_are_public_but_bounded(admin):
     for rule in ('/guest/<token>', '/guest/<token>/ticket', '/guest/ws', '/guest/vendor/novnc/<path:filename>', '/guest/lang/<filename>'):
         assert routes[rule]['permission'] == 'public', rule
     public = [r for r in routes if routes[r]['permission'] == 'public']
-    assert all(r.startswith(('/guest', '/login', '/logout', '/internal/', '/console/ws', '/invite/')) for r in public), public
+    assert all(r.startswith(('/guest', '/login', '/logout', '/internal/', '/console/ws', '/invite/', '/account/')) for r in public), public
     assert Client().raw('GET', '/guest/lang/../app.py')[0] == 404
 
 
@@ -699,16 +699,18 @@ def sink(admin):
     sys.path.insert(0, os.path.dirname(__file__))
     from smtp_sink import Sink
     before = admin.call('GET', '/api/mail/settings')[1]
-    if before.get('host') not in (None, '', SINK_HOST):
-        # a real relay is set up on this stack: its stored password cannot be read back, so never overwrite it
-        pytest.skip(f"mail is set up for {before['host']} on this stack; clear Settings -> Mail to run the mail tests")
+    if before.get('host') not in (None, '', SINK_HOST) and before.get('has_password'):
+        # a real relay with a stored password: the password cannot be read back, so it is never overwritten
+        pytest.skip(f"mail is set up for {before['host']} with a password; clear Settings -> Mail to run the mail tests")
+    keep = {k: before.get(k) for k in ('host', 'port', 'security', 'username', 'sender', 'sender_name', 'public_url')}
     s = Sink(2525).start()
     st, d = admin.call('PUT', '/api/mail/settings', {'host': SINK_HOST, 'port': 2525, 'security': 'none', 'username': '',
                                                      'sender': 'hcm@demo.example', 'sender_name': 'HCM test',
                                                      'public_url': 'https://hcm.demo.example', 'password': ''})
     assert st == 200, d
     yield s
-    admin.call('PUT', '/api/mail/settings', {'host': '', 'sender': '', 'password': ''})     # back to "not set up"
+    # back to what it was: every field of a relay without a stored password can be put back exactly
+    admin.call('PUT', '/api/mail/settings', keep if keep.get('host') not in (None, '', SINK_HOST) else {'host': '', 'sender': ''})
     s.stop()
 
 
@@ -918,3 +920,92 @@ def test_an_account_from_before_gets_its_address_by_invitation(admin, clusters, 
     st, raw = c.raw('POST', _path_in(mail), form={'password': 'New-pass-2026', 'password2': 'New-pass-2026'})
     assert st == 302, raw[:300]
     assert c.call('GET', '/api/users/me')[1]['username'] == 'r0@demo.example'
+
+
+# ------------------------------------------------------------------ self-service (PLAN-roles, Accounts, E4)
+_ACCOUNT_LINK = re.compile(r'https?://\S+?(/account/(?:reset|email)/[A-Za-z0-9_-]+)')
+
+
+def _account_path(mail):
+    m = _ACCOUNT_LINK.search(mail['body'])
+    assert m, mail['body']
+    return m.group(1)
+
+
+def test_forgot_password(admin, clusters, sink):
+    uid = _mk(admin, 'forgot@demo.example', 'viewer', 'Contoso')
+    try:
+        p = Client()
+        st, raw = p.raw('POST', '/account/forgot', form={'email': 'Forgot@Demo.example'})
+        assert st == 200 and b'a mail with a link is on its way' in raw
+        mail = sink.to('forgot@demo.example')[-1]
+        assert mail['subject'] == 'Reset your HyperCore Manager password'
+        path = _account_path(mail)
+        assert p.raw('GET', path)[0] == 200
+        st, raw = p.raw('POST', path, form={'password': 'Reset-2026!', 'password2': 'Other-2026!'})
+        assert b'do not match' in raw
+        st, raw = p.raw('POST', path, form={'password': 'Reset-2026!', 'password2': 'Reset-2026!'})
+        assert st == 200 and b'Your password is changed' in raw
+        assert not Client().login('forgot@demo.example', PW) and Client().login('forgot@demo.example', 'Reset-2026!')
+        assert Client().raw('GET', path)[0] == 404, 'once'
+    finally:
+        _drop(admin, uid)
+
+
+def test_forgot_password_tells_nothing_and_is_limited(admin, clusters, sink):
+    uid = _mk(admin, 'limited@demo.example', 'viewer', 'Contoso')
+    try:
+        _, known = Client().raw('POST', '/account/forgot', form={'email': 'limited@demo.example'})
+        _, unknown = Client().raw('POST', '/account/forgot', form={'email': 'nobody@nowhere.example'})
+        assert known.replace(b'limited@demo.example', b'X') == unknown.replace(b'nobody@nowhere.example', b'X')
+        assert not sink.to('nobody@nowhere.example')
+        for _ in range(4):
+            Client().raw('POST', '/account/forgot', form={'email': 'limited@demo.example'})
+        assert len(sink.to('limited@demo.example')) == 3, 'at most three links an hour'
+    finally:
+        _drop(admin, uid)
+
+
+def test_changing_ones_own_address(admin, clusters, sink):
+    uid = _mk(admin, 'change-me@demo.example', 'viewer', 'Contoso')
+    try:
+        c = Client()
+        assert c.login('change-me@demo.example', PW)
+        assert c.call('PUT', '/api/users/me/email', {'email': 'changed@demo.example', 'password': 'wrong'})[0] == 403
+        st, d = c.call('PUT', '/api/users/me/email', {'email': 'Changed@Demo.example', 'password': PW})
+        assert st == 200 and d['sent']
+        mail = sink.to('changed@demo.example')[-1]
+        assert mail['subject'] == 'Confirm your new address for HyperCore Manager'
+        assert Client().login('change-me@demo.example', PW), 'nothing changes before the confirmation'
+        path = _account_path(mail)
+        st, raw = Client().raw('GET', path)
+        assert st == 200 and b'changed@demo.example' in raw
+        st, raw = Client().raw('POST', path)
+        assert st == 200 and b'Sign in with changed@demo.example' in raw
+        assert c.call('GET', '/api/users/me')[0] == 401, 'the old session ends'
+        n = Client()
+        assert n.login('changed@demo.example', PW) and not Client().login('change-me@demo.example', PW)
+        assert {x['name'] for x in n.call('GET', '/api/clusters')[1]['clusters']} == {'Fake', 'Contoso-DR'}
+        assert sink.to('change-me@demo.example')[-1]['subject'] == 'Your HyperCore Manager address was changed'
+        assert 'changed@demo.example' in {u['username'] for u in as_user('contoso-admin').call('GET', '/api/access/overview')[1]['users']}
+        # a taken address: the same answer when asking, refused only on the confirmation page
+        st, d = n.call('PUT', '/api/users/me/email', {'email': 'contoso-viewer@demo.example', 'password': PW})
+        assert st == 200
+        st, raw = Client().raw('POST', _account_path(sink.to('contoso-viewer@demo.example')[-1]))
+        assert b'cannot be used' in raw
+        assert Client().login('changed@demo.example', PW), 'nothing changed'
+    finally:
+        _drop(admin, uid)
+
+
+def test_two_factor_reset_and_names_are_not_a_tenant_matter(admin, clusters):
+    uid = _mk(admin, 'twofa@demo.example', 'viewer', 'Contoso')
+    try:
+        assert as_user('contoso-admin').call('POST', f'/api/access/users/{uid}/otp-reset')[0] == 403
+        assert admin.call('POST', f'/api/access/users/{uid}/otp-reset')[0] == 200
+        c = Client()
+        assert c.login('twofa@demo.example', PW)
+        assert c.call('PUT', '/api/users/me', {'display_name': 'Two Factor'})[0] == 200
+        assert c.call('GET', '/api/users/me')[1]['display_name'] == 'Two Factor'
+    finally:
+        _drop(admin, uid)

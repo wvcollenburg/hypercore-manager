@@ -5044,6 +5044,24 @@ function _renderMyAccountCard(me) {
       }
     </div>`;
 
+  // the person's own name and address (PLAN-roles, Accounts, E4): an address change is confirmed from the new address
+  const profileSection = me.dev_mode ? '' : `
+    <div class="um-section">
+      <div class="um-section-title">${_esc(t('acct.profile'))}</div>
+      <div class="um-field-row">
+        <input class="um-input" id="umName" value="${_esc(me.display_name || '')}" placeholder="${_esc(t('acct.name'))}" style="width:240px;">
+        <button class="um-action-btn" onclick="umSaveName()">${_esc(t('acct.save_name'))}</button>
+      </div>
+      ${(me.username || '').includes('@') ? `
+      <div class="um-hint" style="margin:10px 0 6px">${_esc(t('acct.email_now', { email: me.username }))}</div>
+      <div class="um-field-row">
+        <input class="um-input" type="email" id="umNewEmail" placeholder="${_esc(t('acct.new_email'))}" style="width:240px;">
+        <input class="um-input" type="password" id="umEmailPw" placeholder="${_esc(t('acct.current_password'))}" style="width:160px;" autocomplete="current-password">
+        <button class="um-action-btn" onclick="umChangeEmail()">${_esc(t('acct.send_confirm'))}</button>
+      </div>` : ''}
+      <div id="umProfileMsg" class="um-hint" style="margin-top:6px"></div>
+    </div>`;
+
   const pwSection = me.dev_mode ? '' : `
     <div class="um-section">
       <div class="um-section-title">Change password</div>
@@ -5066,8 +5084,25 @@ function _renderMyAccountCard(me) {
         <a href="/logout" style="margin-left:auto;font-size:11px;color:var(--text-muted);text-decoration:none;"
            onmouseover="this.style.color='var(--accent-blue)'" onmouseout="this.style.color='var(--text-muted)'">Sign out</a>
       </div>
-      ${pwSection}${otpSection}
+      ${profileSection}${pwSection}${otpSection}
     </div>`;
+}
+
+async function umSaveName() {
+  const m = document.getElementById('umProfileMsg');
+  try { await _acCall('PUT', '/api/users/me', { display_name: document.getElementById('umName').value });
+        m.textContent = t('acct.name_saved'); m.style.color = 'var(--accent-green)'; }
+  catch (e) { m.textContent = e.message; m.style.color = 'var(--accent-red, #ef4444)'; }
+}
+
+async function umChangeEmail() {
+  const m = document.getElementById('umProfileMsg');
+  const email = document.getElementById('umNewEmail').value.trim();
+  try {
+    const d = await _acCall('PUT', '/api/users/me/email', { email, password: document.getElementById('umEmailPw').value, lang: window._hcmLang || 'en' });
+    m.textContent = t('acct.confirm_sent', { email: email.toLowerCase(), hours: d.hours }); m.style.color = 'var(--accent-green)';
+    document.getElementById('umEmailPw').value = '';
+  } catch (e) { m.textContent = e.message; m.style.color = 'var(--accent-red, #ef4444)'; }
 }
 
 function _esc(s) {

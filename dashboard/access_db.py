@@ -621,6 +621,7 @@ def user(user_id: str) -> dict | None:
 
 
 _EMAIL = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+_UUID_RE = re.compile(r'^[0-9a-fA-F-]{36}$')
 
 
 def normalise_email(v) -> str:
@@ -683,6 +684,8 @@ def update_user(user_id: str, actor: str, *, enabled=None, display_name=None, em
                     if 'duplicate key' in str(exc):
                         raise AccessError(f'{email} already has an account', 409) from exc
                     raise
+                if not u['awaiting_email'] and u['username'] != email:
+                    _add_alias(cur, user_id, u['username'])
                 if password:
                     cur.execute('UPDATE config.users SET password_hash = %s WHERE user_id = %s',
                                 (generate_password_hash(password), user_id))
@@ -701,6 +704,63 @@ def update_user(user_id: str, actor: str, *, enabled=None, display_name=None, em
     finally:
         conn.close()
     invalidate()
+
+
+def _add_alias(cur, user_id: str, address: str) -> None:
+    """Keep an address an account used before: log rows written under it still name that person."""
+    try:
+        cur.execute('''INSERT INTO config.user_aliases (user_id, address) VALUES (%s, %s)
+                       ON CONFLICT (user_id, address) DO UPDATE SET until = NOW()''', (user_id, address))
+    except Exception as exc:  # noqa: BLE001 — before migration 049
+        if not _missing(exc):
+            raise
+
+
+def change_address(user_id: str, new: str, actor: str, verified: bool = False) -> None:
+    """The person confirmed a new address (E4): the login changes, the old address stays as an alias.
+    AccessError when the address has an account by now."""
+    new = normalise_email(new)
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT username FROM config.users WHERE user_id = %s', (user_id,))
+            row = cur.fetchone()
+            if not row:
+                raise AccessError('not found', 404)
+            try:
+                cur.execute('''UPDATE config.users SET username = %s, updated_at = NOW(),
+                                      email_verified_at = CASE WHEN %s THEN NOW() ELSE email_verified_at END
+                                WHERE user_id = %s''', (new, verified, user_id))
+            except Exception as exc:  # noqa: BLE001
+                if 'duplicate key' in str(exc):
+                    raise AccessError('this address cannot be used', 409) from exc
+                raise
+            _add_alias(cur, user_id, row['username'])
+            audit(cur, actor, 'user.email', new, detail={'from': row['username'], 'confirmed': verified})
+            _bump(cur)
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+
+
+def aliases(user_ids) -> set:
+    """The addresses these accounts used before."""
+    ids = list(user_ids or [])
+    if not ids:
+        return set()
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute('SELECT address FROM config.user_aliases WHERE user_id::text = ANY(%s)', (ids,))
+            except Exception as exc:  # noqa: BLE001 — before migration 049
+                if not _missing(exc):
+                    raise
+                return set()
+            return {r['address'] for r in cur.fetchall()}
+    finally:
+        conn.close()
 
 
 def user_id_by_login(login: str | None) -> str | None:
@@ -919,7 +979,9 @@ def nameable_usernames(acc: rbac.Access, me: str | None = None) -> set | None:
         return None
     ids = manageable_user_ids(acc) or set()
     out = {u['username'] for u in users() if u['user_id'] in ids}
-    return out | ({me} if me else set())
+    mine = {acc.user_id} if getattr(acc, 'user_id', None) else set()
+    # addresses they used before still name them: log rows keep the address of the moment (E4)
+    return out | aliases(ids | mine) | ({me} if me else set())
 
 
 def remove_access_in_reach(acc: rbac.Access, user_id: str, actor: str) -> int:

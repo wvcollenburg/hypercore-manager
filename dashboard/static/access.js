@@ -476,6 +476,11 @@ async function acOpenUser(uid) {
         { label: u.enabled ? t('acc.disable') : t('acc.enable'), onClick: async h => {
           try { await _acCall('PUT', `/api/access/users/${uid}`, { enabled: !u.enabled }); h.close(); await loadAccessPanel(); acOpenUser(uid); } catch (e) { h.setMsg(e.message); }
         } },
+        ...(u.otp_enabled ? [{ label: t('acc.reset_otp'), onClick: async h => {
+          if (!await hcmConfirm(t('acc.reset_otp_confirm', { name: u.username }), { danger: true, confirmLabel: t('acc.reset_otp') })) return;
+          try { await _acCall('POST', `/api/access/users/${uid}/otp-reset`); h.setMsg(t('acc.otp_reset_done'), 'ok'); await _acLoad(); renderAccessPanel(); }
+          catch (e) { h.setMsg(e.message); }
+        } }] : []),
         { label: t('users.reset_pw'), onClick: async h => {
           const pw = await hcmPrompt(t('acc.new_password_for', { name: u.username }), { type: 'password', hint: t('acc.password_hint') });
           if (!pw) return;

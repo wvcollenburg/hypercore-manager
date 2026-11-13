@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>HyperCore Manager</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f172a'/><polygon points='16,4 27,10 27,22 16,28 5,22 5,10' fill='none' stroke='%2338bdf8' stroke-width='2'/><circle cx='16' cy='16' r='3' fill='%2338bdf8'/></svg>">
+{% include '_auth_style.html' %}
+</head>
+<body>
+  <div class="brand"><strong>HyperCore Manager</strong></div>
+  <div class="card">
+    {% if state == 'forgot' %}
+      <div class="card-title">{{ t.forgot_title }}</div>
+      <div class="card-sub">{{ t.forgot_sub }}</div>
+      <form method="post" action="/account/forgot">
+        <div class="field"><label for="email">{{ t.email }}</label>
+          <input type="email" id="email" name="email" value="{{ email or '' }}" autocomplete="username" autofocus required></div>
+        <button type="submit">{{ t.send }}</button>
+      </form>
+      <div class="back-link"><a href="/login">{{ t.back }}</a></div>
+
+    {% elif state == 'forgot_sent' %}
+      <div class="card-title">{{ t.forgot_title }}</div>
+      <div class="card-sub">{{ t.forgot_sent }}</div>
+      <div class="back-link"><a href="/login">{{ t.back }}</a></div>
+
+    {% elif state == 'no_mail' %}
+      <div class="card-title">{{ t.forgot_title }}</div>
+      <div class="card-sub">{{ t.no_mail }}</div>
+      <div class="back-link"><a href="/login">{{ t.back }}</a></div>
+
+    {% elif state == 'reset' %}
+      <div class="card-title">{{ t.reset_title }}</div>
+      <div class="card-sub">{{ t.reset_sub }}</div>
+      {% if error %}<div class="error-box">{{ error }}</div>{% endif %}
+      <form method="post" action="/account/reset/{{ token }}" autocomplete="off">
+        <input type="text" name="username" value="{{ email }}" autocomplete="username" hidden readonly>
+        <div class="field"><label for="password">{{ t.password }}</label>
+          <input type="password" id="password" name="password" minlength="8" autocomplete="new-password" autofocus required></div>
+        <div class="field"><label for="password2">{{ t.password2 }}</label>
+          <input type="password" id="password2" name="password2" minlength="8" autocomplete="new-password" required></div>
+        <button type="submit">{{ t.save }}</button>
+      </form>
+
+    {% elif state == 'email' %}
+      <div class="card-title">{{ t.email_title }}</div>
+      <div class="card-sub">{{ t.email_sub }}</div>
+      <form method="post" action="/account/email/{{ token }}"><button type="submit">{{ t.confirm }}</button></form>
+
+    {% elif state in ('reset_done', 'email_done', 'email_taken') %}
+      <div class="card-title">{{ t.email_title if state != 'reset_done' else t.reset_title }}</div>
+      <div class="card-sub">{{ t[state] }}</div>
+      <form method="get" action="/login"><button type="submit">{{ t.sign_in }}</button></form>
+
+    {% else %}
+      <div class="card-title">{{ t.invalid_title }}</div>
+      <div class="card-sub">{{ t.invalid_sub }}</div>
+      <div class="back-link"><a href="/login">{{ t.back }}</a></div>
+    {% endif %}
+  </div>
+  <footer>HyperCore Manager</footer>
+</body>
+</html>

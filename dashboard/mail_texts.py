@@ -11,6 +11,17 @@ LANGS = ('en', 'nl', 'de', 'fr')
 
 TEXTS: dict[str, dict[str, tuple[str, str]]] = {
     'en': {
+        'reset': ("Reset your HyperCore Manager password",
+                  "Someone asked to reset the password of the HyperCore Manager account for this address.\n\n"
+                  "Open this link to choose a new password:\n\n{link}\n\n"
+                  "The link works once and for {minutes} minutes. If it was not you, ignore this mail: nothing changes.\n"),
+        'email_confirm': ("Confirm your new address for HyperCore Manager",
+                          "Your HyperCore Manager account is to sign in with this address from now on: {new}\n\n"
+                          "Open this link to confirm it:\n\n{link}\n\n"
+                          "The link works once and for {hours} hours. If you did not ask for this, ignore this mail.\n"),
+        'email_notice': ("Your HyperCore Manager address was changed",
+                         "Your HyperCore Manager account no longer signs in with this address; it now uses {new}.\n\n"
+                         "If you did not do this, contact your administrator at once.\n"),
         'invite_new': ("You are invited to HyperCore Manager",
                        "You have been given access to {layer} in HyperCore Manager, as {role}.\n\n"
                        "Open this link to confirm your email address and choose a password:\n\n{link}\n\n"
@@ -28,6 +39,17 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                  "If you can read this, mail from HyperCore Manager reaches you.\n"),
     },
     'nl': {
+        'reset': ("Je HyperCore Manager-wachtwoord herstellen",
+                  "Iemand vroeg om het wachtwoord te herstellen van het HyperCore Manager-account met dit adres.\n\n"
+                  "Open deze link om een nieuw wachtwoord te kiezen:\n\n{link}\n\n"
+                  "De link werkt één keer en {minutes} minuten lang. Was jij het niet, negeer deze mail dan: er verandert niets.\n"),
+        'email_confirm': ("Bevestig je nieuwe adres voor HyperCore Manager",
+                          "Je HyperCore Manager-account logt voortaan in met dit adres: {new}\n\n"
+                          "Open deze link om het te bevestigen:\n\n{link}\n\n"
+                          "De link werkt één keer en {hours} uur lang. Heb je hier niet om gevraagd, negeer deze mail dan.\n"),
+        'email_notice': ("Je HyperCore Manager-adres is gewijzigd",
+                         "Je HyperCore Manager-account logt niet meer in met dit adres; het gebruikt nu {new}.\n\n"
+                         "Heb je dit niet zelf gedaan, neem dan meteen contact op met je beheerder.\n"),
         'invite_new': ("Je bent uitgenodigd voor HyperCore Manager",
                        "Je hebt toegang gekregen tot {layer} in HyperCore Manager, als {role}.\n\n"
                        "Open deze link om je e-mailadres te bevestigen en een wachtwoord te kiezen:\n\n{link}\n\n"
@@ -45,6 +67,17 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                  "Als je dit kunt lezen, komt mail van HyperCore Manager bij je aan.\n"),
     },
     'de': {
+        'reset': ("Ihr HyperCore-Manager-Passwort zurücksetzen",
+                  "Jemand hat das Zurücksetzen des Passworts für das HyperCore-Manager-Konto mit dieser Adresse angefordert.\n\n"
+                  "Öffnen Sie diesen Link, um ein neues Passwort zu wählen:\n\n{link}\n\n"
+                  "Der Link funktioniert einmal und {minutes} Minuten lang. Waren Sie es nicht, ignorieren Sie diese Mail: es ändert sich nichts.\n"),
+        'email_confirm': ("Bestätigen Sie Ihre neue Adresse für HyperCore Manager",
+                          "Ihr HyperCore-Manager-Konto meldet sich künftig mit dieser Adresse an: {new}\n\n"
+                          "Öffnen Sie diesen Link, um sie zu bestätigen:\n\n{link}\n\n"
+                          "Der Link funktioniert einmal und {hours} Stunden lang. Haben Sie das nicht angefordert, ignorieren Sie diese Mail.\n"),
+        'email_notice': ("Ihre HyperCore-Manager-Adresse wurde geändert",
+                         "Ihr HyperCore-Manager-Konto meldet sich nicht mehr mit dieser Adresse an; es verwendet jetzt {new}.\n\n"
+                         "Wenn Sie das nicht waren, wenden Sie sich sofort an Ihren Administrator.\n"),
         'invite_new': ("Sie sind zu HyperCore Manager eingeladen",
                        "Sie haben Zugriff auf {layer} in HyperCore Manager erhalten, als {role}.\n\n"
                        "Öffnen Sie diesen Link, um Ihre E-Mail-Adresse zu bestätigen und ein Passwort zu wählen:\n\n{link}\n\n"
@@ -62,6 +95,17 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                  "Wenn Sie dies lesen können, erreicht Sie Mail von HyperCore Manager.\n"),
     },
     'fr': {
+        'reset': ("Réinitialiser votre mot de passe HyperCore Manager",
+                  "Quelqu'un a demandé la réinitialisation du mot de passe du compte HyperCore Manager de cette adresse.\n\n"
+                  "Ouvrez ce lien pour choisir un nouveau mot de passe :\n\n{link}\n\n"
+                  "Le lien fonctionne une fois, pendant {minutes} minutes. Si ce n'était pas vous, ignorez cet e-mail : rien ne change.\n"),
+        'email_confirm': ("Confirmez votre nouvelle adresse pour HyperCore Manager",
+                          "Votre compte HyperCore Manager se connectera désormais avec cette adresse : {new}\n\n"
+                          "Ouvrez ce lien pour la confirmer :\n\n{link}\n\n"
+                          "Le lien fonctionne une fois, pendant {hours} heures. Si vous ne l'avez pas demandé, ignorez cet e-mail.\n"),
+        'email_notice': ("Votre adresse HyperCore Manager a été modifiée",
+                         "Votre compte HyperCore Manager ne se connecte plus avec cette adresse ; il utilise maintenant {new}.\n\n"
+                         "Si ce n'était pas vous, contactez immédiatement votre administrateur.\n"),
         'invite_new': ("Vous êtes invité à HyperCore Manager",
                        "Vous avez reçu un accès à {layer} dans HyperCore Manager, en tant que {role}.\n\n"
                        "Ouvrez ce lien pour confirmer votre adresse e-mail et choisir un mot de passe :\n\n{link}\n\n"

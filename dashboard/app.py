@@ -3213,6 +3213,7 @@ def api_me():
     return jsonify({
         'user_id':     str(u['user_id']),
         'username':    u['username'],
+        'display_name': u.get('display_name'),
         'role':        'admin' if acc.is_root_admin() else 'user',
         'otp_enabled': u['otp_enabled'],
         'dev_mode':    False,
@@ -3766,6 +3767,8 @@ import mail_api  # noqa: E402
 mail_api.register(app, requires)
 import invite_api  # noqa: E402
 invite_api.register(app, requires, public, _access, _access_helpers)
+import account_api  # noqa: E402
+account_api.register(app, requires, public, _access_helpers)
 import guest_api  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
 guest_api.register(app, sock, requires, public, SimpleNamespace(
