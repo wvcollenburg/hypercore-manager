@@ -10,6 +10,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 import db
 import jobs
+import vmedit
 
 log = logging.getLogger('backup.scheduler')
 
@@ -197,8 +198,36 @@ def verify_all() -> None:
             log.exception('verify failed for %s', c.name)
 
 
+def enqueue_vm_change(change_id: int) -> None:
+    _scheduler.add_job(vmedit.run, args=[change_id], id=f'vmedit-{change_id}', replace_existing=True)
+
+
+def _vm_changes_reconcile() -> None:
+    try:
+        n = vmedit.interrupted()
+        if n:
+            log.warning('%d VM change(s) were interrupted by a restart; marked failed', n)
+    except Exception:                                   # noqa: BLE001
+        log.warning('VM change reconcile skipped (database not ready)', exc_info=True)
+
+
+def vm_change_tick() -> None:
+    try:
+        vmedit.tick(enqueue_vm_change)
+    except Exception:                                   # noqa: BLE001 — database not migrated yet, or down
+        log.debug('vm change tick failed', exc_info=True)
+
+
 def start(sync_interval_seconds: int = 60) -> None:
     _scheduler.start()
+    # VM edits and power actions: due sets start within 15 s of their time; a set left running by a
+    # restart is marked failed (its outcome is unknown) instead of being run twice
+    # (a few seconds after start, off the start path: the database may still be migrating or slow to answer)
+    from datetime import datetime as _dt, timedelta as _td
+    _scheduler.add_job(_vm_changes_reconcile, trigger='date', run_date=_dt.now() + _td(seconds=5), id='vmedit-reconcile',
+                       replace_existing=True)
+    _scheduler.add_job(vm_change_tick, trigger='interval', seconds=15, id='vmedit-tick', replace_existing=True,
+                       next_run_time=_dt.now() + _td(seconds=20))
     _scheduler.add_job(sync_jobs, trigger='interval', seconds=sync_interval_seconds, id='sync', replace_existing=True)
     _scheduler.add_job(policy_tick, trigger='cron', second=5, id='policy-tick', replace_existing=True)
     _scheduler.add_job(sweep_all, trigger='cron', hour=4, minute=30, id='sweep', replace_existing=True)

@@ -22,15 +22,16 @@ def test_balancer_influx_writes_carry_cluster_tag(repo):
             assert 'cluster_id' in window, f'{rel}: Point("{m.group(1)}") not tagged with cluster_id'
 
 
-def _ranges_followed_by_cluster_filter(src: str, filter_marker: str) -> tuple[int, int]:
+def _ranges_followed_by_cluster_filter(src: str, *filter_markers: str) -> tuple[int, int]:
     ranges = list(re.finditer(r'\|> range\(start: [^\n]*\)\n', src))
-    ok = sum(1 for m in ranges if filter_marker in src[m.end(): m.end() + 120])
+    ok = sum(1 for m in ranges if any(f in src[m.end(): m.end() + 120] for f in filter_markers))
     return len(ranges), ok
 
 
 def test_dashboard_flux_queries_filter_on_cluster(repo):
     src = (repo / 'dashboard' / 'app.py').read_text()
-    total, ok = _ranges_followed_by_cluster_filter(src, '{_flux_cluster()}')
+    # one cluster (the selected one), or several for the alert badges of every visible cluster
+    total, ok = _ranges_followed_by_cluster_filter(src, '{_flux_cluster()}', '{_flux_clusters(cids)}')
     assert total >= 13 and ok == total, f'{ok}/{total} dashboard queries carry the cluster filter'
 
 
@@ -135,7 +136,8 @@ def test_backup_targets_wiring(repo):
     for route in ("@app.get('/api/v1/targets')", "@app.post('/api/v1/targets')", "@app.delete('/api/v1/targets/<int:sid>')", "@app.post('/api/v1/targets/<int:sid>/test')"):
         assert route in api, route
     app = (repo / 'dashboard' / 'app.py').read_text()
-    assert "if sub.startswith(('targets', 'proxies')) and not _is_admin_request()" in app, 'target and proxy management must stay admin-only'
+    assert "if sub.startswith(('targets', 'proxies', 'vmedit')) and not _is_admin_request()" in app, \
+        'target and proxy management, and VM edits, must stay admin-only'
     reg = (repo / 'shared' / 'cluster_registry.py').read_text()
     assert 'share_id' in reg
 

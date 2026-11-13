@@ -20,6 +20,7 @@
 #
 #     sentinel:  0.50 CPU   512MB
 #     backup:    0.25 CPU   256MB  <- VM backup/import scheduler
+#     console:   1.00 CPU   256MB  <- VM console relay + open-session check (OCR bursts, idle otherwise)
 #     proxy:     1.00 CPU  1024MB  <- backup proxy (privileged, reads snapshot clones)
 #
 # total limits intentionally exceed physical cores because the Oracle (balancer
@@ -161,6 +162,8 @@ services:
       # Backup REST API
       - BACKUP_API_URL=http://backup:8082
       - BACKUP_API_TOKEN=${BACKUP_API_TOKEN:-${EXPORTS_API_TOKEN:-}}
+      # VM console service (internal only; its token is derived from HCM_SECRET_KEY)
+      - CONSOLE_API_URL=http://console:8084
       # auto-update: repo is always at /repo inside the container via volume mount;
       # SC_HOST_REPO_PATH carries the real host-side path so docker run can mount
       # it correctly when spawning the updater container
@@ -328,6 +331,41 @@ services:
       resources:
         limits:
           cpus: "0.25"
+          memory: 256M
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # VM console: relays a VM's console from HyperCore to the browser (through the dashboard's
+  # /console/ws, so the browser never holds the HyperCore session) and runs the scheduled open
+  # console session check. Not published on the host: only the dashboard talks to it.
+  console:
+    build: ./console
+    container_name: sc_console
+    environment:
+      - HCM_SECRET_KEY=${HCM_SECRET_KEY}
+      - TZ=${TZ:-UTC}
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DB=hypercore_balancer
+      - PG_USER=sentinel
+      - PG_PASSWORD=${SENTINEL_PG_PASSWORD}
+      - CONSOLE_API_PORT=8084
+      # a console closes after this many minutes without keyboard or mouse input, and after this many hours in any case
+      - CONSOLE_IDLE_MINUTES=${CONSOLE_IDLE_MINUTES:-15}
+      - CONSOLE_MAX_HOURS=${CONSOLE_MAX_HOURS:-8}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8084/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"       # a ceiling for OCR bursts (a console full of text: ~4-8 CPU-seconds); idle near zero
           memory: 256M
     restart: unless-stopped
 

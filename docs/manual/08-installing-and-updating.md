@@ -238,6 +238,8 @@ is what a newly registered cluster starts with, and "apply to all clusters" push
 everywhere. Nothing you set there is touched by a restart or an update.
 
 **Dashboard.** `SC_DASHBOARD_USER` and `SC_DASHBOARD_PASSWORD` seed the admin account.
+`CONSOLE_IDLE_MINUTES` (15) and `CONSOLE_MAX_HOURS` (8) close a VM console after that long
+without keyboard or mouse input, and after that long in any case.
 
 **Foresight.**
 
@@ -286,7 +288,10 @@ Before the stack is reachable from anything but localhost, work through this lis
 - [ ] Non-admin users only where needed, folder membership reviewed: users see every cluster in
       their folders
 
-The dashboard does not terminate TLS itself. Put nginx or Caddy in front of it:
+The dashboard does not terminate TLS itself. Put nginx or Caddy in front of it. The proxy must
+pass websockets (the VM console uses one on `/console/ws`); Caddy does that by itself, nginx
+needs the `Upgrade` and `Connection` headers below. Without them everything works except the
+console, which closes right after opening.
 
 ```nginx
 server {
@@ -298,12 +303,21 @@ server {
 
     location / {
         proxy_pass         http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade           $http_upgrade;     # VM consoles are websockets
+        proxy_set_header   Connection        $connection_upgrade;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto $scheme;
-        proxy_read_timeout 60s;
+        proxy_read_timeout 60s;                               # the dashboard pings an open console every 25 s
     }
+}
+
+# in the http block, once
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
 }
 
 server {

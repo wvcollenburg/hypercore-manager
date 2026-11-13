@@ -278,11 +278,12 @@ class HyperCoreIncrementalMixin:
         return [b for b in vm.get('blockDevs', []) if b.get('type') in self.DISK_TYPES + self.UTILITY_TYPES]
 
     # -- snapshots
-    def create_snapshot(self, vm_uuid: str, label: str, quiesce: bool = True, retain_days: float | None = None) -> tuple[str, str]:
+    def create_snapshot(self, vm_uuid: str, label: str, quiesce: bool = True, retain_days: float | None = None,
+                        replication: bool = False) -> tuple[str, str]:
         """A USER snapshot that is never replicated. With retain_days the cluster removes it itself
         after that many days (localRetainUntilTimestamp; it cannot be extended later, the resource
         has no PATCH), so an anchor left behind by a vanished installation does not squat forever."""
-        body = {'domainUUID': vm_uuid, 'label': label, 'attemptQuiesce': bool(quiesce), 'replication': False, 'type': 'USER'}
+        body = {'domainUUID': vm_uuid, 'label': label, 'attemptQuiesce': bool(quiesce), 'replication': bool(replication), 'type': 'USER'}
         if retain_days:
             body['localRetainUntilTimestamp'] = int(time.time() + float(retain_days) * 86400)
         r = self._request('POST', '/VirDomainSnapshot', json=body) or {}

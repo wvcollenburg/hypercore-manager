@@ -34,6 +34,7 @@ Foresight (Sentinel) endpoints — E1-E7:
     PUT /api/sentinel/branding       - Save report branding config (E7)
 """
 
+import hashlib
 import hmac
 import io
 import json
@@ -45,6 +46,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from functools import wraps
@@ -53,6 +55,8 @@ import psycopg2
 import psycopg2.extras
 from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, Response, session, url_for
 from flask_cors import CORS
+from flask_sock import Sock
+import simple_websocket
 from influxdb_client import InfluxDBClient
 import config_db
 import user_db
@@ -62,9 +66,13 @@ import hcm_crypto
 import storage_summary
 from versioning import latest_semver_tag, is_newer, origin_to_web_url
 from forwarding import body_cluster
+from alerts import ALERT_LEVELS, ALERT_SEVERITY, active_items, condition_episodes, ms_iso
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 CORS(app)
+# websockets (VM console): pings keep reverse proxies with a read timeout from closing an idle console
+app.config['SOCK_SERVER_OPTIONS'] = {'ping_interval': 25, 'max_message_size': None}
+sock = Sock(app)
 
 # seed tunables DB from env vars on first run (no-op if already seeded)
 config_db.seed_from_env()
@@ -373,6 +381,62 @@ def get_nodes():
 # =============================================================================
 # API: VM metrics (last 1 hour, 1-minute windows)
 # =============================================================================
+def _vm_sizes(client, vms: dict) -> None:
+    """Adds mem_bytes, num_vcpu, os, state and disk_bytes to each VM of the list, and the VMs that are
+    not running (from vm_inventory, which lists every VM). Memory and vCPUs come from
+    vm_inventory; a VM's disks from its per-disk I/O samples (vsd_metrics carry vm_uuid and vsd_uuid),
+    their sizes from block_device_metrics by vsd_uuid. CD-ROMs (mounted ISOs) do not count."""
+    if not vms:
+        return
+    q = client.query_api()
+    # the inventory as of the last polls only: a deleted VM drops out as fast as a stopped one shows up
+    fresh = max(60, int(_stale_seconds()))
+    for table in q.query(org=INFLUX_ORG, query=f"""
+        from(bucket: "{INFLUX_BUCKET}")
+          |> range(start: -{fresh}s)
+          {_flux_cluster()}
+          |> filter(fn: (r) => r["_measurement"] == "vm_inventory" and (r["_field"] == "mem_bytes" or r["_field"] == "num_vcpu"))
+          |> last()"""):
+        for rec in table.records:
+            uuid = rec.values.get('vm_uuid')
+            state = rec.values.get('vm_state') or 'UNKNOWN'
+            vm = vms.get(uuid)
+            if vm is None and state != 'RUNNING':
+                # a stopped VM has no performance samples but is listed (so it can be started)
+                vm = vms[uuid] = {'uuid': uuid, 'name': rec.values.get('vm_name') or uuid,
+                                  'node_uuid': rec.values.get('node_uuid'), 'node_peer_id': rec.values.get('node_peer_id'),
+                                  'tag': rec.values.get('vm_tag') or '', 'vlan': rec.values.get('vm_vlan') or '0',
+                                  'history': [], 'current_cpu': None}
+            if vm is not None:
+                vm[rec.get_field()] = rec.get_value()
+                vm['os'] = rec.values.get('vm_os') or ''
+                vm['state'] = state
+    disks_of: dict[str, set] = {}
+    for table in q.query(org=INFLUX_ORG, query=f"""
+        from(bucket: "{INFLUX_BUCKET}")
+          |> range(start: -15m)
+          {_flux_cluster()}
+          |> filter(fn: (r) => r["_measurement"] == "vsd_metrics" and r["_field"] == "read_iops")
+          |> last()
+          |> keep(columns: ["vm_uuid", "vsd_uuid", "vsd_type"])"""):
+        for rec in table.records:
+            if 'CDROM' not in str(rec.values.get('vsd_type') or '').upper():
+                disks_of.setdefault(rec.values.get('vm_uuid'), set()).add(rec.values.get('vsd_uuid'))
+    size: dict[str, int] = {}
+    for table in q.query(org=INFLUX_ORG, query=f"""
+        from(bucket: "{INFLUX_BUCKET}")
+          |> range(start: -15m)
+          {_flux_cluster()}
+          |> filter(fn: (r) => r["_measurement"] == "block_device_metrics" and r["_field"] == "capacity_bytes")
+          |> last()"""):
+        for rec in table.records:
+            if 'CDROM' not in str(rec.values.get('vsd_type') or '').upper():
+                size[rec.values.get('vsd_uuid')] = int(rec.get_value() or 0)
+    for uuid, vm in vms.items():
+        disks = disks_of.get(uuid) or set()
+        vm['disk_bytes'] = sum(size.get(d, 0) for d in disks) if disks else None
+
+
 @app.route('/api/vms')
 @require_auth
 def get_vms():
@@ -437,7 +501,9 @@ def get_vms():
         # filter out VMs that haven't reported recently (deleted/stopped)
         stale_secs = _stale_seconds()
         active = [v for v in vms.values() if not is_stale(v['history'], stale_secs)]
-        return jsonify(active)
+        listed = {v['uuid']: v for v in active}
+        _vm_sizes(client, listed)
+        return jsonify(list(listed.values()))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -1448,7 +1514,8 @@ def backup_proxy(sub):
     Reads are open to every user who can see the cluster; changes need admin."""
     # folder members manage plans and imports for their clusters (the target and its credentials
     # are the admin's business); target management itself is admin-only
-    if sub.startswith(('targets', 'proxies')) and not _is_admin_request():
+    # VM edits and power actions: admins only for now (finer roles will follow, the console too)
+    if sub.startswith(('targets', 'proxies', 'vmedit')) and not _is_admin_request():
         return jsonify({'error': 'Admin access required'}), 403
     url, token = _backup_env()
     cid = _cluster_id()
@@ -1469,6 +1536,8 @@ def backup_proxy(sub):
             payload['cluster_id'] = body_cid
         if sub == 'notices/mute':                    # who muted it is the session's user, not the body's
             payload['muted_by'] = session.get('username') or None
+        if sub.startswith('vmedit'):                 # who changed or cancelled it, likewise
+            payload['created_by'] = session.get('username') or ('anonymous' if not _AUTH_ENABLED else None)
         body = json.dumps(payload).encode()
         headers['Content-Type'] = 'application/json'
     if request.method == 'GET' and (sub.startswith('flr/mounts/') and sub.rsplit('/', 1)[-1] in ('file', 'zip')
@@ -1505,6 +1574,411 @@ def backup_proxy(sub):
         return Response(e.read(), status=e.code, mimetype='application/json')
     except Exception as e:
         return jsonify({'error': f'Backup service unreachable: {e}'}), 503
+
+
+# =============================================================================
+# Cluster alerts (backlog #3): the badges on a cluster's card. One list per cluster from three
+# sources: HyperCore conditions (latest Collector point per condition and node, from InfluxDB, no
+# extra HyperCore login), the backup service's notices (a terminated update) and open console
+# sessions found by the console check. Mutes live in config.notice_mutes, shared by all users.
+# An overview, not alerting: up to one slow poll (5 min) late; HyperCore alerts by itself.
+# =============================================================================
+def _flux_set(values) -> str:
+    return '[' + ', '.join(json.dumps(v) for v in values) + ']'
+
+
+def _flux_clusters(cids: list[str]) -> str:
+    """Flux filter line restricting a query to several clusters (all of them visible to the user)."""
+    return f'|> filter(fn: (r) => contains(value: r["cluster_id"], set: {_flux_set(cids)}))'
+
+
+def _active_conditions(cids: list[str]) -> dict[str, list[dict]]:
+    """Per cluster: the conditions that are SET and OK right now (the spec: `value` must be ignored
+    when isOK is false), from the latest point of each (condition, node)."""
+    out: dict[str, list[dict]] = {c: [] for c in cids}
+    if not cids:
+        return out
+    client = get_influx_client()
+    try:
+        query = f"""
+        from(bucket: "{INFLUX_BUCKET}")
+          |> range(start: -1h)
+          {_flux_clusters(cids)}
+          |> filter(fn: (r) => r["_measurement"] == "condition_metrics")
+          |> filter(fn: (r) => r["_field"] == "value" or r["_field"] == "is_ok" or r["_field"] == "description" or r["_field"] == "last_set_time")
+          |> last()
+        """
+        latest: dict[tuple, dict] = {}
+        for table in client.query_api().query(org=INFLUX_ORG, query=query):
+            for rec in table.records:
+                v = rec.values
+                key = (v.get('cluster_id'), v.get('condition_name'), v.get('node_uuid') or '')
+                row = latest.setdefault(key, {'_t': {}, 'fields': {}})
+                f = rec.get_field()
+                t = rec.get_time()
+                if f in row['_t'] and row['_t'][f] >= t:
+                    continue                      # a severity change makes a second series; the newest wins
+                row['_t'][f] = t
+                row['fields'][f] = rec.get_value()
+                if f == 'value':
+                    row['severity'] = v.get('severity') or 'INFO'
+                    row['node_ip'] = v.get('node_lan_ip') or ''
+    finally:
+        client.close()
+    for cid, items in active_items(latest).items():
+        out.setdefault(cid, []).extend(items)
+    return out
+
+
+def _backup_notices(cid: str) -> list[dict]:
+    url, token = _backup_env()
+    try:
+        rq = urllib.request.Request(f'{url}/api/v1/notices?cluster={cid}',
+                                    headers={'Authorization': f'Bearer {token}'} if token else {})
+        with urllib.request.urlopen(rq, timeout=4) as resp:
+            data = json.loads(resp.read().decode() or '{}')
+    except Exception:  # noqa: BLE001 — the backup module is optional
+        return []
+    return [{'key': n.get('key'), 'kind': 'notice', 'notice_kind': n.get('kind'), 'severity': 'warning',
+             'description': n.get('detail') or '', 'node_ip': n.get('node') or '', 'since': None}
+            for n in data.get('notices') or [] if n.get('key')]
+
+
+def _console_flags(cids: list[str]) -> dict[str, list[dict]]:
+    out: dict[str, list[dict]] = {c: [] for c in cids}
+    try:
+        with _pg() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT cluster_id, vm_uuid, vm_name, first_open_at FROM console.check_vm
+                           WHERE cluster_id = ANY(%s) AND state = 'open' AND NOT excluded""", (cids,))
+            for r in cur.fetchall():
+                out.setdefault(r['cluster_id'], []).append({
+                    'key': f"console:{r['vm_uuid']}", 'kind': 'console', 'severity': 'warning',
+                    'vm_uuid': r['vm_uuid'], 'vm_name': r['vm_name'] or r['vm_uuid'], 'node_ip': '',
+                    'description': r['vm_name'] or r['vm_uuid'],
+                    'since': r['first_open_at'].isoformat() if r['first_open_at'] else None})
+    except psycopg2.Error:
+        pass                                      # console schema not migrated yet
+    return out
+
+
+def _alert_mutes(cids: list[str]) -> dict[tuple, dict]:
+    try:
+        with _pg() as conn, conn.cursor() as cur:
+            cur.execute('SELECT cluster_id, key, muted_until, muted_by FROM config.notice_mutes '
+                        'WHERE cluster_id = ANY(%s) AND muted_until > now()', (cids,))
+            return {(r['cluster_id'], r['key']): r for r in cur.fetchall()}
+    except psycopg2.Error:
+        return {}
+
+
+@app.route('/api/cluster-alerts')
+@require_auth
+def cluster_alerts():
+    """{clusters: {id: {items, counts}}} for every visible cluster, or only ?cluster=<id>."""
+    visible = [c.cluster_id for c in _visible_clusters()]
+    wanted = request.args.get('cluster')
+    cids = [c for c in visible if c == wanted] if wanted else visible
+    try:
+        conditions = _active_conditions(cids)
+    except Exception as e:  # noqa: BLE001 — InfluxDB down: show the rest
+        app.logger.warning('cluster alerts: conditions unavailable: %s', e)
+        conditions = {c: [] for c in cids}
+    consoles_open = _console_flags(cids)
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(cids)))) as pool:
+        notices = dict(zip(cids, pool.map(_backup_notices, cids)))
+    mutes = _alert_mutes(cids)
+    out = {}
+    for cid in cids:
+        items = conditions.get(cid, []) + notices.get(cid, []) + consoles_open.get(cid, [])
+        counts = dict.fromkeys(ALERT_LEVELS, 0)
+        for it in items:
+            m = mutes.get((cid, it['key']))
+            it['muted_until'] = m['muted_until'].isoformat() if m else None
+            it['muted_by'] = m['muted_by'] if m else None
+            if not m:
+                counts[it['severity']] += 1
+        items.sort(key=lambda i: (ALERT_LEVELS.index(i['severity']), i.get('since') or '', i['key']))
+        out[cid] = {'items': items, 'counts': counts}
+    return jsonify({'clusters': out})
+
+
+@app.route('/api/cluster-alerts/mute', methods=['POST'])
+@require_auth
+def cluster_alert_mute():
+    """{cluster_id, key, days}: mute one alert for 1-365 days, for every user; days 0 lifts it."""
+    b = request.get_json(silent=True) or {}
+    cid, key = str(b.get('cluster_id') or ''), str(b.get('key') or '').strip()
+    if cid not in {c.cluster_id for c in _visible_clusters()}:
+        return jsonify({'error': 'Unknown cluster'}), 404
+    if not key or len(key) > 300:
+        return jsonify({'error': 'key required'}), 400
+    try:
+        days = int(b.get('days'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'days must be a whole number'}), 400
+    with _pg() as conn, conn.cursor() as cur:
+        if days == 0:
+            cur.execute('DELETE FROM config.notice_mutes WHERE cluster_id = %s AND key = %s', (cid, key))
+        elif 1 <= days <= 365:
+            cur.execute("""INSERT INTO config.notice_mutes (cluster_id, key, muted_until, muted_by, muted_at)
+                           VALUES (%s, %s, now() + make_interval(days => %s), %s, now())
+                           ON CONFLICT (cluster_id, key) DO UPDATE SET muted_until = EXCLUDED.muted_until,
+                             muted_by = EXCLUDED.muted_by, muted_at = now()""",
+                        (cid, key, days, session.get('username') or None))
+        else:
+            return jsonify({'error': 'days must be between 1 and 365'}), 400
+    return jsonify({'ok': True})
+
+
+@app.route('/api/cluster-alerts/history')
+@require_auth
+def cluster_alert_history():
+    """Past condition episodes of one cluster: ?cluster=&days=30&severity=critical,warning"""
+    cid = _cluster_id()
+    try:
+        days = max(1, min(int(request.args.get('days', 30)), 365))
+    except ValueError:
+        return jsonify({'error': 'days must be a whole number'}), 400
+    levels = {s for s in (request.args.get('severity') or '').split(',') if s in ALERT_LEVELS} or set(ALERT_LEVELS)
+    raw_levels = [k for k, v in ALERT_SEVERITY.items() if v in levels]
+    since_ms = int((time.time() - days * 86400) * 1000)
+    base = f"""
+        from(bucket: "{INFLUX_BUCKET}")
+          |> range(start: -{days}d)
+          {_flux_cluster()}
+          |> filter(fn: (r) => r["_measurement"] == "condition_metrics")
+          |> filter(fn: (r) => contains(value: r["severity"], set: {_flux_set(raw_levels)}))"""
+    set_times: dict = {}
+    clear_times: dict = {}
+    latest: dict = {}
+    meta: dict = {}
+    client = get_influx_client()
+    try:
+        q = client.query_api()
+        for field, target in (('last_set_time', set_times), ('last_clear_time', clear_times)):
+            for table in q.query(org=INFLUX_ORG, query=base + f"""
+          |> filter(fn: (r) => r["_field"] == "{field}")
+          |> unique(column: "_value")"""):
+                for rec in table.records:
+                    key = (rec.values.get('condition_name'), rec.values.get('node_uuid') or '')
+                    target.setdefault(key, set()).add(int(rec.get_value() or 0))
+                    meta.setdefault(key, {'severity': rec.values.get('severity'), 'node_ip': rec.values.get('node_lan_ip') or ''})
+        for table in q.query(org=INFLUX_ORG, query=base + """
+          |> filter(fn: (r) => r["_field"] == "value" or r["_field"] == "is_ok" or r["_field"] == "last_set_time" or r["_field"] == "description")
+          |> last()"""):
+            for rec in table.records:
+                key = (rec.values.get('condition_name'), rec.values.get('node_uuid') or '')
+                latest.setdefault(key, {})[rec.get_field()] = rec.get_value()
+    except Exception as e:  # noqa: BLE001
+        return jsonify({'error': f'history unavailable: {e}'}), 503
+    finally:
+        client.close()
+    mutes = _alert_mutes([cid])
+    rows = []
+    for ep in condition_episodes(set_times, clear_times, latest, since_ms):
+        name, node = ep['key']
+        m = meta.get(ep['key'], {})
+        end = ep['end']
+        rows.append({'name': name, 'node_ip': m.get('node_ip', ''),
+                     'severity': ALERT_SEVERITY.get(str(m.get('severity', '')).upper(), 'info'),
+                     'description': (latest.get(ep['key']) or {}).get('description') or name,
+                     'started': ms_iso(ep['start']), 'ended': ms_iso(end), 'active': ep['active'],
+                     'duration_s': round(((end or time.time() * 1000) - ep['start']) / 1000) if (end or ep['active']) else None,
+                     'muted': (cid, f'condition:{name}:{node}') in mutes})
+    rows.sort(key=lambda r: r['started'] or '', reverse=True)
+    return jsonify({'episodes': rows, 'days': days})
+
+
+# =============================================================================
+# VM console (backlog #1/#2) — the console service holds the HyperCore session and relays the VNC
+# stream; the browser only ever talks to this dashboard with its HCM session. Admin only.
+# =============================================================================
+CONSOLE_API_URL = os.getenv('CONSOLE_API_URL', 'http://console:8084').rstrip('/')
+
+
+def _console_token() -> str:
+    try:
+        return hcm_crypto.derived_token('console')
+    except hcm_crypto.SecretKeyMissing:
+        return ''
+
+
+def _console_binding(create: bool) -> str:
+    """A hash naming this browser session: a console ticket only works in the session it was issued
+    to. The nonce lives in the signed session cookie; a ticket request creates it, the websocket
+    upgrade only reads it."""
+    nonce = session.get('console_nonce')
+    if not nonce:
+        if not create:
+            return ''
+        nonce = session['console_nonce'] = secrets.token_hex(16)
+    return hashlib.sha256(f"{session.get('user_id') or ''}:{nonce}".encode()).hexdigest()
+
+
+def _client_ip() -> str:
+    fwd = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+    return fwd or request.headers.get('X-Real-IP') or request.remote_addr or ''
+
+
+def _console_user() -> str:
+    return session.get('username') or ('anonymous' if not _AUTH_ENABLED else '?')
+
+
+def _console_call(method: str, sub: str, *, query: str = '', payload=None, timeout: float = 60):
+    """(status, body bytes, content type) from the console service."""
+    headers = {'Authorization': f'Bearer {_console_token()}'}
+    body = None
+    if payload is not None:
+        body = json.dumps(payload).encode()
+        headers['Content-Type'] = 'application/json'
+    rq = urllib.request.Request(f'{CONSOLE_API_URL}/api/v1/{sub}' + (f'?{query}' if query else ''),
+                                data=body, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(rq, timeout=timeout) as resp:
+            return resp.status, resp.read(), resp.headers.get('Content-Type', 'application/json')
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(), e.headers.get('Content-Type', 'application/json')
+    except Exception as e:  # noqa: BLE001
+        return 503, json.dumps({'error': f'Console service unreachable: {e}'}).encode(), 'application/json'
+
+
+def _visible_cluster(cid: str):
+    return next((c for c in _visible_clusters() if c.cluster_id == cid), None)
+
+
+@app.route('/console/<cluster_id>/<vm_uuid>')
+@require_auth
+def console_page(cluster_id, vm_uuid):
+    """The console window of one VM (opened from the VM's details)."""
+    if not _is_admin_request():
+        return Response('Admin access required', status=403, mimetype='text/plain')
+    c = _visible_cluster(cluster_id)
+    if c is None or not re.fullmatch(r'[0-9A-Za-z-]{1,64}', vm_uuid):
+        return Response('Unknown cluster or VM', status=404, mimetype='text/plain')
+    return render_template('console.html', cluster_id=cluster_id, cluster_name=c.name, vm_uuid=vm_uuid)
+
+
+@app.route('/api/console/ticket', methods=['POST'])
+@require_auth
+@require_admin
+def console_ticket():
+    """A one-time ticket (30 s, single use, this browser session, this VM) for /console/ws."""
+    b = request.get_json(silent=True) or {}
+    cid, vm = str(b.get('cluster_id') or ''), str(b.get('vm_uuid') or '')
+    if _visible_cluster(cid) is None:
+        return jsonify({'error': 'Unknown cluster'}), 404
+    status, raw, ctype = _console_call('POST', 'tickets', payload={
+        'cluster_id': cid, 'vm_uuid': vm, 'username': _console_user(),
+        'binding': _console_binding(create=True), 'client_ip': _client_ip()}, timeout=30)
+    return Response(raw, status=status, mimetype=ctype)
+
+
+@sock.route('/console/ws')
+def console_ws(ws):
+    """The browser's console websocket: checks the HCM session and the ticket's binding, then pipes
+    bytes to and from the console service's relay. The ticket itself is checked (and consumed) there."""
+    if _AUTH_ENABLED and (not session.get('user_id') or session.get('role') != 'admin'):
+        ws.close(reason=4401, message='not logged in as an admin')
+        return
+    binding = _console_binding(create=False)
+    ticket = request.args.get('ticket', '')
+    if not binding or not ticket:
+        ws.close(reason=4401, message='console ticket required')
+        return
+    url = CONSOLE_API_URL.replace('http://', 'ws://', 1).replace('https://', 'wss://', 1)
+    qs = urllib.parse.urlencode({'ticket': ticket, 'binding': binding})
+    try:
+        up = simple_websocket.Client.connect(f'{url}/api/v1/relay?{qs}', max_message_size=None,
+                                             headers={'Authorization': f'Bearer {_console_token()}'})
+    except Exception as e:  # noqa: BLE001
+        app.logger.warning('console relay unreachable: %s', e)
+        ws.close(reason=1011, message='console service unreachable')
+        return
+
+    def upstream_to_browser():
+        try:
+            while True:
+                data = up.receive()
+                if data is None:
+                    continue
+                ws.send(data)
+        except Exception:  # noqa: BLE001 — either side closed
+            pass
+        finally:
+            reason = getattr(up, 'close_reason', None) or 1000
+            message = getattr(up, 'close_message', None) or ''
+            try:
+                ws.close(reason=reason if reason >= 1000 else 1000, message=message)
+            except Exception:  # noqa: BLE001
+                pass
+
+    pump = threading.Thread(target=upstream_to_browser, daemon=True, name='console-pump')
+    pump.start()
+    try:
+        while True:
+            data = ws.receive()
+            if data is None:
+                continue
+            up.send(data if isinstance(data, (bytes, bytearray)) else data.encode())
+    except Exception:  # noqa: BLE001 — browser went away or the relay closed
+        pass
+    finally:
+        try:
+            up.close()
+        except Exception:  # noqa: BLE001
+            pass
+        pump.join(timeout=5)
+
+
+@app.route('/api/vm-index')
+@require_auth
+def vm_index():
+    """Searchable facts of every VM of the selected cluster (live, through the console service)."""
+    q = {'cluster': _cluster_id()}
+    if request.args.get('fresh') == '1':
+        q['fresh'] = '1'
+    status, raw, ctype = _console_call('GET', 'vm-index', query=urllib.parse.urlencode(q), timeout=30)
+    return Response(raw, status=status, mimetype=ctype.split(';')[0])
+
+
+@app.route('/api/vm-info')
+@require_auth
+def vm_info():
+    """Live details of one VM from HyperCore, through the console service's session (read-only, so
+    for every user who may see the cluster)."""
+    vm = request.args.get('vm') or ''
+    if not re.fullmatch(r'[0-9A-Za-z-]{1,64}', vm):
+        return jsonify({'error': 'vm required'}), 400
+    status, raw, ctype = _console_call('GET', 'vm', query=urllib.parse.urlencode({'cluster': _cluster_id(), 'vm': vm}),
+                                       timeout=30)
+    return Response(raw, status=status, mimetype=ctype.split(';')[0])
+
+
+@app.route('/api/console/<path:sub>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+@require_auth
+@require_admin
+def console_proxy(sub):
+    """The console service's admin API: audit log, screenshots, the open-session check."""
+    if not re.fullmatch(r'(sessions|screenshot|check(/(settings|run|learn|exclude|image|refs(/\d+)?|flags))?)', sub):
+        return jsonify({'error': 'Not found'}), 404
+    if sub == 'sessions' and not request.args.get('cluster'):
+        cid = None                                    # the audit log across every cluster the admin sees
+    else:
+        cid = _cluster_id()
+    args = [(k, v) for k, v in request.args.items(multi=True) if k != 'cluster']
+    if cid:
+        args.append(('cluster', cid))
+    payload = None
+    if request.method in ('POST', 'PUT'):
+        payload = request.get_json(silent=True) or {}
+        body_cid, err = body_cluster(payload, cid, {c.cluster_id for c in _visible_clusters()}, fill=True)
+        if err:
+            return jsonify({'error': err}), 403
+        payload['cluster_id'] = body_cid
+        payload['username'] = _console_user()
+    status, raw, ctype = _console_call(request.method, sub, query=urllib.parse.urlencode(args), payload=payload,
+                                       timeout=90)
+    return Response(raw, status=status, mimetype=ctype.split(';')[0])
 
 
 # =============================================================================
@@ -2326,7 +2800,7 @@ def _git(*args, timeout=10):
 # the services an update recreates: everything but the two databases, whose volumes and
 # config do not change on a release. Recreating them too is what the restart container did
 # when its own compose version hashed the config differently from the host's.
-_APP_SERVICES = ('collector', 'balancer', 'dashboard', 'sentinel', 'backup', 'proxy')
+_APP_SERVICES = ('collector', 'balancer', 'dashboard', 'sentinel', 'backup', 'console', 'proxy')
 
 
 def _origin_url() -> str:

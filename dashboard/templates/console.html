@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Console</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f172a'/><rect x='5' y='8' width='22' height='14' rx='2' fill='none' stroke='%2338bdf8' stroke-width='2'/><path d='M10 13l3 2-3 2' fill='none' stroke='%2338bdf8' stroke-width='2'/></svg>">
+<script>
+(function(){
+  var supported = {en:'en', nl:'nl', fr:'fr', de:'de'};
+  var cookie = document.cookie.split(';').map(function(c){return c.trim();})
+    .find(function(c){return c.startsWith('hcm_lang=');});
+  var code = cookie ? cookie.split('=')[1] : null;
+  if (!code || !supported[code]) {
+    var lang = ((navigator.language || 'en').toLowerCase()).substring(0,2);
+    code = supported[lang] || 'en';
+  }
+  document.documentElement.lang = code;
+  document.write('<scr'+'ipt src="/static/lang/'+code+'.js"><\/scr'+'ipt>');
+})();
+</script>
+<style>
+  @import url('/static/vendor/fonts.css');
+  :root {
+    --bg-primary: #0a0e14; --bg-secondary: #111820; --bg-card: #151c27; --border: #1e2a3a;
+    --border-active: #2d4a6f; --text-primary: #f4f7fa; --text-secondary: #c0d0e0; --text-muted: #7a9ab0;
+    --accent-blue: #3b82f6; --accent-green: #10b981; --accent-amber: #f59e0b; --accent-red: #ef4444;
+    --glow-blue: rgba(59, 130, 246, 0.15);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { font-family: 'Space Grotesk', sans-serif; background: #000; color: var(--text-primary);
+         display: flex; flex-direction: column; overflow: hidden; }
+  .bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--bg-secondary);
+         border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .title { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; white-space: nowrap;
+           overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+  .sub { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+  .status { font-size: 12px; display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+  .dot.ok { background: var(--accent-green); } .dot.warn { background: var(--accent-amber); } .dot.err { background: var(--accent-red); }
+  .spacer { flex: 1; }
+  button, select { background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary);
+           padding: 5px 10px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent-blue); color: var(--accent-blue); background: var(--glow-blue); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.danger:hover:not(:disabled) { border-color: var(--accent-red); color: var(--accent-red); background: rgba(239,68,68,.12); }
+  #screen { flex: 1; min-height: 0; position: relative; background: #000; }
+  .overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+             background: rgba(10,14,20,.88); z-index: 5; }
+  .overlay.visible { display: flex; }
+  .panel { background: var(--bg-card); border: 1px solid var(--border-active); border-radius: 10px; padding: 20px 22px;
+           max-width: 460px; width: calc(100% - 32px); display: flex; flex-direction: column; gap: 12px; }
+  .panel h2 { font-size: 15px; font-weight: 600; }
+  .panel p { font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
+  .panel textarea { width: 100%; min-height: 70px; background: var(--bg-primary); color: var(--text-primary);
+           border: 1px solid var(--border-active); border-radius: 6px; padding: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+  .panel .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+  .panel label { font-size: 12px; color: var(--text-secondary); display: inline-flex; gap: 6px; align-items: center; margin-right: auto; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <span class="title" id="vmName">{{ vm_uuid }}</span>
+    <span class="sub">{{ cluster_name }}</span>
+    <span class="status"><span class="dot" id="dot"></span><span id="status"></span></span>
+    <span class="spacer"></span>
+    <button id="btnCad" onclick="sendCad()" disabled data-i18n="console.ctrl_alt_del">Ctrl+Alt+Del</button>
+    <select id="keys" onchange="sendCombo(this)" disabled aria-label="Keys">
+      <option value="" data-i18n="console.keys">Send keys…</option>
+      <option value="win">Win</option>
+      <option value="win+l">Win+L</option>
+      <option value="win+r">Win+R</option>
+      <option value="alt+tab">Alt+Tab</option>
+      <option value="alt+f4">Alt+F4</option>
+      <option value="ctrl+esc">Ctrl+Esc</option>
+      <option value="ctrl+alt+f1">Ctrl+Alt+F1</option>
+      <option value="ctrl+alt+f2">Ctrl+Alt+F2</option>
+      <option value="ctrl+alt+f7">Ctrl+Alt+F7</option>
+      <option value="esc">Esc</option>
+      <option value="prtsc">PrtSc</option>
+    </select>
+    <button id="btnType" onclick="openType()" disabled data-i18n="console.type_text">Type text…</button>
+    <button id="btnScale" onclick="toggleScale()" data-i18n="console.scale">Fit to window</button>
+    <button id="btnFull" onclick="toggleFull()" data-i18n="console.fullscreen">Full screen</button>
+    <button id="btnDisc" class="danger" onclick="disconnect()" disabled data-i18n="console.disconnect">Disconnect</button>
+  </div>
+  <div id="screen">
+    <div class="overlay" id="endOverlay">
+      <div class="panel">
+        <h2 id="endTitle"></h2>
+        <p id="endText"></p>
+        <div class="row">
+          <button onclick="window.close()" data-i18n="console.close_window">Close window</button>
+          <button onclick="connect()" data-i18n="console.reconnect">Reconnect</button>
+        </div>
+      </div>
+    </div>
+    <div class="overlay" id="typeOverlay">
+      <div class="panel">
+        <h2 data-i18n="console.type_title">Type text into the console</h2>
+        <p data-i18n="console.type_hint">Each character is sent as a key press, as if typed on a US keyboard. Useful for long passwords; the text is not stored.</p>
+        <textarea id="typeText" spellcheck="false" autocomplete="off"></textarea>
+        <div class="row">
+          <label><input type="checkbox" id="typeEnter"> <span data-i18n="console.type_enter">Press Enter afterwards</span></label>
+          <button onclick="closeType()" data-i18n="console.cancel">Cancel</button>
+          <button onclick="doType()" data-i18n="console.type_send">Type</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const CLUSTER = {{ cluster_id|tojson }};
+  const VM = {{ vm_uuid|tojson }};
+  function t(key, params) {
+    const lang = window.LANG || {};
+    let s = Object.prototype.hasOwnProperty.call(lang, key) ? lang[key] : key;
+    for (const [k, v] of Object.entries(params || {})) s = s.replace('{' + k + '}', v);
+    return s;
+  }
+  document.querySelectorAll('[data-i18n]').forEach(el => { const v = t(el.dataset.i18n); if (v !== el.dataset.i18n) el.textContent = v; });
+</script>
+<script type="module">
+  import RFB from '/static/vendor/novnc/core/rfb.js';
+
+  const XK = { ctrl: 0xffe3, alt: 0xffe9, shift: 0xffe1, win: 0xffeb, tab: 0xff09, esc: 0xff1b, enter: 0xff0d,
+               del: 0xffff, prtsc: 0xff61, f1: 0xffbe, f2: 0xffbf, f4: 0xffc1, f7: 0xffc4, l: 0x006c, r: 0x0072 };
+  const CODE = { ctrl: 'ControlLeft', alt: 'AltLeft', shift: 'ShiftLeft', win: 'MetaLeft', tab: 'Tab', esc: 'Escape',
+                 enter: 'Enter', del: 'Delete', prtsc: 'PrintScreen', f1: 'F1', f2: 'F2', f4: 'F4', f7: 'F7', l: 'KeyL', r: 'KeyR' };
+  let rfb = null, limits = null, scale = true, userClosed = false;
+  const $ = id => document.getElementById(id);
+
+  function status(text, kind) {
+    $('status').textContent = text;
+    $('dot').className = 'dot' + (kind ? ' ' + kind : '');
+  }
+  function controls(on) {
+    for (const id of ['btnCad', 'keys', 'btnType', 'btnDisc']) $(id).disabled = !on;
+  }
+  function ended(title, text) {
+    controls(false);
+    $('endTitle').textContent = title;
+    $('endText').textContent = text;
+    $('endOverlay').classList.add('visible');
+  }
+
+  async function connect() {
+    $('endOverlay').classList.remove('visible');
+    userClosed = false;
+    status(t('console.connecting'), 'warn');
+    let d;
+    try {
+      const r = await fetch('/api/console/ticket', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                     body: JSON.stringify({ cluster_id: CLUSTER, vm_uuid: VM }) });
+      d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    } catch (e) {
+      status(t('console.failed'), 'err');
+      ended(t('console.failed'), e.message);
+      return;
+    }
+    limits = d;
+    $('vmName').textContent = d.vm_name;
+    document.title = `${d.vm_name} · ${t('console.title')}`;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${location.host}/console/ws?ticket=${encodeURIComponent(d.ticket)}`;
+    if (rfb) { try { rfb.disconnect(); } catch (_) {} }
+    rfb = new RFB($('screen'), url, { wsProtocols: [], shared: true });
+    rfb.scaleViewport = scale;
+    rfb.focusOnClick = true;
+    rfb.addEventListener('connect', () => {
+      status(t('console.connected', { idle: limits.idle_minutes }), 'ok');
+      controls(true);
+      rfb.focus();
+    });
+    rfb.addEventListener('disconnect', e => {
+      status(t('console.disconnected'), 'err');
+      if (userClosed) { ended(t('console.disconnected'), t('console.closed_by_you')); return; }
+      ended(t('console.disconnected'), e.detail.clean
+        ? t('console.closed_limits', { idle: limits.idle_minutes, hours: limits.max_hours })
+        : t('console.closed_error'));
+    });
+    rfb.addEventListener('securityfailure', e => ended(t('console.failed'), e.detail.reason || ''));
+  }
+
+  function press(keys) {
+    for (const k of keys) rfb.sendKey(XK[k], CODE[k], true);
+    for (const k of [...keys].reverse()) rfb.sendKey(XK[k], CODE[k], false);
+  }
+  window.sendCad = () => { if (rfb) { rfb.sendCtrlAltDel(); rfb.focus(); } };
+  window.sendCombo = sel => {
+    if (rfb && sel.value) { press(sel.value.split('+')); rfb.focus(); }
+    sel.value = '';
+  };
+  window.toggleScale = () => {
+    scale = !scale;
+    if (rfb) rfb.scaleViewport = scale;
+    $('btnScale').textContent = scale ? t('console.scale_actual') : t('console.scale');
+  };
+  window.toggleFull = () => {
+    if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen();
+  };
+  window.disconnect = () => { userClosed = true; if (rfb) rfb.disconnect(); };
+
+  // type text: one key press per character (keysym = Latin-1 code point, else 0x01000000 + code point);
+  // shifted characters of a US layout get an explicit Shift so the guest sees the right character
+  const SHIFTED = '~!@#$%^&*()_+{}|:"<>?';
+  window.openType = () => { $('typeText').value = ''; $('typeOverlay').classList.add('visible'); $('typeText').focus(); };
+  window.closeType = () => { $('typeOverlay').classList.remove('visible'); if (rfb) rfb.focus(); };
+  window.doType = async () => {
+    const text = $('typeText').value;
+    const enter = $('typeEnter').checked;
+    $('typeText').value = '';
+    window.closeType();
+    if (!rfb) return;
+    for (const ch of text) {
+      if (ch === '\n') { press(['enter']); continue; }
+      const cp = ch.codePointAt(0);
+      const sym = (cp >= 0x20 && cp <= 0x7e) || (cp >= 0xa0 && cp <= 0xff) ? cp : 0x01000000 + cp;
+      const shift = (ch >= 'A' && ch <= 'Z') || SHIFTED.includes(ch);
+      if (shift) rfb.sendKey(XK.shift, 'ShiftLeft', true);
+      rfb.sendKey(sym, null, true);
+      rfb.sendKey(sym, null, false);
+      if (shift) rfb.sendKey(XK.shift, 'ShiftLeft', false);
+      await new Promise(r => setTimeout(r, 15));
+    }
+    if (enter) press(['enter']);
+  };
+  $('btnScale').textContent = t('console.scale_actual');
+  window.connect = connect;
+  connect();
+</script>
+</body>
+</html>

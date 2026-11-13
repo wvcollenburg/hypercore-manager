@@ -554,12 +554,12 @@ def _proxy_row(r: Optional[dict]) -> Optional[dict]:
 # ------------------------------------------------------------- notice mutes
 def get_notice_mute(cluster_id: str, key: str) -> Optional[dict]:
     """The mute of one notice while it lasts, else None."""
-    return _one('SELECT key, muted_until, muted_by, muted_at FROM backup.notice_mutes '
+    return _one('SELECT key, muted_until, muted_by, muted_at FROM config.notice_mutes '
                 'WHERE cluster_id = %s AND key = %s AND muted_until > now()', (cluster_id, key))
 
 
 def set_notice_mute(cluster_id: str, key: str, days: int, muted_by: Optional[str]) -> None:
-    _exec("""INSERT INTO backup.notice_mutes (cluster_id, key, muted_until, muted_by, muted_at)
+    _exec("""INSERT INTO config.notice_mutes (cluster_id, key, muted_until, muted_by, muted_at)
              VALUES (%s, %s, now() + make_interval(days => %s), %s, now())
              ON CONFLICT (cluster_id, key) DO UPDATE
                SET muted_until = EXCLUDED.muted_until, muted_by = EXCLUDED.muted_by, muted_at = now()""",
@@ -567,7 +567,7 @@ def set_notice_mute(cluster_id: str, key: str, days: int, muted_by: Optional[str
 
 
 def clear_notice_mute(cluster_id: str, key: str) -> None:
-    _exec('DELETE FROM backup.notice_mutes WHERE cluster_id = %s AND key = %s', (cluster_id, key))
+    _exec('DELETE FROM config.notice_mutes WHERE cluster_id = %s AND key = %s', (cluster_id, key))
 
 
 def get_proxies(cluster_id: Optional[str] = None, enabled_only: bool = False) -> list[dict]:

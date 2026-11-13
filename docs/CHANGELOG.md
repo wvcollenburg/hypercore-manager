@@ -4,6 +4,98 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.0]
+
+### Added
+- **VM console from HCM** (new `console` service). **Console** in a VM's detail panel
+  (administrators) opens the VM's console in its own window, without the HyperCore session ever
+  reaching the browser: HyperCore's console page runs on that session, and whoever lifts it from a
+  browser is HCM's service account on the cluster. The browser talks only to the dashboard
+  (`/console/ws`); the dashboard checks the HCM session and a one-time ticket (30 s, single use,
+  bound to that browser session and that one VM) and pipes the stream to the console service, which
+  holds the cluster session and opens HyperCore's console websocket for exactly that VM. Buttons for
+  the key combinations the client OS keeps (Ctrl+Alt+Del, Win, Win+L, Alt+Tab, Alt+F4, Ctrl+Alt+Fn),
+  **Type text…** for long passwords, fit to window and full screen. A console closes after
+  `CONSOLE_IDLE_MINUTES` (15) without input and after `CONSOLE_MAX_HOURS` (8). Every session is
+  logged (who, VM, from where, start, end, why it ended) in Settings → Console; HyperCore does not
+  log console access. noVNC 1.5.0 is vendored at build time like Chart.js.
+- **Open console sessions check** (migration `041`). Per cluster, HCM takes a screenshot of each
+  running VM's console on a schedule (default every 30 minutes, spread over the interval, shared
+  connection, no input unless the wake option is set) and looks for a lock or login screen: text
+  recognition (tesseract) for login prompts and lock-screen texts, plus reference screenshots an
+  admin learns with **Learn locked** for graphical lock screens. A console that shows neither is a
+  warning on the cluster card. Off by default; per-VM exclude, optional wake by pointer nudge or
+  Shift, only the verdict stored unless screenshots are kept. Automated grabs are in the console log
+  as user `system`, hidden by default and kept 30 days.
+- **Cluster alert badges** (migration `042`). The warning sign on the cluster card becomes one badge
+  per severity with a count, in HyperCore's order and colours: critical, warning, notice, info.
+  They carry HyperCore's active conditions (SET and OK; read from the Collector's existing 5-minute
+  poll, no extra login), a terminated cluster update and open console sessions. Each line can be
+  muted for 1-365 days for everybody; each node card on the Nodes tab shows its own conditions and badges; **History** lists past conditions with start, end and
+  duration (from this version on: the Collector now stores each condition's `lastSetTime`,
+  `lastClearTime` and tags).
+
+- **Edit VMs and power actions, now or in a maintenance window** (migration `043`, administrators).
+  **Edit** on a VM's line opens every setting: name, description, tags, OS type, vCPUs, memory, boot
+  order, snapshot schedule, node affinity; disks (grow, add, cache mode, tiering, snapshots off, remove),
+  CD-ROMs (insert or eject an ISO), network cards (type, VLAN, MAC, connected, add, remove) and
+  replication (start replicating to a remote cluster, pause or resume its transmissions; ending a
+  replication is not in HyperCore's REST API and stays in HyperCore itself); plus Start, Shut down OS, Reboot, Power off, Reset and Delete VM. Every change
+  set runs **now** or **at** a chosen time. HCM holds it until then, so it can be cancelled up to its
+  start. Changes HyperCore takes on a running VM (growing or adding a disk, ISOs, metadata) apply live;
+  everything else needs the VM off and runs as OS shutdown, change, start (a reboot is not enough). A
+  guest that has not shut down after the timeout (default 10 minutes) leaves the VM running and
+  unchanged and the change fails, unless **Force power off if the graceful shutdown fails** is ticked.
+  The OS shutdown is asked again every minute while waiting: a guest that is still booting ignores the
+  first request (seen on a lab cluster).
+  Removing a disk or NIC and deleting a VM need the VM's name typed; a snapshot is taken before a disk
+  is removed (kept 30 days). Every change set keeps its steps, who made it and when. Stopped VMs are now
+  listed too, so they can be started.
+
+- **New VM** (administrators). Name, description, tags, OS type, firmware (BIOS, UEFI, UEFI + vTPM,
+  vTPM compatibility) and Secure Boot, vCPUs, memory, disks (empty, or the first one cloned from an
+  image on the cluster, such as a cloud image), network cards, an install ISO, the guest tools ISO,
+  cloud-init user-data for image-based VMs, snapshot schedule, and whether to start it. Created now or
+  at a chosen time, as a change set like any edit; a step that fails after the VM exists leaves the VM
+  in place for inspection. Verified on a lab cluster: built from the Ubuntu cloud image, changed, a disk
+  deleted (snapshot first) and destroyed, and the force-off path on a VM without an OS.
+
+- **Snapshot and Clone** in a VM's details (administrators). Snapshot: label, quiesce through the guest
+  agent, replicate (when the VM replicates), and an optional removal after N days; the VM's snapshots
+  are listed below. Clone: name, description, tags, from the current state or an existing snapshot,
+  started or not; HyperCore gives the clone new MAC addresses (verified). Both run now or at a time and
+  are kept with the VM's other changes.
+
+### Fixed
+- **A backup proxy VM's console was buried under kernel messages** (proxy `0.5.7`). nbd prints a line
+  for every I/O on a disconnected device, and on the proxy VM's text console those lines hid the login
+  prompt, so the open console session check could not read it. On a proxy VM the proxy now lowers the
+  kernel's console log level to critical messages only; everything is still in `dmesg` and the
+  journal. Not done for the proxy inside the HCM stack (`PROXY_TLS=off`), whose host is not ours.
+  Existing proxies get it with the automatic proxy update after the stack update.
+
+### Changed
+- **VM list: grouped by tag by default, collapsible groups, and a search field** that matches name, all
+  tags, description, guest IPs, MACs, VLAN, mounted ISO, disks, OS and node (read live from HyperCore
+  through the console service, cached a minute). Grouping and folded groups are remembered per browser;
+  switching cluster clears the search.
+- **Infraviewer in four tabs: VMs, Nodes & Drives, VM performance, Cluster events.** Selecting a cluster
+  opens its VM list (Settings excepted). The event list shows up to 30 finished tasks and says when a
+  cluster has no REST v2 task feed instead of disappearing.
+- **VMs as a list** (Infraviewer → VMs & Storage). The VM cards became one row per VM: name (with tag,
+  peer and VLAN), CPU and IOPS bars, RAM and total disk size in GB (mounted ISOs not counted), sortable
+  by every column, grouping as before. **Details** opens the VM's window with live facts from HyperCore
+  above the charts: state, node, OS, firmware and Secure Boot, machine and CPU type, guest agent, node
+  affinity, snapshots and their schedule, boot order, tags, every disk and every NIC with its MAC and
+  the guest agent's IP addresses (read through the console service's session; cloud-init data is left
+  out). **Console** (administrators) opens the console in a new browser tab, so several can be open.
+- **Reverse proxies must pass websockets** for the VM console. nginx needs the `Upgrade` and
+  `Connection` headers (the manual's installing chapter has the updated example); Caddy needs
+  nothing. Without them only the console fails.
+- The dashboard runs threaded gunicorn workers (`gthread`, 4 x 16), since a console is a
+  long-lived websocket.
+- Notice mutes moved from `backup.notice_mutes` to `config.notice_mutes`; existing mutes are kept.
+
 ## [1.1.1]
 
 ### Fixed
