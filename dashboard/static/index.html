@@ -563,6 +563,8 @@
   .vm-list .acts { white-space: nowrap; text-align: right; }
   /* VM edit window */
   .ve-modal { width: min(1080px, 96vw); }
+  .ve-tag-access { display: block; font-size: 10px; color: var(--accent-amber); margin-top: 3px; font-weight: 400; }
+  .ve-tag-access:empty { display: none; }
   .ve-power { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
   .ve-sec { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
   .ve-sec h3 { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); font-weight: 500; margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
@@ -2679,6 +2681,7 @@ async function openVmEdit(uuid) {
   if (!r.ok) { document.getElementById('veBody').innerHTML = `<div class="ve-msg" style="color:var(--accent-red)">${_exEsc(d.error || 'HTTP ' + r.status)}</div>`; return; }
   _ve = {uuid, data: d, adds: [], nicAdds: [], remove: new Set(), boot: [...(d.vm.bootDevices || [])]};
   _veRender();
+  _veTagAccess();
 }
 function closeVmEdit(e) {
   if (e && e.target !== document.getElementById('vmEditBackdrop')) return;
@@ -2686,6 +2689,17 @@ function closeVmEdit(e) {
   _ve = null;
 }
 function _veDevLabel(dv) { return `${dv.name || dv.type} · slot ${dv.slot}`; }
+// tags can hand out access (tag-scoped assignments): mark them, and say when changing them is not yours to do
+async function _veTagAccess() {
+  const el = document.getElementById('veTagAccess');
+  if (!el) return;
+  const d = await apiFetch(`/api/access/scoped-tags?cluster=${encodeURIComponent(currentCluster)}`);
+  const tags = Object.keys((d && d.tags) || {});
+  if (!tags.length) { el.textContent = ''; return; }
+  const who = tg => (d.tags[tg] || []).join('; ');
+  el.innerHTML = t('ve.tags_grant', {tags: tags.map(tg => `<b title="${_exEsc(who(tg))}">${_exEsc(tg)}</b>`).join(', ')})
+    + (d.may_change ? '' : ' ' + t('ve.tags_grant_locked'));
+}
 function _veRender() {
   const {vm, nodes, isos, schedules, replications, changes} = _ve.data;
   const E = v => _clEsc(v == null ? '' : String(v));
@@ -2747,7 +2761,7 @@ function _veRender() {
     <div class="ve-sec"><h3>${t('ve.general')}</h3><div class="ve-grid">
       <label>${t('vmi.d_name')}<input type="text" id="ve-name" value="${E(vm.name)}" oninput="_veSummary()"></label>
       <label>${t('vmi.description')}<input type="text" id="ve-desc" value="${E(vm.description)}" oninput="_veSummary()"></label>
-      <label>${t('vmi.tags')}<input type="text" id="ve-tags" value="${E(vm.tags)}" oninput="_veSummary()"></label>
+      <label>${t('vmi.tags')}<input type="text" id="ve-tags" value="${E(vm.tags)}" oninput="_veSummary()"><span class="ve-tag-access" id="veTagAccess"></span></label>
       <label>${t('vmi.os')}${sel('ve-os', [['os_windows_server_2012', 'Windows'], ['os_other', t('ve.os_other')]], vm.operatingSystem)}</label>
       <label>${t('vmi.vcpus')} <span class="ve-cyc">⟳</span><input type="number" id="ve-cpu" min="1" max="256" value="${vm.numVCPU}" oninput="_veSummary()"></label>
       <label>${t('vmi.memory')} (GB) <span class="ve-cyc">⟳</span><input type="number" id="ve-mem" min="0.125" step="0.5" value="${+(vm.mem / GIB).toFixed(2)}" oninput="_veSummary()"></label>
@@ -3413,15 +3427,43 @@ async function loadActivity() {
     `<div style="font-size:12px;color:var(--text-muted);">${t('iv.activity_none')}</div>`;
 }
 
+// what the selected cluster offers this user: the whole cluster (overview, balancer, Foresight, events), or
+// only some of its VMs (VM list and VM details, nothing cluster-wide; plans/PLAN-roles.md)
+function _clusterScopeUi() {
+  const full = !window.HCM_ACCESS || can('cluster.view', currentCluster);
+  for (const tab of ['clusterbalancer', 'sentinel']) {
+    const el = document.querySelector(`.nav-tab[data-tab="${tab}"]`);
+    if (el) el.hidden = !full;
+  }
+  for (const sub of ['nodes', 'events']) {
+    const el = document.querySelector(`.iv-sub-tab[data-ivpanel="${sub}"]`);
+    if (el) el.hidden = !full;
+  }
+  if (!full) {
+    const active = document.querySelector('.tab-content.active')?.id?.replace('tab-', '');
+    if (['clusterbalancer', 'sentinel'].includes(active)) switchTab('infraviewer');
+    const sub = document.querySelector('.iv-sub-tab.active')?.dataset.ivpanel;
+    if (['nodes', 'events'].includes(sub)) switchIvPanel('vms');
+  }
+  return full;
+}
+
 async function refreshAll() {
-  await Promise.all([loadNodes(), loadVMs(), loadMigrations(), loadForecastRuns(), loadPredictions(), loadModules(), loadActivity()]);
+  const full = _clusterScopeUi();
+  if (!full) setStatus(true);
+  await Promise.all([full ? loadNodes() : null, loadVMs(), full ? loadMigrations() : null, full ? loadForecastRuns() : null,
+                     full ? loadPredictions() : null, can('install.manage') || !window.HCM_ACCESS ? loadModules() : null,
+                     full ? loadActivity() : null]);
 }
 
 // apply translations to static HTML before the first data fetch
 applyI18n();
 _initLangPicker();
 
-refreshAll();
+// the first refresh waits for the access summary (access.js), so nothing is asked that would be refused
+document.addEventListener('DOMContentLoaded', () => {
+  apiFetch('/api/users/me').then(me => { if (typeof _accSet === 'function') _accSet(me); }).finally(refreshAll);
+});
 setInterval(refreshAll, 30000);
 
 // ═══════════════════════════════════════════════════════════════════
@@ -4724,11 +4766,15 @@ async function ccRefDelete(id) {
 
 // ── shares panel (admin): the places exports go, assigned to folders ─────────
 let SHARES = [];
+// every cluster's proxies for an installation admin; the selected cluster's for whoever manages proxies there
+function _pxAll(path) { return canNode('backup.proxies.manage', null) ? path + '?all=1' : path; }
 async function _loadSharesPanel() {
   const el = document.getElementById('setpanel-shares');
   if (!el) return;
   const st = await apiFetch('/api/backup/status');
   if (!st || !st.available) { el.innerHTML = `<div class="empty-state">${t('ex.unavailable')}</div>`; return; }
+  // backup targets hold credentials and serve every folder: managed at the installation level only
+  if (!canNode('backup.targets.manage', null)) { el.innerHTML = `<div id="proxiesPanel"></div>`; _loadProxiesPanel(); return; }
   SHARES = (await apiFetch('/api/backup/targets')) || [];
   const rows = SHARES.map(sh => `
     <tr>
@@ -4760,7 +4806,7 @@ async function _loadSharesPanel() {
 }
 async function _loadProxiesPanel() {
   const el = document.getElementById('proxiesPanel'); if (!el) return;
-  const [proxies, stackImage] = await Promise.all([apiFetch('/api/backup/proxies?all=1').then(v => v || []), apiFetch('/api/backup/proxies/image').then(v => v || {})]);
+  const [proxies, stackImage] = await Promise.all([apiFetch(_pxAll('/api/backup/proxies')).then(v => v || []), apiFetch('/api/backup/proxies/image').then(v => v || {})]);
   const clusterOpts = CLUSTERS.filter(c => !c.is_template).map(c => `<option value="${_clEsc(c.cluster_id)}" ${c.cluster_id === currentCluster ? 'selected' : ''}>${_clEsc(c.name)}</option>`).join('');
   const rows = proxies.map(p => `
     <tr>
@@ -4812,7 +4858,7 @@ async function _loadProxiesPanel() {
 }
 async function _loadDeployments() {
   const el = document.getElementById('pxd-list'); if (!el) return;
-  const rows = (await apiFetch('/api/backup/proxies/deployments?all=1')) || [];
+  const rows = (await apiFetch(_pxAll('/api/backup/proxies/deployments'))) || [];
   if (!rows.length) { el.innerHTML = ''; return; }
   const finished = rows.filter(d => d.status !== 'RUNNING').length;
   el.innerHTML = (finished ? `<div style="display:flex;justify-content:flex-end;margin-bottom:4px;"><button class="um-action-btn" onclick="pxClearDeployments()" title="${_clEsc(t('proxies.deploy_clear_hint'))}">${t('proxies.deploy_clear')}</button><div class="cl-msg" id="pxd-clear-msg"></div></div>` : '') + `<table class="um-table"><thead><tr><th>${t('proxies.d_name')}</th><th>${t('proxies.cluster')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead><tbody>${rows.map(d => `
@@ -4821,7 +4867,7 @@ async function _loadDeployments() {
   if (rows.some(d => d.status === 'RUNNING')) setTimeout(() => { if (document.getElementById('pxd-list')) _loadDeployments(); }, 8000);
 }
 async function pxClearDeployments() {
-  try { const r = await _exCall('DELETE', '/api/backup/proxies/deployments?all=1'); showToast(t('proxies.deploy_cleared', {n: r.removed}), 'ok'); await _loadDeployments(); }
+  try { const r = await _exCall('DELETE', _pxAll('/api/backup/proxies/deployments')); showToast(t('proxies.deploy_cleared', {n: r.removed}), 'ok'); await _loadDeployments(); }
   catch (e) { showToast(e.message, 'err'); }
 }
 async function pxDeploy() {
@@ -6065,6 +6111,12 @@ let _exPollTimer = null;
 let _exImport = { known: [], folders: [], chosen: '' };
 
 async function _exProbe() {
+  if (window.HCM_ACCESS && !canSome('backup.view', currentCluster)) {
+    _exAvailable = false;
+    const tab = document.getElementById('navTabExports');
+    if (tab) tab.hidden = true;
+    return false;
+  }
   const d = await apiFetch('/api/backup/status');
   _exAvailable = !!(d && d.available);
   if (d && d.available) { _exDefaults = d; _exLocation = d.location || null; _exClusterZone = d.cluster_timezone || ''; }
@@ -6103,6 +6155,7 @@ function _alertBadgesHtml(cid) {
 }
 async function loadClusterAlerts() {
   if (!CLUSTERS.some(c => c.enabled)) return;
+  if (window.HCM_ACCESS && !can('cluster.view')) return;          // badges are part of the cluster overview
   // every visible cluster at once (the rail shows them all): not through apiFetch, which adds the selected cluster
   let d = null;
   try { const r = await fetch(`${API_BASE}/api/cluster-alerts`); if (r.ok) d = await r.json(); } catch (_) {}
@@ -7252,6 +7305,7 @@ setTimeout(loadUpdateStatus, 6000);
 async function checkDataQuality() {
   const banner = document.getElementById('dataQualityBanner');
   if (!banner) return;
+  if (window.HCM_ACCESS && !can('cluster.view', currentCluster)) { banner.classList.remove('visible'); return; }
   try {
     const q = await apiFetch('/api/data-quality');
     banner.classList.remove('visible', 'info', 'warn');

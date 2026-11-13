@@ -1,9 +1,22 @@
-# Local testing only: adds a synthetic HyperCore cluster to the stack.
+# Local testing only: adds synthetic HyperCore clusters to the stack.
 #   docker compose -f docker-compose.yaml -f tools/fake_hypercore/docker-compose.fake.yaml up -d --build
-# Register it in the dashboard as host "fakehc", any username, password "fake", TLS verification off.
+# Register one in the dashboard as host "fakehc" (or fakehc2..fakehc4 for the tenant tests), any username,
+# password "fake", TLS verification off. Each fake is its own cluster (FAKE_SEED changes every UUID).
 services:
   fakehc:
     build: ./tools/fake_hypercore
     container_name: sc_fakehc
     ports:
       - "8443:443"
+  fakehc2:
+    build: ./tools/fake_hypercore
+    container_name: sc_fakehc2
+    environment: [FAKE_SEED=2, FAKE_NAME=Contoso-DR, FAKE_VM_PREFIX=ctdr-]
+  fakehc3:
+    build: ./tools/fake_hypercore
+    container_name: sc_fakehc3
+    environment: [FAKE_SEED=3, FAKE_NAME=Fabrikam-Main, FAKE_VM_PREFIX=fab-]
+  fakehc4:
+    build: ./tools/fake_hypercore
+    container_name: sc_fakehc4
+    environment: [FAKE_SEED=4, FAKE_NAME=Tailspin-Ops, FAKE_VM_PREFIX=tsp-]

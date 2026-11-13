@@ -1448,4 +1448,8 @@ window.LANG = {
 
   // roles and access (plans/PLAN-roles.md)
   'acc.otp_disable_pw': "Your password, to switch two-factor authentication off",
+
+  // roles: tags that give access
+  've.tags_grant': "Tags that give people access: {tags}.",
+  've.tags_grant_locked': "Adding or removing them needs a user administrator.",
 };

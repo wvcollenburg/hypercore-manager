@@ -1184,6 +1184,8 @@ def post_config():
                 if acc.can('cluster.settings', c.cluster_id):
                     config_db.save_many(updates, c.cluster_id)
         return jsonify({'ok': True})
+    except AccessDenied:
+        raise
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1823,6 +1825,45 @@ def _vmchange_perms(payload: dict) -> list[str]:
     return perms
 
 
+def _tags_of(value) -> set:
+    if isinstance(value, list):
+        return {str(t).strip() for t in value if str(t).strip()}
+    return {t.strip() for t in str(value or '').split(',') if t.strip()}
+
+
+def _tag_guard(cid: str, vm: str | None, payload: dict, kind: str) -> str | None:
+    """Tags can hand out access (tag-scoped assignments), so adding or removing a tag that some assignment
+    depends on needs users.manage on the cluster (plans/PLAN-roles.md, the escalation guard). Returns the
+    refusal text, or None."""
+    scoped = access_db.scoped_tags(cid)
+    if not scoped or _access().can('users.manage', cid):
+        return None
+    old = set(_vm_tags(cid, vm)) if vm else set()
+    if kind == 'edit':
+        new = None
+        for o in payload.get('ops') or []:
+            f = (o or {}).get('fields') or {}
+            if (o or {}).get('op') == 'vm' and 'tags' in f:
+                new = _tags_of(f['tags'])
+        if new is None:
+            return None
+        touched = (old ^ new) & set(scoped)
+    elif kind == 'clone':
+        new = set()
+        for o in payload.get('ops') or []:
+            if 'tags' in (o or {}):
+                new = _tags_of(o['tags'])
+        touched = (new - old) & set(scoped)
+    elif kind == 'create':
+        touched = _tags_of(((payload.get('spec') or {}).get('tags'))) & set(scoped)
+    else:
+        return None
+    if not touched:
+        return None
+    t = sorted(touched)[0]
+    return f"the tag '{t}' gives access to this VM ({'; '.join(scoped[t][:3])}): changing it needs users.manage on the cluster"
+
+
 def _backup_check(method: str, sub: str, cid: str, payload: dict | None):
     """(scope for narrowing lists or None, error response or None) for one forwarded request."""
     route = _backup_route(method, sub)
@@ -1833,6 +1874,10 @@ def _backup_check(method: str, sub: str, cid: str, payload: dict | None):
     denied = (jsonify({'error': 'Access denied'}), 403)
     payload = payload or {}
     body_cid = str(payload.get('cluster_id') or '') or cid
+    if perm and not acc.held_anywhere(perm):
+        return None, denied                          # deny first: input is only looked at for someone who may
+    if perm is None and not any(acc.held_anywhere(p) for p in _VMCHANGE_PERMS.values()):
+        return None, denied
     if request.args.get('all') and not acc.is_root_admin():
         return None, denied                          # ?all= lists every cluster's rows
     if tgt == 'root':
@@ -1840,7 +1885,13 @@ def _backup_check(method: str, sub: str, cid: str, payload: dict | None):
     if tgt == 'any':
         return None, (None if acc.held_anywhere(perm) else denied)
     if tgt == 'cluster':
-        return None, (None if acc.can(perm, body_cid) else denied)
+        if not acc.can(perm, body_cid):
+            return None, denied
+        if sub == 'vmedit/new':
+            why = _tag_guard(body_cid, None, payload, 'create')
+            if why:
+                return None, (jsonify({'error': why}), 403)
+        return None, None
     if tgt == 'some':
         sc = acc.scope_for(perm, [cid]).get(cid)
         return sc, (None if sc else denied)
@@ -1856,7 +1907,10 @@ def _backup_check(method: str, sub: str, cid: str, payload: dict | None):
         if not vm:
             return None, (jsonify({'error': 'vm_uuid required'}), 400)
         ok = all(_can_vm(p, body_cid, vm) for p in _vmchange_perms(payload))
-        return None, (None if ok else denied)
+        if not ok:
+            return None, denied
+        why = _tag_guard(body_cid, vm, payload, str(payload.get('kind') or 'edit'))
+        return None, ((jsonify({'error': why}), 403) if why else None)
     if isinstance(tgt, tuple) and tgt[0] == 'owner':
         kind = tgt[1]
         where = tgt[2] if len(tgt) > 2 else 1

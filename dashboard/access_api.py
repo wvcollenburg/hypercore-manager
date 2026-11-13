@@ -471,6 +471,19 @@ def register(app, requires, access, clusters, vm_index_rows):
             before = None
         return jsonify({'rows': access_db.audit_rows(nodes, 300, before)})
 
+    @app.route('/api/access/scoped-tags')
+    @requires('vm.view')
+    def access_scoped_tags():
+        """Tags of the selected cluster that give someone access (the VM edit window marks them)."""
+        cid = _uuid_or_none(request.args.get('cluster'))
+        acc = access()
+        if not cid or cid not in set(acc.visible_clusters([cid])):
+            raise AccessError('not found', 404)
+        tags = access_db.scoped_tags(cid)
+        if not acc.can('users.manage', cid):
+            tags = {t: [] for t in tags}          # which tags matter, not who holds them
+        return jsonify({'tags': tags, 'may_change': acc.can('users.manage', cid)})
+
     # -- who has access ------------------------------------------------------------------------------
     @app.route('/api/access/who')
     @requires('users.manage', 'any')

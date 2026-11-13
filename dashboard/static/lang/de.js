@@ -1447,4 +1447,8 @@ window.LANG = {
 
   // roles and access (plans/PLAN-roles.md)
   'acc.otp_disable_pw': "Ihr Passwort, um die Zwei-Faktor-Authentifizierung auszuschalten",
+
+  // roles: tags that give access
+  've.tags_grant': "Tags, die Personen Zugriff geben: {tags}.",
+  've.tags_grant_locked': "Sie hinzuzufügen oder zu entfernen erfordert einen Benutzeradministrator.",
 };

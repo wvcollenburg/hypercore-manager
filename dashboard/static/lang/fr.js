@@ -1447,4 +1447,8 @@ window.LANG = {
 
   // roles and access (plans/PLAN-roles.md)
   'acc.otp_disable_pw': "Votre mot de passe, pour désactiver l'authentification à deux facteurs",
+
+  // roles: tags that give access
+  've.tags_grant': "Étiquettes qui donnent un accès : {tags}.",
+  've.tags_grant_locked': "Les ajouter ou les retirer exige un administrateur des utilisateurs.",
 };

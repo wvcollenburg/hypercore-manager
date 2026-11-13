@@ -762,6 +762,29 @@ def remove_assignment(assignment_id: str, actor: str, audit_node: str | None) ->
     invalidate()
 
 
+def scoped_tags(cluster_id: str) -> dict[str, list[str]]:
+    """Tags on this cluster that some assignment depends on: {tag: ['user: Role', 'group G: Role', ...]}."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute('''SELECT a.tag, COALESCE(u.username, 'group ' || g.name) AS who, r.name AS role
+                                 FROM config.assignments a JOIN config.roles r ON r.role_id = a.role_id
+                                 LEFT JOIN config.users u ON u.user_id = a.user_id
+                                 LEFT JOIN config.groups g ON g.group_id = a.group_id
+                                WHERE a.scope_kind = 'tag' AND a.cluster_id = %s''', (cluster_id,))
+            except Exception as exc:  # noqa: BLE001
+                if _missing(exc):
+                    return {}
+                raise
+            out: dict[str, list[str]] = {}
+            for r in cur.fetchall():
+                out.setdefault(r['tag'], []).append(f"{r['who']}: {r['role']}")
+            return out
+    finally:
+        conn.close()
+
+
 def grants_of_principal(user_id: str | None = None, group_id: str | None = None) -> list[rbac.Grant]:
     """The grants of one user (direct and through groups) or one group, for 'who has access' views."""
     rows = []

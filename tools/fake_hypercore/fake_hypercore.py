@@ -47,15 +47,24 @@ FONT_PATH = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'
 FONT_SANS = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 NOW_MS = lambda: int(time.time() * 1000)  # noqa: E731
 
-CLUSTER_UUID = 'f4ce0000-0000-4000-8000-00000000c1a5'
-NODES = [{'uuid': f'f4ce0000-0000-4000-9000-00000000000{i}', 'peerID': i + 1,
-          'lanIP': f'10.99.0.{11 + i}'} for i in range(3)]
+# Several fakes can run side by side as different clusters (tenant tests): FAKE_SEED (0-9) changes every
+# UUID, FAKE_NAME the cluster name, FAKE_VM_PREFIX the VM names.
+SEED = int(os.environ.get('FAKE_SEED', '0')) % 10
+PFX = f'f4ce000{SEED}'
+CLUSTER_NAME = os.environ.get('FAKE_NAME', 'FakeCluster')
+VM_PREFIX = os.environ.get('FAKE_VM_PREFIX', '')
+CLUSTER_UUID = f'{PFX}-0000-4000-8000-00000000c1a5'
+NODES = [{'uuid': f'{PFX}-0000-4000-9000-00000000000{i}', 'peerID': i + 1,
+          'lanIP': f'10.9{SEED}.0.{11 + i}'} for i in range(3)]
 
 VMS = [
     ('web01', 'login', 0, 'linux'), ('db01', 'shell', 1, 'linux'), ('dc01', 'winlock', 2, 'windows'),
     ('rds01', 'windesk', 0, 'windows'), ('kiosk01', 'picture', 1, 'windows'), ('app02', 'blank', 2, 'linux'),
     ('backup-old', 'login', 0, 'linux'),
 ]
+# an application tag per VM, so tag-scoped access can be tried on the synthetic cluster
+APP_TAG = {'web01': 'web', 'db01': 'erp', 'dc01': 'infra', 'rds01': 'erp', 'kiosk01': 'kiosk', 'app02': 'erp',
+           'backup-old': 'legacy'}
 
 state = {
     'sessions': set(),
@@ -65,12 +74,12 @@ state = {
 
 
 def _vm_uuid(i: int) -> str:
-    return f'f4ce0000-0000-4000-8000-{i:012d}'
+    return f'{PFX}-0000-4000-8000-{i:012d}'
 
 
 for i, (name, screen, node, os_) in enumerate(VMS):
     state['vms'][_vm_uuid(i)] = {
-        'uuid': _vm_uuid(i), 'name': name, 'screen': screen, 'node': node, 'os': os_,
+        'uuid': _vm_uuid(i), 'name': VM_PREFIX + name, 'app': APP_TAG.get(name, ''), 'screen': screen, 'node': node, 'os': os_,
         'state': 'SHUTOFF' if name == 'backup-old' else 'RUNNING', 'typed': '', 'login_step': 'user',
         'wake_to': 'shell', 'version': 0,
     }
@@ -137,7 +146,7 @@ def _cfg(v: dict) -> dict:
         u = v['uuid']
         v['cfg'] = {
             'description': 'synthetic', 'operatingSystem': 'os_windows_server_2012' if v['os'] == 'windows' else 'os_other',
-            'mem': 4 * 2**30, 'numVCPU': 2, 'tags': 'fake,' + v['os'], 'snapshotScheduleUUID': '',
+            'mem': 4 * 2**30, 'numVCPU': 2, 'tags': ','.join(t for t in ('fake', v['os'], v.get('app', '')) if t), 'snapshotScheduleUUID': '',
             'machineType': 'scale-7.2', 'cpuType': 'clusterBaseline-7.3', 'machineTypeKeyword': 'bios',
             'affinityStrategy': {'strictAffinity': False, 'preferredNodeUUID': '', 'backupNodeUUID': ''},
             'blockDevs': [{'uuid': u + '-bd01', 'virDomainUUID': u, 'name': '', 'type': 'VIRTIO_DISK',
@@ -163,7 +172,7 @@ def _vm(v: dict) -> dict:
 
 
 async def r_cluster(_):
-    return web.json_response([{'uuid': CLUSTER_UUID, 'clusterName': 'FakeCluster', 'icosVersion': '9.8.9.fake'}])
+    return web.json_response([{'uuid': CLUSTER_UUID, 'clusterName': CLUSTER_NAME, 'icosVersion': '9.8.9.fake'}])
 
 
 async def r_nodes(_):

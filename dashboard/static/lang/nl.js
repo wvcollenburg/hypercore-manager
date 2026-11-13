@@ -1447,4 +1447,8 @@ window.LANG = {
 
   // roles and access (plans/PLAN-roles.md)
   'acc.otp_disable_pw': "Je wachtwoord, om tweestapsverificatie uit te zetten",
+
+  // roles: tags that give access
+  've.tags_grant': "Tags die mensen toegang geven: {tags}.",
+  've.tags_grant_locked': "Ze toevoegen of weghalen vraagt een gebruikersbeheerder.",
 };
