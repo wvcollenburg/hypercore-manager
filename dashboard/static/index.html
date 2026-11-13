@@ -25,6 +25,7 @@
 </script>
 <script src="/static/vendor/chart.umd.min.js"></script>
 <script src="/static/vendor/chartjs-adapter-date-fns.bundle.min.js"></script>
+<link rel="stylesheet" href="/static/access.css">
 <style>
   @import url('/static/vendor/fonts.css');
 
@@ -1741,6 +1742,7 @@
           <button class="refresh-btn" id="vmSnapBtn" hidden onclick="openVmAct('snapshot', vmDetailActiveUuid)" data-i18n="va.snapshot">Snapshot</button>
           <button class="refresh-btn" id="vmCloneBtn" hidden onclick="openVmAct('clone', vmDetailActiveUuid)" data-i18n="va.clone">Clone</button>
           <button class="refresh-btn" id="vmEditBtn" hidden onclick="openVmEdit(vmDetailActiveUuid)" data-i18n="ve.edit">Edit</button>
+          <button class="refresh-btn" id="vmWhoBtn" hidden data-i18n="acc.who_btn">Who has access</button>
           <button class="refresh-btn" id="vmConsoleBtn" hidden onclick="openVmConsole(currentCluster, vmDetailActiveUuid)" data-i18n="console.open" data-i18n-title="console.open_hint" title="Open this VM's console in a new window">Console</button>
           <button class="vm-modal-close" onclick="closeVmModal()">✕</button>
         </div>
@@ -2351,13 +2353,15 @@ function setVmGroup(mode) {
 // VM list: one row per VM; grouping as before, sorting by clicking a column header
 let vmSort = {key: 'name', dir: 1};
 // search: every word must match something about the VM (live facts from HyperCore plus what the list knows)
-let vmQuery = '', _vmIndex = {}, _vmIndexFor = null, _vmIndexAt = 0;
+let vmQuery = '', _vmIndex = {}, _vmIndexFor = null, _vmIndexAt = 0, _vmTagsOf = {};
+function _vmTags(uuid) { return _vmTagsOf[uuid] || []; }
 async function loadVmIndex(force) {
   if (!currentCluster) return;
   if (!force && _vmIndexFor === currentCluster && Date.now() - _vmIndexAt < 20000) return;
   const d = await apiFetch('/api/vm-index' + (force ? '?fresh=1' : ''));
-  _vmIndex = {}; _vmIndexFor = currentCluster; _vmIndexAt = Date.now();
+  _vmIndex = {}; _vmTagsOf = {}; _vmIndexFor = currentCluster; _vmIndexAt = Date.now();
   for (const v of (d && d.vms) || []) {
+    _vmTagsOf[v.uuid] = v.tags || [];
     _vmIndex[v.uuid] = [v.name, ...v.tags, v.description, ...v.ips, ...v.macs, ...v.vlans.map(x => 'vlan ' + x), ...v.vlans,
                         ...v.isos, ...v.disks, v.os, v.machine, v.node, v.state].join(' \u0001 ').toLowerCase();
   }
@@ -2421,11 +2425,13 @@ function sortVms(key) {
 function renderVmCards() {
   const container = document.getElementById('vmCards');
   if (!cachedVmData.length) {
-    const admin = _currentUser?.role === 'admin' || _currentUser?.dev_mode;
+    const admin = can('vm.create', currentCluster);
     container.innerHTML = `<div class="empty-state">${t('empty.no_vms')}${admin ? `<div style="margin-top:12px;"><button class="refresh-btn" onclick="openNewVm()">+ ${t('vn.new_vm')}</button></div>` : ''}</div>`;
     return;
   }
-  const isAdmin = _currentUser?.role === 'admin' || _currentUser?.dev_mode;
+  const isAdmin = can('vm.create', currentCluster);
+  const mayEdit = vm => ['vm.edit', 'vm.power', 'vm.snapshot', 'vm.clone', 'vm.delete'].some(p => canVm(p, currentCluster, vm.uuid, _vmTags(vm.uuid)));
+  const mayConsole = vm => canVm('vm.console', currentCluster, vm.uuid, _vmTags(vm.uuid));
   const rows = cachedVmData.filter(_vmMatches).map(vm => ({vm, name: vm.name, cpu: vm.state && vm.state !== 'RUNNING' ? -1 : _vmCpu(vm), iops: _vmIops(vm.uuid), ram: vm.mem_bytes ?? null, disk: vm.disk_bytes ?? null}));
   const maxIops = Math.max(100, ...rows.map(r => r.iops || 0));
   const val = (r, k) => k === 'name' ? (r.name || '').toLowerCase() : (r[k] ?? -1);
@@ -2440,7 +2446,7 @@ function renderVmCards() {
       <td><div class="vm-meter"><div class="vm-meter-bar"><div class="vm-meter-fill" style="width:${iopsPct}%;background:var(--accent-cyan)"></div></div><span class="vm-meter-val">${r.iops == null ? '—' : Math.round(r.iops).toLocaleString()}</span></div></td>
       <td class="num mono">${_gb(r.ram)}</td>
       <td class="num mono">${_gb(r.disk)}</td>
-      <td class="acts"><button class="um-action-btn" onclick="openVmModal('${vm.uuid}')">${t('vm.details')}</button>${isAdmin ? ` <button class="um-action-btn" onclick="openVmEdit('${vm.uuid}')">${t('ve.edit')}</button> <button class="um-action-btn" onclick="openVmConsole(currentCluster, '${vm.uuid}')" ${r.cpu < 0 ? 'disabled' : ''} title="${_clEsc(t('console.open_hint'))}">${t('console.open')}</button>` : ''}</td>
+      <td class="acts"><button class="um-action-btn" onclick="openVmModal('${vm.uuid}')">${t('vm.details')}</button>${mayEdit(vm) ? ` <button class="um-action-btn" onclick="openVmEdit('${vm.uuid}')">${t('ve.edit')}</button>` : ''}${mayConsole(vm) ? ` <button class="um-action-btn" onclick="openVmConsole(currentCluster, '${vm.uuid}')" ${r.cpu < 0 ? 'disabled' : ''} title="${_clEsc(t('console.open_hint'))}">${t('console.open')}</button>` : ''}</td>
     </tr>`;
   };
   const arrow = k => vmSort.key === k ? ` <span class="sort">${vmSort.dir > 0 ? '▲' : '▼'}</span>` : '';
@@ -2614,10 +2620,13 @@ async function openVmModal(vmUuid) {
   const vm = cachedVmData.find(v => v.uuid === vmUuid);
   if (!vm) return;
   document.getElementById('vmDetailTitle').textContent = vm.name;
-  document.getElementById('vmConsoleBtn').hidden = !(_currentUser?.role === 'admin' || _currentUser?.dev_mode);
-  document.getElementById('vmEditBtn').hidden = document.getElementById('vmConsoleBtn').hidden;
-  document.getElementById('vmSnapBtn').hidden = document.getElementById('vmConsoleBtn').hidden;
-  document.getElementById('vmCloneBtn').hidden = document.getElementById('vmConsoleBtn').hidden;
+  const vt = _vmTags(vm.uuid);
+  document.getElementById('vmConsoleBtn').hidden = !canVm('vm.console', currentCluster, vm.uuid, vt);
+  document.getElementById('vmEditBtn').hidden = !['vm.edit', 'vm.power', 'vm.delete'].some(p => canVm(p, currentCluster, vm.uuid, vt));
+  document.getElementById('vmSnapBtn').hidden = !canVm('vm.snapshot', currentCluster, vm.uuid, vt);
+  document.getElementById('vmCloneBtn').hidden = !canVm('vm.clone', currentCluster, vm.uuid, vt);
+  const whoBtn = document.getElementById('vmWhoBtn');
+  if (whoBtn) { whoBtn.hidden = !canNode('users.manage', (CLUSTERS.find(c => c.cluster_id === currentCluster) || {}).folder_id); whoBtn.onclick = () => acWho(currentCluster, vm.uuid, vm.name); }
   document.getElementById('vmDetailBackdrop').classList.add('visible');
   loadVmInfo(vmUuid);
   _vmChartsFor = null;
@@ -2653,7 +2662,7 @@ let _ve = null;                      // {uuid, data, form}
 const GIB = 1073741824;
 const VE_VM_LIVE = ['name', 'description', 'tags', 'snapshotScheduleUUID', 'affinityStrategy'];
 async function loadVmPending() {
-  if (!(_currentUser?.role === 'admin' || _currentUser?.dev_mode) || !currentCluster) { _vmPending = {}; return; }
+  if (!canSome('vm.view', currentCluster) || !currentCluster) { _vmPending = {}; return; }
   const d = await apiFetch('/api/backup/vmedit/changes?limit=200');
   _vmPending = {};
   for (const c of (d && d.changes) || []) if (c.status === 'scheduled' || c.status === 'running') _vmPending[c.vm_uuid] = c;
@@ -2908,15 +2917,15 @@ async function _veSubmit(kind, ops, confirmName) {
   return true;
 }
 function veApply() { _veSubmit('edit', _veOps(), _veVal('veConfirm')); }
-function vePower(action) {
+async function vePower(action) {
   const labels = {START: t('ve.p_start'), SHUTDOWN: t('ve.p_shutdown'), REBOOT: t('ve.p_reboot'), STOP: t('ve.p_stop'), RESET: t('ve.p_reset')};
   const at = document.querySelector('input[name="veWhen"]:checked').value === 'at';
-  if (!confirm(t('ve.power_confirm', {action: labels[action], vm: _ve.data.vm.name}) + (at ? ' ' + t('ve.power_at', {when: document.getElementById('veAt').value || '?'}) : ''))) return;
+  if (!await hcmConfirm(t('ve.power_confirm', {action: labels[action], vm: _ve.data.vm.name}) + (at ? ' ' + t('ve.power_at', {when: document.getElementById('veAt').value || '?'}) : ''))) return;
   document.getElementById('veForceRow').hidden = action !== 'SHUTDOWN';
   _veSubmit('power', [{op: 'power', action}]);
 }
-function veDelete() {
-  const name = prompt(t('ve.delete_prompt', {vm: _ve.data.vm.name}));
+async function veDelete() {
+  const name = await hcmPrompt(t('ve.delete_prompt', {vm: _ve.data.vm.name}));
   if (name === null) return;
   _veSubmit('delete', [], name);
 }
@@ -3365,7 +3374,7 @@ async function loadModules() {
   if (!data||!data.measurements||!data.measurements.length) { container.innerHTML=`<div class="empty-state">${t('empty.no_measurements')}</div>`; return; }
   container.innerHTML = data.measurements.map(name => {
     const m = getModuleMeta(name);
-    return `<div class="module-item" onclick="alert('Module: ${name}\\nQuery: GET /api/query/${name}?hours=1&limit=100')">
+    return `<div class="module-item" onclick="hcmAlert('Module: ${name}\\nQuery: GET /api/query/${name}?hours=1&limit=100', {title: 'Module'})">
       <div class="module-icon" style="background:${m.color}20;color:${m.color}">${m.icon}</div>
       <div><div class="module-name">${name}</div><div class="module-desc">${m.desc}</div></div>
     </div>`;
@@ -4261,7 +4270,7 @@ function brandingLogoSelected(input) {
   const file = input.files[0];
   if (!file) return;
   if (file.size > 512 * 1024) {
-    alert(t('reports.logo_too_large'));
+    hcmAlert(t('reports.logo_too_large'));
     input.value = '';
     return;
   }
@@ -4569,18 +4578,34 @@ async function loadSettings() {
   const vals = {};
   data.forEach(item => { vals[item.key] = item.value; });
   const groups = CTRL_GROUPS.filter(g => g.tab === 'general');
-  const isAdmin = me?.role === 'admin';
+  _accSet(me);
+  const isAdmin = can('cluster.settings', currentCluster) || (_settingsTarget === 'defaults' && can('install.manage'));
 
-  if (me && !isAdmin && !me.dev_mode) {
+  if (me && !canSettings()) {
     // plain users never land here (the rail offers them Account only); be safe anyway
     document.getElementById('settingsContent').innerHTML = `<div class="empty-state">${t('settings.admin_only')}</div>`;
     return;
   }
+  // each sub-tab shows for whoever holds its permission somewhere
+  const show = {
+    clusters: can('cluster.manage') || can('cluster.view'),
+    tunables: can('cluster.view', currentCluster) || can('cluster.settings'),
+    users: can('users.manage') || can('groups.manage') || can('roles.manage') || can('audit.view') || canAnyVmPerm('guest_console.grant'),
+    shares: can('backup.targets.manage') || can('backup.proxies.manage'),
+    console: can('console_check.manage') || can('console.audit') || canAnyVmPerm('console.audit'),
+  };
+  for (const [k, v] of Object.entries(show)) {
+    const tab = document.querySelector(`[data-setpanel="${k}"]`);
+    if (tab) tab.style.display = v ? '' : 'none';
+  }
+  const activeTab = document.querySelector('.settings-sub-tab.active')?.dataset.setpanel;
+  if (activeTab && !show[activeTab]) { const first = Object.keys(show).find(k => show[k]); if (first) switchSettingsPanel(first); }
   const cl = me ? await apiFetch('/api/clusters') : null;
-  document.getElementById('setpanel-clusters').innerHTML = _renderClustersCard((cl && cl.clusters) || [], me || {});
-  document.getElementById('setpanel-tunables').innerHTML = _settingsTargetBar(isAdmin) + _renderGroups(groups, vals, isAdmin);
-  if (me && (me.role === 'admin' || me.dev_mode)) { await _loadUsersPanel(me); await _loadSharesPanel(); _loadConsolePanel(); }
-  else { document.getElementById('setpanel-users').innerHTML = ''; document.getElementById('setpanel-shares').innerHTML = ''; document.getElementById('setpanel-console').innerHTML = ''; }
+  document.getElementById('setpanel-clusters').innerHTML = show.clusters ? _renderClustersCard((cl && cl.clusters) || [], me || {}) : '';
+  document.getElementById('setpanel-tunables').innerHTML = show.tunables ? _settingsTargetBar(isAdmin) + _renderGroups(groups, vals, isAdmin) : '';
+  if (show.users) await loadAccessPanel(); else document.getElementById('setpanel-users').innerHTML = '';
+  if (show.shares) await _loadSharesPanel(); else document.getElementById('setpanel-shares').innerHTML = '';
+  if (show.console) _loadConsolePanel(); else document.getElementById('setpanel-console').innerHTML = '';
 }
 
 // ── console panel (admin): the open console session check and the console audit log ─────────
@@ -4806,7 +4831,7 @@ async function pxDeploy() {
                  ip: g('ipmode').value === 'static' ? {mode: 'static', address: g('ip').value.trim(), prefix: parseInt(g('prefix').value || '24', 10), gateway: g('gw').value.trim(), dns: g('dns').value.trim()} : {mode: 'dhcp'},
                  image_url: g('image-url').value.trim(), authorized_key: g('key').value.trim() };
   if (!body.name) { _shMsg('pxd-msg', t('proxies.d_name_required'), 'err'); return; }
-  if (!confirm(t('proxies.deploy_confirm', {name: body.name}))) return;
+  if (!await hcmConfirm(t('proxies.deploy_confirm', {name: body.name}))) return;
   _shMsg('pxd-msg', t('ex.i_starting'), '');
   try { await _exCall('POST', '/api/backup/proxies/deploy', body); _shMsg('pxd-msg', t('proxies.deploy_started'), 'ok'); _loadDeployments(); }
   catch (e) { _shMsg('pxd-msg', e.message, 'err'); }
@@ -4875,10 +4900,10 @@ async function pxUpdate(id) {
   catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
 }
 async function pxRemove(id, name, vmUuid, kind) {
-  if (!confirm(t('proxies.confirm_remove', {name}))) return;
+  if (!await hcmConfirm(t('proxies.confirm_remove', {name}), {danger: true})) return;
   // a deployed proxy's VM goes with it unless the admin keeps it; the stack's own container has no VM
   const vm = vmUuid ? vmUuid.slice(0, 8) : '';
-  const withVm = !!vmUuid && kind !== 'local' && confirm(t('proxies.confirm_remove_vm', {vm}));
+  const withVm = !!vmUuid && kind !== 'local' && await hcmConfirm(t('proxies.confirm_remove_vm', {vm}), {danger: true});
   try {
     const r = await _exCall('DELETE', `/api/backup/proxies/${id}${withVm ? '?vm=delete' : ''}`);
     if (r && r.vm === 'deleted') showToast(t('proxies.removed_vm', {vm}), 'ok');
@@ -4924,8 +4949,8 @@ async function shTest(id) {
 }
 function shEdit(id) { const r = document.getElementById(`sh-edit-${id}`); if (r) r.hidden = !r.hidden; }
 async function shRemove(id, name) {
-  if (!confirm(t('shares.confirm_remove', {name}))) return;
-  try { await _exCall('DELETE', `/api/backup/targets/${id}`); await _loadSharesPanel(); await loadClusters(); } catch (e) { alert(e.message); }
+  if (!await hcmConfirm(t('shares.confirm_remove', {name}), {danger: true})) return;
+  try { await _exCall('DELETE', `/api/backup/targets/${id}`); await _loadSharesPanel(); await loadClusters(); } catch (e) { hcmAlert(e.message); }
 }
 
 function switchSettingsPanel(p) {
@@ -4936,115 +4961,6 @@ function switchSettingsPanel(p) {
   try { localStorage.setItem('hcm.settings.panel', p); } catch (_) {}
 }
 document.addEventListener('DOMContentLoaded', () => { try { const p = localStorage.getItem('hcm.settings.panel'); if (p) switchSettingsPanel(p); } catch (_) {} });
-
-// ── users panel: search, A–Z or by-folder, collapsible folder groups ─────────
-let _um = { users: [], folders: [], me: null, query: '', sort: 'alpha', collapsed: new Set() };
-try { _um.sort = localStorage.getItem('hcm.users.sort') || 'alpha'; _um.collapsed = new Set(JSON.parse(localStorage.getItem('hcm.users.collapsed') || '[]')); } catch (_) {}
-
-async function _loadUsersPanel(me) {
-  const [users, folders] = await Promise.all([apiFetch('/api/users'), apiFetch('/api/folders')]);
-  _um.users = users || []; _um.folders = folders || []; _um.me = me;
-  _renderUsersPanel();
-}
-function umSearch(v) { _um.query = v; _renderUsersPanel(); }
-function umSort(mode) { _um.sort = mode; try { localStorage.setItem('hcm.users.sort', mode); } catch (_) {} _renderUsersPanel(); }
-function umToggleGroup(key) { if (_um.collapsed.has(key)) _um.collapsed.delete(key); else _um.collapsed.add(key); _umSaveCollapsed(); _renderUsersPanel(); }
-function umSetAllGroups(collapsed) { _um.collapsed = collapsed ? new Set(['__admins__', '__none__', ..._um.folders.map(f => f.folder_id)]) : new Set(); _umSaveCollapsed(); _renderUsersPanel(); }
-function _umSaveCollapsed() { try { localStorage.setItem('hcm.users.collapsed', JSON.stringify([..._um.collapsed])); } catch (_) {} }
-
-function _umFoldersOf(userId) { return _um.folders.filter(f => (f.members || []).some(m => m.user_id === userId)); }
-
-function _umRow(u, showFolders) {
-  const me = _um.me || {};
-  const folders = showFolders ? _umFoldersOf(u.user_id) : [];
-  return `
-    <tr>
-      <td class="um-username">${_esc(u.username)}${u.username === me.username ? ` <span style="font-size:10px;color:var(--text-muted)">(${t('users.you')})</span>` : ''}</td>
-      <td><span class="um-badge ${u.role === 'admin' ? 'um-badge-admin' : 'um-badge-user'}">${u.role}</span></td>
-      <td><span class="um-badge ${u.otp_enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${u.otp_enabled ? 'on' : 'off'}</span></td>
-      ${showFolders ? `<td>${u.role === 'admin' ? `<span style="font-size:10px;color:var(--text-muted)">${t('users.all_clusters')}</span>` : (folders.length ? folders.map(f => `<span class="um-chip" style="border-color:${_clEsc(f.colour || 'var(--border)')}">${_esc(f.name)}</span>`).join('') : `<span style="font-size:10px;color:var(--text-muted)">${t('users.no_folder')}</span>`)}</td>` : ''}
-      <td style="color:var(--text-muted);font-size:11px;white-space:nowrap;">${u.created_at ? new Date(u.created_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—'}</td>
-      <td style="white-space:nowrap;">
-        ${u.role !== 'admin' ? `<button class="um-action-btn" onclick="openUserFolders('${u.user_id}', '${_esc(u.username)}')">${t('users.col_folders')}</button>` : ''}
-        <button class="um-action-btn" onclick="umAdminResetPw('${_esc(u.username)}')">${t('users.reset_pw')}</button>
-        ${u.username !== me.username ? `<button class="um-action-btn danger" onclick="umDeleteUser('${_esc(u.username)}')">${t('users.delete')}</button>` : ''}
-      </td>
-    </tr>`;
-}
-function _umTable(rows, showFolders) {
-  return `<table class="um-table"><thead><tr>
-      <th>${t('users.col_username')}</th><th>${t('users.col_role')}</th><th>OTP</th>${showFolders ? `<th>${t('users.col_folders')}</th>` : ''}<th>${t('users.col_created')}</th><th></th>
-    </tr></thead><tbody>${rows}</tbody></table>`;
-}
-
-function _renderUsersPanel() {
-  const el = document.getElementById('setpanel-users');
-  if (!el) return;
-  const q = _um.query.trim().toLowerCase();
-  const byName = (a, b) => a.username.localeCompare(b.username);
-  const users = _um.users.filter(u => !q || u.username.toLowerCase().includes(q)).sort(byName);
-  const byFolder = _um.sort === 'folder';
-
-  let body;
-  if (!users.length) {
-    body = `<div style="color:var(--text-muted);font-size:12px;padding:10px 0;">${_um.users.length ? t('users.no_match') : t('users.none')}</div>`;
-  } else if (!byFolder) {
-    body = _umTable(users.map(u => _umRow(u, true)).join(''), true);
-  } else {
-    const group = (key, name, colour, members) => {
-      const collapsed = _um.collapsed.has(key);
-      const vars = colour ? `--fc:${_clEsc(colour)};--fc-tint:${_tint(colour, 0.16)}` : '';
-      return `<div class="um-group">
-        <div class="cluster-folder ${collapsed ? 'collapsed' : ''}" style="${vars}" onclick="umToggleGroup('${key}')">
-          <span class="folder-chevron">▾</span><span class="folder-glyph"></span>
-          <span class="cluster-folder-name">${_esc(name)}</span><span class="folder-count">${members.length}</span>
-        </div>
-        <div class="folder-children ${collapsed ? 'collapsed' : ''}">${members.length ? _umTable(members.map(u => _umRow(u, false)).join(''), false) : `<div class="folder-empty">${t('folders.empty')}</div>`}</div>
-      </div>`;
-    };
-    const admins = users.filter(u => u.role === 'admin');
-    const plain  = users.filter(u => u.role !== 'admin');
-    body = group('__admins__', t('users.administrators'), '#3b82f6', admins);
-    for (const f of _um.folders) {
-      const ids = new Set((f.members || []).map(m => m.user_id));
-      const members = plain.filter(u => ids.has(u.user_id));
-      if (q && !members.length) continue;   // while searching, hide folders without a hit
-      body += group(f.folder_id, f.name, f.colour, members);
-    }
-    const none = plain.filter(u => !_umFoldersOf(u.user_id).length);
-    if (none.length || !q) body += group('__none__', t('users.no_folder'), null, none);
-  }
-
-  el.innerHTML = `
-    <div class="settings-group">
-      <div class="settings-group-header">
-        <div class="chart-title-dot" style="background:var(--accent-purple)"></div>
-        <span class="settings-group-title">${t('users.title')}</span>
-        <span style="font-size:11px;color:var(--text-muted);flex:1">${t('users.count', {n: _um.users.length})}${q ? ` · ${t('folders.shown', {n: users.length})}` : ''}</span>
-      </div>
-      <div class="um-toolbar">
-        <input class="um-input" id="umSearch" placeholder="${_esc(t('users.search_placeholder'))}" value="${_esc(_um.query)}" oninput="umSearch(this.value)" autocomplete="off">
-        <span class="um-seg">
-          <button class="${!byFolder ? 'active' : ''}" onclick="umSort('alpha')">${t('users.sort_alpha')}</button>
-          <button class="${byFolder ? 'active' : ''}" onclick="umSort('folder')">${t('users.sort_folder')}</button>
-        </span>
-        ${byFolder ? `<button class="rail-tool" onclick="umSetAllGroups(true)" title="${_esc(t('folders.collapse_all'))}">⊟</button><button class="rail-tool" onclick="umSetAllGroups(false)" title="${_esc(t('folders.expand_all'))}">⊞</button>` : ''}
-      </div>
-      ${body}
-      <div class="um-add-row" id="umAddRow">
-        <input  class="um-input"   id="umNewUsername" placeholder="${_esc(t('users.col_username'))}" style="width:130px;">
-        <input  class="um-input"   type="password" id="umNewPassword" placeholder="${_esc(t('users.password'))}" style="width:130px;">
-        <select class="um-select"  id="umNewRole">
-          <option value="user">user</option>
-          <option value="admin">admin</option>
-        </select>
-        <button class="um-primary-btn" onclick="umCreateUser()">${t('users.add')}</button>
-        <div id="umAddMsg" style="width:100%;"></div>
-      </div>
-    </div>`;
-  const inp = document.getElementById('umSearch');
-  if (inp && q) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
-}
 
 async function loadAccount() {
   const me = await apiFetch('/api/users/me');
@@ -5078,12 +4994,10 @@ function _renderMyAccountCard(me) {
     <div class="um-section">
       <div class="um-section-title">Change password</div>
       <div class="um-field-row" id="umPwForm">
-        ${me.role !== 'admin'
-          ? `<input class="um-input" type="password" id="umCurPw" placeholder="Current password" style="width:160px;">`
-          : ''}
+        <input class="um-input" type="password" id="umCurPw" placeholder="${_esc(t('acc.current_password'))}" style="width:160px;">
         <input class="um-input" type="password" id="umNewPw"  placeholder="New password" style="width:160px;">
         <input class="um-input" type="password" id="umNewPw2" placeholder="Confirm" style="width:160px;">
-        <button class="um-primary-btn" onclick="umChangePassword('${me.username}', ${me.role === 'admin'})">Update</button>
+        <button class="um-primary-btn" onclick="umChangePassword('${me.username}', false)">Update</button>
       </div>
       <div id="umPwMsg"></div>
     </div>`;
@@ -5170,7 +5084,7 @@ async function umConfirmOtp() {
 }
 
 async function umDisableOtp() {
-  const pw = prompt('Enter your password to disable OTP:');
+  const pw = await hcmPrompt(t('acc.otp_disable_pw'), {type: 'password'});
   if (pw === null) return;
   const r = await fetch(`${API_BASE}/api/users/me/otp/disable`, {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({password: pw})
@@ -5182,54 +5096,6 @@ async function umDisableOtp() {
   } else {
     document.getElementById('umOtpMsg').innerHTML = `<div class="um-error">${_esc(d.error || 'Error')}</div>`;
   }
-}
-
-// ── admin user management actions ────────────────────────────────────────────
-
-async function umCreateUser() {
-  const username = (document.getElementById('umNewUsername') || {}).value || '';
-  const password = (document.getElementById('umNewPassword') || {}).value || '';
-  const role     = (document.getElementById('umNewRole')     || {}).value || 'user';
-  const msg      = document.getElementById('umAddMsg');
-  if (!username || !password) { msg.innerHTML = '<div class="um-error">Username and password are required.</div>'; return; }
-  const r = await fetch(`${API_BASE}/api/users`, {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({username, password, role})
-  });
-  const d = await r.json();
-  if (r.ok) {
-    document.getElementById('umNewUsername').value = '';
-    document.getElementById('umNewPassword').value = '';
-    msg.innerHTML = `<div class="um-success">User "${_esc(username)}" created.</div>`;
-    setTimeout(() => { msg.innerHTML = ''; }, 3000);
-    loadSettings();
-  } else {
-    msg.innerHTML = `<div class="um-error">${_esc(d.error || 'Error')}</div>`;
-  }
-}
-
-async function umDeleteUser(username) {
-  if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
-  const r = await fetch(`${API_BASE}/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
-  const d = await r.json();
-  if (r.ok) {
-    showToast(`User "${username}" deleted.`, 'ok');
-    loadSettings();
-  } else {
-    showToast(d.error || 'Delete failed', 'err');
-  }
-}
-
-async function umAdminResetPw(username) {
-  const np = prompt(`Set a new password for "${username}":`);
-  if (!np) return;
-  const r = await fetch(`${API_BASE}/api/users/${encodeURIComponent(username)}/password`, {
-    method: 'PUT', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({new_password: np})
-  });
-  const d = await r.json();
-  r.ok ? showToast(`Password reset for "${username}".`, 'ok')
-       : showToast(d.error || 'Error', 'err');
 }
 
 // ── Clusterbalancer sub-panel switching ───────────────────────────────────
@@ -5545,7 +5411,7 @@ async function loadSentinelSettings() {
     const byKey = {};
     data.forEach(item => { byKey[item.key] = item; });
 
-    const isAdmin = _currentUser?.role === 'admin';
+    const isAdmin = can('cluster.settings', currentCluster);
 
     const triggerBanner = isAdmin ? `
       <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:14px;">
@@ -5584,7 +5450,7 @@ async function loadBalancerSettings() {
   const vals = {};
   data.forEach(item => { vals[item.key] = item.value; });
   const groups = CTRL_GROUPS.filter(g => g.tab === 'balancer');
-  const isAdmin = _currentUser?.role === 'admin';
+  const isAdmin = can('cluster.settings', currentCluster) || (_settingsTarget === 'defaults' && can('install.manage'));
   document.getElementById('balancerSettingsContent').innerHTML = _settingsTargetBar(isAdmin) + _renderGroups(groups, vals, isAdmin);
 }
 
@@ -5654,7 +5520,7 @@ function _renderClusterRail(enabled) {
           ${c.health_score === null || c.health_score === undefined ? '' : `<span title="${_clEsc(t('clusters.health'))}">♥ ${Math.round(c.health_score)}</span>`}
         </div>
       </div>
-      ${_isAdminView ? `<button class="kebab" title="${_clEsc(t('folders.menu'))}" onclick="event.stopPropagation(); openClusterMenu(event, '${c.cluster_id}')">⋯</button>` : ''}
+      ${canNode('cluster.manage', c.folder_id) && FOLDERS.length ? `<button class="kebab" title="${_clEsc(t('folders.menu'))}" onclick="event.stopPropagation(); openClusterMenu(event, '${c.cluster_id}')">⋯</button>` : ''}
     </div>`;
 
   const group = (key, name, colour, members, adminMenu) => {
@@ -5680,26 +5546,57 @@ function _renderClusterRail(enabled) {
   let html = '';
   let idx = 0;
   let hits = 0;
-  for (const f of FOLDERS) {
-    const all = enabled.filter(c => c.folder_id === f.folder_id);
-    const folderHit = q && f.name.toLowerCase().includes(q);
-    const members = folderHit ? all : all.filter(matchC);
-    if (q && !folderHit && !members.length) continue;
-    if (!all.length && !_isAdminView) continue;
-    hits += members.length + (folderHit ? 1 : 0);
-    html += group(f.folder_id, f.name, f.colour, members, _isAdminView);
-  }
-  const unfiled = enabled.filter(c => (!c.folder_id || !FOLDERS.some(f => f.folder_id === c.folder_id)) && matchC(c));
-  if (unfiled.length) {
-    hits += unfiled.length;
-    html += FOLDERS.length ? group('__unfiled__', t('folders.unfiled'), null, unfiled, _isAdminView && _exAvailable)
-                           : unfiled.map(c => item(c, idx++)).join('');
+  // folders are for whoever arranges them (tree managers at customer level or above); everyone else
+  // sees their clusters as one list (plans/PLAN-roles.md: folder admins, engineers and below see clusters)
+  const showFolders = _railShowFolders();
+  if (!showFolders) {
+    const mine = enabled.filter(matchC);
+    hits = mine.length;
+    html = mine.map(c => item(c, idx++)).join('');
+  } else {
+    // with more than one customer, a header names MSP / customer above its folders
+    const multi = new Set(FOLDERS.map(f => f.customer_id || '')).size > 1;
+    let lastTenant = null;
+    const sorted = multi ? FOLDERS.slice().sort((a, b) => (a.path || []).join('/').localeCompare((b.path || []).join('/')) || a.name.localeCompare(b.name)) : FOLDERS;
+    for (const f of sorted) {
+      const all = enabled.filter(c => c.folder_id === f.folder_id);
+      const folderHit = q && f.name.toLowerCase().includes(q);
+      const members = folderHit ? all : all.filter(matchC);
+      if (q && !folderHit && !members.length) continue;
+      if (!all.length && !f.can_manage_tree) continue;
+      hits += members.length + (folderHit ? 1 : 0);
+      const tenant = (f.path || []).join(' / ');
+      if (multi && tenant !== lastTenant) { html += `<div class="rail-tenant" title="${_clEsc(tenant)}">${_clEsc(tenant)}</div>`; lastTenant = tenant; }
+      html += group(f.folder_id, f.name, f.colour, members, f.can_manage_tree || f.can_assign_share);
+    }
+    const unfiled = enabled.filter(c => (!c.folder_id || !FOLDERS.some(f => f.folder_id === c.folder_id)) && matchC(c));
+    if (unfiled.length) {
+      hits += unfiled.length;
+      html += FOLDERS.length ? group('__unfiled__', t('folders.unfiled'), null, unfiled, can('backup.targets.manage') && _exAvailable)
+                             : unfiled.map(c => item(c, idx++)).join('');
+    }
   }
   if (q && !hits) html = `<div class="folder-empty" style="padding-top:12px;">${t('clusters.rail_no_match')}</div>`;
-  if (_isAdminView) html += `<div class="rail-add"><button class="refresh-btn" onclick="newFolderPrompt()">+ ${t('folders.new')}</button></div>`;
+  if (showFolders && _railCanNewFolder()) html += `<div class="rail-add"><button class="refresh-btn" onclick="newFolderPrompt()">+ ${t('folders.new')}</button></div>`;
   list.innerHTML = html;
   rail.hidden = false;
   document.body.classList.add('has-rail');
+}
+
+function _railShowFolders() {
+  const a = window.HCM_ACCESS;
+  if (!a) return false;
+  if (a.root_admin) return true;
+  // tree.manage on a customer or above: those nodes are not in FOLDERS (only folder-level nodes are)
+  const tops = (a.nodes || {})['tree.manage'] || [];
+  return tops.some(n => n === '*' || !FOLDERS.some(f => f.folder_id === n));
+}
+function _railCanNewFolder() {
+  const a = window.HCM_ACCESS;
+  if (!a) return false;
+  if (a.root_admin) return true;
+  const customers = new Set(FOLDERS.map(f => f.customer_id));
+  return ((a.nodes || {})['tree.manage'] || []).some(n => customers.has(n) || !FOLDERS.some(f => f.folder_id === n));
 }
 
 // ── breadcrumbs: folder › cluster › tab › sub-panel, next to the wordmark ─────
@@ -5833,24 +5730,25 @@ async function openUnfiledShareMenu(ev) {
 async function setUnfiledShare(shareId, on) {
   _closeMenus();
   if (!shareId) return;
-  try { await _exCall('PUT', `/api/backup/targets/${shareId}`, {default_for_unfiled: on}); await loadClusters(); await _exProbe(); } catch (e) { alert(e.message); }
+  try { await _exCall('PUT', `/api/backup/targets/${shareId}`, {default_for_unfiled: on}); await loadClusters(); await _exProbe(); } catch (e) { hcmAlert(e.message); }
 }
 
 function openFolderMenu(ev, folderId) {
   if (folderId === '__unfiled__') return openUnfiledShareMenu(ev);
   const f = FOLDERS.find(x => x.folder_id === folderId);
+  const manage = f && f.can_manage_tree;
   _openMenu(ev, `
-    <div class="popmenu-item" onclick="openFolderMembers('${folderId}')">👥 ${t('folders.members')}</div>
-    ${_exAvailable ? `<div class="popmenu-item" onclick="openFolderShareMenu(event, '${folderId}')">🗄 ${t('shares.assign')}${f && f.share_id ? '' : ` <span style="color:var(--accent-amber);font-size:10px;">${t('shares.none_assigned')}</span>`}</div>` : ''}
-    <div class="popmenu-item" onclick="renameFolderPrompt('${folderId}')">✎ ${t('folders.rename')}</div>
+    ${can('users.manage') ? `<div class="popmenu-item" onclick="acFolderAccess('${folderId}')">👥 ${t('acc.access_btn')}</div>` : ''}
+    ${_exAvailable && f && f.can_assign_share ? `<div class="popmenu-item" onclick="openFolderShareMenu(event, '${folderId}')">🗄 ${t('shares.assign')}${f && f.share_id ? '' : ` <span style="color:var(--accent-amber);font-size:10px;">${t('shares.none_assigned')}</span>`}</div>` : ''}
+    ${manage ? `<div class="popmenu-item" onclick="renameFolderPrompt('${folderId}')">✎ ${t('folders.rename')}</div>
     <div class="popmenu-sep"></div>
-    <div class="popmenu-item danger" onclick="deleteFolder('${folderId}')">🗑 ${t('folders.delete')}</div>`);
+    <div class="popmenu-item danger" onclick="deleteFolder('${folderId}')">🗑 ${t('folders.delete')}</div>` : ''}`);
 }
 
 async function _folderCall(method, path, body) {
   const r = await fetch(`${API_BASE}${path}`, { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) { alert(d.error || `HTTP ${r.status}`); return null; }
+  if (!r.ok) { hcmAlert(d.error || `HTTP ${r.status}`); return null; }
   return d;
 }
 
@@ -5860,7 +5758,7 @@ async function moveClusterToFolder(clusterId, folderId) {
 }
 async function newFolderPrompt(clusterId) {
   _closeMenus();
-  const name = prompt(t('folders.new_prompt'));
+  const name = await hcmPrompt(t('folders.new_prompt'));
   if (!name) return;
   const d = await _folderCall('POST', '/api/folders', {name});
   if (!d) return;
@@ -5870,113 +5768,15 @@ async function newFolderPrompt(clusterId) {
 async function renameFolderPrompt(folderId) {
   _closeMenus();
   const f = FOLDERS.find(x => x.folder_id === folderId);
-  const name = prompt(t('folders.rename_prompt'), f ? f.name : '');
+  const name = await hcmPrompt(t('folders.rename_prompt'), {value: f ? f.name : ''});
   if (!name || (f && name === f.name)) return;
   if (await _folderCall('PUT', `/api/folders/${folderId}`, {name})) await loadClusters();
 }
 async function deleteFolder(folderId) {
   _closeMenus();
   const f = FOLDERS.find(x => x.folder_id === folderId);
-  if (!confirm(t('folders.confirm_delete', {name: f ? f.name : ''}))) return;
+  if (!await hcmConfirm(t('folders.confirm_delete', {name: f ? f.name : ''}), {danger: true})) return;
   if (await _folderCall('DELETE', `/api/folders/${folderId}`)) await loadClusters();
-}
-
-// members dialog state: the folder, all non-admin users, current membership, search text
-let _fm = null;
-
-async function openFolderMembers(folderId) {
-  _closeMenus();
-  const f = FOLDERS.find(x => x.folder_id === folderId);
-  const users = ((await apiFetch('/api/users')) || []).filter(u => u.role !== 'admin');
-  _fm = { mode: 'folder', folderId, users, memberIds: new Set((f && f.members || []).map(m => m.user_id)), query: '' };
-  document.getElementById('folderMembersHint').textContent = t('folders.members_hint');
-  document.getElementById('folderMembersTitle').textContent = `${t('folders.members')} · ${f ? f.name : ''}`;
-  const q = document.getElementById('folderMembersSearch');
-  q.value = '';
-  q.placeholder = t('folders.search_placeholder');
-  _renderMembersList();
-  document.getElementById('folderMembersBackdrop').classList.add('visible');
-  setTimeout(() => q.focus(), 50);
-}
-
-// the folders-of-a-user variant: same dialog, rows are folders, checkboxes are memberships
-async function openUserFolders(userId, username) {
-  _closeMenus();
-  const folders = (await apiFetch('/api/folders')) || [];
-  const memberIds = new Set(folders.filter(f => (f.members || []).some(m => m.user_id === userId)).map(f => f.folder_id));
-  _fm = { mode: 'user', userId, folders, memberIds, query: '' };
-  document.getElementById('folderMembersHint').textContent = t('users.folders_hint');
-  document.getElementById('folderMembersTitle').textContent = `${t('users.col_folders')} · ${username}`;
-  const q = document.getElementById('folderMembersSearch');
-  q.value = ''; q.placeholder = t('users.search_folders');
-  _renderMembersList();
-  document.getElementById('folderMembersBackdrop').classList.add('visible');
-  setTimeout(() => q.focus(), 50);
-}
-
-function _fmItems() {
-  // normalise both modes to {id, label, colour}
-  return _fm.mode === 'user'
-    ? _fm.folders.map(f => ({id: f.folder_id, label: f.name, colour: f.colour}))
-    : _fm.users.map(u => ({id: u.user_id, label: u.username, tag: u.otp_enabled ? '🔒' : ''}));
-}
-function _fmFiltered() {
-  const q = _fm.query.trim().toLowerCase();
-  const list = _fmItems().filter(it => !q || it.label.toLowerCase().includes(q));
-  // members first, then alphabetical: what you have is visible before what you could add
-  return list.sort((a, b) => (_fm.memberIds.has(b.id) - _fm.memberIds.has(a.id)) || a.label.localeCompare(b.label));
-}
-
-function _renderMembersList() {
-  if (!_fm) return;
-  const shown = _fmFiltered();
-  const total = _fmItems().length;
-  document.getElementById('folderMembersCount').textContent =
-    t(_fm.mode === 'user' ? 'users.folder_count' : 'folders.member_count', {n: _fm.memberIds.size, total}) + (_fm.query ? ` · ${t('folders.shown', {n: shown.length})}` : '');
-  const body = document.getElementById('folderMembersBody');
-  if (!total)        { body.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:8px;">${t(_fm.mode === 'user' ? 'folders.none_yet' : 'folders.no_users')}</div>`; return; }
-  if (!shown.length) { body.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:8px;">${t('folders.no_match')}</div>`; return; }
-  body.innerHTML = shown.map(it => `
-    <label class="fm-row ${_fm.memberIds.has(it.id) ? 'member' : ''}">
-      <input type="checkbox" ${_fm.memberIds.has(it.id) ? 'checked' : ''} onchange="toggleFolderMember('${it.id}', this.checked)">
-      ${it.colour ? `<span class="cluster-dot" style="background:${_clEsc(it.colour)}"></span>` : ''}
-      <span class="fm-name">${_clEsc(it.label)}</span>
-      ${it.tag ? `<span class="fm-tag" title="OTP">${it.tag}</span>` : ''}
-    </label>`).join('');
-}
-
-function fmSearch(value) { if (_fm) { _fm.query = value; _renderMembersList(); } }
-
-function _fmCall(id, member) {
-  // in folder mode the id is a user, in user mode it is a folder; the API is the same
-  const folderId = _fm.mode === 'user' ? id : _fm.folderId;
-  const userId   = _fm.mode === 'user' ? _fm.userId : id;
-  return _folderCall('PUT', `/api/folders/${folderId}/members`, {user_id: userId, member});
-}
-
-async function toggleFolderMember(id, member) {
-  if (!_fm) return;
-  if (member) _fm.memberIds.add(id); else _fm.memberIds.delete(id);
-  _renderMembersList();
-  await _fmCall(id, member);
-}
-
-async function fmBulk(member) {
-  if (!_fm) return;
-  const shown = _fmFiltered().filter(it => _fm.memberIds.has(it.id) !== member);
-  if (!shown.length) return;
-  if (shown.length > 10 && !confirm(t(member ? 'folders.confirm_add_shown' : 'folders.confirm_remove_shown', {n: shown.length}))) return;
-  for (const it of shown) { if (member) _fm.memberIds.add(it.id); else _fm.memberIds.delete(it.id); }
-  _renderMembersList();
-  await Promise.all(shown.map(it => _fmCall(it.id, member)));
-}
-
-function closeFolderMembers(ev) {
-  if (ev && ev.target !== document.getElementById('folderMembersBackdrop')) return;
-  document.getElementById('folderMembersBackdrop').classList.remove('visible');
-  _fm = null;
-  loadClusters();   // refresh member counts once, not on every click
-  if (document.getElementById('setpanel-users')?.classList.contains('active') && _um.me) _loadUsersPanel(_um.me);
 }
 
 function selectCluster(id) {
@@ -6123,10 +5923,10 @@ async function clToggle(id, enabled) {
   await loadClusters(); loadSettings();
 }
 async function clRemove(id, name) {
-  if (!confirm(t('clusters.confirm_remove', {name}))) return;
-  const purge = confirm(t('clusters.confirm_purge', {name}));
+  if (!await hcmConfirm(t('clusters.confirm_remove', {name}), {danger: true})) return;
+  const purge = await hcmConfirm(t('clusters.confirm_purge', {name}), {danger: true});
   const r = await fetch(`${API_BASE}/api/clusters/${id}?purge=${purge ? 1 : 0}`, { method: 'DELETE' });
-  if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error || `HTTP ${r.status}`); return; }
+  if (!r.ok) { const d = await r.json().catch(() => ({})); hcmAlert(d.error || `HTTP ${r.status}`); return; }
   if (currentCluster === id) { currentCluster = null; try { localStorage.removeItem(CLUSTER_LS_KEY); } catch (_) {} }
   await loadClusters(); loadSettings(); if (typeof refreshAll === 'function') refreshAll();
 }
@@ -6163,23 +5963,23 @@ async function clForgetNode(id, uuid) {
 }
 
 function _renderClustersCard(clusters, me) {
-  const isAdmin = me?.role === 'admin';
-  const rows = clusters.map((c, i) => `
+  const isAdmin = can('cluster.manage');
+  const rows = clusters.map((c, i) => { const mine = canNode('cluster.manage', c.folder_id) || (window.HCM_ACCESS && window.HCM_ACCESS.root_admin); return `
     <tr>
       <td><span class="cl-status-dot" style="background:${c.last_error ? 'var(--accent-red)' : (c.enabled ? _clColour(c, i) : 'var(--text-muted)')}"></span><strong>${_clEsc(c.name)}</strong>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(c.host)}${c.hc_cluster_uuid ? ' · ' + _clEsc(c.hc_cluster_uuid.slice(0, 8)) : ''}</div>${_clNodesHtml(c, isAdmin)}</td>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(c.host)}${c.hc_cluster_uuid ? ' · ' + _clEsc(c.hc_cluster_uuid.slice(0, 8)) : ''}</div>${_clNodesHtml(c, mine)}</td>
       <td>${_clEsc(c.username)}<div style="font-size:10px;color:var(--text-muted);">${_clEsc((FOLDERS.find(f => f.folder_id === c.folder_id) || {}).name || t('folders.unfiled'))}</div></td>
       <td><span class="um-badge ${c.enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${c.enabled ? t('clusters.enabled') : t('clusters.disabled')}</span>
           <div style="font-size:10px;color:var(--text-muted);margin-top:4px;font-family:'JetBrains Mono',monospace;" title="${_clEsc(t('clusters.api_hint'))}">${_clApiLabel(c)}</div></td>
       <td style="font-size:11px;color:${c.last_error ? 'var(--accent-red)' : 'var(--text-muted)'};">${c.last_error ? _clEsc(c.last_error) : _clAgo(c.last_seen_at)}</td>
-      <td style="white-space:nowrap;">${isAdmin ? `
+      <td style="white-space:nowrap;">${mine ? `
         <button class="um-action-btn" onclick="clTestExisting('${c.cluster_id}')">${t('clusters.test')}</button>
         <button class="um-action-btn" onclick="clEdit('${c.cluster_id}')">${t('clusters.edit')}</button>
         <button class="um-action-btn" onclick="clToggle('${c.cluster_id}', ${c.enabled ? 'false' : 'true'})">${c.enabled ? t('clusters.disable') : t('clusters.enable')}</button>
         <button class="um-action-btn danger" onclick="clRemove('${c.cluster_id}', '${_clEsc(c.name)}')">${t('clusters.remove')}</button>` : ''}
         <div class="cl-msg" id="cl-${c.cluster_id}-msg"></div></td>
     </tr>
-    ${isAdmin ? `<tr id="cl-edit-${c.cluster_id}" hidden><td colspan="5" style="background:var(--bg-card);">${_clusterFormHtml('cl-' + c.cluster_id, c)}</td></tr>` : ''}`).join('');
+    ${mine ? `<tr id="cl-edit-${c.cluster_id}" hidden><td colspan="5" style="background:var(--bg-card);">${_clusterFormHtml('cl-' + c.cluster_id, c)}</td></tr>` : ''}`; }).join('');
   return `
     <div class="settings-group">
       <div class="settings-group-header">
@@ -6205,7 +6005,7 @@ function _settingsTargetBar(isAdmin) {
     <div class="settings-group" style="padding:10px 14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12px;">
       <span style="color:var(--text-muted);">${t('clusters.settings_for')}</span>
       <strong>${_clEsc(name)}</strong>
-      ${isAdmin ? `<button class="refresh-btn" onclick="setSettingsTarget('${_settingsTarget === 'defaults' ? 'cluster' : 'defaults'}')">${_settingsTarget === 'defaults' ? t('clusters.edit_cluster_settings') : t('clusters.edit_defaults')}</button>` : ''}
+      ${can('install.manage') ? `<button class="refresh-btn" onclick="setSettingsTarget('${_settingsTarget === 'defaults' ? 'cluster' : 'defaults'}')">${_settingsTarget === 'defaults' ? t('clusters.edit_cluster_settings') : t('clusters.edit_defaults')}</button>` : ''}
       ${isAdmin && _settingsTarget !== 'defaults' && enabled.length > 1 ? `<label style="display:flex;align-items:center;gap:6px;margin-left:auto;cursor:pointer;"><input type="checkbox" id="settingsApplyAll">${t('clusters.apply_all')}</label>` : ''}
       ${_settingsTarget === 'defaults' ? `<span style="color:var(--text-muted);">${t('clusters.defaults_hint')}</span>` : ''}
     </div>`;
@@ -6221,7 +6021,7 @@ function _renderOnboarding(show, secretOk) {
   const bd = document.getElementById('onboardingBackdrop');
   if (!show) { bd.classList.remove('visible'); return; }
   const form = document.getElementById('onboardingForm');
-  if (!_isAdminCached) form.innerHTML = `<p style="margin-top:12px;color:var(--accent-amber);">${CLUSTERS.length || FOLDERS.length ? t('folders.no_access') : t('clusters.onboarding_admin_only')}</p>`;
+  if (!can('cluster.manage')) form.innerHTML = `<p style="margin-top:12px;color:var(--accent-amber);">${CLUSTERS.length || FOLDERS.length ? t('folders.no_access') : t('clusters.onboarding_admin_only')}</p>`;
   else if (!secretOk) form.innerHTML = `<p style="margin-top:12px;color:var(--accent-red);">${t('clusters.no_secret_key')}</p>`;
   else form.innerHTML = _clusterFormHtml('onb', null);
   bd.classList.add('visible');
@@ -6233,9 +6033,9 @@ function _renderRailFooter(isAdmin) {
   // admins navigate to Modules and the full Settings; everyone else only reaches their own account
   const account = `<div class="rail-nav" data-tab="account" onclick="switchTab('account')"><span class="rail-nav-icon">👤</span><span>${t('nav.account')}</span></div>
     <a class="rail-nav" href="/manual/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;"><span class="rail-nav-icon">📖</span><span>${t('nav.manual')}</span></a>`;
-  el.innerHTML = (isAdmin ? `
-    <div class="rail-nav" data-tab="modules" onclick="switchTab('modules')"><span class="rail-nav-icon">▦</span><span>${t('nav.modules')}</span></div>
-    <div class="rail-nav" data-tab="settings" onclick="switchTab('settings')"><span class="rail-nav-icon">⚙</span><span>${t('nav.settings_short')}</span></div>` : '') + account;
+  el.innerHTML = (can('install.manage') ? `
+    <div class="rail-nav" data-tab="modules" onclick="switchTab('modules')"><span class="rail-nav-icon">▦</span><span>${t('nav.modules')}</span></div>` : '')
+    + (canSettings() ? `<div class="rail-nav" data-tab="settings" onclick="switchTab('settings')"><span class="rail-nav-icon">⚙</span><span>${t('nav.settings_short')}</span></div>` : '') + account;
   const active = document.querySelector('.tab-content.active')?.id?.replace('tab-', '');
   if (active) el.querySelectorAll(`[data-tab="${active}"]`).forEach(e => e.classList.add('active'));
 }
@@ -6243,7 +6043,7 @@ function _renderRailFooter(isAdmin) {
 document.addEventListener('DOMContentLoaded', () => {
   const rail = document.getElementById('clusterRail');
   if (rail) { rail.hidden = false; document.body.classList.add('has-rail'); }
-  apiFetch('/api/users/me').then(me => { _isAdminCached = !!me && (me.role === 'admin' || me.dev_mode); _renderRailFooter(_isAdminCached); return loadClusters(); }).catch(() => {});
+  apiFetch('/api/users/me').then(me => { _accSet(me); _isAdminCached = !!me && (me.role === 'admin' || me.dev_mode); _renderRailFooter(_isAdminCached); return loadClusters(); }).catch(() => {});
   // keep the rail's "last seen" fresh
   setInterval(() => { if (document.body.classList.contains('has-rail')) loadClusters(); }, 60000);
 });
@@ -6350,9 +6150,9 @@ function _alertRow(it, cid) {
   if (it.raw_severity) meta.push(_exEsc(it.raw_severity));
   if (it.muted_until) meta.push(t('alerts.muted_until', {when: _exFmt(it.muted_until), who: _exEsc(it.muted_by || '?')}));
   const k = encodeURIComponent(it.key);
-  const consoleBtns = it.kind === 'console' && _currentUser?.role === 'admin' ? `
-      <button class="um-action-btn" onclick="openVmConsole('${cid}', '${_clEsc(it.vm_uuid)}')">${t('console.open')}</button>
-      <button class="um-action-btn" onclick="alertLearnLocked('${cid}', '${_clEsc(it.vm_uuid)}', this)" title="${_clEsc(t('cc.learn_hint'))}">${t('cc.learn')}</button>` : '';
+  const consoleBtns = it.kind === 'console' ? `
+      ${canVm('vm.console', cid, it.vm_uuid) ? `<button class="um-action-btn" onclick="openVmConsole('${cid}', '${_clEsc(it.vm_uuid)}')">${t('console.open')}</button>` : ''}
+      ${can('console_check.manage', cid) ? `<button class="um-action-btn" onclick="alertLearnLocked('${cid}', '${_clEsc(it.vm_uuid)}', this)" title="${_clEsc(t('cc.learn_hint'))}">${t('cc.learn')}</button>` : ''}` : '';
   const muteCtl = it.muted_until
     ? `<button class="um-action-btn" onclick="muteAlert('${cid}', '${k}', 0)">${t('alerts.unmute')}</button>`
     : `<span>${t('notice.mute_for')}</span><input type="number" min="1" max="365" value="7" id="mute-${k}"><span>${t('notice.days')}</span>
@@ -6514,7 +6314,7 @@ async function exLoadSchedules() {
 async function exRunNow(id)  { try { await _exCall('POST', `/api/backup/plans/${id}/run`); showToast(t('ex.started'), 'ok'); switchExportsPanel('runs'); } catch (e) { showToast(e.message, 'err'); } }
 async function exToggle(id)  { try { await _exCall('POST', `/api/backup/plans/${id}/toggle`); exLoadSchedules(); } catch (e) { showToast(e.message, 'err'); } }
 async function exRemove(id, name) {
-  if (!confirm(t('ex.confirm_remove', {name}))) return;
+  if (!await hcmConfirm(t('ex.confirm_remove', {name}), {danger: true})) return;
   try { await _exCall('DELETE', `/api/backup/plans/${id}`); exLoadSchedules(); } catch (e) { showToast(e.message, 'err'); }
 }
 function exHistory(id) { _exRunsFilter = id; switchExportsPanel('runs'); }
@@ -6833,13 +6633,13 @@ async function exPolicySave(idOrKind) {
   } catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
 }
 async function exPolicyRunNow(id, name) {
-  if (!confirm(t('ex.pol_run_now_confirm', {name}))) return;
+  if (!await hcmConfirm(t('ex.pol_run_now_confirm', {name}))) return;
   try { await _exCall('POST', `/api/backup/policies/${id}/run`); showToast(t('ex.pol_run_now_started', {name}), 'ok'); exLoadPolicies(); }
   catch (e) { showToast(e.message, 'err'); }
 }
 async function exPolicyToggle(id) { try { await _exCall('POST', `/api/backup/policies/${id}/toggle`); exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); } }
 async function exPolicyDelete(id, name) {
-  if (!confirm(t('ex.pol_confirm_delete', {name}))) return;
+  if (!await hcmConfirm(t('ex.pol_confirm_delete', {name}), {danger: true})) return;
   try { await _exCall('DELETE', `/api/backup/policies/${id}`); _polEditing = null; _polMembersOpen = null; exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); }
 }
 
@@ -6887,7 +6687,7 @@ async function exPolicyAddMembers(id) {
   if (added) { showToast(t('ex.pol_members_added', {n: added}), 'ok'); exLoadPolicies(); }
 }
 async function exPolicyRemoveMember(id, planId, name) {
-  if (!confirm(t('ex.pol_confirm_remove_member', {name}))) return;
+  if (!await hcmConfirm(t('ex.pol_confirm_remove_member', {name}), {danger: true})) return;
   try { await _exCall('DELETE', `/api/backup/policies/${id}/members/${planId}`); exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); }
 }
 function _exNoticeBadge(notice) {
@@ -7003,7 +6803,7 @@ async function exBrowse() {
 async function exStartImport() {
   const msg = document.getElementById('exi-msg');
   const body = { ..._exImportSource(), source_folder: document.getElementById('exi-folder').value.trim(), target_name: document.getElementById('exi-name').value.trim() };
-  if (!confirm(t('ex.i_confirm'))) return;
+  if (!await hcmConfirm(t('ex.i_confirm'))) return;
   msg.textContent = t('ex.i_starting'); msg.className = 'cl-msg';
   try { await _exCall('POST', '/api/backup/import/start', body); showToast(t('ex.i_started'), 'ok'); switchExportsPanel('runs'); }
   catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
@@ -7109,7 +6909,7 @@ function exRestoreForm(chainId, pointId) { const r = document.getElementById(`rs
 async function exRestoreStart(pointId) {
   const g = id => document.getElementById(`rs-${pointId}-${id}`);
   const body = { point_id: pointId, target_name: g('name').value.trim(), mac_policy: g('mac').value, nic_connected: g('nic').checked, start: g('start').checked, verify: g('verify').checked };
-  if (!confirm(t('ex.r_confirm', {name: body.target_name}))) return;
+  if (!await hcmConfirm(t('ex.r_confirm', {name: body.target_name}))) return;
   _shMsg(`rs-${pointId}-msg`, t('ex.i_starting'), '');
   try { await _exCall('POST', '/api/backup/restores', body); showToast(t('ex.r_started'), 'ok'); switchExportsPanel('runs'); }
   catch (e) { _shMsg(`rs-${pointId}-msg`, e.message, 'err'); }
@@ -7220,13 +7020,13 @@ async function exFilesIso() {
   if (!st) return;
   if (!vm) { _shMsg('flrMsg', t('ex.flr_iso_pick_vm'), 'err'); return; }
   const vmName = (st.vms.find(v => v.uuid === vm) || {}).name || vm;
-  if (!confirm(t('ex.flr_iso_confirm', {n: st.selected.size, vm: vmName}))) return;
+  if (!await hcmConfirm(t('ex.flr_iso_confirm', {n: st.selected.size, vm: vmName}))) return;
   _shMsg('flrMsg', t('ex.i_starting'), '');
   try { await _exCall('POST', `/api/backup/flr/mounts/${st.mount}/iso`, {paths: [...st.selected], vm_uuid: vm}); _shMsg('flrMsg', t('ex.flr_iso_started'), 'ok'); }
   catch (e) { _shMsg('flrMsg', e.message, 'err'); }
 }
 async function exEjectIso(rid) {
-  if (!confirm(t('ex.flr_eject_confirm'))) return;
+  if (!await hcmConfirm(t('ex.flr_eject_confirm'))) return;
   try { await _exCall('POST', `/api/backup/flr/iso/${rid}/eject`); showToast(t('ex.flr_ejected'), 'ok'); exLoadRuns(); } catch (e) { showToast(e.message, 'err'); }
 }
 function _flrToggle(full, on) { if (!_flr) return; if (on) _flr.selected.add(full); else _flr.selected.delete(full); _flrRender(); }
@@ -7261,7 +7061,7 @@ async function exVerifyChain(id) {
   } catch (e) { _shMsg(`ch-${id}-msg`, e.message, 'err'); }
 }
 async function exDeleteChain(id, name) {
-  if (!confirm(t('ex.confirm_delete_data', {name}))) return;
+  if (!await hcmConfirm(t('ex.confirm_delete_data', {name}), {danger: true})) return;
   try { await _exCall('DELETE', `/api/backup/chains/${id}`); exLoadPoints(); } catch (e) { showToast(e.message, 'err'); }
 }
 
@@ -7479,6 +7279,7 @@ async function checkDataQuality() {
 }
 document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality, 1500));
 </script>
+<script src="/static/access.js"></script>
 
 <div id="dataQualityBanner"></div>
 
@@ -7560,26 +7361,6 @@ document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality,
     <div class="cl-msg" id="flrMsg"></div>
     <div id="flrList" class="flr-list"></div>
     <div class="ex-hint" id="flrHint"></div>
-  </div>
-</div>
-
-<!-- folder members (admin) -->
-<div class="update-modal-backdrop" id="folderMembersBackdrop" onclick="closeFolderMembers(event)">
-  <div class="update-modal" role="dialog" aria-modal="true" style="min-width:360px;max-width:420px;">
-    <div class="update-modal-header">
-      <span class="update-modal-title" id="folderMembersTitle"></span>
-      <button class="update-modal-close" onclick="closeFolderMembers()">✕</button>
-    </div>
-    <div class="community-notice-body" id="folderMembersHint" style="font-size:12px;color:var(--text-muted);" data-i18n="folders.members_hint">Members see every cluster in this folder. Admins always see everything.</div>
-    <input type="text" id="folderMembersSearch" class="um-input" style="width:100%;box-sizing:border-box;" oninput="fmSearch(this.value)" autocomplete="off">
-    <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-muted);">
-      <span id="folderMembersCount"></span>
-      <span style="margin-left:auto;display:flex;gap:6px;">
-        <button class="um-action-btn" onclick="fmBulk(true)" data-i18n="folders.add_shown">Add shown</button>
-        <button class="um-action-btn" onclick="fmBulk(false)" data-i18n="folders.remove_shown">Remove shown</button>
-      </span>
-    </div>
-    <div id="folderMembersBody" class="fm-list"></div>
   </div>
 </div>
 

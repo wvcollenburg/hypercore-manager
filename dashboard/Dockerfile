@@ -30,6 +30,7 @@ COPY dashboard/hcm_crypto.py .
 COPY dashboard/migrations.py .
 COPY dashboard/rbac.py .
 COPY dashboard/access_db.py .
+COPY dashboard/access_api.py .
 COPY dashboard/reports/ reports/
 COPY dashboard/static/ static/
 COPY dashboard/templates/ templates/

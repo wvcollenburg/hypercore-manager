@@ -193,12 +193,13 @@ def test_vm_scoped_user_cannot_create_a_tag_grant():
 
 
 # ------------------------------------------------------------------ repository guards
-def test_every_dashboard_route_declares_a_permission(repo):
+@pytest.mark.parametrize('rel,minimum', [('dashboard/app.py', 60), ('dashboard/access_api.py', 20)])
+def test_every_dashboard_route_declares_a_permission(repo, rel, minimum):
     """Deny by default: every Flask route carries @requires(...) or @public(...) directly under its
     @app.route / @sock.route lines (the app also refuses to serve an undeclared one at runtime)."""
-    src = (repo / 'dashboard' / 'app.py').read_text()
-    blocks = re.findall(r'((?:@(?:app|sock)\.route\([^\n]*\)\n)+)(@[^\n]+)\n', src)
-    assert len(blocks) > 60
+    src = (repo / rel).read_text()
+    blocks = re.findall(r'((?:\s*@(?:app|sock)\.route\([^\n]*\)\n)+)\s*(@[^\n]+)\n', src)
+    assert len(blocks) > minimum
     bad = [b[0].strip().splitlines()[0] for b in blocks if not b[1].startswith(('@requires(', '@public('))]
     assert bad == [], f'routes without a permission declaration: {bad}'
 
@@ -222,3 +223,23 @@ def test_flux_day_ranges_are_numbers(repo):
     """?days= was pasted into Flux unchecked (a way around the cluster filter); it goes through _days_arg."""
     src = (repo / 'dashboard' / 'app.py').read_text()
     assert "request.args.get('days', '7')" not in src
+
+
+def test_rbac_migration_upgrade_runs_once(repo):
+    """The fresh-install runner re-applies every file once; the step that disables non-admin accounts
+    must not run a second time (it is guarded by config.rbac_state)."""
+    sql = (repo / 'postgres' / 'init' / '044_rbac.sql').read_text()
+    assert "IF NOT EXISTS (SELECT 1 FROM config.rbac_state WHERE key = 'upgraded')" in sql
+    assert 'UPDATE config.users SET enabled = FALSE, awaiting_access = TRUE' in sql
+    for table in ('config.roles', 'config.groups', 'config.group_members', 'config.assignments', 'config.access_audit',
+                  'config.permissions_known'):
+        assert f'CREATE TABLE IF NOT EXISTS {table}' in sql, table
+    for key in rbac.BUILTIN_ROLES:
+        assert f"'{key}'," in sql, f'built-in role {key} is not seeded'
+
+
+def test_access_frontend_uses_no_browser_popups(repo):
+    """William, 2026-11-13: only modals, no browser prompt/confirm/alert."""
+    for rel in ('dashboard/static/index.html', 'dashboard/static/access.js', 'dashboard/templates/console.html'):
+        src = (repo / rel).read_text()
+        assert not re.search(r'(?<![A-Za-z_.])(prompt|confirm|alert)\(', src), rel

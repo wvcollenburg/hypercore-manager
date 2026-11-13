@@ -1,12 +1,15 @@
 """
-access_db.py — loads the rows rbac.py reasons about: the tenant tree and a user's grants.
+access_db.py — the rows rbac.py reasons about: the tenant tree, roles, groups, assignments, users'
+access state, and the access audit log.
 
 Kept apart from rbac.py so the rules stay pure (and unit-testable) and the SQL stays in one place.
-Everything here is cached briefly per process (a page load fires a dozen API calls); `invalidate()`
-drops the caches after any change to the tree, roles, groups, assignments or users.
+Reads are cached briefly per process (a page load fires a dozen API calls); every write calls
+`invalidate()`. Before migration 044 has run (the first seconds after an upgrade), the legacy model
+applies: admin = everything, user = the former folder-member rights on their folders.
 """
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -19,11 +22,24 @@ _TTL = 10.0
 _lock = threading.Lock()
 _tree_cache: dict = {'at': 0.0, 'tree': None}
 _grants_cache: dict[str, tuple[float, list]] = {}
+_state_cache: dict[str, tuple[float, dict | None]] = {}
+_roles_cache: dict = {'at': 0.0, 'roles': None}
+
+TEMPLATE_CLUSTER = '00000000-0000-0000-0000-000000000001'
+_MISSING = ('42P01', '42703')            # undefined table / column: migration 044 not applied yet
+
+
+class AccessError(Exception):
+    """A refused change (bad input, conflicts, rule broken); the message is shown to the user."""
+    def __init__(self, message: str, status: int = 400):
+        super().__init__(message)
+        self.status = status
 
 
 def invalidate() -> None:
     with _lock:
         _tree_cache['at'] = 0.0
+        _roles_cache['at'] = 0.0
         _grants_cache.clear()
         _state_cache.clear()
 
@@ -33,6 +49,24 @@ def _connect():
     return user_db._connect()
 
 
+def _missing(exc) -> bool:
+    return getattr(exc, 'pgcode', None) in _MISSING
+
+
+def rbac_ready() -> bool:
+    """True once migration 044 has run."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('config.assignments') IS NOT NULL AS ok")
+            return bool(cur.fetchone()['ok'])
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------------------------------
+# reads
+# ---------------------------------------------------------------------------------------------------
 def load_tree() -> rbac.Tree:
     now = time.monotonic()
     with _lock:
@@ -42,13 +76,21 @@ def load_tree() -> rbac.Tree:
     conn = _connect()
     try:
         with conn.cursor() as cur:
-            cur.execute('SELECT folder_id::text AS id, name FROM config.folders')
-            for r in cur.fetchall():
-                tree.parent[r['id']] = None
-                tree.level[r['id']] = 'folder'
+            try:
+                cur.execute('SELECT folder_id::text AS id, parent_id::text AS parent, level, name FROM config.folders')
+                rows = cur.fetchall()
+            except Exception as exc:  # noqa: BLE001
+                if not _missing(exc):
+                    raise
+                conn.rollback()
+                cur.execute("SELECT folder_id::text AS id, NULL AS parent, 'folder' AS level, name FROM config.folders")
+                rows = cur.fetchall()
+            for r in rows:
+                tree.parent[r['id']] = r['parent']
+                tree.level[r['id']] = r['level']
                 tree.name[r['id']] = r['name']
-            cur.execute("SELECT cluster_id::text AS id, folder_id::text AS folder FROM config.clusters "
-                        "WHERE cluster_id <> '00000000-0000-0000-0000-000000000001'")
+            cur.execute('SELECT cluster_id::text AS id, folder_id::text AS folder FROM config.clusters WHERE cluster_id <> %s',
+                        (TEMPLATE_CLUSTER,))
             for r in cur.fetchall():
                 tree.cluster_folder[r['id']] = r['folder']
     finally:
@@ -58,27 +100,49 @@ def load_tree() -> rbac.Tree:
     return tree
 
 
+def _legacy_grants(cur, user_id: str) -> list[rbac.Grant]:
+    cur.execute('SELECT role FROM config.users WHERE user_id = %s', (user_id,))
+    row = cur.fetchone()
+    if row is None:
+        return []
+    if row['role'] == 'admin':
+        return [rbac.Grant(rbac.ALL, 'root')]
+    cur.execute('SELECT folder_id::text AS id FROM config.folder_members WHERE user_id = %s', (user_id,))
+    return [rbac.Grant(rbac.LEGACY_USER, 'node', node_id=r['id']) for r in cur.fetchall()]
+
+
+def _grant_of(r) -> rbac.Grant:
+    perms = rbac.role_perms(r['builtin_key'], r['permissions'])
+    return rbac.Grant(perms, r['scope_kind'], node_id=r['node_id'], cluster_id=r['cluster_id'], tag=r['tag'],
+                      vm_uuid=r['vm_uuid'])
+
+
+_GRANT_SQL = '''SELECT a.scope_kind, a.node_id::text AS node_id, a.cluster_id::text AS cluster_id, a.tag, a.vm_uuid,
+                       r.builtin_key, r.permissions
+                  FROM config.assignments a JOIN config.roles r ON r.role_id = a.role_id
+                 WHERE a.user_id = %(u)s
+                    OR a.group_id IN (SELECT group_id FROM config.group_members WHERE user_id = %(u)s)'''
+
+
 def load_grants(user_id: str) -> list[rbac.Grant]:
-    """A user's grants. Before RBAC's migration: the legacy model (admin = everything everywhere;
-    a user = LEGACY_USER on the folders they are a member of)."""
     now = time.monotonic()
     with _lock:
         hit = _grants_cache.get(user_id)
         if hit and now - hit[0] < _TTL:
             return hit[1]
-    grants: list[rbac.Grant] = []
     conn = _connect()
     try:
         with conn.cursor() as cur:
-            cur.execute('SELECT role FROM config.users WHERE user_id = %s', (user_id,))
-            row = cur.fetchone()
-            if row is None:
-                grants = []
-            elif row['role'] == 'admin':
-                grants = [rbac.Grant(rbac.ALL, 'root')]
-            else:
-                cur.execute('SELECT folder_id::text AS id FROM config.folder_members WHERE user_id = %s', (user_id,))
-                grants = [rbac.Grant(rbac.LEGACY_USER, 'node', node_id=r['id']) for r in cur.fetchall()]
+            try:
+                _heal_root_admin(cur, user_id)
+                cur.execute(_GRANT_SQL, {'u': user_id})
+                grants = [_grant_of(r) for r in cur.fetchall()]
+                conn.commit()
+            except Exception as exc:  # noqa: BLE001
+                if not _missing(exc):
+                    raise
+                conn.rollback()
+                grants = _legacy_grants(cur, user_id)
     finally:
         conn.close()
     with _lock:
@@ -86,12 +150,26 @@ def load_grants(user_id: str) -> list[rbac.Grant]:
     return grants
 
 
-_state_cache: dict[str, tuple[float, dict | None]] = {}
+def _heal_root_admin(cur, user_id: str) -> None:
+    """The seeded first admin (fresh install: created after the migrations ran) has role 'admin' but no
+    assignment yet. role = 'admin' is kept equal to "holds Admin on the whole install", so the missing
+    assignment is added; removing that assignment through the UI sets role back to 'user'."""
+    cur.execute('''SELECT 1 FROM config.users u
+                    WHERE u.user_id = %s AND u.role = 'admin'
+                      AND NOT EXISTS (SELECT 1 FROM config.assignments a JOIN config.roles r ON r.role_id = a.role_id
+                                       WHERE a.user_id = u.user_id AND a.scope_kind = 'root' AND r.builtin_key = 'admin')''',
+                (user_id,))
+    if cur.fetchone():
+        cur.execute('''INSERT INTO config.assignments (user_id, role_id, scope_kind, created_by)
+                       SELECT %s, role_id, 'root', 'system' FROM config.roles WHERE builtin_key = 'admin' ''', (user_id,))
+        cur.execute("INSERT INTO config.access_audit (actor, action, target) "
+                    "SELECT 'system', 'assignment.add', username || ': Admin on the whole installation (first administrator)' "
+                    "FROM config.users WHERE user_id = %s", (user_id,))
 
 
 def user_state(user_id: str) -> dict | None:
-    """{username, enabled} of a user id, or None when the user no longer exists (cached briefly: every
-    API call asks)."""
+    """{username, enabled, awaiting_access} of a user id, or None when the user no longer exists (cached
+    briefly: every API call asks)."""
     now = time.monotonic()
     with _lock:
         hit = _state_cache.get(user_id)
@@ -100,11 +178,19 @@ def user_state(user_id: str) -> dict | None:
     conn = _connect()
     try:
         with conn.cursor() as cur:
-            cur.execute('SELECT username FROM config.users WHERE user_id = %s', (user_id,))
-            row = cur.fetchone()
+            try:
+                cur.execute('SELECT username, enabled, awaiting_access FROM config.users WHERE user_id = %s', (user_id,))
+                row = cur.fetchone()
+            except Exception as exc:  # noqa: BLE001
+                if not _missing(exc):
+                    raise
+                conn.rollback()
+                cur.execute('SELECT username, TRUE AS enabled, FALSE AS awaiting_access FROM config.users WHERE user_id = %s',
+                            (user_id,))
+                row = cur.fetchone()
     finally:
         conn.close()
-    state = {'username': row['username'], 'enabled': True} if row else None
+    state = dict(row) if row else None
     with _lock:
         _state_cache[user_id] = (now, state)
     return state
@@ -120,3 +206,631 @@ def access_for(user_id: str | None, superuser: bool = False) -> rbac.Access:
         log.warning('access unavailable: %s', exc)
         return rbac.Access([], rbac.Tree(), user_id=user_id)
     return rbac.Access(grants, tree, user_id=user_id)
+
+
+# ---------------------------------------------------------------------------------------------------
+# audit
+# ---------------------------------------------------------------------------------------------------
+def audit(cur, actor: str | None, action: str, target: str, node_id: str | None = None, detail: dict | None = None) -> None:
+    cur.execute('INSERT INTO config.access_audit (actor, action, target, node_id, detail) VALUES (%s, %s, %s, %s, %s)',
+                (actor, action, target, node_id, json.dumps(detail) if detail else None))
+
+
+def audit_rows(node_ids: set | None, limit: int = 300, before_id: int | None = None) -> list[dict]:
+    """The access audit log; node_ids None = everything (root), else rows at those nodes."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            where, params = [], []
+            if node_ids is not None:
+                where.append('node_id = ANY(%s::uuid[])')
+                params.append([n for n in node_ids if n])
+            if before_id:
+                where.append('id < %s')
+                params.append(before_id)
+            sql = 'SELECT id, at, actor, action, target, node_id::text AS node_id, detail FROM config.access_audit'
+            if where:
+                sql += ' WHERE ' + ' AND '.join(where)
+            cur.execute(sql + ' ORDER BY id DESC LIMIT %s', params + [limit])
+            return [dict(r, at=r['at'].isoformat()) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------------------------------
+# tree
+# ---------------------------------------------------------------------------------------------------
+def nodes() -> list[dict]:
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT folder_id::text AS id, parent_id::text AS parent_id, level, name, colour, share_id, created_at
+                             FROM config.folders ORDER BY lower(name)''')
+            return [dict(r, created_at=r['created_at'].isoformat() if r['created_at'] else None) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def create_node(name: str, level: str, parent_id: str | None, colour: str | None, actor: str) -> str:
+    name = (name or '').strip()
+    if not name or len(name) > 80:
+        raise AccessError('a name is required (at most 80 characters)')
+    if level not in rbac.NODE_LEVELS:
+        raise AccessError('unknown level')
+    tree = load_tree()
+    want_parent = rbac.PARENT_LEVEL[level]
+    if (parent_id is None) != (want_parent is None) or (parent_id and tree.level.get(parent_id) != want_parent):
+        raise AccessError(f'a {level} belongs under {"the installation" if want_parent is None else "a " + want_parent}')
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute('''INSERT INTO config.folders (name, level, parent_id, colour) VALUES (%s, %s, %s, %s)
+                               RETURNING folder_id::text AS id''', (name, level, parent_id, colour or None))
+            except Exception as exc:  # noqa: BLE001
+                if 'ux_folders_parent_name' in str(exc) or 'duplicate key' in str(exc):
+                    raise AccessError(f'there already is a {level} called {name!r} here', 409) from exc
+                raise
+            nid = cur.fetchone()['id']
+            audit(cur, actor, f'{level}.create', name, node_id=nid, detail={'parent': parent_id})
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+    return nid
+
+
+def rename_node(node_id: str, name: str | None, colour, actor: str) -> None:
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT name, level FROM config.folders WHERE folder_id = %s', (node_id,))
+            row = cur.fetchone()
+            if not row:
+                raise AccessError('not found', 404)
+            if name is not None:
+                name = name.strip()
+                if not name or len(name) > 80:
+                    raise AccessError('a name is required (at most 80 characters)')
+                try:
+                    cur.execute('UPDATE config.folders SET name = %s, updated_at = NOW() WHERE folder_id = %s', (name, node_id))
+                except Exception as exc:  # noqa: BLE001
+                    if 'duplicate key' in str(exc):
+                        raise AccessError(f'there already is one called {name!r} here', 409) from exc
+                    raise
+                audit(cur, actor, f"{row['level']}.rename", f"{row['name']} → {name}", node_id=node_id)
+            if colour is not ...:
+                cur.execute('UPDATE config.folders SET colour = %s, updated_at = NOW() WHERE folder_id = %s', (colour or None, node_id))
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+
+
+def delete_node(node_id: str, actor: str) -> dict:
+    """Delete a tree node (plans/PLAN-roles.md, Q4): it must have no child nodes; its clusters become
+    unfiled (root only), its roles, groups and assignments go, and users whose home it was are
+    disabled (not deleted) and moved home to its parent."""
+    tree = load_tree()
+    if node_id not in tree.parent:
+        raise AccessError('not found', 404)
+    if tree.children(node_id):
+        raise AccessError('remove or move what is inside it first', 409)
+    parent = tree.parent[node_id]
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT role_id FROM config.roles WHERE node_id = %s', (node_id,))
+            role_ids = [r['role_id'] for r in cur.fetchall()]
+            if role_ids:
+                cur.execute('DELETE FROM config.assignments WHERE role_id = ANY(%s)', (role_ids,))
+            cur.execute('UPDATE config.users SET enabled = FALSE, home_node_id = %s WHERE home_node_id = %s RETURNING username',
+                        (parent, node_id))
+            disabled = [r['username'] for r in cur.fetchall()]
+            cur.execute('UPDATE config.clusters SET folder_id = NULL WHERE folder_id = %s RETURNING cluster_name', (node_id,))
+            unfiled = [r['cluster_name'] for r in cur.fetchall()]
+            cur.execute('DELETE FROM config.folders WHERE folder_id = %s RETURNING name, level', (node_id,))
+            row = cur.fetchone()
+            audit(cur, actor, f"{row['level']}.delete", row['name'], node_id=parent,
+                  detail={'disabled_users': disabled, 'unfiled_clusters': unfiled})
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+    return {'disabled_users': disabled, 'unfiled_clusters': unfiled}
+
+
+# ---------------------------------------------------------------------------------------------------
+# roles
+# ---------------------------------------------------------------------------------------------------
+def roles() -> list[dict]:
+    now = time.monotonic()
+    with _lock:
+        if _roles_cache['roles'] is not None and now - _roles_cache['at'] < _TTL:
+            return _roles_cache['roles']
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT r.role_id::text AS role_id, r.name, r.description, r.node_id::text AS node_id, r.builtin_key,
+                                  r.permissions, r.copied_from, r.created_by, r.updated_at,
+                                  (SELECT COUNT(*) FROM config.assignments a WHERE a.role_id = r.role_id) AS in_use
+                             FROM config.roles r
+                            ORDER BY r.builtin_key IS NULL, array_position(ARRAY['admin','engineer','app_manager','backup_manager','viewer'], r.builtin_key),
+                                     lower(r.name)''')
+            out = []
+            for r in cur.fetchall():
+                d = dict(r)
+                d['permissions'] = sorted(rbac.role_perms(d['builtin_key'], d['permissions']))
+                d['updated_at'] = d['updated_at'].isoformat() if d['updated_at'] else None
+                out.append(d)
+    finally:
+        conn.close()
+    with _lock:
+        _roles_cache.update(at=now, roles=out)
+    return out
+
+
+def role(role_id: str) -> dict | None:
+    return next((r for r in roles() if r['role_id'] == role_id), None)
+
+
+def builtin_role_id(key: str) -> str | None:
+    return next((r['role_id'] for r in roles() if r['builtin_key'] == key), None)
+
+
+def save_role(role_id: str | None, name: str, description: str, node_id: str | None, perms, actor: str,
+              copied_from: str | None = None) -> str:
+    name = (name or '').strip()
+    if not name or len(name) > 60:
+        raise AccessError('a name is required (at most 60 characters)')
+    perms = sorted(rbac.expand(perms))
+    if not perms:
+        raise AccessError('a role needs at least one permission')
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                if role_id:
+                    cur.execute('SELECT name, builtin_key, permissions FROM config.roles WHERE role_id = %s', (role_id,))
+                    old = cur.fetchone()
+                    if not old:
+                        raise AccessError('not found', 404)
+                    if old['builtin_key']:
+                        raise AccessError('built-in roles are templates: copy one to change it', 409)
+                    cur.execute('''UPDATE config.roles SET name = %s, description = %s, permissions = %s, updated_at = NOW()
+                                   WHERE role_id = %s''', (name, description or None, perms, role_id))
+                    added = sorted(set(perms) - set(old['permissions'] or []))
+                    removed = sorted(set(old['permissions'] or []) - set(perms))
+                    audit(cur, actor, 'role.update', name, node_id=node_id, detail={'added': added, 'removed': removed})
+                else:
+                    cur.execute('''INSERT INTO config.roles (name, description, node_id, permissions, copied_from, created_by)
+                                   VALUES (%s, %s, %s, %s, %s, %s) RETURNING role_id::text AS id''',
+                                (name, description or None, node_id, perms, copied_from, actor))
+                    role_id = cur.fetchone()['id']
+                    audit(cur, actor, 'role.create', name, node_id=node_id, detail={'permissions': perms, 'copied_from': copied_from})
+            except AccessError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                if 'duplicate key' in str(exc):
+                    raise AccessError(f'there already is a role called {name!r} here', 409) from exc
+                raise
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+    return role_id
+
+
+def delete_role(role_id: str, actor: str) -> None:
+    r = role(role_id)
+    if not r:
+        raise AccessError('not found', 404)
+    if r['builtin_key']:
+        raise AccessError('built-in roles cannot be deleted', 409)
+    if r['in_use']:
+        raise AccessError(f"the role is still assigned {r['in_use']} time(s): remove those assignments first", 409)
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM config.roles WHERE role_id = %s', (role_id,))
+            audit(cur, actor, 'role.delete', r['name'], node_id=r['node_id'])
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+
+
+# ---------------------------------------------------------------------------------------------------
+# groups
+# ---------------------------------------------------------------------------------------------------
+def groups() -> list[dict]:
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT g.group_id::text AS group_id, g.name, g.description, g.node_id::text AS node_id,
+                                  COALESCE(json_agg(json_build_object('user_id', u.user_id::text, 'username', u.username)
+                                           ORDER BY u.username) FILTER (WHERE u.user_id IS NOT NULL), '[]') AS members
+                             FROM config.groups g
+                             LEFT JOIN config.group_members m ON m.group_id = g.group_id
+                             LEFT JOIN config.users u ON u.user_id = m.user_id
+                            GROUP BY g.group_id ORDER BY lower(g.name)''')
+            return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def group(group_id: str) -> dict | None:
+    return next((g for g in groups() if g['group_id'] == group_id), None)
+
+
+def save_group(group_id: str | None, name: str, description: str, node_id: str | None, actor: str) -> str:
+    name = (name or '').strip()
+    if not name or len(name) > 60:
+        raise AccessError('a name is required (at most 60 characters)')
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                if group_id:
+                    cur.execute('UPDATE config.groups SET name = %s, description = %s WHERE group_id = %s RETURNING group_id',
+                                (name, description or None, group_id))
+                    if not cur.fetchone():
+                        raise AccessError('not found', 404)
+                    audit(cur, actor, 'group.update', name, node_id=node_id)
+                else:
+                    cur.execute('''INSERT INTO config.groups (name, description, node_id, created_by) VALUES (%s, %s, %s, %s)
+                                   RETURNING group_id::text AS id''', (name, description or None, node_id, actor))
+                    group_id = cur.fetchone()['id']
+                    audit(cur, actor, 'group.create', name, node_id=node_id)
+            except AccessError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                if 'duplicate key' in str(exc):
+                    raise AccessError(f'there already is a group called {name!r} here', 409) from exc
+                raise
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+    return group_id
+
+
+def delete_group(group_id: str, actor: str) -> None:
+    g = group(group_id)
+    if not g:
+        raise AccessError('not found', 404)
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM config.groups WHERE group_id = %s', (group_id,))
+            audit(cur, actor, 'group.delete', g['name'], node_id=g['node_id'], detail={'members': [m['username'] for m in g['members']]})
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+
+
+def set_group_member(group_id: str, user_id: str, member: bool, actor: str) -> None:
+    g = group(group_id)
+    if not g:
+        raise AccessError('not found', 404)
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT username FROM config.users WHERE user_id = %s', (user_id,))
+            u = cur.fetchone()
+            if not u:
+                raise AccessError('user not found', 404)
+            if member:
+                cur.execute('INSERT INTO config.group_members (group_id, user_id) VALUES (%s, %s) ON CONFLICT DO NOTHING',
+                            (group_id, user_id))
+            else:
+                cur.execute('DELETE FROM config.group_members WHERE group_id = %s AND user_id = %s', (group_id, user_id))
+            audit(cur, actor, 'group.member_add' if member else 'group.member_remove', f"{u['username']} in {g['name']}",
+                  node_id=g['node_id'])
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+
+
+# ---------------------------------------------------------------------------------------------------
+# users
+# ---------------------------------------------------------------------------------------------------
+def users() -> list[dict]:
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT u.user_id::text AS user_id, u.username, u.display_name, u.role, u.otp_enabled, u.enabled,
+                                  u.awaiting_access, u.home_node_id::text AS home_node_id, u.created_at,
+                                  COALESCE((SELECT json_agg(m.folder_id::text) FROM config.folder_members m WHERE m.user_id = u.user_id), '[]') AS legacy_folders,
+                                  COALESCE((SELECT json_agg(gm.group_id::text) FROM config.group_members gm WHERE gm.user_id = u.user_id), '[]') AS groups
+                             FROM config.users u ORDER BY lower(u.username)''')
+            return [dict(r, created_at=r['created_at'].isoformat() if r['created_at'] else None) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def user(user_id: str) -> dict | None:
+    return next((u for u in users() if u['user_id'] == user_id), None)
+
+
+def create_user(username: str, password: str, home_node_id: str | None, display_name: str | None, actor: str) -> str:
+    from werkzeug.security import generate_password_hash
+    username = (username or '').strip()
+    if not username or len(username) > 80 or any(c.isspace() for c in username):
+        raise AccessError('a username is required (no spaces, at most 80 characters)')
+    if len(password or '') < 8:
+        raise AccessError('the password needs at least 8 characters')
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute('''INSERT INTO config.users (username, password_hash, role, home_node_id, display_name, enabled)
+                               VALUES (%s, %s, 'user', %s, %s, TRUE) RETURNING user_id::text AS id''',
+                            (username, generate_password_hash(password), home_node_id, (display_name or '').strip() or None))
+            except Exception as exc:  # noqa: BLE001
+                if 'duplicate key' in str(exc):
+                    raise AccessError(f'the username {username!r} is taken', 409) from exc
+                raise
+            uid = cur.fetchone()['id']
+            audit(cur, actor, 'user.create', username, node_id=home_node_id)
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+    return uid
+
+
+def update_user(user_id: str, actor: str, *, enabled=None, home_node_id=..., display_name=None) -> None:
+    u = user(user_id)
+    if not u:
+        raise AccessError('not found', 404)
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            if enabled is not None:
+                if enabled and u['awaiting_access'] and not _has_assignment(cur, user_id):
+                    raise AccessError('give the account its access first', 409)
+                cur.execute('UPDATE config.users SET enabled = %s, updated_at = NOW() WHERE user_id = %s', (bool(enabled), user_id))
+                audit(cur, actor, 'user.enable' if enabled else 'user.disable', u['username'], node_id=u['home_node_id'])
+            if home_node_id is not ...:
+                cur.execute('UPDATE config.users SET home_node_id = %s, updated_at = NOW() WHERE user_id = %s', (home_node_id, user_id))
+                audit(cur, actor, 'user.move', u['username'], node_id=home_node_id, detail={'from': u['home_node_id']})
+            if display_name is not None:
+                cur.execute('UPDATE config.users SET display_name = %s, updated_at = NOW() WHERE user_id = %s',
+                            (display_name.strip() or None, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+
+
+def delete_user(user_id: str, actor: str) -> None:
+    u = user(user_id)
+    if not u:
+        raise AccessError('not found', 404)
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            _guard_last_root_admin(cur, removing_user=user_id)
+            cur.execute('DELETE FROM config.users WHERE user_id = %s', (user_id,))
+            audit(cur, actor, 'user.delete', u['username'], node_id=u['home_node_id'])
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+
+
+def _has_assignment(cur, user_id: str) -> bool:
+    cur.execute('''SELECT 1 FROM config.assignments WHERE user_id = %s
+                   UNION ALL SELECT 1 FROM config.assignments a JOIN config.group_members m ON m.group_id = a.group_id
+                    WHERE m.user_id = %s LIMIT 1''', (user_id, user_id))
+    return cur.fetchone() is not None
+
+
+def _guard_last_root_admin(cur, removing_user: str | None = None, removing_assignment: str | None = None) -> None:
+    """The top admin can never be locked out: at least one enabled user keeps Admin on the whole install."""
+    cur.execute('''SELECT a.assignment_id::text AS aid, a.user_id::text AS uid FROM config.assignments a
+                     JOIN config.roles r ON r.role_id = a.role_id
+                     JOIN config.users u ON u.user_id = a.user_id
+                    WHERE a.scope_kind = 'root' AND r.builtin_key = 'admin' AND u.enabled''')
+    left = [r for r in cur.fetchall() if r['uid'] != removing_user and r['aid'] != removing_assignment]
+    if not left:
+        raise AccessError('this would leave nobody with Admin on the whole installation', 409)
+
+
+# ---------------------------------------------------------------------------------------------------
+# assignments
+# ---------------------------------------------------------------------------------------------------
+_ASSIGN_SQL = '''SELECT a.assignment_id::text AS assignment_id, a.user_id::text AS user_id, a.group_id::text AS group_id,
+                        a.role_id::text AS role_id, r.name AS role_name, r.builtin_key, a.scope_kind, a.node_id::text AS node_id,
+                        a.cluster_id::text AS cluster_id, c.cluster_name, a.tag, a.vm_uuid, a.vm_name, a.created_by, a.created_at,
+                        u.username, g.name AS group_name
+                   FROM config.assignments a
+                   JOIN config.roles r ON r.role_id = a.role_id
+                   LEFT JOIN config.clusters c ON c.cluster_id = a.cluster_id
+                   LEFT JOIN config.users u ON u.user_id = a.user_id
+                   LEFT JOIN config.groups g ON g.group_id = a.group_id'''
+
+
+def assignments(user_id: str | None = None, group_id: str | None = None, cluster_id: str | None = None) -> list[dict]:
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            where, params = [], []
+            if user_id:
+                where.append('a.user_id = %s'); params.append(user_id)
+            if group_id:
+                where.append('a.group_id = %s'); params.append(group_id)
+            if cluster_id:
+                where.append('a.cluster_id = %s'); params.append(cluster_id)
+            sql = _ASSIGN_SQL + (' WHERE ' + ' AND '.join(where) if where else '') + ' ORDER BY a.created_at'
+            cur.execute(sql, params)
+            return [dict(r, created_at=r['created_at'].isoformat() if r['created_at'] else None) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def assignment(assignment_id: str) -> dict | None:
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(_ASSIGN_SQL + ' WHERE a.assignment_id = %s', (assignment_id,))
+            r = cur.fetchone()
+            return dict(r, created_at=r['created_at'].isoformat() if r['created_at'] else None) if r else None
+    finally:
+        conn.close()
+
+
+def node_label(node_id, tree: rbac.Tree) -> str:
+    """A node's path; a single-company install hides its default MSP and customer."""
+    path = tree.path(node_id)
+    single = sum(1 for v in tree.level.values() if v == 'msp') <= 1 and sum(1 for v in tree.level.values() if v == 'customer') <= 1
+    if single and len(path) > 1:
+        path = path[min(2, len(path) - 1):]
+    return ' / '.join(path) or str(node_id)
+
+
+def scope_label(a: dict, tree: rbac.Tree) -> str:
+    k = a['scope_kind']
+    if k == 'root':
+        return 'the whole installation'
+    if k == 'node':
+        return node_label(a['node_id'], tree)
+    if k == 'cluster':
+        return a.get('cluster_name') or a['cluster_id']
+    if k == 'tag':
+        return f"tag {a['tag']} on {a.get('cluster_name') or a['cluster_id']}"
+    return f"VM {a.get('vm_name') or a['vm_uuid']} on {a.get('cluster_name') or a['cluster_id']}"
+
+
+def add_assignment(principal: dict, role_id: str, scope: dict, actor: str, audit_node: str | None) -> str:
+    """principal: {'user_id'} or {'group_id'}; scope: {'kind', 'node_id'|'cluster_id'|'tag'|'vm_uuid', 'vm_name'}.
+    The caller has checked rbac.may_grant; this only stores it (and enables an account waiting for access)."""
+    kind = scope['kind']
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''INSERT INTO config.assignments (user_id, group_id, role_id, scope_kind, node_id, cluster_id, tag, vm_uuid,
+                                                           vm_name, created_by)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING assignment_id::text AS id''',
+                        (principal.get('user_id'), principal.get('group_id'), role_id, kind,
+                         scope.get('node_id') if kind == 'node' else None,
+                         scope.get('cluster_id') if kind in ('cluster', 'tag', 'vm') else None,
+                         scope.get('tag') if kind == 'tag' else None,
+                         scope.get('vm_uuid') if kind == 'vm' else None,
+                         scope.get('vm_name') if kind == 'vm' else None, actor))
+            aid = cur.fetchone()['id']
+            a = None
+            cur.execute(_ASSIGN_SQL + ' WHERE a.assignment_id = %s', (aid,))
+            a = cur.fetchone()
+            who = a['username'] or f"group {a['group_name']}"
+            audit(cur, actor, 'assignment.add', f"{who}: {a['role_name']} on {scope_label(a, load_tree())}", node_id=audit_node,
+                  detail={'role': a['role_name'], 'scope': kind})
+            if principal.get('user_id'):
+                if a['builtin_key'] == 'admin' and kind == 'root':
+                    cur.execute("UPDATE config.users SET role = 'admin' WHERE user_id = %s", (principal['user_id'],))
+                cur.execute('''UPDATE config.users SET enabled = TRUE, awaiting_access = FALSE
+                                WHERE user_id = %s AND awaiting_access RETURNING username''', (principal['user_id'],))
+                if cur.fetchone():
+                    audit(cur, actor, 'user.enable', who, node_id=audit_node, detail={'reason': 'access assigned after the upgrade'})
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+    return aid
+
+
+def remove_assignment(assignment_id: str, actor: str, audit_node: str | None) -> None:
+    a = assignment(assignment_id)
+    if not a:
+        raise AccessError('not found', 404)
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            if a['scope_kind'] == 'root' and a['builtin_key'] == 'admin':
+                _guard_last_root_admin(cur, removing_assignment=assignment_id)
+                if a['user_id']:
+                    cur.execute("UPDATE config.users SET role = 'user' WHERE user_id = %s", (a['user_id'],))
+            cur.execute('DELETE FROM config.assignments WHERE assignment_id = %s', (assignment_id,))
+            who = a['username'] or f"group {a['group_name']}"
+            audit(cur, actor, 'assignment.remove', f"{who}: {a['role_name']} on {scope_label(a, load_tree())}", node_id=audit_node)
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+
+
+def grants_of_principal(user_id: str | None = None, group_id: str | None = None) -> list[rbac.Grant]:
+    """The grants of one user (direct and through groups) or one group, for 'who has access' views."""
+    rows = []
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            if user_id:
+                cur.execute(_GRANT_SQL, {'u': user_id})
+            else:
+                cur.execute('''SELECT a.scope_kind, a.node_id::text AS node_id, a.cluster_id::text AS cluster_id, a.tag, a.vm_uuid,
+                                      r.builtin_key, r.permissions
+                                 FROM config.assignments a JOIN config.roles r ON r.role_id = a.role_id WHERE a.group_id = %s''',
+                            (group_id,))
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return [_grant_of(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------------------------------
+# permissions introduced by later versions
+# ---------------------------------------------------------------------------------------------------
+def sync_known_permissions() -> list[str]:
+    """Record the permissions this version knows. On the first run every one counts as known; after that
+    a permission that appears (a newer version) is 'new' until a role manager acknowledges it."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute('SELECT permission FROM config.permissions_known')
+            except Exception as exc:  # noqa: BLE001
+                if _missing(exc):
+                    return []
+                raise
+            known = {r['permission'] for r in cur.fetchall()}
+            first = not known
+            new = sorted(set(rbac.PERMISSIONS) - known)
+            for p in new:
+                cur.execute('INSERT INTO config.permissions_known (permission, acknowledged) VALUES (%s, %s) ON CONFLICT DO NOTHING',
+                            (p, first))
+        conn.commit()
+        return [] if first else new
+    finally:
+        conn.close()
+
+
+def unacknowledged_permissions() -> list[str]:
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute('SELECT permission FROM config.permissions_known WHERE NOT acknowledged ORDER BY permission')
+            except Exception as exc:  # noqa: BLE001
+                if _missing(exc):
+                    return []
+                raise
+            return [r['permission'] for r in cur.fetchall() if r['permission'] in rbac.PERMISSIONS]
+    finally:
+        conn.close()
+
+
+def acknowledge_permissions(actor: str) -> None:
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('UPDATE config.permissions_known SET acknowledged = TRUE WHERE NOT acknowledged RETURNING permission')
+            done = [r['permission'] for r in cur.fetchall()]
+            if done:
+                audit(cur, actor, 'permissions.acknowledge', ', '.join(done))
+        conn.commit()
+    finally:
+        conn.close()

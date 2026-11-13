@@ -1192,6 +1192,26 @@ def post_config():
 # cluster registry API — clusters are configured here, not in .env
 # =============================================================================
 
+def _rail_folders(acc, folders: list) -> list:
+    """Only the 'folder' level of the tree goes into the rail's folder lists (MSPs and customers are
+    tree nodes above them), each with its path and the permissions that decide its menu."""
+    tree = acc.tree
+    out = []
+    for f in folders:
+        fid = f['folder_id']
+        if tree.level.get(fid, 'folder') != 'folder':
+            continue
+        anc = tree.ancestors(fid)
+        out.append(dict(f, parent_id=tree.parent.get(fid),
+                        customer_id=next((a for a in anc if tree.level.get(a) == 'customer'), None),
+                        msp_id=next((a for a in anc if tree.level.get(a) == 'msp'), None),
+                        path=tree.path(fid)[:-1],
+                        can_manage_tree=acc.can('tree.manage', node_id=fid),
+                        can_manage_clusters=acc.can('cluster.manage', node_id=fid),
+                        can_assign_share=acc.can('backup.targets.manage', node_id=fid)))
+    return out
+
+
 def _cluster_payload(c, extras=None):
     d = c.to_dict()
     d['has_password'] = True
@@ -1243,6 +1263,7 @@ def api_clusters_list():
         return jsonify({'error': str(e), 'clusters': [], 'folders': [], 'selected': None}), 200
     acc = _access()
     admin = acc.is_root_admin()
+    folders = _rail_folders(acc, folders)
     if not admin:
         allowed = set(acc.visible_clusters([c.cluster_id for c in clusters]))
         clusters = [c for c in clusters if c.cluster_id in allowed]
@@ -1502,6 +1523,7 @@ def api_folders_list():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     acc = _access()
+    folders = _rail_folders(acc, folders)
     if not acc.is_root_admin():
         nodes = acc.visible_nodes()
         folders = [{k: v for k, v in f.items() if k != 'members'} for f in folders if f['folder_id'] in nodes]
@@ -1512,16 +1534,21 @@ def api_folders_list():
 @requires('tree.manage', 'any')
 def api_folders_create():
     body = request.get_json(force=True, silent=True) or {}
-    if not _access().can('tree.manage', node_id=(body.get('parent_id') or None)):
+    acc = _access()
+    parent = (body.get('parent_id') or '').strip() or None
+    if parent is None:
+        # the rail's "New folder": under the only customer of a single-company install
+        customers = [n for n, lv in acc.tree.level.items() if lv == 'customer' and acc.can('tree.manage', node_id=n)]
+        if len(customers) != 1:
+            return jsonify({'error': 'choose the customer the folder belongs to'}), 400
+        parent = customers[0]
+    if not acc.can('tree.manage', node_id=parent):
         return jsonify({'error': 'Access denied'}), 403
     try:
-        fid = cluster_registry.create_folder(body.get('name', ''), body.get('colour'))
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        if 'ux_folders_name' in str(e) or 'duplicate key' in str(e):
-            return jsonify({'error': 'a folder with that name already exists'}), 409
-        return jsonify({'error': str(e)}), 500
+        fid = access_db.create_node(body.get('name', ''), 'folder', parent, body.get('colour'),
+                                    session.get('username') or 'anonymous')
+    except access_db.AccessError as e:
+        return jsonify({'error': str(e)}), e.status
     _invalidate_registry_cache()
     return jsonify({'ok': True, 'folder_id': fid}), 201
 
@@ -1553,11 +1580,15 @@ def api_folders_update(folder_id):
 def api_folders_delete(folder_id):
     if not cluster_registry.is_uuid(folder_id):
         return jsonify({'error': 'invalid folder id'}), 400
-    if not _access().can('tree.manage', node_id=folder_id):
+    acc = _access()
+    if not acc.can('tree.manage', node_id=acc.tree.parent.get(folder_id)):
         return jsonify({'error': 'Access denied'}), 403
-    cluster_registry.delete_folder(folder_id)
+    try:
+        result = access_db.delete_node(folder_id, session.get('username') or 'anonymous')
+    except access_db.AccessError as e:
+        return jsonify({'error': str(e)}), e.status
     _invalidate_registry_cache()
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, **result})
 
 
 @app.route('/api/folders/<folder_id>/members', methods=['PUT'])
@@ -3040,6 +3071,11 @@ def login_page():
             password = request.form.get('password', '')
             if user_db.verify_password(username, password):
                 u = user_db.get_by_username(username)
+                if u.get('enabled') is False:
+                    # only after a correct password: say why, so they do not retry into a lockout
+                    error = ('Your account is waiting for an administrator to assign its access.' if u.get('awaiting_access')
+                             else 'Your account is disabled. Ask an administrator.')
+                    return render_template('login.html', step='password', error=error, otp_enabled=False)
                 if u['otp_enabled']:
                     session['otp_pending'] = username
                     return redirect(url_for('login_page', step='otp'))
@@ -3459,6 +3495,13 @@ def _apply_migrations_on_startup():
         return
     import migrations as _migrations
     applied = _migrations.apply_until_done(_pg, init_dir)
+    try:
+        new_perms = access_db.sync_known_permissions()
+        if new_perms:
+            app.logger.warning('this version brings new permissions (custom roles do not get them by themselves): %s',
+                               ', '.join(new_perms))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning('could not record the known permissions: %s', exc)
     if applied:
         app.logger.info(
             'Applied %d pending migration(s) on startup: %s',
@@ -3619,6 +3662,10 @@ def index():
     return send_from_directory('static', 'index.html')
 
 
+import access_api  # noqa: E402 — needs requires() and the helpers above
+access_api.register(app, requires, _access, _enabled_clusters, _vm_index_rows)
+
+
 # =============================================================================
 # access summary and the route check
 # =============================================================================
@@ -3629,9 +3676,11 @@ def _access_summary(acc) -> dict:
     for cid in acc.visible_clusters(ids):
         whole = acc.cluster_perms(cid)
         some: set = set()
+        grants = []
         for gr in acc.vm_grants(cid):
             some |= gr.effective()
-        clusters[cid] = {'all': sorted(whole), 'some': sorted(some - whole)}
+            grants.append({'vm': gr.vm_uuid, 'tag': gr.tag, 'perms': sorted(gr.effective())})
+        clusters[cid] = {'all': sorted(whole), 'some': sorted(some - whole), 'grants': grants}
     nodes = {}
     for perm in sorted(rbac.NODE_LEVEL):
         top = acc.top_nodes_with(perm)
