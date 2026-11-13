@@ -85,5 +85,6 @@ def test_updater_recreates_the_application_services_only(repo):
     listed = set(re.findall(r"'([a-z]+)'", m.group(1)))
     compose = set(re.findall(r'^  ([a-z]+):$', (repo / 'docker-compose.yaml').read_text(), re.M))
     assert listed == compose - {'influxdb', 'postgres'}, (listed, compose)
-    assert "'docker-compose', 'up', '-d', '--no-deps', *_APP_SERVICES" in src
+    # 1.2.1: the restart container reads the services from the pulled compose file (fixed list = fallback)
+    assert "'sh', '-c', restart_command()" in src
     assert '--remove-orphans' not in src.split('def _do_apply_update')[1].split('@app.route')[0]

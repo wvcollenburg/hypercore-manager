@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.1]
+
+### Fixed
+- **The VM console did not open after updating from 1.1.x** ("Console service unreachable"). 1.2.0 adds
+  the `console` service, but the update is carried out by the dashboard that is running at that moment,
+  and a 1.1.x dashboard only starts the services on its own fixed list, which has no `console`. The
+  image was built, the container never created. Two fixes:
+  - The dashboard now starts the services an older updater could not know about (currently only
+    `console`) by itself, about half a minute after it starts, when they have no container at all.
+    Services an admin deliberately runs without (Sentinel, the backup proxy) are left alone.
+  - The updater takes the list of services to recreate from the `docker-compose.yaml` it has just
+    pulled, instead of a list in its own code, so future new services come up with the update itself.
+  An installation on 1.2.0 gets the console started by the update to 1.2.1. On 1.2.0 without the
+  update: `docker compose up -d --build console` in the HCM folder.
+
 ## [1.2.0]
 
 ### Added

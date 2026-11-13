@@ -2801,6 +2801,68 @@ def _git(*args, timeout=10):
 # config do not change on a release. Recreating them too is what the restart container did
 # when its own compose version hashed the config differently from the host's.
 _APP_SERVICES = ('collector', 'balancer', 'dashboard', 'sentinel', 'backup', 'console', 'proxy')
+_DB_SERVICES = ('influxdb', 'postgres')
+
+
+def restart_command(fallback=_APP_SERVICES) -> str:
+    """Shell command the restart container runs: recreate every service of the compose file that was
+    just pulled, except the databases. The list comes from that new file, not from this (old) code:
+    an updater from 1.1.x had a fixed list without `console` and never started 1.2.0's new service.
+    The fixed list is the fallback when the file cannot be read."""
+    skip = '|'.join(_DB_SERVICES)
+    return ("S=$(docker-compose config --services 2>/dev/null | grep -vxE '" + skip + "' | tr '\\n' ' '); "
+            "[ -n \"$S\" ] || S='" + ' '.join(fallback) + "'; "
+            "exec docker-compose up -d --no-deps $S")
+
+
+# Services added after 1.1.x. A stack updated by a 1.1.x dashboard has their images (the update builds
+# everything) but no containers: that updater only started the services on its own fixed list. The
+# current dashboard starts them once, shortly after it comes up. Deliberately not "every service of the
+# compose file": an admin may run without one (Sentinel stopped, no backup proxy), and those stay as they are.
+SELF_HEAL_SERVICES = ('console',)
+
+
+def _self_heal_services(delay: float = 30) -> None:
+    import fcntl
+    time.sleep(delay)                                   # let an update that is still recreating services finish
+    try:
+        lock = open('/tmp/hcm-self-heal.lock', 'w')
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)   # one of the gunicorn workers does it
+    except OSError:
+        return
+    _self_heal_services.lock = lock                     # keep the lock for the life of the worker
+    compose = os.path.join(_REPO_PATH, 'docker-compose.yaml')
+    if not (os.path.exists('/var/run/docker.sock') and os.path.exists(compose)):
+        return
+    project = os.getenv('COMPOSE_PROJECT_NAME', 'drsproject')
+    try:
+        r = subprocess.run(['docker', 'ps', '-a', '--filter', f'label=com.docker.compose.project={project}',
+                            '--format', '{{.Label "com.docker.compose.service"}}'], capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            return
+        present = set(r.stdout.split())
+        with open(compose) as f:
+            text = f.read()
+        missing = [s for s in SELF_HEAL_SERVICES if s not in present and re.search(rf'(?m)^  {s}:\s*$', text)]
+        if not missing:
+            return
+        app.logger.warning('starting service(s) missing after an update from an older version: %s', ', '.join(missing))
+        host_repo = os.getenv('SC_HOST_REPO_PATH', _REPO_PATH)
+        # the same way as the updater: a helper container with the host's path of the checkout, which the
+        # Docker daemon needs for build contexts and bind mounts
+        r = subprocess.run(['docker', 'run', '-d', '--rm', '--name', 'hcm-self-heal',
+                            '-v', '/var/run/docker.sock:/var/run/docker.sock', '-v', f'{host_repo}:/repo',
+                            '--env-file', f'{_REPO_PATH}/.env', '-w', '/repo', f'{project}-dashboard',
+                            'docker-compose', 'up', '-d', '--no-deps', '--build', *missing],
+                           capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            app.logger.error('could not start %s: %s', ', '.join(missing), (r.stderr or r.stdout).strip()[:300])
+    except Exception as e:  # noqa: BLE001 — never take the dashboard down over this
+        app.logger.error('self-heal of services failed: %s', e)
+
+
+if os.getenv('HCM_SELF_HEAL', '1') != '0':
+    threading.Thread(target=_self_heal_services, daemon=True, name='self-heal').start()
 
 
 def _origin_url() -> str:
@@ -3040,7 +3102,7 @@ def _do_apply_update():
                 '--env-file', f'{_REPO_PATH}/.env',
                 '-w', '/repo',
                 f'{project}-dashboard',
-                'docker-compose', 'up', '-d', '--no-deps', *_APP_SERVICES,
+                'sh', '-c', restart_command(),
             ],
             capture_output=True, text=True, timeout=30,
         )
