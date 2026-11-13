@@ -21,6 +21,7 @@ COPY dashboard/config_db.py .
 COPY dashboard/user_db.py .
 COPY dashboard/versioning.py .
 COPY dashboard/forwarding.py .
+COPY dashboard/alerts.py .
 COPY dashboard/storage_summary.py .
 COPY dashboard/manual.py .
 COPY dashboard/cluster_registry.py .
@@ -44,7 +45,14 @@ RUN mkdir -p static/vendor && \
         FILENAME=$(echo "$url" | sed 's/.*\///;s/?.*//' ); \
         curl -sL "$url" -o "static/vendor/${FILENAME}"; \
         sed -i "s|${url}|/static/vendor/${FILENAME}|g" static/vendor/fonts.css; \
-    done
+    done && \
+    # noVNC (VM console): the release's ES modules (core/) and its vendored pako, MPL-2.0
+    curl -sL "https://github.com/novnc/noVNC/archive/refs/tags/v1.5.0.tar.gz" | tar -xz -C /tmp && \
+    mkdir -p static/vendor/novnc && \
+    cp -r /tmp/noVNC-1.5.0/core /tmp/noVNC-1.5.0/vendor /tmp/noVNC-1.5.0/LICENSE.txt static/vendor/novnc/ && \
+    rm -rf /tmp/noVNC-1.5.0
 
 EXPOSE 5000
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "app:app"]
+# threaded workers: a VM console is a long-lived websocket (/console/ws) that holds one thread for
+# its duration; sync workers would be blocked by it and killed by their request timeout
+CMD ["gunicorn", "-k", "gthread", "-w", "4", "--threads", "16", "-b", "0.0.0.0:5000", "app:app"]

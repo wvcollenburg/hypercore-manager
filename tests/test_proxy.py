@@ -1254,7 +1254,7 @@ def test_support_bundle_route_needs_the_token(tmp_path):
     r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
     assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
     assert r.data[:2] == b'PK'
-    assert P.identity.VERSION == '0.5.6'
+    assert P.identity.VERSION == '0.5.7'
 
 
 def test_the_proxy_keeps_a_rotating_log_file(tmp_path):
@@ -1368,3 +1368,20 @@ def test_a_failed_image_check_names_the_reason_in_the_job_error(tmp_path):
     assert be.check_detail(str(tmp_path / 'missing')) == 'image missing' and not be.check(str(tmp_path / 'missing'))
     src = open(P.jobs.__file__).read()
     assert src.count("check_detail(") == 2 and "image check failed: {fname}: {problem}" in src
+
+
+def test_proxy_vm_keeps_kernel_errors_off_its_console(tmp_path):
+    """0.5.7: nbd error lines buried the login prompt on the proxy VM's console (seen on Lab 241)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('proxy_hostcfg', os.path.join(os.path.dirname(__file__), '..', 'proxy', 'hostcfg.py'))
+    hostcfg = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hostcfg)
+    f = tmp_path / 'printk'
+    f.write_text('7\t4\t1\t7\n')
+    assert hostcfg.quiet_kernel_console(str(f), tls='auto') == ('7 4 1 7', '3 4 1 7')
+    assert f.read_text() == '3 4 1 7'
+    f.write_text('7 4 1 7')
+    assert hostcfg.quiet_kernel_console(str(f), tls='off') == (None, None), 'never inside the HCM stack (not our host)'
+    assert f.read_text() == '7 4 1 7'
+    f.write_text('2 4 1 7')
+    assert hostcfg.quiet_kernel_console(str(f), tls='auto') == ('2 4 1 7', '2 4 1 7'), 'an already quieter console is left alone'

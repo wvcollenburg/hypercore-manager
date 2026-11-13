@@ -504,13 +504,17 @@
   .vm-modal-backdrop.visible { display: flex; }
   .vm-modal {
     background: var(--bg-secondary); border: 1px solid var(--border-active);
-    border-radius: 12px; padding: 24px 28px; width: min(960px, 95vw);
+    border-radius: 12px; padding: 24px 28px; width: min(1056px, 95vw);
     max-height: 90vh; overflow-y: auto;
     box-shadow: 0 20px 60px rgba(0,0,0,0.7);
   }
+  /* the top bar (title, time range, actions) stays in place while the content scrolls under it */
   .vm-modal-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 20px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    position: sticky; top: -24px; z-index: 5;
+    margin: -24px -28px 20px; padding: 24px 28px 14px;
+    background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+    border-radius: 12px 12px 0 0;
   }
   .vm-modal-title {
     font-family: 'JetBrains Mono', monospace; font-size: 13px;
@@ -523,6 +527,97 @@
     transition: color 0.15s;
   }
   .vm-modal-close:hover { color: var(--text-primary); }
+  /* VM list: one row per VM */
+  .vm-list { width: 100%; border-collapse: collapse; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .vm-list th { text-align: left; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+                color: var(--text-muted); font-weight: 500; padding: 9px 12px; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap; }
+  .vm-list th.num, .vm-list td.num { text-align: right; }
+  .vm-list th.nosort { cursor: default; }
+  .vm-list th .sort { color: var(--accent-cyan); }
+  .vm-list td { padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-secondary); vertical-align: middle; }
+  .vm-list tr:last-child td { border-bottom: none; }
+  .vm-list tbody tr:hover td { background: var(--bg-card-hover); }
+  .vm-list .vm-name { color: var(--text-primary); font-weight: 500; }
+  .vm-list .vm-sub { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); }
+  /* group headers in a grouped VM list: they must jump out from the VM rows */
+  .vm-list .grp td { background: var(--bg-card-hover); border-top: 10px solid var(--bg-primary); box-shadow: inset 3px 0 0 var(--accent-cyan);
+                     font-size: 13px; font-weight: 700; color: var(--text-primary); letter-spacing: .02em; padding: 9px 12px; }
+  .vm-list tbody tr.grp:first-child td { border-top: none; }
+  .vm-console-open { display: inline-flex; vertical-align: -3px; margin-left: 8px; color: var(--accent-amber); cursor: pointer; }
+  .vm-console-open svg { width: 16px; height: 16px; }
+  .vm-console-open.muted { opacity: .4; }
+  .vm-search { margin-left: 16px; width: 320px; max-width: 40vw; }
+  .vm-search-count { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); margin-left: 8px; }
+  .vm-list tr.grp { cursor: pointer; user-select: none; }
+  .vm-list tr.grp:hover td { background: var(--bg-card-hover); color: var(--accent-cyan); }
+  .vm-list .grp-arrow { display: inline-block; width: 14px; color: var(--accent-cyan); transition: transform .15s; }
+  .vm-list tr.grp.collapsed .grp-arrow { transform: rotate(-90deg); }
+  .vm-list .grp-count { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 9px; font-family: 'JetBrains Mono', monospace;
+                        font-size: 10px; font-weight: 600; line-height: 18px; color: var(--text-secondary); background: var(--bg-nested); border: 1px solid var(--border); vertical-align: 1px; }
+  .vm-meter { display: flex; align-items: center; gap: 8px; min-width: 150px; }
+  .vm-meter-bar { flex: 1; height: 6px; background: var(--bg-nested); border-radius: 3px; overflow: hidden; min-width: 60px; }
+  .vm-meter-fill { height: 100%; border-radius: 3px; }
+  .vm-meter-val { font-family: 'JetBrains Mono', monospace; font-size: 11px; min-width: 64px; text-align: right; color: var(--text-primary); }
+  .vm-list .mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-primary); }
+  .vm-list .acts { white-space: nowrap; text-align: right; }
+  /* VM edit window */
+  .ve-modal { width: min(1080px, 96vw); }
+  .ve-power { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  .ve-sec { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  .ve-sec h3 { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); font-weight: 500; margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
+  .ve-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 16px; }
+  .ve-grid label, .ve-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-muted); }
+  .ve-sec input[type=text], .ve-sec input[type=number], .ve-sec input[type=datetime-local], .ve-sec select, .ve-foot input[type=text], .ve-foot input[type=number], .ve-foot input[type=datetime-local] {
+    background: var(--bg-nested); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px; padding: 5px 8px; font-size: 12px; }
+  .ve-sec input.changed, .ve-sec select.changed { border-color: var(--accent-amber); }
+  .ve-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .ve-tbl th { text-align: left; font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 500; padding: 4px 6px; }
+  .ve-tbl td { padding: 4px 6px; border-top: 1px solid var(--border); color: var(--text-secondary); }
+  .ve-tbl input[type=number] { width: 80px; }
+  /* a select is as wide as its longest option (ISO names can be very long): cap it so the table stays inside the window */
+  .ve-tbl select { max-width: 240px; text-overflow: ellipsis; }
+  .ve-tbl td:last-child { white-space: nowrap; text-align: right; }
+  .ve-grid select, .ve-grid input { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+  .ve-tbl tr.removing td { opacity: .5; text-decoration: line-through; }
+  .ve-tbl tr.removing td:last-child { opacity: 1; text-decoration: none; }
+  .ve-boot li { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--text-secondary); padding: 2px 0; }
+  .ve-boot { list-style: decimal inside; }
+  .ve-foot { position: sticky; bottom: -24px; background: var(--bg-secondary); border-top: 1px solid var(--border-active); padding: 14px 0 4px; margin-top: 6px; display: flex; flex-direction: column; gap: 10px; }
+  .ve-summary { font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
+  .ve-summary b { color: var(--text-primary); }
+  .ve-summary .cyc { color: var(--accent-amber); }
+  .ve-when { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--text-secondary); }
+  .ve-when label { display: flex; gap: 6px; align-items: center; }
+  .ve-msg { font-size: 12px; min-height: 1em; }
+  .ve-chg { font-size: 12px; border-top: 1px solid var(--border); padding: 6px 0; color: var(--text-secondary); }
+  .ve-chg .st { font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--border); margin-right: 6px; }
+  .ve-chg .st.scheduled, .ve-chg .st.running { color: var(--accent-amber); border-color: var(--accent-amber); }
+  .ve-chg .st.done { color: var(--accent-green); border-color: var(--accent-green); }
+  .ve-chg .st.failed { color: var(--accent-red); border-color: var(--accent-red); }
+  .ve-danger { border-color: rgba(239,68,68,.4); }
+  .ve-cyc { color: var(--accent-amber); }
+  .ve-foot [hidden] { display: none !important; }
+  .vm-state-off { font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--border); color: var(--text-muted); }
+  .vm-pending { font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--accent-amber); color: var(--accent-amber); margin-left: 6px; }
+  /* VM details: live facts from HyperCore above the charts */
+  .vmi { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; }
+  .vmi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px 18px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .vmi-grid > div { font-size: 12px; color: var(--text-primary); min-width: 0; overflow-wrap: anywhere; display: flex; gap: 10px; align-items: flex-start; }
+  .vmi-grid > div > div { min-width: 0; }
+  .vmi-ico { width: 18px; height: 18px; flex-shrink: 0; margin-top: 2px; color: var(--text-muted); }
+  .vmi-grid span { display: block; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 2px; }
+  .vmi-title { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+  .vmi table { width: 100%; border-collapse: collapse; font-size: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .vmi th { text-align: left; color: var(--text-muted); font-weight: 500; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; padding: 6px 10px; border-bottom: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; }
+  .vmi td { padding: 6px 10px; border-bottom: 1px solid var(--border); color: var(--text-secondary); }
+  .vmi tr:last-child td { border-bottom: none; }
+  .vmi .tag { display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: rgba(6,182,212,.12); color: var(--accent-cyan); margin: 0 4px 3px 0; }
+  [data-vmpane][hidden] { display: none !important; }
+  .vm-tabs { display: flex; gap: 2px; background: var(--bg-nested); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+  .vm-tab { background: none; border: none; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; font-size: 11px;
+            padding: 6px 12px; border-radius: 6px; cursor: pointer; letter-spacing: .03em; }
+  .vm-tab:hover { color: var(--text-primary); }
+  .vm-tab.active { background: var(--bg-card-hover); color: var(--accent-cyan); }
   .vm-modal-charts {
     display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
   }
@@ -696,12 +791,46 @@
   .community-notice-body { font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
   .community-notice-body a { color: var(--accent-cyan); }
   .community-notice-actions { display: flex; justify-content: flex-end; }
-  .cluster-notice { background: none; border: none; cursor: pointer; color: var(--accent-amber); font-size: 14px; line-height: 1; padding: 0 2px; vertical-align: baseline; }
-  .cluster-notice:hover { filter: brightness(1.25); }
-  .cluster-notice-body { font-size: 13px; line-height: 1.55; color: var(--text-primary); }
-  .cluster-notice-mute { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); justify-content: flex-end; }
-  .cluster-notice-mute input { width: 64px; padding: 4px 6px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-active); border-radius: 6px; }
-  .cluster-notice-msg { font-size: 12px; color: var(--accent-red); min-height: 1em; text-align: right; }
+  /* cluster alerts: one badge per severity with a count, HyperCore's order and colours */
+  .alert-badges { display: flex; flex-wrap: wrap; gap: 3px; margin: 3px 0 1px; }
+  .alert-badge { display: inline-flex; align-items: center; gap: 2px; border: none; cursor: pointer; border-radius: 9px;
+                 padding: 0 5px; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; line-height: 16px; color: #0a0e14; }
+  .alert-badge:hover { filter: brightness(1.2); }
+  .alert-badge.critical, .alert-dot.critical { background: var(--accent-red); color: #fff; }
+  .alert-badge.warning, .alert-dot.warning { background: #f97316; }
+  .alert-badge.notice, .alert-dot.notice { background: #facc15; }
+  .alert-badge.info, .alert-dot.info { background: var(--accent-blue); color: #fff; }
+  .alerts-modal { max-width: 760px; max-height: 86vh; }
+  .node-alert-badges { display: inline-flex; gap: 3px; margin-left: 8px; vertical-align: 2px; }
+  .node-alert-list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; padding: 8px 10px; cursor: pointer;
+                     background: var(--bg-nested); border: 1px solid var(--border); border-radius: 8px; }
+  .node-alert-list:hover { border-color: var(--border-active); }
+  .node-alert { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 1.4; color: var(--text-primary); }
+  .node-alert.muted { opacity: .5; }
+  .node-alert-meta { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+  .alerts-scroll { overflow-y: auto; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .alerts-group-title { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .05em; text-transform: uppercase;
+                        color: var(--text-muted); display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .alert-dot { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; font-size: 10px; font-weight: 700; color: #0a0e14; flex-shrink: 0; }
+  .alert-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; padding: 8px 10px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; }
+  .alert-row-main { flex: 1 1 280px; min-width: 0; font-size: 13px; line-height: 1.45; color: var(--text-primary); }
+  .alert-row-meta { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
+  .alert-row-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; font-size: 12px; color: var(--text-secondary); }
+  .alert-row-actions input { width: 52px; padding: 3px 5px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-active); border-radius: 6px; font-size: 12px; }
+  .alerts-msg { font-size: 12px; color: var(--accent-red); min-height: 1em; }
+  .alerts-muted summary { cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+  .alerts-hist-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); }
+  .alerts-hist-filters select { background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-active); border-radius: 6px; padding: 3px 6px; font-size: 12px; }
+  .alerts-hist-filters[hidden] { display: none; }
+  .alerts-hist-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .alerts-hist-table th { text-align: left; color: var(--text-muted); font-weight: 500; font-size: 11px; padding: 6px; border-bottom: 1px solid var(--border); }
+  .alerts-hist-table td { padding: 6px; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--text-secondary); }
+  .cc-state { font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--border); white-space: nowrap; }
+  .cc-state.open { color: #f97316; border-color: #f97316; } .cc-state.locked { color: var(--accent-green); border-color: var(--accent-green); }
+  .cc-state.blank, .cc-state.unknown, .cc-state.pending, .cc-state.stopped { color: var(--text-muted); } .cc-state.error { color: var(--accent-red); border-color: var(--accent-red); }
+  .cc-refs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .cc-refs figure { display: flex; flex-direction: column; gap: 3px; font-size: 10px; color: var(--text-muted); }
+  .cc-refs img { width: 160px; border: 1px solid var(--border); border-radius: 4px; }
   .update-modal-backdrop {
     display: none; position: fixed; inset: 0; z-index: 10200;
     background: rgba(0,0,0,0.7); backdrop-filter: blur(2px);
@@ -1081,7 +1210,7 @@
       <div class="status-dot" id="statusDot"></div>
       <span class="status-text" id="statusText">Connecting...</span>
     </div>
-    <button class="refresh-btn" data-i18n="header.refresh" onclick="refreshAll()">↻ Refresh</button>
+    <button class="refresh-btn" data-i18n="header.refresh" onclick="vmIndexStale(); refreshAll()">↻ Refresh</button>
     <button class="update-badge-btn" id="updateBadgeBtn" onclick="openUpdateModal()" title="Software update">Update</button>
     <div class="lang-picker" id="langPicker">
       <button class="lang-btn" id="langBtn" onclick="toggleLangDropdown(event)">
@@ -1109,15 +1238,32 @@
   <!-- ─── Infraviewer tab ─── -->
   <div class="tab-content active" id="tab-infraviewer">
     <div class="iv-sub-nav">
-      <div class="iv-sub-tab active" data-ivpanel="nodes" data-i18n="iv.nodes_drives" onclick="switchIvPanel('nodes')">Nodes &amp; Drives</div>
-      <div class="iv-sub-tab"        data-ivpanel="vms"   data-i18n="iv.vms_storage"  onclick="switchIvPanel('vms')">VMs &amp; Storage</div>
+      <div class="iv-sub-tab active" data-ivpanel="vms"    data-i18n="iv.tab_vms"    onclick="switchIvPanel('vms')">VMs</div>
+      <div class="iv-sub-tab"        data-ivpanel="nodes"  data-i18n="iv.nodes_drives" onclick="switchIvPanel('nodes')">Nodes &amp; Drives</div>
+      <div class="iv-sub-tab"        data-ivpanel="vmperf" data-i18n="iv.tab_vmperf" onclick="switchIvPanel('vmperf')">VM performance</div>
+      <div class="iv-sub-tab"        data-ivpanel="events" data-i18n="iv.tab_events" onclick="switchIvPanel('events')">Cluster events</div>
     </div>
-    <!-- nodes & drives panel -->
-    <div class="iv-panel active" id="ivpanel-nodes">
-      <div class="chart-container" id="ivActivityCard" style="margin-bottom:12px;" hidden>
-        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-amber)"></div><span data-i18n="iv.activity">Cluster activity</span>
-          <span id="ivActivityNote" style="font-size:11px;color:var(--text-muted);margin-left:8px;font-weight:normal;"></span></div>
-        <div id="ivActivityBody"></div>
+    <!-- VM list: what a cluster is for, so it comes first and is where selecting a cluster lands -->
+    <div class="iv-panel active" id="ivpanel-vms">
+      <div class="group-controls">
+        <span class="group-label" data-i18n="vm.group_by">Group by:</span>
+        <button class="group-btn active" data-group="none" data-i18n="vm.group_none" onclick="setVmGroup('none')">None</button>
+        <button class="group-btn" data-group="tag"  onclick="setVmGroup('tag')">Tag</button>
+        <button class="group-btn" data-group="node" onclick="setVmGroup('node')">Node</button>
+        <button class="group-btn" data-group="vlan" onclick="setVmGroup('vlan')">VLAN</button>
+        <input type="search" id="vmSearch" class="um-input vm-search" placeholder="Search VMs" data-i18n-placeholder="vm.search_ph"
+               title="Name, tags, IP or MAC address, VLAN, mounted ISO, disk, OS, node" data-i18n-title="vm.search_hint"
+               oninput="setVmSearch(this.value)" onkeydown="if (event.key === 'Escape') { this.value = ''; setVmSearch(''); }">
+        <span id="vmSearchCount" class="vm-search-count"></span>
+      </div>
+      <div id="vmCards">
+        <div class="loading"><div class="spinner"></div><span data-i18n="loading.vms">Loading VM metrics...</span></div>
+      </div>
+    </div>
+    <!-- nodes & drives: the least interesting until something breaks (and that is fixed on the cluster) -->
+    <div class="iv-panel" id="ivpanel-nodes">
+      <div class="cards-grid" id="nodeCards">
+        <div class="loading"><div class="spinner"></div><span data-i18n="loading.nodes">Loading node metrics...</span></div>
       </div>
       <div class="time-range-bar">
         <span class="group-label" data-i18n="time.range">Range:</span>
@@ -1149,12 +1295,9 @@
           <div class="chart-wrapper"><canvas id="clusterStorageChart"></canvas></div>
         </div>
       </div>
-      <div class="cards-grid" id="nodeCards">
-        <div class="loading"><div class="spinner"></div><span data-i18n="loading.nodes">Loading node metrics...</span></div>
-      </div>
     </div>
-    <!-- VMs & storage panel -->
-    <div class="iv-panel" id="ivpanel-vms">
+    <!-- VM performance charts -->
+    <div class="iv-panel" id="ivpanel-vmperf">
       <div class="time-range-bar">
         <span class="group-label" data-i18n="time.range">Range:</span>
         <button class="time-range-btn"        data-trpanel="vms" data-hours="1"    onclick="setVmTimeRange(1)">1hr</button>
@@ -1181,15 +1324,13 @@
           <div class="chart-wrapper"><canvas id="vmNetChart"></canvas></div>
         </div>
       </div>
-      <div class="group-controls">
-        <span class="group-label" data-i18n="vm.group_by">Group by:</span>
-        <button class="group-btn active" data-group="none" data-i18n="vm.group_none" onclick="setVmGroup('none')">None</button>
-        <button class="group-btn" data-group="tag"  onclick="setVmGroup('tag')">Tag</button>
-        <button class="group-btn" data-group="node" onclick="setVmGroup('node')">Node</button>
-        <button class="group-btn" data-group="vlan" onclick="setVmGroup('vlan')">VLAN</button>
-      </div>
-      <div class="cards-grid" id="vmCards">
-        <div class="loading"><div class="spinner"></div><span data-i18n="loading.vms">Loading VM metrics...</span></div>
+    </div>
+    <!-- cluster events: HyperCore's task feed (REST v2) -->
+    <div class="iv-panel" id="ivpanel-events">
+      <div class="chart-container" id="ivActivityCard" style="margin-bottom:12px;">
+        <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-amber)"></div><span data-i18n="iv.activity">Cluster activity</span>
+          <span id="ivActivityNote" style="font-size:11px;color:var(--text-muted);margin-left:8px;font-weight:normal;"></span></div>
+        <div id="ivActivityBody"><div class="loading"><div class="spinner"></div></div></div>
       </div>
     </div>
   </div>
@@ -1484,12 +1625,14 @@
       <div class="settings-sub-tab"        data-setpanel="tunables" data-i18n="settings.tab.tunables" onclick="switchSettingsPanel('tunables')">Tunables</div>
       <div class="settings-sub-tab"        data-setpanel="users"    data-i18n="settings.tab.users"    onclick="switchSettingsPanel('users')">Users</div>
       <div class="settings-sub-tab"        data-setpanel="shares"   data-i18n="settings.tab.shares"   onclick="switchSettingsPanel('shares')">Targets</div>
+      <div class="settings-sub-tab"        data-setpanel="console"  data-i18n="settings.tab.console"  onclick="switchSettingsPanel('console')">Console</div>
     </div>
     <div id="settingsContent">
       <div class="settings-panel active" id="setpanel-clusters"><div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div></div>
       <div class="settings-panel" id="setpanel-tunables"></div>
       <div class="settings-panel" id="setpanel-users"></div>
       <div class="settings-panel" id="setpanel-shares"></div>
+      <div class="settings-panel" id="setpanel-console"></div>
     </div>
   </div>
   <div class="settings-toast" id="settingsToast"></div>
@@ -1511,13 +1654,100 @@
     </div>
   </div>
 
+  <!-- ─── Snapshot / Clone ─── -->
+  <div id="vmActBackdrop" class="vm-modal-backdrop" onclick="closeVmAct(event)">
+    <div class="vm-modal ve-modal" style="width:min(820px,96vw);" role="dialog" aria-modal="true" aria-labelledby="vaTitle">
+      <div class="vm-modal-header">
+        <div class="vm-modal-title" id="vaTitle"></div>
+        <button class="vm-modal-close" onclick="closeVmAct()">✕</button>
+      </div>
+      <div id="vaBody"></div>
+      <div class="ve-foot" id="vaFoot" hidden>
+        <div class="ve-when">
+          <label><input type="radio" name="vaWhen" value="now" checked> <span data-i18n="ve.now">Now</span></label>
+          <label><input type="radio" name="vaWhen" value="at"> <span data-i18n="ve.at">At</span> <input type="datetime-local" id="vaAt" onfocus="document.querySelector('input[name=vaWhen][value=at]').checked = true"></label>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;justify-content:flex-end;">
+          <span class="ve-msg" id="vaMsg" style="margin-right:auto;"></span>
+          <button class="refresh-btn" onclick="closeVmAct()" data-i18n="console.cancel">Cancel</button>
+          <button class="update-apply-btn" id="vaGo" onclick="vaGo()" data-i18n="va.go">Go</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── New VM ─── -->
+  <div id="vmNewBackdrop" class="vm-modal-backdrop" onclick="closeNewVm(event)">
+    <div class="vm-modal ve-modal" role="dialog" aria-modal="true" aria-labelledby="vnTitle">
+      <div class="vm-modal-header">
+        <div class="vm-modal-title" id="vnTitle" data-i18n="vn.new_vm">New VM</div>
+        <button class="vm-modal-close" onclick="closeNewVm()">✕</button>
+      </div>
+      <div id="vnBody"></div>
+      <div class="ve-foot" id="vnFoot" hidden>
+        <div class="ve-when">
+          <label><input type="radio" name="vnWhen" value="now" checked> <span data-i18n="ve.now">Now</span></label>
+          <label><input type="radio" name="vnWhen" value="at"> <span data-i18n="ve.at">At</span> <input type="datetime-local" id="vnAt" onfocus="document.querySelector('input[name=vnWhen][value=at]').checked = true"></label>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;justify-content:flex-end;">
+          <span class="ve-msg" id="vnMsg" style="margin-right:auto;"></span>
+          <button class="refresh-btn" onclick="closeNewVm()" data-i18n="console.cancel">Cancel</button>
+          <button class="update-apply-btn" id="vnCreate" onclick="vnCreate()" data-i18n="vn.create">Create VM</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── VM edit window ─── -->
+  <div id="vmEditBackdrop" class="vm-modal-backdrop" onclick="closeVmEdit(event)">
+    <div class="vm-modal ve-modal" role="dialog" aria-modal="true" aria-labelledby="veTitle">
+      <div class="vm-modal-header">
+        <div class="vm-modal-title" id="veTitle">Edit</div>
+        <button class="vm-modal-close" onclick="closeVmEdit()">✕</button>
+      </div>
+      <div id="veBody"></div>
+      <div class="ve-foot" id="veFoot" hidden>
+        <div class="ve-summary" id="veSummary"></div>
+        <div class="ve-when">
+          <label><input type="radio" name="veWhen" value="now" checked> <span data-i18n="ve.now">Now</span></label>
+          <label><input type="radio" name="veWhen" value="at"> <span data-i18n="ve.at">At</span> <input type="datetime-local" id="veAt" onfocus="document.querySelector('input[name=veWhen][value=at]').checked = true"></label>
+          <span id="veForceRow" style="display:flex;gap:14px;align-items:center;">
+            <label title="Without it a guest that does not shut down keeps running unchanged" data-i18n-title="ve.force_hint"><input type="checkbox" id="veForce"> <span data-i18n="ve.force">Force power off if the graceful shutdown fails</span></label>
+            <label><span data-i18n="ve.timeout">after</span> <input type="number" id="veTimeout" min="1" max="120" value="10" style="width:56px"> <span data-i18n="cc.minutes">minutes</span></label>
+          </span>
+        </div>
+        <div class="ve-when" id="veConfirmRow" hidden><label><span data-i18n="ve.confirm_label">Type the VM's name to confirm the removal</span> <input type="text" id="veConfirm" autocomplete="off"></label></div>
+        <div style="display:flex;gap:10px;align-items:center;justify-content:flex-end;">
+          <span class="ve-msg" id="veMsg" style="margin-right:auto;"></span>
+          <button class="refresh-btn" onclick="closeVmEdit()" data-i18n="console.cancel">Cancel</button>
+          <button class="update-apply-btn" id="veApply" onclick="veApply()" data-i18n="ve.apply">Apply changes</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ─── VM detail modal ─── -->
   <div id="vmDetailBackdrop" class="vm-modal-backdrop" onclick="closeVmModal(event)">
     <div class="vm-modal" id="vmDetailModal">
       <div class="vm-modal-header">
-        <div class="vm-modal-title" id="vmDetailTitle">VM Details</div>
+        <div style="display:flex;align-items:center;gap:18px;min-width:0;">
+          <div class="vm-modal-title" id="vmDetailTitle">VM Details</div>
+          <div class="vm-tabs">
+            <button class="vm-tab active" data-vmtab="info" onclick="switchVmTab('info')" data-i18n="vm.tab_details">Details</button>
+            <button class="vm-tab" data-vmtab="perf" onclick="switchVmTab('perf')" data-i18n="vm.tab_performance">Performance</button>
+          </div>
+        </div>
         <div style="display:flex;align-items:center;gap:10px;">
-          <div class="time-range-bar" style="margin:0;">
+          <button class="refresh-btn" id="vmSnapBtn" hidden onclick="openVmAct('snapshot', vmDetailActiveUuid)" data-i18n="va.snapshot">Snapshot</button>
+          <button class="refresh-btn" id="vmCloneBtn" hidden onclick="openVmAct('clone', vmDetailActiveUuid)" data-i18n="va.clone">Clone</button>
+          <button class="refresh-btn" id="vmEditBtn" hidden onclick="openVmEdit(vmDetailActiveUuid)" data-i18n="ve.edit">Edit</button>
+          <button class="refresh-btn" id="vmConsoleBtn" hidden onclick="openVmConsole(currentCluster, vmDetailActiveUuid)" data-i18n="console.open" data-i18n-title="console.open_hint" title="Open this VM's console in a new window">Console</button>
+          <button class="vm-modal-close" onclick="closeVmModal()">✕</button>
+        </div>
+      </div>
+      <div class="vmi" id="vmDetailInfo" data-vmpane="info"></div>
+      <div data-vmpane="perf" hidden>
+      <div class="time-range-bar" style="margin:0 0 16px;">
             <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="1"    onclick="setVmDetailTimeRange(1)">1hr</button>
             <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="2"    onclick="setVmDetailTimeRange(2)">2hr</button>
             <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="6"    onclick="setVmDetailTimeRange(6)">6hr</button>
@@ -1527,9 +1757,6 @@
             <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="720"  onclick="setVmDetailTimeRange(720)">1 month</button>
             <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="8760" onclick="setVmDetailTimeRange(8760)">1 year</button>
             <div class="fetch-spinner"></div>
-          </div>
-          <button class="vm-modal-close" onclick="closeVmModal()">✕</button>
-        </div>
       </div>
       <div class="vm-modal-charts">
         <div class="vm-modal-chart-box">
@@ -1548,6 +1775,7 @@
           <div class="vm-modal-chart-label" data-i18n="vm.modal.disk_latency">Disk Latency (per VSD)</div>
           <div class="vm-modal-chart-wrap"><canvas id="vmDetailLatencyChart"></canvas></div>
         </div>
+      </div>
       </div>
     </div>
   </div>
@@ -1917,9 +2145,10 @@ async function loadNodes() {
     return `
       <div class="card ${nodeCpuClass}">
         <div class="card-header">
-          <span class="card-title">Node ${node.peer_id}</span>
+          <span class="card-title">Node ${node.peer_id}<span class="node-alert-badges" data-node="${node.uuid}"></span></span>
           <span class="card-badge ${cpuBadgeClass(cpu)}">${avg_cpu.toFixed(1)}% CPU</span>
         </div>
+        <div class="node-alerts" data-node="${node.uuid}"></div>
         <div class="metric-row">
           <span class="metric-label">${t('metric.cpu_usage')}</span>
           <span class="metric-value" style="color:${progressColor(cpu)}">${cpu.toFixed(1)}%</span>
@@ -1943,6 +2172,7 @@ async function loadNodes() {
       </div>
     `;
   }).join('');
+  _fillNodeAlerts();
 
   // node CPU chart
   const ctx = document.getElementById('nodeCpuChart').getContext('2d');
@@ -2103,116 +2333,158 @@ async function loadNodes() {
 }
 
 // ─── VM grouping state ───
-let currentVmGroup = 'none';
+let currentVmGroup = 'tag';         // grouped by tag unless the user chose otherwise
+try { const g = localStorage.getItem('hcm.vmgroup'); if (['none', 'tag', 'node', 'vlan'].includes(g)) currentVmGroup = g; } catch (_) {}
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.group-btn').forEach(b => b.classList.toggle('active', b.dataset.group === currentVmGroup));
+});
 let cachedVmData = [];
 
 function setVmGroup(mode) {
   currentVmGroup = mode;
+  try { localStorage.setItem('hcm.vmgroup', mode); } catch (_) {}
   document.querySelectorAll('.group-btn').forEach(b => b.classList.remove('active'));
   document.querySelector(`.group-btn[data-group="${mode}"]`).classList.add('active');
   renderVmCards();
 }
 
-function renderVmCard(vm) {
-  const latest = vm.history[vm.history.length-1] || {};
-  const cpu = (vm.current_cpu != null ? vm.current_cpu : latest.cpu_usage) || 0;
-  const cpuVals = vm.history.map(p => p.cpu_usage || 0);
-  const avg_cpu = cpuVals.length ? cpuVals.reduce((a, b) => a + b, 0) / cpuVals.length : 0;
-  const vmJson = encodeURIComponent(JSON.stringify({uuid: vm.uuid, name: vm.name}));
-  const cpuClass = cpu >= 80 ? 'cpu-danger' : cpu >= 50 ? 'cpu-warn' : 'cpu-ok';
-  return `
-    <div class="card ${cpuClass}">
-      <div class="card-header">
-        <span class="card-title">${vm.name}</span>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <button class="vm-detail-btn" onclick="openVmModal('${vm.uuid}')">${t('vm.performance_details')}</button>
-          <span class="card-badge ${cpuBadgeClass(cpu)}">${avg_cpu.toFixed(1)}%</span>
-        </div>
-      </div>
-      <div class="metric-row">
-        <span class="metric-label">${t('metric.cpu_usage')}</span>
-        <span class="metric-value" style="color:${progressColor(cpu)}">${cpu.toFixed(1)}%</span>
-      </div>
-      <div class="progress-bar">
-        <div class="progress-fill" style="width:${Math.min(cpu,100)}%;background:${progressColor(cpu)}"></div>
-      </div>
-      <div class="metric-row">
-        <span class="metric-label">${t('metric.network_rx')}</span>
-        <span class="metric-value">${formatBytes(latest.rx_bit_rate||0)}/s</span>
-      </div>
-      <div class="metric-row">
-        <span class="metric-label">${t('metric.network_tx')}</span>
-        <span class="metric-value">${formatBytes(latest.tx_bit_rate||0)}/s</span>
-      </div>
-      ${renderVsdsForVm(vm.uuid)}
-    </div>
-  `;
+// VM list: one row per VM; grouping as before, sorting by clicking a column header
+let vmSort = {key: 'name', dir: 1};
+// search: every word must match something about the VM (live facts from HyperCore plus what the list knows)
+let vmQuery = '', _vmIndex = {}, _vmIndexFor = null, _vmIndexAt = 0;
+async function loadVmIndex(force) {
+  if (!currentCluster) return;
+  if (!force && _vmIndexFor === currentCluster && Date.now() - _vmIndexAt < 20000) return;
+  const d = await apiFetch('/api/vm-index' + (force ? '?fresh=1' : ''));
+  _vmIndex = {}; _vmIndexFor = currentCluster; _vmIndexAt = Date.now();
+  for (const v of (d && d.vms) || []) {
+    _vmIndex[v.uuid] = [v.name, ...v.tags, v.description, ...v.ips, ...v.macs, ...v.vlans.map(x => 'vlan ' + x), ...v.vlans,
+                        ...v.isos, ...v.disks, v.os, v.machine, v.node, v.state].join(' \u0001 ').toLowerCase();
+  }
+}
+function _vmMatches(vm) {
+  if (!vmQuery) return true;
+  const hay = (_vmIndex[vm.uuid] || '') + ' ' + [vm.name, vm.tag, 'vlan ' + vm.vlan, vm.state, vm.os].join(' ').toLowerCase();
+  return vmQuery.split(/\s+/).every(w => hay.includes(w));
+}
+// after a change made from HCM the search must see it at once, not after the cache runs out
+let _vmIndexForce = false;
+function vmIndexStale() { _vmIndexAt = 0; _vmIndexForce = true; }
+let _vmSearchTimer = null;
+function setVmSearch(q) {
+  clearTimeout(_vmSearchTimer);
+  _vmSearchTimer = setTimeout(async () => {
+    vmQuery = q.trim().toLowerCase();
+    if (vmQuery) { await loadVmIndex(_vmIndexForce); _vmIndexForce = false; }
+    renderVmCards();
+  }, 150);
 }
 
+// amber console icon on a VM whose console the open-session check found logged in
+function _vmConsoleOpenIcon(uuid) {
+  const it = ((_clusterAlerts[currentCluster] || {}).items || []).find(i => i.kind === 'console' && i.vm_uuid === uuid);
+  if (!it) return '';
+  const tip = t('vm.console_open_since', {when: it.since ? _exFmt(it.since) : '?'}) + (it.muted_until ? ' · ' + t('alerts.muted') : '');
+  return `<span class="vm-console-open ${it.muted_until ? 'muted' : ''}" title="${_clEsc(tip)}" onclick="event.stopPropagation(); openClusterAlerts(currentCluster)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg></span>`;
+}
+
+// collapsed groups per grouping mode ('tag:Infraservices', 'node:2', 'vlan:102'), remembered in the browser
+let vmCollapsed = new Set();
+try { vmCollapsed = new Set(JSON.parse(localStorage.getItem('hcm.vmgroups.collapsed') || '[]')); } catch (_) {}
+function _vmSaveCollapsed() { try { localStorage.setItem('hcm.vmgroups.collapsed', JSON.stringify([...vmCollapsed])); } catch (_) {} }
+function toggleVmGroup(key) {
+  if (vmCollapsed.has(key)) vmCollapsed.delete(key); else vmCollapsed.add(key);
+  _vmSaveCollapsed();
+  renderVmCards();
+}
+function setAllVmGroups(collapse) {
+  for (const k of (window._vmGroupKeys || [])) { if (collapse) vmCollapsed.add(k); else vmCollapsed.delete(k); }
+  _vmSaveCollapsed();
+  renderVmCards();
+}
+try { vmSort = JSON.parse(localStorage.getItem('hcm.vmsort')) || vmSort; } catch (_) {}
+function _vmIops(uuid) {
+  const st = (cachedStorage.vms || []).find(v => v.uuid === uuid);
+  return st ? st.vsds.reduce((a, d) => a + (d.read_iops || 0) + (d.write_iops || 0), 0) : null;
+}
+function _vmCpu(vm) {
+  const latest = vm.history[vm.history.length - 1] || {};
+  return (vm.current_cpu != null ? vm.current_cpu : latest.cpu_usage) || 0;
+}
+const _gb = b => b == null ? '—' : (b / 1073741824).toLocaleString(undefined, {maximumFractionDigits: b >= 107374182400 ? 0 : 1});
+function sortVms(key) {
+  vmSort = {key, dir: vmSort.key === key ? -vmSort.dir : (key === 'name' ? 1 : -1)};
+  try { localStorage.setItem('hcm.vmsort', JSON.stringify(vmSort)); } catch (_) {}
+  renderVmCards();
+}
 function renderVmCards() {
   const container = document.getElementById('vmCards');
-  if (!cachedVmData.length) { container.innerHTML = `<div class="empty-state">${t('empty.no_vms')}</div>`; return; }
-
-  if (currentVmGroup === 'none') {
-    // no grouping — just sort by name
-    const sorted = [...cachedVmData].sort((a,b) => a.name.localeCompare(b.name));
-    container.innerHTML = sorted.map(renderVmCard).join('');
+  if (!cachedVmData.length) {
+    const admin = _currentUser?.role === 'admin' || _currentUser?.dev_mode;
+    container.innerHTML = `<div class="empty-state">${t('empty.no_vms')}${admin ? `<div style="margin-top:12px;"><button class="refresh-btn" onclick="openNewVm()">+ ${t('vn.new_vm')}</button></div>` : ''}</div>`;
     return;
   }
-
-  // build groups
-  const groups = {};
-  for (const vm of cachedVmData) {
-    let key;
-    if (currentVmGroup === 'tag') {
-      key = vm.tag || t('vm.group_no_tag');
-    } else if (currentVmGroup === 'node') {
-      key = vm.node_peer_id || 'unknown';
-    } else if (currentVmGroup === 'vlan') {
-      key = vm.vlan || '0';
-    }
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(vm);
-  }
-
-  // sort group keys
-  let sortedKeys;
-  if (currentVmGroup === 'node') {
-    // sort by peer ID numerically, push 'unknown' to the end
-    sortedKeys = Object.keys(groups).sort((a,b) => {
-      const aIsUnknown = isNaN(parseInt(a));
-      const bIsUnknown = isNaN(parseInt(b));
-      if (aIsUnknown && !bIsUnknown) return 1;
-      if (!aIsUnknown && bIsUnknown) return -1;
-      if (aIsUnknown && bIsUnknown) return a.localeCompare(b);
-      return parseInt(a) - parseInt(b);
-    });
-  } else if (currentVmGroup === 'vlan') {
-    // sort VLAN numerically
-    sortedKeys = Object.keys(groups).sort((a,b) => {
-      const na = parseInt(a) || 0, nb = parseInt(b) || 0;
-      return na - nb;
-    });
+  const isAdmin = _currentUser?.role === 'admin' || _currentUser?.dev_mode;
+  const rows = cachedVmData.filter(_vmMatches).map(vm => ({vm, name: vm.name, cpu: vm.state && vm.state !== 'RUNNING' ? -1 : _vmCpu(vm), iops: _vmIops(vm.uuid), ram: vm.mem_bytes ?? null, disk: vm.disk_bytes ?? null}));
+  const maxIops = Math.max(100, ...rows.map(r => r.iops || 0));
+  const val = (r, k) => k === 'name' ? (r.name || '').toLowerCase() : (r[k] ?? -1);
+  const cmp = (a, b) => { const x = val(a, vmSort.key), y = val(b, vmSort.key); return (x < y ? -1 : x > y ? 1 : 0) * vmSort.dir || a.name.localeCompare(b.name); };
+  const row = r => {
+    const vm = r.vm, cpuCol = progressColor(r.cpu);
+    const iopsPct = r.iops == null ? 0 : Math.min(100, r.iops / maxIops * 100);
+    const sub = [vm.tag, vm.node_peer_id && vm.node_peer_id !== 'unknown' ? t('vm.group_label.peer') + ' ' + vm.node_peer_id : '', vm.vlan && vm.vlan !== '0' ? 'VLAN ' + vm.vlan : ''].filter(Boolean).join(' · ');
+    return `<tr>
+      <td><div class="vm-name">${_clEsc(vm.name)}${_vmConsoleOpenIcon(vm.uuid)}${_vmPending[vm.uuid] ? `<span class="vm-pending" title="${_clEsc(_vmPending[vm.uuid].summary || '')}">⏱ ${_vmPending[vm.uuid].run_at ? _exFmt(_vmPending[vm.uuid].run_at) : t('ve.st_running')}</span>` : ''}</div>${sub ? `<div class="vm-sub">${_clEsc(sub)}</div>` : ''}</td>
+      <td>${r.cpu < 0 ? `<span class="vm-state-off">${_clEsc((vm.state || '').toLowerCase())}</span>` : `<div class="vm-meter"><div class="vm-meter-bar"><div class="vm-meter-fill" style="width:${Math.min(r.cpu, 100)}%;background:${cpuCol}"></div></div><span class="vm-meter-val" style="color:${cpuCol}">${r.cpu.toFixed(1)}%</span></div>`}</td>
+      <td><div class="vm-meter"><div class="vm-meter-bar"><div class="vm-meter-fill" style="width:${iopsPct}%;background:var(--accent-cyan)"></div></div><span class="vm-meter-val">${r.iops == null ? '—' : Math.round(r.iops).toLocaleString()}</span></div></td>
+      <td class="num mono">${_gb(r.ram)}</td>
+      <td class="num mono">${_gb(r.disk)}</td>
+      <td class="acts"><button class="um-action-btn" onclick="openVmModal('${vm.uuid}')">${t('vm.details')}</button>${isAdmin ? ` <button class="um-action-btn" onclick="openVmEdit('${vm.uuid}')">${t('ve.edit')}</button> <button class="um-action-btn" onclick="openVmConsole(currentCluster, '${vm.uuid}')" ${r.cpu < 0 ? 'disabled' : ''} title="${_clEsc(t('console.open_hint'))}">${t('console.open')}</button>` : ''}</td>
+    </tr>`;
+  };
+  const arrow = k => vmSort.key === k ? ` <span class="sort">${vmSort.dir > 0 ? '▲' : '▼'}</span>` : '';
+  const head = `<thead><tr>
+      <th onclick="sortVms('name')">${t('vm.col_name')}${arrow('name')}</th>
+      <th onclick="sortVms('cpu')">${t('vm.col_cpu')}${arrow('cpu')}</th>
+      <th onclick="sortVms('iops')" title="${_clEsc(t('vm.col_iops_hint'))}">${t('vm.col_iops')}${arrow('iops')}</th>
+      <th class="num" onclick="sortVms('ram')">${t('vm.col_ram')}${arrow('ram')}</th>
+      <th class="num" onclick="sortVms('disk')" title="${_clEsc(t('vm.col_disk_hint'))}">${t('vm.col_disk')}${arrow('disk')}</th>
+      <th class="nosort"></th></tr></thead>`;
+  let body = '';
+  if (currentVmGroup === 'none') {
+    body = rows.sort(cmp).map(row).join('');
   } else {
-    // sort tags alphabetically, with "no tag" last
-    sortedKeys = Object.keys(groups).sort((a,b) => {
-      const noTag = t('vm.group_no_tag');
-      if (a === noTag) return 1;
-      if (b === noTag) return -1;
-      return a.localeCompare(b);
+    const groups = {};
+    for (const r of rows) {
+      const vm = r.vm;
+      const key = currentVmGroup === 'tag' ? (vm.tag || t('vm.group_no_tag')) : currentVmGroup === 'node' ? (vm.node_peer_id || 'unknown') : (vm.vlan || '0');
+      (groups[key] = groups[key] || []).push(r);
+    }
+    const noTag = t('vm.group_no_tag');
+    const keys = Object.keys(groups).sort((a, b) => {
+      if (currentVmGroup === 'tag') { if (a === noTag) return 1; if (b === noTag) return -1; return a.localeCompare(b); }
+      const na = parseInt(a), nb = parseInt(b);
+      if (isNaN(na) !== isNaN(nb)) return isNaN(na) ? 1 : -1;
+      return isNaN(na) ? a.localeCompare(b) : na - nb;
     });
+    const labels = {tag: t('vm.group_label.tag'), node: t('vm.group_label.node'), vlan: t('vm.group_label.vlan')};
+    window._vmGroupKeys = keys.map(k => `${currentVmGroup}:${k}`);
+    for (const k of keys) {
+      const label = `${labels[currentVmGroup]}: ${currentVmGroup === 'node' ? t('vm.group_label.peer') + ' ' + k : k}`;
+      const gk = `${currentVmGroup}:${k}`, folded = vmCollapsed.has(gk) && !vmQuery;   // a search opens every group with a match
+      body += `<tr class="grp ${folded ? 'collapsed' : ''}" onclick="toggleVmGroup(decodeURIComponent('${encodeURIComponent(gk)}'))" title="${_clEsc(t(folded ? 'vm.group_expand' : 'vm.group_collapse'))}"><td colspan="6"><span class="grp-arrow">▾</span>${_clEsc(label)}<span class="grp-count">${groups[k].length}</span></td></tr>`
+            + (folded ? '' : groups[k].sort(cmp).map(row).join(''));
+    }
   }
-
-  // render with group headers
-  const groupLabels = { tag: t('vm.group_label.tag'), node: t('vm.group_label.node'), vlan: t('vm.group_label.vlan') };
-  let html = '';
-  for (const key of sortedKeys) {
-    const label = `${groupLabels[currentVmGroup]}: ${currentVmGroup === 'node' ? t('vm.group_label.peer') + ' ' + key : key}`;
-    html += `<div class="group-header"><div class="group-header-dot"></div>${label} (${groups[key].length})</div>`;
-    const sorted = groups[key].sort((a,b) => a.name.localeCompare(b.name));
-    html += sorted.map(renderVmCard).join('');
-  }
-  container.innerHTML = html;
+  const grouped = currentVmGroup !== 'none';
+  const bar = (isAdmin || grouped) ? `<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;">
+      ${grouped ? `<button class="refresh-btn" onclick="setAllVmGroups(true)">⊟ ${t('vm.groups_collapse_all')}</button><button class="refresh-btn" onclick="setAllVmGroups(false)">⊞ ${t('vm.groups_expand_all')}</button>` : ''}
+      ${isAdmin ? `<button class="refresh-btn" onclick="openNewVm()">+ ${t('vn.new_vm')}</button>` : ''}</div>` : '';
+  const cnt = document.getElementById('vmSearchCount');
+  if (cnt) cnt.textContent = vmQuery ? t('vm.search_count', {n: rows.length, total: cachedVmData.length}) : '';
+  container.innerHTML = `${bar}<div style="overflow-x:auto;">${rows.length ? `<table class="vm-list">${head}<tbody>${body}</tbody></table>`
+    : `<div class="empty-state">${t('vm.search_none')}</div>`}</div>`;
 }
 
 // ─── load VMs + VSDs ───
@@ -2226,6 +2498,8 @@ async function loadVMs() {
   if (!vmData) { document.getElementById('vmCards').innerHTML = `<div class="empty-state">${t('empty.no_api')}</div>`; return; }
   cachedStorage = storageData || { vms: [], cluster: { history: [] } };
   cachedVmData = vmData;
+  await loadVmPending();
+  if (vmQuery) { await loadVmIndex(_vmIndexForce); _vmIndexForce = false; }
 
   renderVmCards();
 
@@ -2340,12 +2614,579 @@ async function openVmModal(vmUuid) {
   const vm = cachedVmData.find(v => v.uuid === vmUuid);
   if (!vm) return;
   document.getElementById('vmDetailTitle').textContent = vm.name;
+  document.getElementById('vmConsoleBtn').hidden = !(_currentUser?.role === 'admin' || _currentUser?.dev_mode);
+  document.getElementById('vmEditBtn').hidden = document.getElementById('vmConsoleBtn').hidden;
+  document.getElementById('vmSnapBtn').hidden = document.getElementById('vmConsoleBtn').hidden;
+  document.getElementById('vmCloneBtn').hidden = document.getElementById('vmConsoleBtn').hidden;
   document.getElementById('vmDetailBackdrop').classList.add('visible');
-  await renderVmDetailCharts();
+  loadVmInfo(vmUuid);
+  _vmChartsFor = null;
+  let tab = 'info';
+  try { tab = localStorage.getItem('hcm.vmtab') || 'info'; } catch (_) {}
+  await switchVmTab(tab);
+}
+
+// details tab (live facts) and performance tab (time range + charts); the charts are drawn when their
+// tab is shown, since Chart.js cannot size a canvas that is hidden
+let _vmChartsFor = null;
+async function switchVmTab(tab) {
+  if (tab !== 'perf') tab = 'info';
+  document.querySelectorAll('[data-vmtab]').forEach(b => b.classList.toggle('active', b.dataset.vmtab === tab));
+  document.querySelectorAll('[data-vmpane]').forEach(p => { p.hidden = p.dataset.vmpane !== tab; });
+  try { localStorage.setItem('hcm.vmtab', tab); } catch (_) {}
+  if (tab === 'perf' && _vmChartsFor !== vmDetailActiveUuid) {
+    _vmChartsFor = vmDetailActiveUuid;
+    await renderVmDetailCharts();
+  }
+}
+
+// the console opens in a new browser tab, one per click, so several can be open side by side
+function openVmConsole(cid, vm) {
+  if (!cid || !vm) return;
+  window.open(`/console/${encodeURIComponent(cid)}/${encodeURIComponent(vm)}`, '_blank');
+}
+
+// ─── VM edit window (admins): every setting, power actions, now or in a maintenance window ───
+// HCM holds a change set until it runs; changes that need the VM off run as OS shutdown, change, start.
+var _vmPending = {};                 // vm uuid -> its scheduled/running change set (badge in the list)
+let _ve = null;                      // {uuid, data, form}
+const GIB = 1073741824;
+const VE_VM_LIVE = ['name', 'description', 'tags', 'snapshotScheduleUUID', 'affinityStrategy'];
+async function loadVmPending() {
+  if (!(_currentUser?.role === 'admin' || _currentUser?.dev_mode) || !currentCluster) { _vmPending = {}; return; }
+  const d = await apiFetch('/api/backup/vmedit/changes?limit=200');
+  _vmPending = {};
+  for (const c of (d && d.changes) || []) if (c.status === 'scheduled' || c.status === 'running') _vmPending[c.vm_uuid] = c;
+}
+async function openVmEdit(uuid) {
+  closeVmModal();
+  const bd = document.getElementById('vmEditBackdrop');
+  document.getElementById('veBody').innerHTML = `<div class="loading"><div class="spinner"></div><span>${t('vmi.loading')}</span></div>`;
+  document.getElementById('veTitle').textContent = t('ve.edit');
+  document.getElementById('veFoot').hidden = true;
+  bd.classList.add('visible');
+  const r = await fetch(_withCluster(`/api/backup/vmedit/vm?vm=${encodeURIComponent(uuid)}`));
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { document.getElementById('veBody').innerHTML = `<div class="ve-msg" style="color:var(--accent-red)">${_exEsc(d.error || 'HTTP ' + r.status)}</div>`; return; }
+  _ve = {uuid, data: d, adds: [], nicAdds: [], remove: new Set(), boot: [...(d.vm.bootDevices || [])]};
+  _veRender();
+}
+function closeVmEdit(e) {
+  if (e && e.target !== document.getElementById('vmEditBackdrop')) return;
+  document.getElementById('vmEditBackdrop').classList.remove('visible');
+  _ve = null;
+}
+function _veDevLabel(dv) { return `${dv.name || dv.type} · slot ${dv.slot}`; }
+function _veRender() {
+  const {vm, nodes, isos, schedules, replications, changes} = _ve.data;
+  const E = v => _clEsc(v == null ? '' : String(v));
+  const on = !['SHUTOFF', 'CRASHED'].includes(vm.state);
+  document.getElementById('veTitle').innerHTML = `${t('ve.edit')} · ${E(vm.name)} <span class="vm-state-off" style="margin-left:8px;">${E((vm.state || '').toLowerCase())}</span>`;
+  const sel = (id, opts, cur, extra = '') => `<select id="${id}" ${extra || 'onchange="_veSummary()"'}>${opts.map(([v, l]) => `<option value="${E(v)}" ${String(v) === String(cur ?? '') ? 'selected' : ''}>${E(l)}</option>`).join('')}</select>`;
+  const nodeOpts = [['', '—'], ...nodes.map(n => [n.uuid, `${n.lan_ip} (peer ${n.peer_id})`])];
+  const aff = vm.affinityStrategy || {};
+  const devs = vm.blockDevs || [];
+  const isoOpts = [['', t('ve.iso_none')], ...isos.filter(i => i.ready !== false).map(i => [i.uuid, i.name])];
+  const curIso = dv => { const m = /scribe\/([0-9a-f-]+)/.exec(dv.path || ''); return m ? m[1] : ''; };
+  const pending = changes.find(c => c.status === 'scheduled' || c.status === 'running');
+  const diskRows = devs.filter(dv => !['NVRAM', 'VTPM'].includes(dv.type)).map(dv => {
+    const cd = dv.type === 'IDE_CDROM';
+    return `<tr id="ve-d-${dv.uuid}" class="${_ve.remove.has(dv.uuid) ? 'removing' : ''}">
+      <td>${E(dv.name || '—')}</td><td>${E(dv.type)}</td><td>${dv.slot}</td>
+      <td>${cd ? sel('ve-iso-' + dv.uuid, isoOpts, curIso(dv), `title="${E((isoOpts.find(x => x[0] === curIso(dv)) || ['', ''])[1])}" onchange="this.title = this.options[this.selectedIndex].text; _veSummary()"`) : `<input type="number" id="ve-cap-${dv.uuid}" min="${(dv.capacity / GIB).toFixed(1)}" step="1" value="${+(dv.capacity / GIB).toFixed(1)}" oninput="_veSummary()"> GB`}</td>
+      <td>${cd ? '' : sel('ve-cache-' + dv.uuid, ['NONE', 'WRITEBACK', 'WRITETHROUGH'].map(x => [x, x]), dv.cacheMode)}</td>
+      <td>${cd ? '' : `<input type="number" id="ve-tier-${dv.uuid}" min="0" max="11" value="${dv.tieringPriorityFactor ?? 0}" oninput="_veSummary()" style="width:56px">`}</td>
+      <td>${cd ? '' : `<input type="checkbox" id="ve-nosnap-${dv.uuid}" ${dv.disableSnapshotting ? 'checked' : ''} onchange="_veSummary()">`}</td>
+      <td><button class="um-action-btn danger" onclick="_veToggleRemove('${dv.uuid}')">${_ve.remove.has(dv.uuid) ? t('ve.keep') : t('ve.remove')}</button></td></tr>`;
+  }).join('') + _ve.adds.map((a, i) => `<tr><td><em>${t('ve.new')}</em></td>
+      <td>${sel('ve-add-type-' + i, ['VIRTIO_DISK', 'SCSI_DISK', 'IDE_DISK', 'IDE_CDROM'].map(x => [x, x]), a.type)}</td><td></td>
+      <td><input type="number" id="ve-add-cap-${i}" min="1" value="${a.cap}" oninput="_veSummary()"> GB</td>
+      <td>${sel('ve-add-cache-' + i, ['WRITETHROUGH', 'WRITEBACK', 'NONE'].map(x => [x, x]), a.cache)}</td><td></td><td></td>
+      <td><button class="um-action-btn" onclick="_ve.adds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
+  const nics = vm.netDevs || [];
+  const nicRows = nics.map(n => `<tr id="ve-n-${n.uuid}" class="${_ve.remove.has(n.uuid) ? 'removing' : ''}">
+      <td>${sel('ve-ntype-' + n.uuid, ['VIRTIO', 'INTEL_E1000', 'RTL8139', 'PCNET'].map(x => [x, x]), n.type)}</td>
+      <td><input type="number" id="ve-vlan-${n.uuid}" min="0" max="4094" value="${n.vlan}" oninput="_veSummary()" style="width:70px"></td>
+      <td><input type="text" id="ve-mac-${n.uuid}" value="${E(n.macAddress)}" oninput="_veSummary()" style="width:150px;font-family:'JetBrains Mono',monospace"></td>
+      <td><input type="checkbox" id="ve-conn-${n.uuid}" ${n.connected ? 'checked' : ''} onchange="_veSummary()"></td>
+      <td>${E((n.ipv4Addresses || []).join(', '))}</td>
+      <td><button class="um-action-btn danger" onclick="_veToggleRemove('${n.uuid}')">${_ve.remove.has(n.uuid) ? t('ve.keep') : t('ve.remove')}</button></td></tr>`).join('')
+    + _ve.nicAdds.map((a, i) => `<tr><td>${sel('ve-nadd-type-' + i, ['VIRTIO', 'INTEL_E1000', 'RTL8139', 'PCNET'].map(x => [x, x]), a.type)}</td>
+      <td><input type="number" id="ve-nadd-vlan-${i}" min="0" max="4094" value="${a.vlan}" oninput="_veSummary()" style="width:70px"></td>
+      <td><input type="text" id="ve-nadd-mac-${i}" placeholder="${t('ve.mac_auto')}" oninput="_veSummary()" style="width:150px"></td>
+      <td><input type="checkbox" id="ve-nadd-conn-${i}" checked onchange="_veSummary()"></td><td><em>${t('ve.new')}</em></td>
+      <td><button class="um-action-btn" onclick="_ve.nicAdds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
+  const bootList = _ve.boot.map((u, i) => { const dv = devs.find(x => x.uuid === u); return `<li>${E(dv ? _veDevLabel(dv) : u)}
+      <button class="um-action-btn" ${i === 0 ? 'disabled' : ''} onclick="_veBoot(${i},-1)">▲</button><button class="um-action-btn" ${i === _ve.boot.length - 1 ? 'disabled' : ''} onclick="_veBoot(${i},1)">▼</button>
+      <button class="um-action-btn" onclick="_ve.boot.splice(${i},1);_veRender()">✕</button></li>`; }).join('');
+  const notInBoot = devs.filter(dv => !_ve.boot.includes(dv.uuid) && !['NVRAM', 'VTPM'].includes(dv.type));
+  const chg = changes.map(c => `<div class="ve-chg"><span class="st ${c.status}">${t('ve.st_' + c.status)}</span>
+      <b>${E(c.run_at ? _exFmt(c.run_at) : t('ve.now'))}</b> · ${E(c.summary || c.kind)} · ${E(c.created_by || '?')}
+      ${c.status === 'scheduled' ? ` <button class="um-action-btn" onclick="veCancel(${c.id})">${t('ve.cancel_change')}</button>` : ''}
+      ${c.error ? `<div style="color:var(--accent-red);margin-top:3px;">${E(c.error)}</div>` : ''}
+      ${(c.result || []).length ? `<details style="margin-top:3px;"><summary style="cursor:pointer;color:var(--text-muted);">${t('ve.steps')}</summary>${c.result.map(x => `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:${x.ok ? 'var(--text-secondary)' : 'var(--accent-red)'}">${_exFmt(x.at)} ${x.ok ? '✓' : '✕'} ${E(x.step)}${x.detail ? ' — ' + E(x.detail) : ''}</div>`).join('')}</details>` : ''}</div>`).join('');
+  document.getElementById('veBody').innerHTML = `
+    ${pending ? `<div class="ve-sec" style="border-color:var(--accent-amber);font-size:12px;color:var(--accent-amber);">${t('ve.has_pending')}</div>` : ''}
+    <div class="ve-power">
+      <span style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.05em;margin-right:6px;">${t('ve.power')}</span>
+      <button class="um-action-btn" ${on ? 'disabled' : ''} onclick="vePower('START')">${t('ve.p_start')}</button>
+      <button class="um-action-btn" ${on ? '' : 'disabled'} onclick="vePower('SHUTDOWN')" title="${E(t('ve.p_shutdown_hint'))}">${t('ve.p_shutdown')}</button>
+      <button class="um-action-btn" ${on ? '' : 'disabled'} onclick="vePower('REBOOT')">${t('ve.p_reboot')}</button>
+      <button class="um-action-btn danger" ${on ? '' : 'disabled'} onclick="vePower('STOP')" title="${E(t('ve.p_stop_hint'))}">${t('ve.p_stop')}</button>
+      <button class="um-action-btn danger" ${on ? '' : 'disabled'} onclick="vePower('RESET')" title="${E(t('ve.p_reset_hint'))}">${t('ve.p_reset')}</button>
+    </div>
+    <div class="ve-sec"><h3>${t('ve.general')}</h3><div class="ve-grid">
+      <label>${t('vmi.d_name')}<input type="text" id="ve-name" value="${E(vm.name)}" oninput="_veSummary()"></label>
+      <label>${t('vmi.description')}<input type="text" id="ve-desc" value="${E(vm.description)}" oninput="_veSummary()"></label>
+      <label>${t('vmi.tags')}<input type="text" id="ve-tags" value="${E(vm.tags)}" oninput="_veSummary()"></label>
+      <label>${t('vmi.os')}${sel('ve-os', [['os_windows_server_2012', 'Windows'], ['os_other', t('ve.os_other')]], vm.operatingSystem)}</label>
+      <label>${t('vmi.vcpus')} <span class="ve-cyc">⟳</span><input type="number" id="ve-cpu" min="1" max="256" value="${vm.numVCPU}" oninput="_veSummary()"></label>
+      <label>${t('vmi.memory')} (GB) <span class="ve-cyc">⟳</span><input type="number" id="ve-mem" min="0.125" step="0.5" value="${+(vm.mem / GIB).toFixed(2)}" oninput="_veSummary()"></label>
+      <label>${t('ve.l_schedule')}${sel('ve-sched', [['', t('ve.no_schedule')], ...schedules.map(x => [x.uuid, x.name])], vm.snapshotScheduleUUID)}</label>
+      <label>${t('ve.l_preferred')}${sel('ve-aff-pref', nodeOpts, aff.preferredNodeUUID)}</label>
+      <label>${t('ve.l_backup_node')}${sel('ve-aff-back', nodeOpts, aff.backupNodeUUID)}</label>
+      <label style="flex-direction:row;align-items:center;gap:6px;margin-top:16px;"><input type="checkbox" id="ve-aff-strict" ${aff.strictAffinity ? 'checked' : ''} onchange="_veSummary()"> ${t('ve.strict_affinity')}</label>
+    </div>
+    <div class="ve-field" style="margin-top:12px;">${t('vmi.boot_order')} <span class="ve-cyc">⟳</span><ol class="ve-boot">${bootList}</ol>
+      ${notInBoot.length ? `<div>${sel('ve-boot-add', [['', t('ve.boot_add')], ...notInBoot.map(dv => [dv.uuid, _veDevLabel(dv)])])} <button class="um-action-btn" onclick="_veBootAdd()">+</button></div>` : ''}</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">⟳ ${t('ve.cycle_hint')}</div></div>
+    <div class="ve-sec"><h3>${t('vmi.disks')} <button class="um-action-btn" onclick="_ve.adds.push({type:'VIRTIO_DISK',cap:50,cache:'WRITETHROUGH'});_veRender()">+ ${t('ve.add_disk')}</button></h3>
+      <table class="ve-tbl"><thead><tr><th>${t('vmi.d_name')}</th><th>${t('vmi.d_type')}</th><th>${t('vmi.d_slot')}</th><th>${t('ve.size_or_iso')}</th><th>${t('vmi.d_cache')} ⟳</th><th>${t('vmi.d_tier')}</th><th>${t('vmi.d_snap_off')}</th><th></th></tr></thead><tbody>${diskRows}</tbody></table></div>
+    <div class="ve-sec"><h3>${t('vmi.nics')} ⟳ <button class="um-action-btn" onclick="_ve.nicAdds.push({type:'VIRTIO',vlan:0});_veRender()">+ ${t('ve.add_nic')}</button></h3>
+      <table class="ve-tbl"><thead><tr><th>${t('vmi.n_type')}</th><th>VLAN</th><th>${t('vmi.n_mac')}</th><th>${t('vmi.n_connected')}</th><th>${t('vmi.n_ip')}</th><th></th></tr></thead><tbody>${nicRows}</tbody></table></div>
+    ${(_ve.data.connections || []).length || replications.length ? `<div class="ve-sec"><h3>${t('ve.replication')}</h3>
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--text-secondary);">
+        ${replications.length ? (rp => `<span>${E(t('ve.rep_to', {cluster: rp.target_cluster || rp.connection || '?'}))}${rp.label ? ` (${E(rp.label)})` : ''}${rp.connection_status && rp.connection_status !== 'ESTABLISHED' ? ` <span style="color:var(--accent-amber)">(${E(rp.connection_status.toLowerCase())})</span>` : ''}</span>
+            <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="ve-rep-pause" ${rp.enable ? '' : 'checked'} onchange="_veSummary()"> ${t('ve.rep_pause')}</label>`)(replications[0])
+          : sel('ve-rep', [['', t('ve.rep_none')], ...(_ve.data.connections || []).map(c => [c.uuid, c.cluster + (c.status && c.status !== 'ESTABLISHED' ? ` (${c.status.toLowerCase()})` : '')])], '')}
+        <span id="ve-rep-hint" style="color:var(--text-muted);"></span>
+      </div>${replications.length ? `<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('ve.rep_end_note')}</div>` : ''}</div>` : ''}
+    <div class="ve-sec"><h3>${t('ve.changes')}</h3>${chg || `<div style="font-size:12px;color:var(--text-muted);">${t('ve.no_changes_yet')}</div>`}</div>
+    <div class="ve-sec ve-danger"><h3 style="color:var(--accent-red)">${t('ve.danger')}</h3>
+      <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--text-secondary);"><button class="um-action-btn danger" onclick="veDelete()">${t('ve.delete_vm')}</button> ${t('ve.delete_hint')}</div></div>`;
+  document.getElementById('veFoot').hidden = false;
+  document.getElementById('veMsg').textContent = '';
+  _veSummary();
+}
+function _veToggleRemove(u) { if (_ve.remove.has(u)) _ve.remove.delete(u); else _ve.remove.add(u); _veRender(); }
+function _veBoot(i, d) { const b = _ve.boot; [b[i], b[i + d]] = [b[i + d], b[i]]; _veRender(); }
+function _veBootAdd() { const v = document.getElementById('ve-boot-add').value; if (v) { _ve.boot.push(v); _veRender(); } }
+const _veVal = id => { const el = document.getElementById(id); return el ? (el.type === 'checkbox' ? el.checked : el.value) : undefined; };
+function _veOps() {
+  // compare the form with the VM as loaded; the backup service validates and classifies again
+  const {vm, replications} = _ve.data;
+  const ops = [], f = {};
+  const mark = (id, changed) => { const el = document.getElementById(id); if (el) el.classList.toggle('changed', !!changed); return changed; };
+  if (mark('ve-name', _veVal('ve-name').trim() !== vm.name)) f.name = _veVal('ve-name').trim();
+  if (mark('ve-desc', _veVal('ve-desc') !== (vm.description || ''))) f.description = _veVal('ve-desc');
+  const tags = _veVal('ve-tags').split(',').map(x => x.trim()).filter(Boolean).join(',');
+  if (mark('ve-tags', tags !== (vm.tags || ''))) f.tags = tags;
+  if (mark('ve-os', _veVal('ve-os') !== vm.operatingSystem)) f.operatingSystem = _veVal('ve-os');
+  if (mark('ve-cpu', parseInt(_veVal('ve-cpu'), 10) !== vm.numVCPU)) f.numVCPU = parseInt(_veVal('ve-cpu'), 10);
+  const mem = Math.round(parseFloat(_veVal('ve-mem')) * GIB);
+  if (mark('ve-mem', Math.abs(mem - vm.mem) > GIB / 1024)) f.mem = mem;
+  if (mark('ve-sched', _veVal('ve-sched') !== (vm.snapshotScheduleUUID || ''))) f.snapshotScheduleUUID = _veVal('ve-sched');
+  const aff = vm.affinityStrategy || {};
+  const na = {strictAffinity: _veVal('ve-aff-strict'), preferredNodeUUID: _veVal('ve-aff-pref'), backupNodeUUID: _veVal('ve-aff-back')};
+  const affChanged = [mark('ve-aff-pref', na.preferredNodeUUID !== (aff.preferredNodeUUID || '')), mark('ve-aff-back', na.backupNodeUUID !== (aff.backupNodeUUID || '')),
+                      na.strictAffinity !== !!aff.strictAffinity].some(Boolean);
+  if (affChanged) f.affinityStrategy = na;
+  if (JSON.stringify(_ve.boot) !== JSON.stringify(vm.bootDevices || [])) f.bootDevices = [..._ve.boot];
+  // live fields and fields that need the cycle as two changes, so the summary says which is which
+  const fLive = Object.fromEntries(Object.entries(f).filter(([k]) => VE_VM_LIVE.includes(k)));
+  const fCyc = Object.fromEntries(Object.entries(f).filter(([k]) => !VE_VM_LIVE.includes(k)));
+  if (Object.keys(fLive).length) ops.push({op: 'vm', fields: fLive});
+  if (Object.keys(fCyc).length) ops.push({op: 'vm', fields: fCyc});
+  for (const dv of vm.blockDevs || []) {
+    if (_ve.remove.has(dv.uuid)) { ops.push({op: 'disk_remove', device: dv.uuid}); continue; }
+    if (dv.type === 'IDE_CDROM') {
+      const iso = _veVal('ve-iso-' + dv.uuid); if (iso === undefined) continue;
+      const cur = (/scribe\/([0-9a-f-]+)/.exec(dv.path || '') || [])[1] || '';
+      if (mark('ve-iso-' + dv.uuid, iso !== cur)) ops.push({op: 'iso', device: dv.uuid, iso_uuid: iso || null, iso_name: (_ve.data.isos.find(i => i.uuid === iso) || {}).name || ''});
+      continue;
+    }
+    if (['NVRAM', 'VTPM'].includes(dv.type)) continue;
+    const cap = Math.round(parseFloat(_veVal('ve-cap-' + dv.uuid)) * GIB);
+    if (mark('ve-cap-' + dv.uuid, cap > dv.capacity + GIB / 1024)) ops.push({op: 'disk_resize', device: dv.uuid, capacity: cap});
+    const df = {};
+    if (mark('ve-cache-' + dv.uuid, _veVal('ve-cache-' + dv.uuid) !== dv.cacheMode)) df.cacheMode = _veVal('ve-cache-' + dv.uuid);
+    if (mark('ve-tier-' + dv.uuid, parseInt(_veVal('ve-tier-' + dv.uuid), 10) !== (dv.tieringPriorityFactor ?? 0))) df.tieringPriorityFactor = parseInt(_veVal('ve-tier-' + dv.uuid), 10);
+    if (_veVal('ve-nosnap-' + dv.uuid) !== !!dv.disableSnapshotting) df.disableSnapshotting = _veVal('ve-nosnap-' + dv.uuid);
+    if (Object.keys(df).length) ops.push({op: 'disk_set', device: dv.uuid, fields: df});
+  }
+  _ve.adds.forEach((a, i) => { a.type = _veVal('ve-add-type-' + i); a.cap = _veVal('ve-add-cap-' + i); a.cache = _veVal('ve-add-cache-' + i);
+    ops.push({op: 'disk_add', type: a.type, capacity: Math.round(parseFloat(a.cap) * GIB), cacheMode: a.cache}); });
+  for (const n of vm.netDevs || []) {
+    if (_ve.remove.has(n.uuid)) { ops.push({op: 'nic_remove', device: n.uuid}); continue; }
+    const nf = {};
+    if (mark('ve-ntype-' + n.uuid, _veVal('ve-ntype-' + n.uuid) !== n.type)) nf.type = _veVal('ve-ntype-' + n.uuid);
+    if (mark('ve-vlan-' + n.uuid, parseInt(_veVal('ve-vlan-' + n.uuid), 10) !== n.vlan)) nf.vlan = parseInt(_veVal('ve-vlan-' + n.uuid), 10);
+    if (mark('ve-mac-' + n.uuid, _veVal('ve-mac-' + n.uuid).trim().toUpperCase() !== (n.macAddress || '').toUpperCase())) nf.macAddress = _veVal('ve-mac-' + n.uuid).trim().toUpperCase();
+    if (_veVal('ve-conn-' + n.uuid) !== !!n.connected) nf.connected = _veVal('ve-conn-' + n.uuid);
+    if (Object.keys(nf).length) ops.push({op: 'nic_set', device: n.uuid, fields: nf});
+  }
+  _ve.nicAdds.forEach((a, i) => { a.type = _veVal('ve-nadd-type-' + i); a.vlan = _veVal('ve-nadd-vlan-' + i);
+    const o = {op: 'nic_add', type: a.type, vlan: parseInt(a.vlan, 10) || 0, connected: _veVal('ve-nadd-conn-' + i)};
+    const mac = (_veVal('ve-nadd-mac-' + i) || '').trim(); if (mac) o.macAddress = mac.toUpperCase();
+    ops.push(o); });
+  // replication: create one (VM without), or pause / resume its transmissions (VM with); nothing else is in the API
+  const repSel = _veVal('ve-rep'), repPause = _veVal('ve-rep-pause'), hint = document.getElementById('ve-rep-hint');
+  if (hint) hint.textContent = '';
+  if (repSel && mark('ve-rep', true)) {
+    const name = ((_ve.data.connections || []).find(c => c.uuid === repSel) || {}).cluster || repSel;
+    ops.push({op: 'replication', target: repSel, text: t('ve.rep_to', {cluster: name})});
+    if (hint) hint.textContent = t('ve.rep_hint_new');
+  } else if (repSel !== undefined) mark('ve-rep', false);
+  if (repPause !== undefined && replications.length && repPause === !!replications[0].enable) {
+    ops.push({op: 'replication', pause: repPause, text: repPause ? t('ve.rep_paused') : t('ve.rep_resumed')});
+  }
+  return ops;
+}
+function _veIsCycle(o) {
+  if (o.op === 'vm') return Object.keys(o.fields).some(k => !VE_VM_LIVE.includes(k));
+  if (o.op === 'disk_set') return 'cacheMode' in o.fields;
+  if (o.op === 'nic_set') return Object.keys(o.fields).some(k => k !== 'connected');
+  if (o.op === 'disk_add') return o.type === 'IDE_CDROM';
+  return ['disk_remove', 'nic_add', 'nic_remove'].includes(o.op);
+}
+function _veOpText(o) {
+  const {vm} = _ve.data;
+  const dv = u => { const d = (vm.blockDevs || []).find(x => x.uuid === u); return d ? _veDevLabel(d) : u; };
+  const nc = u => ((vm.netDevs || []).find(x => x.uuid === u) || {}).macAddress || u;
+  switch (o.op) {
+    case 'vm': return Object.entries(o.fields).map(([k, v]) => k === 'mem' ? `${t('vmi.memory')} ${+(v / GIB).toFixed(2)} GB` : k === 'numVCPU' ? `${t('vmi.vcpus')} ${v}`
+      : k === 'bootDevices' ? t('vmi.boot_order') : k === 'affinityStrategy' ? t('vmi.affinity') : k === 'snapshotScheduleUUID' ? t('vmi.schedule')
+      : k === 'operatingSystem' ? t('vmi.os') : `${k}: ${v}`).join(', ');
+    case 'disk_resize': return `${t('ve.op_grow')} ${dv(o.device)} → ${+(o.capacity / GIB).toFixed(1)} GB`;
+    case 'disk_set': return `${dv(o.device)}: ${Object.entries(o.fields).map(([k, v]) => `${k} ${v}`).join(', ')}`;
+    case 'disk_add': return `${t('ve.add_disk')} ${o.type}${o.type !== 'IDE_CDROM' ? ' ' + +(o.capacity / GIB).toFixed(1) + ' GB' : ''}`;
+    case 'disk_remove': return `<b style="color:var(--accent-red)">${t('ve.op_remove_disk')} ${_clEsc(dv(o.device))}</b>`;
+    case 'iso': return `${dv(o.device)}: ${o.iso_uuid ? _clEsc(o.iso_name) : t('ve.iso_none')}`;
+    case 'nic_set': return `NIC ${nc(o.device)}: ${Object.entries(o.fields).map(([k, v]) => `${k} ${v}`).join(', ')}`;
+    case 'nic_add': return `${t('ve.add_nic')} ${o.type} VLAN ${o.vlan}`;
+    case 'nic_remove': return `<b style="color:var(--accent-red)">${t('ve.op_remove_nic')} ${nc(o.device)}</b>`;
+    case 'replication': return `${t('ve.replication')}: ${_clEsc(o.text || '')}`;
+  }
+  return o.op;
+}
+function _veSummary() {
+  if (!_ve) return;
+  const ops = _veOps();
+  const live = ops.filter(o => !_veIsCycle(o)), cyc = ops.filter(_veIsCycle);
+  const destructive = ops.some(o => o.op === 'disk_remove' || o.op === 'nic_remove');
+  const on = !['SHUTOFF', 'CRASHED'].includes(_ve.data.vm.state);
+  document.getElementById('veSummary').innerHTML = !ops.length ? `<span style="color:var(--text-muted)">${t('ve.no_edits')}</span>` :
+    (live.length ? `<div><b>${t('ve.live')}:</b> ${live.map(_veOpText).join('; ')}</div>` : '') +
+    (cyc.length ? `<div class="cyc"><b>${on ? t('ve.cycle_running') : t('ve.cycle_off')}:</b> ${cyc.map(_veOpText).join('; ')}</div>` : '');
+  document.getElementById('veConfirmRow').hidden = !destructive;
+  document.getElementById('veForceRow').hidden = !(cyc.length && on);
+  document.getElementById('veApply').disabled = !ops.length;
+}
+function _veWhen() {
+  const sched = document.querySelector('input[name="veWhen"]:checked').value === 'at';
+  if (!sched) return {run_at: null};
+  const v = document.getElementById('veAt').value;
+  if (!v) throw new Error(t('ve.pick_time'));
+  const d = new Date(v);
+  if (d < new Date()) throw new Error(t('ve.time_past'));
+  return {run_at: d.toISOString()};
+}
+async function _veSubmit(kind, ops, confirmName) {
+  const msg = document.getElementById('veMsg');
+  let when;
+  try { when = _veWhen(); } catch (e) { msg.style.color = 'var(--accent-red)'; msg.textContent = e.message; return false; }
+  const body = Object.assign({cluster_id: currentCluster, vm_uuid: _ve.uuid, kind, ops, confirm_name: confirmName || '',
+    force_off: document.getElementById('veForce').checked, shutdown_timeout_min: parseInt(document.getElementById('veTimeout').value, 10) || 10}, when);
+  msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
+  const r = await fetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return false; }
+  msg.style.color = 'var(--accent-green)';
+  msg.textContent = when.run_at ? t('ve.scheduled_ok', {when: _exFmt(when.run_at)}) : t('ve.started_ok');
+  vmIndexStale();
+  setTimeout(async () => { if (_ve) await openVmEdit(_ve.uuid); vmIndexStale(); loadVMs(); }, when.run_at ? 600 : 2500);
+  return true;
+}
+function veApply() { _veSubmit('edit', _veOps(), _veVal('veConfirm')); }
+function vePower(action) {
+  const labels = {START: t('ve.p_start'), SHUTDOWN: t('ve.p_shutdown'), REBOOT: t('ve.p_reboot'), STOP: t('ve.p_stop'), RESET: t('ve.p_reset')};
+  const at = document.querySelector('input[name="veWhen"]:checked').value === 'at';
+  if (!confirm(t('ve.power_confirm', {action: labels[action], vm: _ve.data.vm.name}) + (at ? ' ' + t('ve.power_at', {when: document.getElementById('veAt').value || '?'}) : ''))) return;
+  document.getElementById('veForceRow').hidden = action !== 'SHUTDOWN';
+  _veSubmit('power', [{op: 'power', action}]);
+}
+function veDelete() {
+  const name = prompt(t('ve.delete_prompt', {vm: _ve.data.vm.name}));
+  if (name === null) return;
+  _veSubmit('delete', [], name);
+}
+async function veCancel(id) {
+  const r = await fetch(_withCluster(`/api/backup/vmedit/changes/${id}/cancel`), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({cluster_id: currentCluster})});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { document.getElementById('veMsg').textContent = d.error || `HTTP ${r.status}`; return; }
+  await openVmEdit(_ve.uuid);
+  loadVmPending().then(renderVmCards);
+}
+
+// ─── New VM (admins): created now or at a time, by the backup service as a 'create' change set ───
+let _vn = null;
+async function openNewVm() {
+  const bd = document.getElementById('vmNewBackdrop');
+  document.getElementById('vnBody').innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+  document.getElementById('vnFoot').hidden = true;
+  bd.classList.add('visible');
+  const r = await fetch(_withCluster('/api/backup/vmedit/options'));
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { document.getElementById('vnBody').innerHTML = `<div class="ve-msg" style="color:var(--accent-red)">${_exEsc(d.error || 'HTTP ' + r.status)}</div>`; return; }
+  _vn = {opts: d, disks: [{type: 'VIRTIO_DISK', cap: 50, image: ''}], nics: [{type: 'VIRTIO', vlan: 0}], change: null};
+  _vnRender();
+}
+function closeNewVm(e) {
+  if (e && e.target !== document.getElementById('vmNewBackdrop')) return;
+  document.getElementById('vmNewBackdrop').classList.remove('visible');
+  _vn = null;
+}
+function _vnSync() {
+  // keep typed values when rows are added or removed
+  if (!_vn || !document.getElementById('vn-name')) return;
+  _vn.disks.forEach((x, i) => { x.type = _veVal('vn-dtype-' + i); x.cap = _veVal('vn-dcap-' + i); x.image = i === 0 ? _veVal('vn-dimg-0') : ''; });
+  _vn.nics.forEach((x, i) => { x.type = _veVal('vn-ntype-' + i); x.vlan = _veVal('vn-nvlan-' + i); });
+  _vn.form = Object.fromEntries(['vn-name', 'vn-desc', 'vn-tags', 'vn-os', 'vn-fw', 'vn-sb', 'vn-cpu', 'vn-mem', 'vn-sched', 'vn-iso', 'vn-tools', 'vn-start', 'vn-ci'].map(k => [k, _veVal(k)]));
+}
+function _vnRender() {
+  const E = v => _clEsc(v == null ? '' : String(v));
+  const f = _vn.form || {'vn-os': 'os_other', 'vn-fw': 'uefi', 'vn-sb': false, 'vn-cpu': 2, 'vn-mem': 4, 'vn-start': true, 'vn-tools': false};
+  const sel = (id, opts, cur, extra = '') => `<select id="${id}" ${extra}>${opts.map(([v, l]) => `<option value="${E(v)}" ${String(v) === String(cur ?? '') ? 'selected' : ''}>${E(l)}</option>`).join('')}</select>`;
+  const o = _vn.opts;
+  const imgOpts = [['', t('vn.empty_disk')], ...o.images.map(i => [i.uuid, `${i.name} (${_gb(i.capacity)} GB)`])];
+  const disks = _vn.disks.map((x, i) => `<tr><td>${sel('vn-dtype-' + i, ['VIRTIO_DISK', 'SCSI_DISK', 'IDE_DISK'].map(v => [v, v]), x.type)}</td>
+      <td><input type="number" id="vn-dcap-${i}" min="1" value="${E(x.cap)}" style="width:80px"> GB</td>
+      <td>${i === 0 ? sel('vn-dimg-0', imgOpts, x.image, 'onchange="_vnSync();_vnRender()"') : `<span style="color:var(--text-muted)">${t('vn.empty_disk')}</span>`}</td>
+      <td><button class="um-action-btn" onclick="_vnSync();_vn.disks.splice(${i},1);_vnRender()">✕</button></td></tr>`).join('');
+  const nics = _vn.nics.map((x, i) => `<tr><td>${sel('vn-ntype-' + i, ['VIRTIO', 'INTEL_E1000', 'RTL8139', 'PCNET'].map(v => [v, v]), x.type)}</td>
+      <td><input type="number" id="vn-nvlan-${i}" min="0" max="4094" value="${E(x.vlan)}" style="width:80px"></td>
+      <td><button class="um-action-btn" onclick="_vnSync();_vn.nics.splice(${i},1);_vnRender()">✕</button></td></tr>`).join('');
+  const fromImage = !!(_vn.disks[0] && _vn.disks[0].image);
+  document.getElementById('vnBody').innerHTML = `
+    <div class="ve-sec"><h3>${t('ve.general')}</h3><div class="ve-grid">
+      <label>${t('vmi.d_name')} *<input type="text" id="vn-name" value="${E(f['vn-name'])}"></label>
+      <label>${t('vmi.description')}<input type="text" id="vn-desc" value="${E(f['vn-desc'])}"></label>
+      <label>${t('vmi.tags')}<input type="text" id="vn-tags" value="${E(f['vn-tags'])}"></label>
+      <label>${t('vmi.os')}${sel('vn-os', [['os_windows_server_2012', 'Windows'], ['os_other', t('ve.os_other')]], f['vn-os'])}</label>
+      <label>${t('vmi.firmware')}${sel('vn-fw', [['bios', 'BIOS'], ['uefi', 'UEFI'], ['tpm', 'UEFI + vTPM'], ['tpm-compatible', t('vn.tpm_compat')]], f['vn-fw'])}</label>
+      <label style="flex-direction:row;align-items:center;gap:6px;margin-top:16px;"><input type="checkbox" id="vn-sb" ${f['vn-sb'] ? 'checked' : ''}> ${t('vmi.secure_boot')} (UEFI)</label>
+      <label>${t('vmi.vcpus')}<input type="number" id="vn-cpu" min="1" max="256" value="${E(f['vn-cpu'])}"></label>
+      <label>${t('vmi.memory')} (GB)<input type="number" id="vn-mem" min="0.125" step="0.5" value="${E(f['vn-mem'])}"></label>
+      <label>${t('ve.l_schedule')}${sel('vn-sched', [['', t('ve.no_schedule')], ...o.schedules.map(x => [x.uuid, x.name])], f['vn-sched'])}</label>
+    </div></div>
+    <div class="ve-sec"><h3>${t('vmi.disks')} <button class="um-action-btn" onclick="_vnSync();_vn.disks.push({type:'VIRTIO_DISK',cap:20,image:''});_vnRender()">+ ${t('ve.add_disk')}</button></h3>
+      <table class="ve-tbl"><thead><tr><th>${t('vmi.d_type')}</th><th>${t('vmi.d_capacity')}</th><th>${t('vn.source')}</th><th></th></tr></thead><tbody>${disks}</tbody></table>
+      <div class="ve-grid" style="margin-top:10px;">
+        <label>${t('vn.install_iso')}${sel('vn-iso', [['', t('ve.iso_none')], ...o.isos.map(i => [i.uuid, i.name])], f['vn-iso'])}</label>
+        <label style="flex-direction:row;align-items:center;gap:6px;margin-top:16px;"><input type="checkbox" id="vn-tools" ${f['vn-tools'] ? 'checked' : ''}> ${t('vn.guest_tools')}</label>
+      </div></div>
+    <div class="ve-sec"><h3>${t('vmi.nics')} <button class="um-action-btn" onclick="_vnSync();_vn.nics.push({type:'VIRTIO',vlan:0});_vnRender()">+ ${t('ve.add_nic')}</button></h3>
+      <table class="ve-tbl"><thead><tr><th>${t('vmi.n_type')}</th><th>VLAN</th><th></th></tr></thead><tbody>${nics}</tbody></table></div>
+    ${fromImage ? `<div class="ve-sec"><h3>cloud-init user-data</h3><div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">${t('vn.ci_hint')}</div>
+      <textarea id="vn-ci" spellcheck="false" style="width:100%;min-height:120px;background:var(--bg-nested);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:8px;font-family:'JetBrains Mono',monospace;font-size:12px;">${E(f['vn-ci'] || '#cloud-config\n')}</textarea></div>` : ''}
+    <label style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text-secondary);"><input type="checkbox" id="vn-start" ${f['vn-start'] ? 'checked' : ''}> ${t('vn.start_after')}</label>
+    <div id="vnProgress"></div>`;
+  document.getElementById('vnFoot').hidden = false;
+}
+async function vnCreate() {
+  _vnSync();
+  const msg = document.getElementById('vnMsg');
+  const fm = _vn.form;
+  const spec = {name: fm['vn-name'], description: fm['vn-desc'], tags: fm['vn-tags'], operatingSystem: fm['vn-os'], firmware: fm['vn-fw'],
+    secure_boot: fm['vn-sb'], numVCPU: parseInt(fm['vn-cpu'], 10), mem: Math.round(parseFloat(fm['vn-mem']) * GIB),
+    snapshotScheduleUUID: fm['vn-sched'], iso_uuid: fm['vn-iso'] || null, guest_tools: fm['vn-tools'], start: fm['vn-start'],
+    cloud_init: _vn.disks[0] && _vn.disks[0].image ? (fm['vn-ci'] || '') : '',
+    disks: _vn.disks.map(x => ({type: x.type, capacity: Math.round(parseFloat(x.cap) * GIB), image_uuid: x.image || null})),
+    nics: _vn.nics.map(x => ({type: x.type, vlan: parseInt(x.vlan, 10) || 0, connected: true}))};
+  let run_at = null;
+  if (document.querySelector('input[name="vnWhen"]:checked').value === 'at') {
+    const v = document.getElementById('vnAt').value;
+    if (!v || new Date(v) < new Date()) { msg.style.color = 'var(--accent-red)'; msg.textContent = t('ve.pick_time'); return; }
+    run_at = new Date(v).toISOString();
+  }
+  msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
+  const r = await fetch(_withCluster('/api/backup/vmedit/new'), {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({cluster_id: currentCluster, spec, run_at})});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return; }
+  document.getElementById('vnCreate').disabled = true;
+  if (run_at) { msg.style.color = 'var(--accent-green)'; msg.textContent = t('ve.scheduled_ok', {when: _exFmt(run_at)}); return; }
+  msg.textContent = '';
+  _vnWatch(d.id);
+}
+async function _vnWatch(id) {
+  const box = document.getElementById('vnProgress');
+  for (let i = 0; i < 400 && _vn; i++) {
+    const d = await apiFetch('/api/backup/vmedit/changes?limit=30');
+    const c = ((d && d.changes) || []).find(x => x.id === id);
+    if (c && box) {
+      box.innerHTML = `<div class="ve-sec"><h3>${t('vn.progress')} · <span class="vm-state-off">${t('ve.st_' + c.status)}</span></h3>${(c.result || []).map(x =>
+        `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:${x.ok ? 'var(--text-secondary)' : 'var(--accent-red)'}">${_exFmt(x.at)} ${x.ok ? '✓' : '✕'} ${_clEsc(x.step)}</div>`).join('')}
+        ${c.error ? `<div style="color:var(--accent-red);font-size:12px;margin-top:4px;">${_clEsc(c.error)}</div>` : ''}
+        ${c.status === 'done' && c.vm_uuid ? `<div style="margin-top:8px;display:flex;gap:6px;"><button class="um-action-btn" onclick="closeNewVm();openVmEdit('${c.vm_uuid}')">${t('ve.edit')}</button><button class="um-action-btn" onclick="openVmConsole(currentCluster,'${c.vm_uuid}')">${t('console.open')}</button></div>` : ''}</div>`;
+      box.scrollIntoView({block: 'nearest'});
+      if (['done', 'failed', 'cancelled'].includes(c.status)) { vmIndexStale(); if (typeof loadVMs === 'function') loadVMs(); return; }
+    }
+    await new Promise(res => setTimeout(res, 2500));
+  }
+}
+
+// line icons for the VM details (24x24, stroke = currentColor, so they follow the theme)
+const VMI_ICONS = {
+  power: '<path d="M12 3v8"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/>',
+  server: '<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+  monitor: '<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/>',
+  cpu: '<rect x="6" y="6" width="12" height="12" rx="1.5"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+  memory: '<rect x="2" y="7" width="20" height="10" rx="1.5"/><path d="M6 11v2M10 11v2M14 11v2M18 11v2M5 17v3M9 17v3M15 17v3M19 17v3"/>',
+  agent: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
+  box: '<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  chip: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8v8H8z"/>',
+  keyboard: '<rect x="2" y="6" width="20" height="12" rx="1.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
+  pin: '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+  camera: '<path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/>',
+  copy: '<rect x="8" y="8" width="13" height="13" rx="1.5"/><path d="M16 8V4.5A1.5 1.5 0 0 0 14.5 3h-10A1.5 1.5 0 0 0 3 4.5v10A1.5 1.5 0 0 0 4.5 16H8"/>',
+  boot: '<path d="M4 6h10M4 12h7M4 18h10"/><path d="M17 9l3 3-3 3"/>',
+  tag: '<path d="M3 3h8l10 10-8 8L3 11z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
+  text: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h7"/>',
+};
+function _vmiIcon(name) {
+  return name && VMI_ICONS[name] ? `<svg class="vmi-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${VMI_ICONS[name]}</svg>` : '';
+}
+
+// ─── Snapshot and Clone (admins): small change sets, now or at a time ───
+let _va = null;
+async function openVmAct(kind, uuid) {
+  closeVmModal();
+  _va = {kind, uuid, data: null};
+  document.getElementById('vaTitle').textContent = t(kind === 'snapshot' ? 'va.snapshot' : 'va.clone');
+  document.getElementById('vaBody').innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+  document.getElementById('vaFoot').hidden = true;
+  document.getElementById('vaMsg').textContent = '';
+  document.getElementById('vaGo').disabled = false;
+  document.getElementById('vmActBackdrop').classList.add('visible');
+  const r = await fetch(_withCluster(`/api/backup/vmedit/vm?vm=${encodeURIComponent(uuid)}`));
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { document.getElementById('vaBody').innerHTML = `<div class="ve-msg" style="color:var(--accent-red)">${_exEsc(d.error || 'HTTP ' + r.status)}</div>`; return; }
+  _va.data = d;
+  const vm = d.vm, E = v => _clEsc(v == null ? '' : String(v));
+  document.getElementById('vaTitle').textContent = `${t(kind === 'snapshot' ? 'va.snapshot' : 'va.clone')} · ${vm.name}`;
+  const ts = x => x ? _exFmt(new Date(x * 1000).toISOString()) : '—';
+  const snaps = d.snapshots || [];
+  const snapList = snaps.length ? `<table class="ve-tbl"><thead><tr><th>${t('va.label')}</th><th>${t('va.taken')}</th><th>${t('vmi.d_type')}</th><th>${t('va.removed_on')}</th></tr></thead><tbody>${
+      snaps.map(x => `<tr><td>${E(x.label || '—')}</td><td>${ts(x.timestamp)}</td><td>${E(x.type)}</td><td>${x.retain_until ? ts(x.retain_until) : '—'}</td></tr>`).join('')}</tbody></table>`
+    : `<div style="font-size:12px;color:var(--text-muted);">${t('va.no_snapshots')}</div>`;
+  const now = new Date(), stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  if (kind === 'snapshot') {
+    document.getElementById('vaBody').innerHTML = `<div class="ve-sec"><div class="ve-grid">
+        <label>${t('va.label')}<input type="text" id="va-label" value="${E('hcm ' + stamp)}"></label>
+        <label>${t('va.retain')}<input type="number" id="va-days" min="0" max="3650" value="0"></label>
+        <label style="flex-direction:row;align-items:center;gap:6px;margin-top:16px;" title="${E(t('va.quiesce_hint'))}"><input type="checkbox" id="va-quiesce" ${vm.guestAgentState === 'AVAILABLE' ? 'checked' : ''}> ${t('va.quiesce')}</label>
+        ${(d.replications || []).length ? `<label style="flex-direction:row;align-items:center;gap:6px;margin-top:16px;"><input type="checkbox" id="va-repl" checked> ${t('va.replicate')}</label>` : ''}
+      </div></div><div class="ve-sec"><h3>${t('va.existing')} (${snaps.length})</h3>${snapList}</div><div id="vaProgress"></div>`;
+  } else {
+    document.getElementById('vaBody').innerHTML = `<div class="ve-sec"><div class="ve-grid">
+        <label>${t('vmi.d_name')}<input type="text" id="va-name" value="${E(vm.name + '-clone')}"></label>
+        <label>${t('vmi.description')}<input type="text" id="va-desc" value="${E(vm.description)}"></label>
+        <label>${t('vmi.tags')}<input type="text" id="va-tags" value="${E(vm.tags)}"></label>
+        <label>${t('va.source')}<select id="va-snap"><option value="">${t('va.current_state')}</option>${snaps.map(x => `<option value="${E(x.uuid)}">${E(x.label || x.uuid)} · ${ts(x.timestamp)}</option>`).join('')}</select></label>
+        <label style="flex-direction:row;align-items:center;gap:6px;margin-top:16px;"><input type="checkbox" id="va-start"> ${t('va.start_clone')}</label>
+      </div><div style="font-size:11px;color:var(--text-muted);margin-top:8px;">${t('va.clone_hint')}</div></div><div id="vaProgress"></div>`;
+  }
+  document.getElementById('vaFoot').hidden = false;
+}
+function closeVmAct(e) {
+  if (e && e.target !== document.getElementById('vmActBackdrop')) return;
+  document.getElementById('vmActBackdrop').classList.remove('visible');
+  _va = null;
+}
+async function vaGo() {
+  const msg = document.getElementById('vaMsg');
+  const ops = _va.kind === 'snapshot'
+    ? [{op: 'snapshot', label: _veVal('va-label'), quiesce: _veVal('va-quiesce'), replicate: !!_veVal('va-repl'), retain_days: parseInt(_veVal('va-days'), 10) || 0}]
+    : [{op: 'clone', name: _veVal('va-name'), description: _veVal('va-desc'), tags: _veVal('va-tags'), snap_uuid: _veVal('va-snap') || null, start: _veVal('va-start')}];
+  let run_at = null;
+  if (document.querySelector('input[name="vaWhen"]:checked').value === 'at') {
+    const v = document.getElementById('vaAt').value;
+    if (!v || new Date(v) < new Date()) { msg.style.color = 'var(--accent-red)'; msg.textContent = t('ve.pick_time'); return; }
+    run_at = new Date(v).toISOString();
+  }
+  msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
+  const r = await fetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({cluster_id: currentCluster, vm_uuid: _va.uuid, kind: _va.kind, ops, run_at})});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return; }
+  document.getElementById('vaGo').disabled = true;
+  if (run_at) { msg.style.color = 'var(--accent-green)'; msg.textContent = t('ve.scheduled_ok', {when: _exFmt(run_at)}); loadVmPending().then(renderVmCards); return; }
+  msg.textContent = '';
+  const box = document.getElementById('vaProgress');
+  for (let i = 0; i < 1500 && _va; i++) {
+    const l = await apiFetch('/api/backup/vmedit/changes?limit=30');
+    const c = ((l && l.changes) || []).find(x => x.id === d.id);
+    if (c && box) {
+      box.innerHTML = `<div class="ve-sec"><h3>${t('vn.progress')} · <span class="vm-state-off">${t('ve.st_' + c.status)}</span></h3>${(c.result || []).map(x =>
+        `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:${x.ok ? 'var(--text-secondary)' : 'var(--accent-red)'}">${_exFmt(x.at)} ${x.ok ? '✓' : '✕'} ${_clEsc(x.step)}${x.detail ? ' — ' + _clEsc(x.detail) : ''}</div>`).join('')}
+        ${c.error ? `<div style="color:var(--accent-red);font-size:12px;margin-top:4px;">${_clEsc(c.error)}</div>` : ''}</div>`;
+      if (['done', 'failed', 'cancelled'].includes(c.status)) { vmIndexStale(); if (typeof loadVMs === 'function') loadVMs(); return; }
+    }
+    await new Promise(res => setTimeout(res, 2500));
+  }
+}
+
+// live facts about the VM from HyperCore (through the console service, read-only)
+async function loadVmInfo(uuid) {
+  const box = document.getElementById('vmDetailInfo');
+  box.innerHTML = `<div class="loading"><div class="spinner"></div><span>${t('vmi.loading')}</span></div>`;
+  let d;
+  try {
+    const r = await fetch(_withCluster(`/api/vm-info?vm=${encodeURIComponent(uuid)}`));
+    d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  } catch (e) {
+    if (vmDetailActiveUuid === uuid) box.innerHTML = `<div style="font-size:12px;color:var(--text-muted);">${t('vmi.unavailable')} (${_exEsc(e.message)})</div>`;
+    return;
+  }
+  if (vmDetailActiveUuid !== uuid) return;
+  const E = v => _exEsc(v == null || v === '' ? '—' : String(v));
+  const yn = v => v == null ? '—' : v ? t('vmi.yes') : t('vmi.no');
+  const f = (label, value, icon) => `<div>${_vmiIcon(icon)}<div><span>${label}</span>${value}</div></div>`;
+  // HyperCore reports useUEFISecureBoot true on BIOS VMs too (seen on Lab 241); it only means something with UEFI
+  const firmware = d.firmware ? (d.firmware.toUpperCase() + (d.firmware.toLowerCase().includes('uefi') ? ` · ${t('vmi.secure_boot')}: ${yn(d.secure_boot)}` : '')) : '—';
+  const aff = d.affinity || {};
+  const disks = (d.disks || []).map(x => `<tr><td>${E(x.name || '—')}</td><td>${E(x.type)}</td><td class="num">${_gb(x.capacity)} GB</td><td class="num">${_gb(x.allocation)} GB</td>
+      <td>${E(x.cacheMode)}</td><td class="num">${E(x.tieringPriorityFactor)}</td><td>${yn(x.disableSnapshotting)}</td><td>${x.slot ?? '—'}</td></tr>`).join('');
+  const nics = (d.nics || []).map(n => `<tr><td>${E(n.type)}</td><td style="font-family:'JetBrains Mono',monospace;">${E(n.mac)}</td><td>${E(n.vlan)}</td><td>${yn(n.connected)}</td><td>${E((n.ipv4 || []).join(', '))}</td></tr>`).join('');
+  box.innerHTML = `
+    <div class="vmi-grid">
+      ${f(t('vmi.state'), E(d.state), 'power')}
+      ${f(t('vmi.node'), E(d.node_ip), 'server')}
+      ${f(t('vmi.os'), E(d.operating_system), 'monitor')}
+      ${f(t('vmi.vcpus'), E(d.vcpus), 'cpu')}
+      ${f(t('vmi.memory'), d.mem_bytes ? _gb(d.mem_bytes) + ' GB' : '—', 'memory')}
+      ${f(t('vmi.guest_agent'), E(d.guest_agent), 'agent')}
+      ${f(t('vmi.firmware'), firmware, 'shield')}
+      ${f(t('vmi.machine'), E(d.machine_type), 'box')}
+      ${f(t('vmi.cpu_type'), E(d.cpu_type), 'chip')}
+      ${f(t('vmi.keymap'), E(d.keymap), 'keyboard')}
+      ${f(t('vmi.affinity'), aff.preferred_ip ? `${t('vmi.preferred')} ${E(aff.preferred_ip)}${aff.backup_ip ? ` · ${t('vmi.backup_node')} ${E(aff.backup_ip)}` : ''}${aff.strict ? ` · ${t('vmi.strict')}` : ''}` : '—', 'pin')}
+      ${f(t('vmi.snapshots'), `${E(d.snapshots)}${d.snapshot_schedule ? ` · ${t('vmi.schedule')}: ${E(d.snapshot_schedule)}` : ''}`, 'camera')}
+      ${f(t('vmi.replications'), E(d.replications), 'copy')}
+      ${f(t('vmi.boot_order'), E((d.boot_order || []).join(' → ')), 'boot')}
+      ${f(t('vmi.tags'), (d.tags || []).length ? d.tags.map(x => `<span class="tag">${_exEsc(x)}</span>`).join('') : '—', 'tag')}
+      ${d.description ? f(t('vmi.description'), E(d.description), 'text') : ''}
+    </div>
+    ${disks ? `<div><div class="vmi-title">${t('vmi.disks')}</div><table><thead><tr><th>${t('vmi.d_name')}</th><th>${t('vmi.d_type')}</th><th class="num">${t('vmi.d_capacity')}</th><th class="num">${t('vmi.d_alloc')}</th><th>${t('vmi.d_cache')}</th><th class="num">${t('vmi.d_tier')}</th><th>${t('vmi.d_snap_off')}</th><th>${t('vmi.d_slot')}</th></tr></thead><tbody>${disks}</tbody></table></div>` : ''}
+    ${nics ? `<div><div class="vmi-title">${t('vmi.nics')}</div><table><thead><tr><th>${t('vmi.n_type')}</th><th>${t('vmi.n_mac')}</th><th>VLAN</th><th>${t('vmi.n_connected')}</th><th>${t('vmi.n_ip')}</th></tr></thead><tbody>${nics}</tbody></table></div>` : ''}`;
 }
 
 async function setVmDetailTimeRange(h) {
   vmDetailHours = h;
+  _vmChartsFor = vmDetailActiveUuid;
   document.querySelectorAll('[data-trpanel="vmdetail"]').forEach(b => {
     b.classList.toggle('active', parseInt(b.dataset.hours) === h);
   });
@@ -2541,11 +3382,14 @@ function setStatus(c) {
 async function loadActivity() {
   const card = document.getElementById('ivActivityCard'); if (!card) return;
   const d = await apiFetch('/api/cluster/tasks');
-  if (!d || !d.v2) { card.hidden = true; return; }
-  card.hidden = false;
+  if (!d || !d.v2) {
+    document.getElementById('ivActivityNote').textContent = '';
+    document.getElementById('ivActivityBody').innerHTML = `<div style="font-size:12px;color:var(--text-muted);">${t(d ? 'iv.activity_needs_v2' : 'empty.no_api')}</div>`;
+    return;
+  }
   const tasks = d.tasks || [];
   const active = tasks.filter(t => t.state === 'RUNNING' || t.state === 'QUEUED');
-  const done = tasks.filter(t => !(t.state === 'RUNNING' || t.state === 'QUEUED')).slice(0, 8);
+  const done = tasks.filter(t => !(t.state === 'RUNNING' || t.state === 'QUEUED')).slice(0, 30);
   document.getElementById('ivActivityNote').textContent = active.length ? t('iv.activity_running', {n: active.length}) : t('iv.activity_idle');
   const fmt = iso => iso ? new Date(iso).toLocaleTimeString() : '';
   const row = (x, live) => `<div class="iv-task">
@@ -3735,8 +4579,122 @@ async function loadSettings() {
   const cl = me ? await apiFetch('/api/clusters') : null;
   document.getElementById('setpanel-clusters').innerHTML = _renderClustersCard((cl && cl.clusters) || [], me || {});
   document.getElementById('setpanel-tunables').innerHTML = _settingsTargetBar(isAdmin) + _renderGroups(groups, vals, isAdmin);
-  if (me && (me.role === 'admin' || me.dev_mode)) { await _loadUsersPanel(me); await _loadSharesPanel(); }
-  else { document.getElementById('setpanel-users').innerHTML = ''; document.getElementById('setpanel-shares').innerHTML = ''; }
+  if (me && (me.role === 'admin' || me.dev_mode)) { await _loadUsersPanel(me); await _loadSharesPanel(); _loadConsolePanel(); }
+  else { document.getElementById('setpanel-users').innerHTML = ''; document.getElementById('setpanel-shares').innerHTML = ''; document.getElementById('setpanel-console').innerHTML = ''; }
+}
+
+// ── console panel (admin): the open console session check and the console audit log ─────────
+let _cc = { data: null, refsOpen: null, showSystem: false };
+async function _loadConsolePanel() {
+  const el = document.getElementById('setpanel-console');
+  if (!el) return;
+  const [check, log] = await Promise.all([
+    fetch(_withCluster('/api/console/check')).then(r => r.ok ? r.json() : r.json().then(d => ({error: d.error || `HTTP ${r.status}`}))).catch(e => ({error: e.message})),
+    fetch(_withCluster(`/api/console/sessions?include_system=${_cc.showSystem ? 1 : 0}&limit=200`)).then(r => r.ok ? r.json() : null).catch(() => null),
+  ]);
+  if (check.error) { el.innerHTML = `<div class="empty-state">${t('cc.unavailable')} (${_exEsc(check.error)})</div>`; return; }
+  _cc.data = check;
+  const st = check.settings || {};
+  const cur = CLUSTERS.find(c => c.cluster_id === currentCluster);
+  const vms = check.vms || [];
+  const stateBadge = v => `<span class="cc-state ${v.excluded ? 'stopped' : v.state}">${v.excluded ? t('cc.state_excluded') : t('cc.state_' + v.state)}</span>`;
+  const rows = vms.map(v => `
+    <tr>
+      <td class="um-username">${_clEsc(v.vm_name || v.vm_uuid)}</td>
+      <td>${stateBadge(v)}<div style="font-size:10px;color:var(--text-muted);">${_exEsc(v.detail || '')}</div></td>
+      <td style="font-size:11px;">${v.state === 'open' && v.first_open_at ? _exFmt(v.first_open_at) : '—'}</td>
+      <td style="font-size:11px;">${_exFmt(v.last_check_at)}</td>
+      <td>${v.refs}</td>
+      <td><div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;max-width:420px;margin-left:auto;">
+        <button class="um-action-btn" onclick="openVmConsole(currentCluster, '${_clEsc(v.vm_uuid)}')" ${v.state === 'stopped' ? 'disabled' : ''}>${t('console.open')}</button>
+        <button class="um-action-btn" onclick="ccRun('${_clEsc(v.vm_uuid)}', this)" ${v.state === 'stopped' || v.excluded ? 'disabled' : ''}>${t('cc.check_now')}</button>
+        <button class="um-action-btn" onclick="ccLearn('${_clEsc(v.vm_uuid)}', this)" title="${_clEsc(t('cc.learn_hint'))}" ${v.state === 'stopped' ? 'disabled' : ''}>${t('cc.learn')}</button>
+        <button class="um-action-btn" onclick="ccRefs('${_clEsc(v.vm_uuid)}')">${t('cc.refs')}</button>
+        ${v.has_image ? `<button class="um-action-btn" onclick="ccImage('${_clEsc(v.vm_uuid)}')">${t('cc.view_image')}</button>` : ''}
+        <button class="um-action-btn" onclick="ccExclude('${_clEsc(v.vm_uuid)}', ${v.excluded ? 'false' : 'true'})">${v.excluded ? t('cc.include') : t('cc.exclude')}</button>
+        </div><div class="cl-msg" id="cc-${_clEsc(v.vm_uuid)}-msg"></div>
+      </td>
+    </tr>
+    ${_cc.refsOpen === v.vm_uuid ? `<tr><td colspan="6" style="background:var(--bg-card);"><div id="ccRefsBox"><div class="loading"><div class="spinner"></div></div></div></td></tr>` : ''}`).join('');
+  const sessions = (log && log.sessions) || [];
+  const dur = s => { if (!s.ended_at) return s.live ? `<strong style="color:var(--accent-green)">${t('cc.live')}</strong>` : '—';
+    const sec = (new Date(s.ended_at) - new Date(s.started_at)) / 1000; return sec < 90 ? Math.round(sec) + 's' : sec < 5400 ? Math.round(sec / 60) + 'm' : (sec / 3600).toFixed(1) + 'h'; };
+  const logRows = sessions.map(s => `<tr><td style="font-size:11px;">${_exFmt(s.started_at)}</td><td>${_clEsc(s.username)}</td><td>${_clEsc(s.vm_name || s.vm_uuid)}</td>
+      <td>${s.kind === 'screenshot' ? t('cc.kind_screenshot') : t('cc.kind_interactive')}</td><td>${dur(s)}</td>
+      <td style="font-size:11px;color:var(--text-muted);">${_clEsc(s.end_reason || '')}</td><td style="font-size:11px;color:var(--text-muted);">${_clEsc(s.client_ip || '')}</td></tr>`).join('');
+  el.innerHTML = `
+    <div class="settings-group">
+      <div class="settings-group-header"><div class="chart-title-dot" style="background:#f97316"></div>
+        <span class="settings-group-title">${t('cc.title')}</span><span style="font-size:12px;color:var(--text-muted);">${_clEsc(cur ? cur.name : '')}</span></div>
+      <p style="font-size:12px;color:var(--text-secondary);line-height:1.55;margin-bottom:12px;">${t('cc.intro')}</p>
+      ${check.ocr ? '' : `<p style="font-size:12px;color:var(--accent-amber);margin-bottom:12px;">${t('cc.no_ocr')}</p>`}
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+        <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="ccEnabled" ${st.enabled ? 'checked' : ''}> ${t('cc.enabled')}</label>
+        <label style="display:flex;gap:6px;align-items:center;">${t('cc.interval')} <input type="number" id="ccInterval" min="5" max="1440" value="${st.interval_minutes || 30}" style="width:70px;" class="um-input"> ${t('cc.minutes')}</label>
+        <label style="display:flex;gap:6px;align-items:center;" title="${_clEsc(t('cc.wake_hint'))}">${t('cc.wake')}
+          <select id="ccWake" class="um-input">
+            <option value="none" ${st.wake === 'none' ? 'selected' : ''}>${t('cc.wake_none')}</option>
+            <option value="pointer" ${st.wake === 'pointer' ? 'selected' : ''}>${t('cc.wake_pointer')}</option>
+            <option value="shift" ${st.wake === 'shift' ? 'selected' : ''}>${t('cc.wake_shift')}</option>
+          </select></label>
+        <label style="display:flex;gap:6px;align-items:center;" title="${_clEsc(t('cc.keep_hint'))}"><input type="checkbox" id="ccKeep" ${st.keep_images ? 'checked' : ''}> ${t('cc.keep_images')}</label>
+        <button class="refresh-btn" onclick="ccSave()">${t('cc.save')}</button>
+        <span class="cl-msg" id="ccMsg"></span>
+      </div>
+      ${vms.length ? `<table class="um-table"><thead><tr><th>${t('cc.vm')}</th><th>${t('cc.state')}</th><th>${t('cc.open_since')}</th><th>${t('cc.last_check')}</th><th>${t('cc.refs_count')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+                   : `<div style="color:var(--text-muted);font-size:12px;">${st.enabled ? t('cc.no_vms_yet') : t('cc.off_hint')}</div>`}
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div>
+        <span class="settings-group-title">${t('cc.log_title')}</span>
+        <label style="font-size:12px;color:var(--text-secondary);display:flex;gap:6px;align-items:center;"><input type="checkbox" ${_cc.showSystem ? 'checked' : ''} onchange="_cc.showSystem = this.checked; _loadConsolePanel()"> ${t('cc.show_system')}</label></div>
+      ${sessions.length ? `<table class="um-table"><thead><tr><th>${t('cc.l_started')}</th><th>${t('cc.l_user')}</th><th>${t('cc.vm')}</th><th>${t('cc.l_kind')}</th><th>${t('cc.l_duration')}</th><th>${t('cc.l_reason')}</th><th>${t('cc.l_from')}</th></tr></thead><tbody>${logRows}</tbody></table>`
+                        : `<div style="color:var(--text-muted);font-size:12px;">${t('cc.log_none')}</div>`}
+    </div>`;
+  if (_cc.refsOpen) _ccLoadRefs(_cc.refsOpen);
+}
+async function _ccPost(path, body, method = 'POST') {
+  const r = await fetch(_withCluster(path), {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.assign({cluster_id: currentCluster}, body || {}))});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  return d;
+}
+async function ccSave() {
+  const msg = document.getElementById('ccMsg');
+  try {
+    await _ccPost('/api/console/check/settings', {enabled: document.getElementById('ccEnabled').checked,
+      interval_minutes: parseInt(document.getElementById('ccInterval').value, 10), wake: document.getElementById('ccWake').value,
+      keep_images: document.getElementById('ccKeep').checked}, 'PUT');
+    msg.style.color = 'var(--accent-green)'; msg.textContent = t('cc.saved');
+  } catch (e) { msg.style.color = 'var(--accent-red)'; msg.textContent = e.message; return; }
+  setTimeout(_loadConsolePanel, 600);
+}
+async function _ccAction(vm, btn, path, body) {
+  const msg = document.getElementById(`cc-${vm}-msg`);
+  if (btn) btn.disabled = true;
+  if (msg) { msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working'); }
+  try { await _ccPost(path, Object.assign({vm_uuid: vm}, body || {})); }
+  catch (e) { if (msg) { msg.style.color = 'var(--accent-red)'; msg.textContent = e.message; } if (btn) btn.disabled = false; return; }
+  await _loadConsolePanel();
+  loadClusterAlerts();
+}
+const ccRun = (vm, btn) => _ccAction(vm, btn, '/api/console/check/run');
+const ccLearn = (vm, btn) => _ccAction(vm, btn, '/api/console/check/learn');
+const ccExclude = (vm, excluded) => _ccAction(vm, null, '/api/console/check/exclude', {excluded});
+function ccImage(vm) { window.open(_withCluster(`/api/console/check/image?vm=${encodeURIComponent(vm)}`), '_blank'); }
+function ccRefs(vm) { _cc.refsOpen = _cc.refsOpen === vm ? null : vm; _loadConsolePanel(); }
+async function _ccLoadRefs(vm) {
+  const box = document.getElementById('ccRefsBox'); if (!box) return;
+  const d = await apiFetch(`/api/console/check/refs?vm=${encodeURIComponent(vm)}`);
+  const refs = (d && d.refs) || [];
+  box.innerHTML = refs.length ? `<div style="font-size:12px;color:var(--text-secondary);">${t('cc.refs_intro')}</div><div class="cc-refs">${refs.map(r => `
+      <figure><img src="${r.thumb}" alt=""><figcaption>${_exFmt(r.created_at)} · ${_clEsc(r.created_by || '?')}
+        <button class="um-action-btn danger" onclick="ccRefDelete(${r.id})">${t('clusters.remove')}</button></figcaption></figure>`).join('')}</div>`
+    : `<div style="font-size:12px;color:var(--text-muted);">${t('cc.refs_none')}</div>`;
+}
+async function ccRefDelete(id) {
+  await fetch(_withCluster(`/api/console/check/refs/${id}`), {method: 'DELETE'});
+  _loadConsolePanel();
 }
 
 // ── shares panel (admin): the places exports go, assigned to folders ─────────
@@ -4674,6 +5632,7 @@ async function loadClusters() {
   _renderClusterRail(enabled);
   _renderOnboarding(enabled.length === 0, d.secret_key_configured !== false);
   _updateBreadcrumbs();
+  if (!window._alertsPrimed && enabled.length) { window._alertsPrimed = true; loadClusterAlerts(); }
   return d;
 }
 
@@ -4688,7 +5647,7 @@ function _renderClusterRail(enabled) {
     <div class="cluster-item ${c.cluster_id === currentCluster ? 'active' : ''}" onclick="selectCluster('${c.cluster_id}')" title="${_clEsc(c.host)}">
       <span class="cluster-dot" style="background:${_clColour(c, i)}"></span>
       <div style="min-width:0;flex:1;">
-        <div class="cluster-item-name">${_clEsc(c.name)}${dupIds.has(c.cluster_id) ? ' <span title="' + _clEsc(t('clusters.dup_short')) + '" style="color:var(--accent-amber)">⚠</span>' : ''}${_activeNotice(c.cluster_id) ? ` <button class="cluster-notice" title="${_clEsc(t('notice.update_terminated_title'))}" onclick="event.stopPropagation(); openClusterNotice('${c.cluster_id}')">⚠</button>` : ''}</div>
+        <div class="cluster-item-name">${_clEsc(c.name)}${dupIds.has(c.cluster_id) ? ' <span title="' + _clEsc(t('clusters.dup_short')) + '" style="color:var(--accent-amber)">⚠</span>' : ''}</div>${_alertBadgesHtml(c.cluster_id)}
         <div class="cluster-item-sub ${c.last_error ? 'err' : ''}">${c.last_error ? t('clusters.status_error') : _clAgo(c.last_seen_at)}</div>
         <div class="cluster-item-sub" style="display:flex;gap:6px;margin-top:3px;">
           ${c.dry_run === null || c.dry_run === undefined ? '' : `<span style="color:${c.dry_run ? 'var(--accent-amber)' : 'var(--accent-green)'}">${c.dry_run ? t('clusters.mode_dry') : t('clusters.mode_live')}</span>`}
@@ -5021,7 +5980,15 @@ function closeFolderMembers(ev) {
 }
 
 function selectCluster(id) {
+  // a cluster opens on its VM list; Settings stays where it is (its panels follow the selected cluster)
+  if (!document.getElementById('tab-settings')?.classList.contains('active')) {
+    switchTab('infraviewer');
+    switchIvPanel('vms');
+  }
   if (id === currentCluster) return;
+  // a search belongs to the cluster it was typed for
+  vmQuery = '';
+  const sb = document.getElementById('vmSearch'); if (sb) sb.value = '';
   currentCluster = id;
   try { localStorage.setItem(CLUSTER_LS_KEY, id); } catch (_) {}
   _renderClusterRail(CLUSTERS.filter(c => c.enabled));
@@ -5304,7 +6271,6 @@ async function _exProbe() {
   const tab = document.getElementById('navTabExports');
   if (tab) tab.hidden = !_exAvailable;
   _exPreflightBanner(d && d.available ? d.preflight : null);
-  loadClusterNotices();
   return _exAvailable;
 }
 // cluster self-update or a node missing: HyperCore cannot snapshot, so every backup, export and
@@ -5322,54 +6288,160 @@ function _exPreflightBanner(pf) {
 }
 document.addEventListener('DOMContentLoaded', () => { setTimeout(_exProbe, 800); setInterval(_exProbe, 120000); });
 
-// cluster notices: warnings that block nothing (a terminated HyperCore update), shown as a warning
-// sign on the cluster's card; a notice can be muted for some days, for every user
-var _clusterNotices = {};   // var: the rail can render before this line has run
-let _noticeOpen = null;
-function _activeNotice(cid) {
-  return (_clusterNotices[cid] || []).find(n => !n.muted_until) || null;
+// cluster alerts (badges on the cluster card): HyperCore conditions, the backup service's notices
+// and open console sessions, merged by /api/cluster-alerts. Muting is per alert, for every user.
+var _clusterAlerts = {};    // var: the rail can render before this line has run
+const ALERT_LEVELS = ['critical', 'warning', 'notice', 'info'];
+const ALERT_ICON = {critical: '✕', warning: '⚠', notice: '?', info: 'i'};
+let _alertsOpen = null;     // {cid, view: 'active'|'history'}
+function _alertBadgesHtml(cid) {
+  const a = _clusterAlerts[cid];
+  if (!a) return '';
+  const html = ALERT_LEVELS.filter(l => (a.counts[l] || 0) > 0).map(l =>
+    `<button class="alert-badge ${l}" title="${_clEsc(t('alerts.badge_' + l, {n: a.counts[l]}))}" onclick="event.stopPropagation(); openClusterAlerts('${cid}')">${ALERT_ICON[l]} ${a.counts[l]}</button>`).join('');
+  return html ? `<div class="alert-badges">${html}</div>` : '';
 }
-async function loadClusterNotices() {
-  const enabled = CLUSTERS.filter(c => c.enabled);
-  if (!_exAvailable || !enabled.length) { _clusterNotices = {}; return; }
-  const pairs = await Promise.all(enabled.map(c =>
-    apiFetch(`/api/backup/notices?cluster=${encodeURIComponent(c.cluster_id)}`).then(d => [c.cluster_id, (d && d.notices) || []])));
-  const next = Object.fromEntries(pairs);
-  if (JSON.stringify(next) === JSON.stringify(_clusterNotices)) return;
-  _clusterNotices = next;
-  _renderClusterRail(enabled);
+async function loadClusterAlerts() {
+  if (!CLUSTERS.some(c => c.enabled)) return;
+  // every visible cluster at once (the rail shows them all): not through apiFetch, which adds the selected cluster
+  let d = null;
+  try { const r = await fetch(`${API_BASE}/api/cluster-alerts`); if (r.ok) d = await r.json(); } catch (_) {}
+  if (!d || !d.clusters) return;
+  const changed = JSON.stringify(d.clusters) !== JSON.stringify(_clusterAlerts);
+  _clusterAlerts = d.clusters;
+  if (changed) {
+    _renderClusterRail(CLUSTERS.filter(c => c.enabled));
+    _fillNodeAlerts();
+    if (document.getElementById('ivpanel-vms')?.classList.contains('active') && cachedVmData.length) renderVmCards();
+    if (_alertsOpen && _alertsOpen.view === 'active') _renderAlertsActive();
+  }
 }
-function openClusterNotice(cid) {
-  const n = _activeNotice(cid);
-  if (!n) return;
-  _noticeOpen = {cid, key: n.key};
+document.addEventListener('DOMContentLoaded', () => setInterval(loadClusterAlerts, 120000));
+
+// alerts per node on the Nodes tab: HyperCore conditions carry the node they are about
+function _fillNodeAlerts() {
+  const items = ((_clusterAlerts[currentCluster] || {}).items || []).filter(i => i.kind === 'condition' && i.node_uuid);
+  document.querySelectorAll('.node-alert-badges[data-node]').forEach(el => {
+    const mine = items.filter(i => i.node_uuid === el.dataset.node && !i.muted_until);
+    el.innerHTML = ALERT_LEVELS.map(l => { const n = mine.filter(i => i.severity === l).length;
+      return n ? `<span class="alert-badge ${l}" style="cursor:default;" title="${_clEsc(t('alerts.badge_' + l, {n}))}">${ALERT_ICON[l]} ${n}</span>` : ''; }).join('');
+  });
+  document.querySelectorAll('.node-alerts[data-node]').forEach(el => {
+    const mine = items.filter(i => i.node_uuid === el.dataset.node)
+      .sort((a, b) => !!a.muted_until - !!b.muted_until || ALERT_LEVELS.indexOf(a.severity) - ALERT_LEVELS.indexOf(b.severity));
+    el.innerHTML = mine.length ? `<div class="node-alert-list" onclick="openClusterAlerts(currentCluster)" title="${_clEsc(t('alerts.open_hint'))}">${mine.map(i => `
+        <div class="node-alert ${i.muted_until ? 'muted' : ''}"><span class="alert-dot ${i.severity}">${ALERT_ICON[i.severity]}</span>
+          <div><div>${_exEsc(i.description || i.name)}</div><div class="node-alert-meta">${i.since ? t('alerts.since', {when: _exFmt(i.since), ago: _clAgoShort(i.since)}) : ''}${i.muted_until ? ' · ' + t('alerts.muted') : ''}</div></div></div>`).join('')}</div>` : '';
+  });
+}
+
+function _alertText(it) {
+  if (it.kind === 'console') return t('alerts.console_open', {vm: _exEsc(it.vm_name || '')});
+  if (it.kind === 'notice' && it.notice_kind === 'update_terminated') {
+    const detail = (it.description || '').charAt(0).toUpperCase() + (it.description || '').slice(1);
+    return t('notice.update_terminated', {detail: _exEsc(detail)});
+  }
+  return _exEsc(it.description || it.name || it.key);
+}
+function _alertRow(it, cid) {
+  const meta = [];
+  if (it.node_ip) meta.push(t('alerts.node', {ip: _exEsc(it.node_ip)}));
+  if (it.since) meta.push(t('alerts.since', {when: _exFmt(it.since), ago: _clAgoShort(it.since)}));
+  if (it.raw_severity) meta.push(_exEsc(it.raw_severity));
+  if (it.muted_until) meta.push(t('alerts.muted_until', {when: _exFmt(it.muted_until), who: _exEsc(it.muted_by || '?')}));
+  const k = encodeURIComponent(it.key);
+  const consoleBtns = it.kind === 'console' && _currentUser?.role === 'admin' ? `
+      <button class="um-action-btn" onclick="openVmConsole('${cid}', '${_clEsc(it.vm_uuid)}')">${t('console.open')}</button>
+      <button class="um-action-btn" onclick="alertLearnLocked('${cid}', '${_clEsc(it.vm_uuid)}', this)" title="${_clEsc(t('cc.learn_hint'))}">${t('cc.learn')}</button>` : '';
+  const muteCtl = it.muted_until
+    ? `<button class="um-action-btn" onclick="muteAlert('${cid}', '${k}', 0)">${t('alerts.unmute')}</button>`
+    : `<span>${t('notice.mute_for')}</span><input type="number" min="1" max="365" value="7" id="mute-${k}"><span>${t('notice.days')}</span>
+       <button class="um-action-btn" onclick="muteAlert('${cid}', '${k}')">${t('notice.mute')}</button>`;
+  return `<div class="alert-row"><span class="alert-dot ${it.severity}">${ALERT_ICON[it.severity]}</span>
+    <div class="alert-row-main">${_alertText(it)}<div class="alert-row-meta">${meta.join(' · ')}</div></div>
+    <div class="alert-row-actions">${consoleBtns}${muteCtl}</div></div>`;
+}
+function _renderAlertsActive() {
+  const {cid} = _alertsOpen;
+  const items = (_clusterAlerts[cid] || {}).items || [];
+  const active = items.filter(i => !i.muted_until), muted = items.filter(i => i.muted_until);
+  const groups = ALERT_LEVELS.map(l => {
+    const rows = active.filter(i => i.severity === l);
+    return rows.length ? `<div><div class="alerts-group-title"><span class="alert-dot ${l}">${ALERT_ICON[l]}</span>${t('alerts.level_' + l)} (${rows.length})</div>${rows.map(i => _alertRow(i, cid)).join('')}</div>` : '';
+  }).join('');
+  document.getElementById('alertsBody').innerHTML =
+    (groups || `<div style="color:var(--text-muted);font-size:13px;">${t('alerts.none')}</div>`) +
+    (muted.length ? `<details class="alerts-muted"><summary>${t('alerts.muted_group', {n: muted.length})}</summary><div style="margin-top:8px;">${muted.map(i => _alertRow(i, cid)).join('')}</div></details>` : '');
+}
+function openClusterAlerts(cid) {
   const c = CLUSTERS.find(x => x.cluster_id === cid);
-  document.getElementById('clusterNoticeTitle').textContent = t('notice.update_terminated_title') + (c ? ` · ${c.name}` : '');
-  const detail = (n.detail || '').charAt(0).toUpperCase() + (n.detail || '').slice(1);
-  document.getElementById('clusterNoticeBody').innerHTML = t('notice.update_terminated', {detail: _exEsc(detail)});
-  document.getElementById('clusterNoticeMsg').textContent = '';
-  document.getElementById('clusterNoticeBackdrop').classList.add('visible');
+  _alertsOpen = {cid, view: 'active'};
+  document.getElementById('alertsTitle').textContent = t('alerts.title') + (c ? ` · ${c.name}` : '');
+  document.getElementById('alertsMsg').textContent = '';
+  document.getElementById('alertsHistBtn').textContent = t('alerts.history');
+  document.getElementById('alertsHistFilters').hidden = true;
+  _renderAlertsActive();
+  document.getElementById('alertsBackdrop').classList.add('visible');
 }
-function closeClusterNotice(e) {
-  if (e && e.target !== document.getElementById('clusterNoticeBackdrop')) return;
-  document.getElementById('clusterNoticeBackdrop').classList.remove('visible');
-  _noticeOpen = null;
+function closeClusterAlerts(e) {
+  if (e && e.target !== document.getElementById('alertsBackdrop')) return;
+  document.getElementById('alertsBackdrop').classList.remove('visible');
+  _alertsOpen = null;
 }
-async function muteClusterNotice() {
-  if (!_noticeOpen) return;
-  const days = parseInt(document.getElementById('clusterNoticeDays').value, 10);
-  const msg = document.getElementById('clusterNoticeMsg');
-  if (!(days >= 1 && days <= 365)) { msg.textContent = t('notice.days_range'); return; }
+async function muteAlert(cid, encKey, days) {
+  const key = decodeURIComponent(encKey);
+  const msg = document.getElementById('alertsMsg');
+  if (days === undefined) days = parseInt((document.getElementById('mute-' + encKey) || {}).value, 10);
+  if (days !== 0 && !(days >= 1 && days <= 365)) { msg.textContent = t('notice.days_range'); return; }
   try {
-    const r = await fetch(`${API_BASE}/api/backup/notices/mute?cluster=${encodeURIComponent(_noticeOpen.cid)}`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key: _noticeOpen.key, days})});
+    const r = await fetch(`${API_BASE}/api/cluster-alerts/mute`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({cluster_id: cid, key, days})});
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
   } catch (e) { msg.textContent = e.message; return; }
-  (_clusterNotices[_noticeOpen.cid] || []).forEach(n => { if (n.key === _noticeOpen.key) n.muted_until = 'muted'; });
-  document.getElementById('clusterNoticeBackdrop').classList.remove('visible');
-  _noticeOpen = null;
-  _renderClusterRail(CLUSTERS.filter(c => c.enabled));
+  msg.textContent = '';
+  await loadClusterAlerts();
+  _renderAlertsActive();
+}
+async function alertLearnLocked(cid, vm, btn) {
+  btn.disabled = true;
+  const msg = document.getElementById('alertsMsg');
+  try {
+    const r = await fetch(`${API_BASE}/api/console/check/learn?cluster=${encodeURIComponent(cid)}`, {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({cluster_id: cid, vm_uuid: vm})});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  } catch (e) { msg.textContent = e.message; btn.disabled = false; return; }
+  await loadClusterAlerts();
+  _renderAlertsActive();
+}
+async function toggleAlertsHistory() {
+  if (!_alertsOpen) return;
+  const hist = _alertsOpen.view !== 'history';
+  _alertsOpen.view = hist ? 'history' : 'active';
+  document.getElementById('alertsHistBtn').textContent = hist ? t('alerts.back_active') : t('alerts.history');
+  document.getElementById('alertsHistFilters').hidden = !hist;
+  if (hist) await loadAlertsHistory(); else _renderAlertsActive();
+}
+async function loadAlertsHistory() {
+  const {cid} = _alertsOpen;
+  const days = document.getElementById('alertsHistDays').value;
+  const sev = [...document.querySelectorAll('.alerts-hist-sev:checked')].map(e => e.value).join(',');
+  const body = document.getElementById('alertsBody');
+  body.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+  let d;
+  try {
+    const r = await fetch(`${API_BASE}/api/cluster-alerts/history?cluster=${encodeURIComponent(cid)}&days=${days}&severity=${sev}`);
+    d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  } catch (e) { body.innerHTML = `<div class="alerts-msg">${_exEsc(e.message)}</div>`; return; }
+  const rows = d.episodes || [];
+  if (!rows.length) { body.innerHTML = `<div style="color:var(--text-muted);font-size:13px;">${t('alerts.hist_none')}</div>`; return; }
+  const dur = s => s == null ? '—' : s < 3600 ? Math.max(1, Math.round(s / 60)) + 'm' : s < 172800 ? (s / 3600).toFixed(1) + 'h' : (s / 86400).toFixed(1) + 'd';
+  body.innerHTML = `<table class="alerts-hist-table"><thead><tr><th></th><th>${t('alerts.h_desc')}</th><th>${t('alerts.h_node')}</th><th>${t('alerts.h_started')}</th><th>${t('alerts.h_ended')}</th><th>${t('alerts.h_duration')}</th></tr></thead><tbody>${
+    rows.map(r => `<tr><td><span class="alert-dot ${r.severity}" title="${_clEsc(t('alerts.level_' + r.severity))}">${ALERT_ICON[r.severity]}</span></td>
+      <td>${_exEsc(r.description)}${r.muted ? ` <span class="ex-badge off">${t('alerts.muted')}</span>` : ''}</td><td>${_exEsc(r.node_ip || '—')}</td>
+      <td>${_exFmt(r.started)}</td><td>${r.active ? `<strong style="color:var(--accent-amber)">${t('alerts.still_active')}</strong>` : _exFmt(r.ended)}</td><td>${dur(r.duration_s)}</td></tr>`).join('')}</tbody></table>`;
 }
 
 async function _exCall(method, path, body) {
@@ -6452,20 +7524,30 @@ document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality,
 </div>
 
 <!-- file browser of a restore point -->
-<div class="update-modal-backdrop" id="clusterNoticeBackdrop" onclick="closeClusterNotice(event)">
-  <div class="update-modal">
+<div class="update-modal-backdrop" id="alertsBackdrop" onclick="closeClusterAlerts(event)">
+  <div class="update-modal alerts-modal" role="dialog" aria-modal="true" aria-labelledby="alertsTitle">
     <div class="update-modal-header">
-      <span class="update-modal-title" id="clusterNoticeTitle" style="color:var(--accent-amber)"></span>
-      <button class="update-modal-close" onclick="closeClusterNotice()">✕</button>
+      <span class="update-modal-title" id="alertsTitle"></span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="refresh-btn" id="alertsHistBtn" onclick="toggleAlertsHistory()" data-i18n="alerts.history">History</button>
+        <button class="update-modal-close" onclick="closeClusterAlerts()">✕</button>
+      </div>
     </div>
-    <div class="cluster-notice-body" id="clusterNoticeBody"></div>
-    <div class="cluster-notice-mute">
-      <label for="clusterNoticeDays" data-i18n="notice.mute_for">Mute for</label>
-      <input type="number" id="clusterNoticeDays" min="1" max="365" value="7">
-      <span data-i18n="notice.days">days</span>
-      <button class="refresh-btn" onclick="muteClusterNotice()" data-i18n="notice.mute">Mute</button>
+    <div class="alerts-hist-filters" id="alertsHistFilters" hidden>
+      <label><input type="checkbox" class="alerts-hist-sev" value="critical" checked onchange="loadAlertsHistory()"> <span data-i18n="alerts.level_critical">Critical</span></label>
+      <label><input type="checkbox" class="alerts-hist-sev" value="warning" checked onchange="loadAlertsHistory()"> <span data-i18n="alerts.level_warning">Warning</span></label>
+      <label><input type="checkbox" class="alerts-hist-sev" value="notice" checked onchange="loadAlertsHistory()"> <span data-i18n="alerts.level_notice">Notice</span></label>
+      <label><input type="checkbox" class="alerts-hist-sev" value="info" checked onchange="loadAlertsHistory()"> <span data-i18n="alerts.level_info">Info</span></label>
+      <select id="alertsHistDays" onchange="loadAlertsHistory()">
+        <option value="1" data-i18n="alerts.last_day">Last 24 hours</option>
+        <option value="7" data-i18n="alerts.last_7">Last 7 days</option>
+        <option value="30" selected data-i18n="alerts.last_30">Last 30 days</option>
+        <option value="90" data-i18n="alerts.last_90">Last 90 days</option>
+        <option value="365" data-i18n="alerts.last_365">Last year</option>
+      </select>
     </div>
-    <div class="cluster-notice-msg" id="clusterNoticeMsg"></div>
+    <div class="alerts-scroll" id="alertsBody"></div>
+    <div class="alerts-msg" id="alertsMsg"></div>
   </div>
 </div>
 <div class="update-modal-backdrop" id="flrBackdrop" onclick="if (event.target === this) exFilesClose()">

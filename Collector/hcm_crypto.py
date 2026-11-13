@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import os
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -51,4 +52,13 @@ def key_configured() -> bool:
     return bool(os.environ.get(ENV_VAR, '').strip())
 
 
-__all__ = ['encrypt', 'decrypt', 'key_configured', 'SecretKeyMissing', 'InvalidToken', 'ENV_VAR']
+def derived_token(purpose: str) -> str:
+    """A bearer token for one internal API, derived from HCM_SECRET_KEY so services that share
+    the key agree on it without another variable in .env. Raises SecretKeyMissing without a key."""
+    secret = os.environ.get(ENV_VAR, '').strip()
+    if not secret:
+        raise SecretKeyMissing(f'{ENV_VAR} is not set')
+    return hmac.new(secret.encode('utf-8'), f'hcm-internal:{purpose}'.encode('utf-8'), hashlib.sha256).hexdigest()
+
+
+__all__ = ['encrypt', 'decrypt', 'key_configured', 'derived_token', 'SecretKeyMissing', 'InvalidToken', 'ENV_VAR']

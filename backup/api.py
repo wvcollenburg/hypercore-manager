@@ -24,6 +24,7 @@ import policies
 import proxy_image
 import recurrence
 import scheduler
+import vmedit
 from hypercore import HyperCoreError
 from proxy_client import ProxyError, certificate_fingerprint, normalise_fingerprint
 
@@ -109,6 +110,172 @@ def status():
         # where this cluster's exports go: the share assigned to its folder, or null
         'location': {'share_name': loc['share_name'], 'base': loc['base'], 'tenant': loc['tenant']} if loc else None,
     })
+
+
+# ------------------------------------------------------------------ VM edits
+# Edits and power actions for one VM, now or at run_at (see vmedit.py). The dashboard lets only
+# admins through and names the user in created_by / cancelled_by.
+def _vmedit_row(r):
+    return _plain({k: v for k, v in r.items()})
+
+
+@app.get('/api/v1/vmedit/vm')
+@_require_token
+def vmedit_vm():
+    """Everything the edit window needs: the VM, the cluster's nodes, ISOs, snapshot schedules and
+    this VM's replications, plus its change sets."""
+    cid, vm_uuid = _cluster_arg(), (request.args.get('vm') or '').strip()
+    if not cid or not vm_uuid:
+        return _err('cluster and vm required')
+    try:
+        hc = jobs.client_for(cid)
+        vm = hc.get_vm(vm_uuid)
+        nodes = hc.list_nodes()
+        isos = hc.list_isos()
+        schedules = hc._request('GET', '/VirDomainSnapshotSchedule') or []
+        reps = [r for r in (hc._request('GET', '/VirDomainReplication') or []) if r.get('sourceDomainUUID') == vm_uuid]
+        # the target cluster's name comes from the replication's connection (a replication's own label is usually empty)
+        conn_list = hc._request('GET', '/RemoteClusterConnection') or []
+        conns = {c.get('uuid'): c for c in conn_list}
+        snaps = hc.list_snapshots(vm_uuid)
+    except HyperCoreError as e:
+        return _err(str(e), 502)
+    vm.pop('cloudInitData', None)                    # often holds passwords or keys
+    return jsonify({
+        'vm': vm,
+        'nodes': [{'uuid': n.get('uuid'), 'lan_ip': n.get('lanIP'), 'peer_id': n.get('peerID')} for n in nodes],
+        'isos': [{'uuid': i.get('uuid'), 'name': i.get('name'), 'size': i.get('size'), 'ready': i.get('readyForInsert')}
+                 for i in isos],
+        'schedules': [{'uuid': x.get('uuid'), 'name': x.get('name')} for x in schedules],
+        'replications': [{'uuid': r.get('uuid'), 'label': r.get('label'), 'enable': r.get('enable'),
+                          'target': r.get('targetDomainUUID'),
+                          'connection': r.get('connectionUUID'),
+                          'target_cluster': ((conns.get(r.get('connectionUUID')) or {}).get('remoteClusterInfo') or {}).get('clusterName') or '',
+                          'connection_status': (conns.get(r.get('connectionUUID')) or {}).get('connectionStatus') or ''}
+                         for r in reps],
+        'connections': [{'uuid': c.get('uuid'), 'cluster': (c.get('remoteClusterInfo') or {}).get('clusterName') or c.get('uuid'),
+                         'status': c.get('connectionStatus') or ''} for c in conn_list],
+        'changes': [_vmedit_row(r) for r in vmedit.list_changes(cid, vm_uuid, 20)],
+        'snapshots': sorted([{'uuid': x.get('uuid'), 'label': x.get('label'), 'timestamp': x.get('timestamp'), 'type': x.get('type'),
+                              'retain_until': x.get('localRetainUntilTimestamp')} for x in snaps], key=lambda x: -(x['timestamp'] or 0)),
+    })
+
+
+def _new_vm_options(hc):
+    return {'nodes': [{'uuid': n.get('uuid'), 'lan_ip': n.get('lanIP'), 'peer_id': n.get('peerID')} for n in hc.list_nodes()],
+            'isos': [{'uuid': i.get('uuid'), 'name': i.get('name'), 'size': i.get('size')} for i in hc.list_isos() if i.get('readyForInsert') is not False],
+            'images': [{'uuid': d.get('uuid'), 'name': d.get('name'), 'capacity': d.get('capacityBytes') or d.get('capacity')}
+                       for d in (hc._request('GET', '/VirtualDisk') or [])],
+            'schedules': [{'uuid': x.get('uuid'), 'name': x.get('name')} for x in (hc._request('GET', '/VirDomainSnapshotSchedule') or [])]}
+
+
+@app.get('/api/v1/vmedit/options')
+@_require_token
+def vmedit_options():
+    """What the New VM form offers: ISOs, images (VirtualDisk), snapshot schedules, nodes."""
+    cid = _cluster_arg()
+    if not cid:
+        return _err('cluster required')
+    try:
+        return jsonify(_new_vm_options(jobs.client_for(cid)))
+    except HyperCoreError as e:
+        return _err(str(e), 502)
+
+
+@app.post('/api/v1/vmedit/new')
+@_require_token
+def vmedit_new():
+    """{cluster_id, spec, run_at, created_by}: a new VM, now or at run_at."""
+    b = request.get_json(silent=True) or {}
+    cid = str(b.get('cluster_id') or '')
+    if not cluster_registry.is_uuid(cid):
+        return _err('cluster_id required')
+    run_at = None
+    if b.get('run_at'):
+        try:
+            run_at = datetime.fromisoformat(str(b['run_at']).replace('Z', '+00:00'))
+        except ValueError:
+            return _err('run_at must be an ISO date and time')
+        if run_at.tzinfo is None or run_at < datetime.now(timezone.utc):
+            return _err('run_at must be a future time with a time zone')
+    try:
+        opts = _new_vm_options(jobs.client_for(cid))
+        p = vmedit.plan_create(b.get('spec') or {}, opts['isos'], opts['images'], opts['schedules'])
+        change_id = vmedit.create(cid, {'uuid': '', 'name': p['name']}, 'create', p, run_at, False, 10, b.get('created_by'))
+    except HyperCoreError as e:
+        return _err(str(e), 502)
+    except vmedit.EditError as e:
+        return _err(str(e), 409)
+    if run_at is None:
+        scheduler.enqueue_vm_change(change_id)
+    return jsonify({'id': change_id, 'summary': p['summary']})
+
+
+@app.get('/api/v1/vmedit/changes')
+@_require_token
+def vmedit_changes():
+    cid = _cluster_arg()
+    if not cid:
+        return _err('cluster required')
+    return jsonify({'changes': [_vmedit_row(r) for r in vmedit.list_changes(cid, request.args.get('vm') or None,
+                                                                           int(request.args.get('limit') or 50))]})
+
+
+@app.post('/api/v1/vmedit/changes')
+@_require_token
+def vmedit_create():
+    """{cluster_id, vm_uuid, kind: edit|power|delete, ops, run_at: ISO|null, force_off,
+    shutdown_timeout_min, confirm_name, created_by}"""
+    b = request.get_json(silent=True) or {}
+    cid, vm_uuid = str(b.get('cluster_id') or ''), str(b.get('vm_uuid') or '')
+    if not cluster_registry.is_uuid(cid) or not vm_uuid:
+        return _err('cluster_id and vm_uuid required')
+    run_at = None
+    if b.get('run_at'):
+        try:
+            run_at = datetime.fromisoformat(str(b['run_at']).replace('Z', '+00:00'))
+        except ValueError:
+            return _err('run_at must be an ISO date and time')
+        if run_at.tzinfo is None:
+            return _err('run_at needs a time zone')
+        if run_at < datetime.now(timezone.utc):
+            return _err('run_at is in the past')
+    try:
+        timeout = int(b.get('shutdown_timeout_min') or 10)
+        if not 1 <= timeout <= 120:
+            raise ValueError
+    except (TypeError, ValueError):
+        return _err('shutdown_timeout_min must be between 1 and 120')
+    try:
+        hc = jobs.client_for(cid)
+        vm = hc.get_vm(vm_uuid)
+        ctx = {}
+        if any((o or {}).get('op') == 'replication' for o in b.get('ops') or []):
+            ctx = {'replications': [r for r in (hc._request('GET', '/VirDomainReplication') or []) if r.get('sourceDomainUUID') == vm_uuid],
+                   'connections': hc._request('GET', '/RemoteClusterConnection') or []}
+    except HyperCoreError as e:
+        return _err(str(e), 502)
+    try:
+        p = vmedit.plan(str(b.get('kind') or 'edit'), b.get('ops') or [], vm, ctx)
+        if not vmedit.confirm_ok(p['destructive'], b.get('confirm_name'), vm):
+            return _err('type the VM\'s name to confirm', 409)
+        change_id = vmedit.create(cid, vm, str(b.get('kind') or 'edit'), p, run_at, bool(b.get('force_off')),
+                                  timeout, b.get('created_by'))
+    except vmedit.EditError as e:
+        return _err(str(e), 409)
+    if run_at is None:
+        scheduler.enqueue_vm_change(change_id)
+    return jsonify({'id': change_id, 'cycle': p['cycle'], 'summary': p['summary']})
+
+
+@app.post('/api/v1/vmedit/changes/<int:change_id>/cancel')
+@_require_token
+def vmedit_cancel(change_id):
+    b = request.get_json(silent=True) or {}
+    cid = str(b.get('cluster_id') or _cluster_arg() or '')
+    if not vmedit.cancel(change_id, cid, b.get('created_by')):
+        return _err('only a scheduled change that has not started can be cancelled', 409)
+    return jsonify({'ok': True})
 
 
 # ---------------------------------------------------------------------- VMs

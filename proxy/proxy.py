@@ -15,6 +15,7 @@ import time
 
 import api
 import config
+import hostcfg
 import images
 import jobs
 import log
@@ -30,6 +31,9 @@ def main() -> None:
     logger = logging.getLogger('proxy.main')
     if not cfg.api_token:
         logger.warning('PROXY_API_TOKEN is not set; REST API authentication is disabled')
+    before, after = hostcfg.quiet_kernel_console()
+    if before is not None and before != after:
+        logger.info('kernel console log level lowered', extra={'printk_before': before, 'printk_after': after})
     backend = images.make_backend(cfg.backend, cfg.nbd_slots, cfg.dev_dir, lazy_refcounts=cfg.qcow2_lazy_refcounts, cache=cfg.nbd_cache)
     mounter = targets.Mounter(cfg.data_dir)
     engine = jobs.Engine(cfg, backend, mounter)

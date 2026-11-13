@@ -256,6 +256,18 @@ def remove_proxy_vm(hc: HyperCoreClient, vm_uuid: str) -> str:
     return 'deleted'
 
 
+def task_message(st: dict) -> str:
+    """A task's message with its parameters filled in. HyperCore sends messages as templates with %@
+    placeholders ("Unable to replicate vm %@ to remote connection %@ ...") plus messageParameters."""
+    for text_key, params_key in (('formattedMessage', 'messageParameters'), ('formattedDescription', 'descriptionParameters')):
+        text = st.get(text_key) or ''
+        if text:
+            for p in st.get(params_key) or []:
+                text = text.replace('%@', str(p), 1)
+            return text.replace('%@', '?')
+    return 'task ERROR'
+
+
 def wait_task(hc: HyperCoreClient, task_tag: str, what: str, timeout: float = 600) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -263,7 +275,7 @@ def wait_task(hc: HyperCoreClient, task_tag: str, what: str, timeout: float = 60
         if st.get('state') == 'COMPLETE':
             return
         if st.get('state') == 'ERROR':
-            raise IncrementalError(f'{what} failed: {st.get("formattedMessage") or st.get("formattedDescription") or "task ERROR"}')
+            raise IncrementalError(f'{what} failed: {task_message(st)}')
         time.sleep(2)
     raise IncrementalError(f'{what} did not finish within {timeout:.0f}s')
 

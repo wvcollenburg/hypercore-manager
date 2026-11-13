@@ -678,6 +678,24 @@ def build_schema() -> list[Section]:
                         "Generate once and keep stable. Press G."
                     ),
                 ),
+                Field(
+                    key="CONSOLE_IDLE_MINUTES",
+                    label="VM console idle timeout (minutes)",
+                    type="int",
+                    default="15",
+                    description="A VM console opened from HCM closes after this many minutes without keyboard or mouse input.",
+                    why_default="A console is keyboard access to the VM; one left open in a browser should not stay usable for long.",
+                    when_change="Raise it for long installs watched without typing; lower it on shared workstations.",
+                ),
+                Field(
+                    key="CONSOLE_MAX_HOURS",
+                    label="VM console maximum duration (hours)",
+                    type="int",
+                    default="8",
+                    description="A VM console closes after this many hours in any case, active or not.",
+                    why_default="A working day; reopening the console takes one click.",
+                    when_change="Rarely; shorten it where policy limits privileged sessions.",
+                ),
             ],
         ),
 

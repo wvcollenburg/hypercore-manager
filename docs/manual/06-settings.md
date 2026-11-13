@@ -36,6 +36,33 @@ Accounts and their role, administrator or user, and for users the folders they a
 A user without folders sees nothing. Two-factor authentication is per user and is set up by the
 user under Account; an administrator can reset it here.
 
+## Console
+
+Administrators only. **Open console sessions** checks, for the selected cluster, whether a VM's
+console was left logged in: someone logged in on the console and walked away. When it is on,
+HCM takes a screenshot of each running VM's console every 30 minutes (configurable), spread
+over that interval, and looks for a lock or login screen. A console that shows neither becomes
+an orange warning on the cluster's card, "console session open since …", until it is locked
+again.
+
+- **Text consoles** (Linux) are read with text recognition: a login prompt counts as locked as
+  long as no shell prompt follows it. No setup needed.
+- **Graphical lock screens** without readable text (a Windows 10/11 lock screen with only a
+  clock) need **Learn locked**: put the VM in its locked state and click it; HCM remembers that
+  screen. Learn more than once for lock screens that change (rotating backgrounds). A false
+  alarm on the cluster card has the same button, so it is fixed in one click.
+- **Wake the screen.** A blanked screen looks the same whether the session behind it is locked
+  or not, so without waking a black screen is *blank (unknown)*, never a pass. A pointer nudge is
+  the least intrusive way to wake it; Shift is the alternative.
+- **Keep the last screenshot** is off by default: a screenshot of an open session can show
+  passwords or customer data. Off, only the verdict is stored.
+- **Exclude** VMs that are meant to stay logged in, such as kiosks or appliances. A muted
+  warning on the cluster card hides it for some days instead.
+
+The check only sees the console: an RDP session left open is invisible to it. Every screenshot
+is in the **console log** below as user `system`, hidden unless *Show automated screenshots*
+is ticked; those rows are kept for 30 days, the others for good.
+
 ## Targets
 
 ![Targets](img/settings-shares.png)

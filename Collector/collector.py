@@ -308,7 +308,9 @@ def collect_slow(cid, hc, node_info_map):
     # =========================================================================
     conditions = fetch_safe(hc, "/Condition")
     for cond in conditions:
-        # only collect user-visible, active conditions to avoid noise
+        # every user-visible condition, SET or not: the dashboard takes the latest point per
+        # condition, so one that clears must be written as value=false or it would stay lit.
+        # lastSetTime / lastClearTime (ms) give each episode HyperCore's exact start and end.
         if not cond.get('userVisible', False):
             continue
         p = Point("condition_metrics").tag("cluster_id", cid) \
@@ -319,7 +321,10 @@ def collect_slow(cid, hc, node_info_map):
             .field("value", bool(cond.get('value', False))) \
             .field("is_ok", bool(cond.get('isOK', True))) \
             .field("is_expired", bool(cond.get('isExpired', False))) \
-            .field("description", cond.get('description', ''))
+            .field("description", cond.get('description', '')) \
+            .field("last_set_time", int(cond.get('lastSetTime') or 0)) \
+            .field("last_clear_time", int(cond.get('lastClearTime') or 0)) \
+            .field("tags", ','.join(str(t) for t in (cond.get('tags') or [])))
         points.append(p)
 
     return points

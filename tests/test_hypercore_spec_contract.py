@@ -58,6 +58,9 @@ USED_V1 = {
     '/VirDomainSnapshot': ['get'], '/VirDomainReplication': ['get'], '/Condition': ['get'],
     '/TaskTag/{taskTag}': ['get'], '/VirDomain/{virDomainUUID}/export': ['post'],
     '/VirDomain/import': ['post'], '/VirDomain/action': ['post'],
+    '/VirDomain/{virDomainUUID}': ['get'],                       # console service: the VM's node before a connect
+    '/VirDomainSnapshotSchedule/{uuid}': ['get'],                # console service: VM details (schedule name)
+    '/RemoteClusterConnection': ['get'],                         # backup service: a replication's target cluster name
 }
 
 
@@ -87,6 +90,7 @@ READ_V1 = {
                      'hasTemperatureThreshold', 'temperatureThreshold'],
     '/VirDomain': ['uuid', 'nodeUUID', 'name', 'description', 'operatingSystem', 'state', 'mem', 'numVCPU',
                    'blockDevs', 'netDevs', 'tags', 'snapUUIDs'],
+    '/VirDomain/{virDomainUUID}': ['uuid', 'nodeUUID', 'name', 'state'],     # console service, before each connect
     '/VirDomain.blockDevs': ['uuid', 'name', 'type', 'capacity', 'allocation', 'physical', 'slot', 'cacheMode'],
     '/VirDomain.netDevs': ['vlan'],
     '/VirDomainStats': ['uuid', 'cpuUsage', 'rxBitRate', 'txBitRate', 'vsdStats'],
@@ -96,7 +100,8 @@ READ_V1 = {
                                        'meanReadSizeBytes', 'meanWriteSizeBytes'],
     '/Cluster': ['uuid', 'clusterName', 'icosVersion'],
     '/TaskTag/{taskTag}': ['taskTag', 'state', 'progressPercent', 'formattedMessage', 'formattedDescription'],
-    '/Condition': ['name', 'description', 'value', 'nodeUUID', 'nodeLANIP', 'userVisible'],
+    '/Condition': ['name', 'description', 'value', 'nodeUUID', 'nodeLANIP', 'userVisible', 'isOK', 'isExpired',
+                   'severity', 'lastSetTime', 'lastClearTime', 'tags'],
     '/VirDomainSnapshot': ['uuid', 'domainUUID', 'timestamp', 'blockCountDiff'],
     '/VirDomainReplication': ['uuid', 'sourceDomainUUID', 'enable', 'label', 'progress'],
     '/VirDomainReplication.progress': ['percentComplete', 'blockCountDiff', 'blockCountSent'],

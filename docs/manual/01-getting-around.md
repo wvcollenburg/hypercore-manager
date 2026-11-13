@@ -14,6 +14,18 @@ and its health score once Foresight has one. Click a cluster to select it; every
 that cluster. Administrators can create folders and move clusters between them from the folder
 menu (the "…" button); users see only the folders they are members of.
 
+**Alert badges.** Next to a cluster's name, coloured badges count what is wrong on it right now,
+in the order and colours of HyperCore's own cluster header: red ✕ critical, orange ⚠ warning,
+yellow ? notice, blue i info. Only badges with a count show. They carry the cluster's active
+HyperCore conditions (a failed drive, a node low on memory; HyperCore's own descriptions, in
+English), a cluster update that HyperCore terminated, and VM consoles left logged in (see
+Settings → Console). Click a badge for the list: node, description and since when, per line.
+**Mute for N days** hides one line for everybody until then (who muted it is shown in the
+collapsed *Muted* group); if it comes back after the mute ran out, it shows again. **History**
+lists past conditions with their start, end and duration, filtered by severity and period.
+The badges are an overview, up to five minutes behind the cluster, not an alarm: HyperCore's
+own e-mail and syslog alerts stay the place for that.
+
 **The tabs.** Across the top: Infraviewer, Clusterbalancer, Foresight and Backup, each with its
 own sub-panels. The rail footer holds Modules and Settings (administrators) and Account
 (everyone). The header shows the breadcrumb, the connection state to the backend, a Refresh

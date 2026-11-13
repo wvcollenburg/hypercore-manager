@@ -1,0 +1,9 @@
+# Local testing only: adds a synthetic HyperCore cluster to the stack.
+#   docker compose -f docker-compose.yaml -f tools/fake_hypercore/docker-compose.fake.yaml up -d --build
+# Register it in the dashboard as host "fakehc", any username, password "fake", TLS verification off.
+services:
+  fakehc:
+    build: ./tools/fake_hypercore
+    container_name: sc_fakehc
+    ports:
+      - "8443:443"

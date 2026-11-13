@@ -1,0 +1,8 @@
+aiohttp==3.12.15
+requests==2.34.2
+urllib3==2.8.0
+psycopg2-binary==2.9.13
+cryptography==42.0.8
+pillow==13.0.0
+python-json-logger==4.1.0
+tzdata==2025.2
