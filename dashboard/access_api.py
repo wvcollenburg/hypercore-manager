@@ -132,7 +132,7 @@ def register(app, requires, access, clusters, vm_index_rows):
 
     # -- overview ------------------------------------------------------------------------------------
     @app.route('/api/access/overview')
-    @requires('vm.view', 'any')
+    @requires(None)
     def access_overview():
         """Everything Settings → Access shows, narrowed to what this user may manage or see."""
         acc = access()
