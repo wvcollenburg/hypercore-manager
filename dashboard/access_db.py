@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 
@@ -373,8 +374,8 @@ def rename_node(node_id: str, name: str | None, colour, actor: str) -> None:
 
 def delete_node(node_id: str, actor: str) -> dict:
     """Delete a tree node (plans/PLAN-roles.md, Q4): it must have no child nodes; its clusters become
-    unfiled (root only), its roles, groups and assignments go, and users whose home it was are
-    disabled (not deleted) and moved home to its parent."""
+    unfiled (root only), its roles, groups and assignments go. Accounts belong to people, not to a
+    node: they only lose the access they had here (an account left with none can no longer see anything)."""
     tree = load_tree()
     if node_id not in tree.parent:
         raise AccessError('not found', 404)
@@ -388,20 +389,17 @@ def delete_node(node_id: str, actor: str) -> dict:
             role_ids = [r['role_id'] for r in cur.fetchall()]
             if role_ids:
                 cur.execute('DELETE FROM config.assignments WHERE role_id = ANY(%s)', (role_ids,))
-            cur.execute('UPDATE config.users SET enabled = FALSE, home_node_id = %s WHERE home_node_id = %s RETURNING username',
-                        (parent, node_id))
-            disabled = [r['username'] for r in cur.fetchall()]
             cur.execute('UPDATE config.clusters SET folder_id = NULL WHERE folder_id = %s RETURNING cluster_name', (node_id,))
             unfiled = [r['cluster_name'] for r in cur.fetchall()]
             cur.execute('DELETE FROM config.folders WHERE folder_id = %s RETURNING name, level', (node_id,))
             row = cur.fetchone()
             audit(cur, actor, f"{row['level']}.delete", row['name'], node_id=parent,
-                  detail={'disabled_users': disabled, 'unfiled_clusters': unfiled})
+                  detail={'unfiled_clusters': unfiled})
         conn.commit()
     finally:
         conn.close()
     invalidate()
-    return {'disabled_users': disabled, 'unfiled_clusters': unfiled}
+    return {'unfiled_clusters': unfiled}
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -607,11 +605,13 @@ def users() -> list[dict]:
     try:
         with conn.cursor() as cur:
             cur.execute('''SELECT u.user_id::text AS user_id, u.username, u.display_name, u.role, u.otp_enabled, u.enabled,
-                                  u.awaiting_access, u.home_node_id::text AS home_node_id, u.created_at,
+                                  u.awaiting_access, u.awaiting_email, u.email_verified_at, u.created_at,
                                   COALESCE((SELECT json_agg(m.folder_id::text) FROM config.folder_members m WHERE m.user_id = u.user_id), '[]') AS legacy_folders,
                                   COALESCE((SELECT json_agg(gm.group_id::text) FROM config.group_members gm WHERE gm.user_id = u.user_id), '[]') AS groups
                              FROM config.users u ORDER BY lower(u.username)''')
-            return [dict(r, created_at=r['created_at'].isoformat() if r['created_at'] else None) for r in cur.fetchall()]
+            return [dict(r, created_at=r['created_at'].isoformat() if r['created_at'] else None,
+                         email_verified_at=r['email_verified_at'].isoformat() if r['email_verified_at'] else None)
+                    for r in cur.fetchall()]
     finally:
         conn.close()
 
@@ -620,26 +620,39 @@ def user(user_id: str) -> dict | None:
     return next((u for u in users() if u['user_id'] == user_id), None)
 
 
-def create_user(username: str, password: str, home_node_id: str | None, display_name: str | None, actor: str) -> str:
+_EMAIL = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
+def normalise_email(v) -> str:
+    """An account's login: the email address, trimmed and lowercased; AccessError when it is not one."""
+    v = str(v or '').strip().lower()
+    if len(v) > 254 or not _EMAIL.match(v):
+        raise AccessError('enter a valid email address')
+    return v
+
+
+def create_user(email: str, password: str, display_name: str | None, actor: str, audit_node: str | None = None,
+                reveal_taken: bool = False) -> str:
+    """A new account, its login the email address. A taken address is refused without saying so to anyone
+    but a top-level admin (reveal_taken): below them it would tell that the person is known elsewhere."""
     from werkzeug.security import generate_password_hash
-    username = (username or '').strip()
-    if not username or len(username) > 80 or any(c.isspace() for c in username):
-        raise AccessError('a username is required (no spaces, at most 80 characters)')
+    email = normalise_email(email)
     if len(password or '') < 8:
         raise AccessError('the password needs at least 8 characters')
     conn = _connect()
     try:
         with conn.cursor() as cur:
             try:
-                cur.execute('''INSERT INTO config.users (username, password_hash, role, home_node_id, display_name, enabled)
-                               VALUES (%s, %s, 'user', %s, %s, TRUE) RETURNING user_id::text AS id''',
-                            (username, generate_password_hash(password), home_node_id, (display_name or '').strip() or None))
+                cur.execute('''INSERT INTO config.users (username, password_hash, role, display_name, enabled)
+                               VALUES (%s, %s, 'user', %s, TRUE) RETURNING user_id::text AS id''',
+                            (email, generate_password_hash(password), (display_name or '').strip() or None))
             except Exception as exc:  # noqa: BLE001
                 if 'duplicate key' in str(exc):
-                    raise AccessError(f'the username {username!r} is taken', 409) from exc
+                    raise AccessError(f'{email} already has an account' if reveal_taken
+                                      else 'this address cannot be used here', 409) from exc
                 raise
             uid = cur.fetchone()['id']
-            audit(cur, actor, 'user.create', username, node_id=home_node_id)
+            audit(cur, actor, 'user.create', email, node_id=audit_node)
         conn.commit()
     finally:
         conn.close()
@@ -647,28 +660,74 @@ def create_user(username: str, password: str, home_node_id: str | None, display_
     return uid
 
 
-def update_user(user_id: str, actor: str, *, enabled=None, home_node_id=..., display_name=None) -> None:
+def update_user(user_id: str, actor: str, *, enabled=None, display_name=None, email=None, password=None) -> None:
+    """enabled, display_name: the account itself; email (+ password): a top-level admin giving an account its
+    address (the callers check who may do what)."""
+    from werkzeug.security import generate_password_hash
     u = user(user_id)
     if not u:
         raise AccessError('not found', 404)
     conn = _connect()
     try:
         with conn.cursor() as cur:
+            if email is not None:
+                email = normalise_email(email)
+                if u['awaiting_email'] and len(password or '') < 8:
+                    # the old password is not carried over to the new login (PLAN-roles, Accounts 7)
+                    raise AccessError('set a password of at least 8 characters with the address')
+                try:
+                    cur.execute('''UPDATE config.users SET username = %s, awaiting_email = FALSE,
+                                          enabled = CASE WHEN awaiting_email THEN NOT awaiting_access ELSE enabled END,
+                                          updated_at = NOW() WHERE user_id = %s''', (email, user_id))
+                except Exception as exc:  # noqa: BLE001
+                    if 'duplicate key' in str(exc):
+                        raise AccessError(f'{email} already has an account', 409) from exc
+                    raise
+                if password:
+                    cur.execute('UPDATE config.users SET password_hash = %s WHERE user_id = %s',
+                                (generate_password_hash(password), user_id))
+                audit(cur, actor, 'user.email', email, detail={'from': u['username']})
             if enabled is not None:
                 if enabled and u['awaiting_access'] and not _has_assignment(cur, user_id):
                     raise AccessError('give the account its access first', 409)
+                if enabled and u['awaiting_email'] and email is None:
+                    raise AccessError('give the account its email address first', 409)
                 cur.execute('UPDATE config.users SET enabled = %s, updated_at = NOW() WHERE user_id = %s', (bool(enabled), user_id))
-                audit(cur, actor, 'user.enable' if enabled else 'user.disable', u['username'], node_id=u['home_node_id'])
-            if home_node_id is not ...:
-                cur.execute('UPDATE config.users SET home_node_id = %s, updated_at = NOW() WHERE user_id = %s', (home_node_id, user_id))
-                audit(cur, actor, 'user.move', u['username'], node_id=home_node_id, detail={'from': u['home_node_id']})
+                audit(cur, actor, 'user.enable' if enabled else 'user.disable', u['username'])
             if display_name is not None:
                 cur.execute('UPDATE config.users SET display_name = %s, updated_at = NOW() WHERE user_id = %s',
-                            (display_name.strip() or None, user_id))
+                            (display_name.strip()[:120] or None, user_id))
         conn.commit()
     finally:
         conn.close()
     invalidate()
+
+
+def require_email_addresses(main_admin: str | None) -> list[str]:
+    """Accounts are email addresses (PLAN-roles, Accounts 1 and 7): every account without one, except the
+    main admin from .env, is disabled until a top-level admin enters its address. Runs at start; does
+    nothing without a known main admin (so an install can never lock out its last way in)."""
+    main_admin = (main_admin or '').strip()
+    if not main_admin:
+        return []
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT 1 FROM config.users WHERE username = %s', (main_admin,))
+            if not cur.fetchone():
+                return []
+            cur.execute('''UPDATE config.users SET enabled = FALSE, awaiting_email = TRUE
+                            WHERE username !~ '^[^@[:space:]]+@[^@[:space:]]+[.][^@[:space:]]+$'
+                              AND username <> %s AND NOT awaiting_email RETURNING username''', (main_admin,))
+            names = [r['username'] for r in cur.fetchall()]
+            for n in names:
+                audit(cur, 'upgrade', 'user.awaiting_email', n, detail={'reason': 'accounts are email addresses'})
+            if names:
+                _bump(cur)
+        conn.commit()
+    finally:
+        conn.close()
+    return names
 
 
 def delete_user(user_id: str, actor: str) -> None:
@@ -680,7 +739,7 @@ def delete_user(user_id: str, actor: str) -> None:
         with conn.cursor() as cur:
             _guard_last_root_admin(cur, removing_user=user_id)
             cur.execute('DELETE FROM config.users WHERE user_id = %s', (user_id,))
-            audit(cur, actor, 'user.delete', u['username'], node_id=u['home_node_id'])
+            audit(cur, actor, 'user.delete', u['username'])
         conn.commit()
     finally:
         conn.close()
@@ -748,21 +807,99 @@ def assignment(assignment_id: str) -> dict | None:
         conn.close()
 
 
-def node_label(node_id, tree: rbac.Tree) -> str:
-    """A node's path; a single-company install hides its default MSP and customer."""
-    path = tree.path(node_id)
+def node_label(node_id, tree: rbac.Tree, visible: set | None = None) -> str:
+    """A node's path; a single-company install hides its default MSP and customer. With `visible`
+    (the reader's rbac.Access.visible_nodes()), the layers above the reader are left out."""
+    chain = list(reversed(tree.ancestors(node_id)))
     single = sum(1 for v in tree.level.values() if v == 'msp') <= 1 and sum(1 for v in tree.level.values() if v == 'customer') <= 1
-    if single and len(path) > 1:
-        path = path[min(2, len(path) - 1):]
-    return ' / '.join(path) or str(node_id)
+    if single and len(chain) > 1:
+        chain = chain[min(2, len(chain) - 1):]
+    if visible is not None:
+        chain = [n for n in chain if n in visible]
+        if not chain:
+            return 'a level above yours'
+    return ' / '.join(tree.name.get(n, n) for n in chain) or str(node_id)
 
 
-def scope_label(a: dict, tree: rbac.Tree) -> str:
+def assignment_in_reach(acc: rbac.Access, a: dict) -> bool:
+    """May this reader manage people on the scope of assignment `a` (users.manage there)?"""
+    k = a['scope_kind']
+    if k == 'node':
+        return acc.can('users.manage', node_id=a['node_id'])
+    if k in ('cluster', 'tag', 'vm'):
+        return acc.can('users.manage', a['cluster_id'])
+    return acc.can('users.manage')                   # root: the whole installation
+
+
+def manageable_user_ids(acc: rbac.Access) -> set | None:
+    """The accounts this reader manages, or None for all (a top-level user manager). An account belongs to
+    the person, not to a tenant (PLAN-roles, Accounts 3): a reader manages it when the person holds something
+    in their reach, directly or through a group of their reach. Accounts with no access anywhere, and the
+    access a person holds elsewhere, are a top-level matter."""
+    if acc.superuser or acc.can('users.manage'):
+        return None
+    out = set()
+    group_ok = {g['group_id'] for g in groups() if acc.can('users.manage', node_id=g['node_id'])}
+    for a in assignments():
+        if a['user_id'] and assignment_in_reach(acc, a):
+            out.add(a['user_id'])
+    members = {}
+    for u in users():
+        for gid in u.get('groups') or []:
+            members.setdefault(gid, set()).add(u['user_id'])
+    for gid in group_ok:
+        out |= members.get(gid, set())
+    return out
+
+
+def nameable_usernames(acc: rbac.Access, me: str | None = None) -> set | None:
+    """The usernames this reader may see named: themselves and the accounts they manage, or None when they
+    see the whole installation. Accounts above them (an MSP's staff, the installation's administrators) are
+    never named to them: a customer does not learn which MSP serves it."""
+    if acc.superuser or any(g.kind == 'root' for g in acc.grants):
+        return None
+    ids = manageable_user_ids(acc) or set()
+    out = {u['username'] for u in users() if u['user_id'] in ids}
+    return out | ({me} if me else set())
+
+
+def remove_access_in_reach(acc: rbac.Access, user_id: str, actor: str) -> int:
+    """'Remove from my tenants': every assignment and group membership of this person within the reader's
+    reach goes; what they hold elsewhere stays. Returns how many were removed."""
+    n = 0
+    for a in assignments(user_id=user_id):
+        if assignment_in_reach(acc, a):
+            remove_assignment(a['assignment_id'], actor, a['node_id'])
+            n += 1
+    u = user(user_id) or {}
+    for gid in u.get('groups') or []:
+        g = group(gid)
+        if g and acc.can('users.manage', node_id=g['node_id']):
+            set_group_member(gid, user_id, False, actor)
+            n += 1
+    return n
+
+
+def hide_names(rows: list, fields, names: set | None) -> list:
+    """Replace the names in `fields` that the reader may not see by None, listing them in row['hidden']."""
+    if names is None:
+        return rows
+    for r in rows:
+        for f in fields:
+            v = r.get(f)
+            # every name but the reader's own reach, except a guest's ('guest:…'), who is no account
+            if v and v not in names and not str(v).startswith('guest:'):
+                r[f] = None
+                r.setdefault('hidden', []).append(f)
+    return rows
+
+
+def scope_label(a: dict, tree: rbac.Tree, visible: set | None = None) -> str:
     k = a['scope_kind']
     if k == 'root':
-        return 'the whole installation'
+        return 'the whole installation' if visible is None else 'a level above yours'
     if k == 'node':
-        return node_label(a['node_id'], tree)
+        return node_label(a['node_id'], tree, visible)
     if k == 'cluster':
         return a.get('cluster_name') or a['cluster_id']
     if k == 'tag':
@@ -796,7 +933,7 @@ def add_assignment(principal: dict, role_id: str, scope: dict, actor: str, audit
             if principal.get('user_id'):
                 if a['builtin_key'] == 'admin' and kind == 'root':
                     cur.execute("UPDATE config.users SET role = 'admin' WHERE user_id = %s", (principal['user_id'],))
-                cur.execute('''UPDATE config.users SET enabled = TRUE, awaiting_access = FALSE
+                cur.execute('''UPDATE config.users SET enabled = NOT awaiting_email, awaiting_access = FALSE
                                 WHERE user_id = %s AND awaiting_access RETURNING username''', (principal['user_id'],))
                 if cur.fetchone():
                     audit(cur, actor, 'user.enable', who, node_id=audit_node, detail={'reason': 'access assigned after the upgrade'})

@@ -96,6 +96,13 @@ app.secret_key = _secret_key
 # bootstrap the users table and seed the admin account from env vars on first run
 user_db.ensure_table()
 user_db.seed_admin_from_env()
+try:
+    # accounts are email addresses: the ones without, except the main admin, wait for one (PLAN-roles, Accounts)
+    _no_email = access_db.require_email_addresses(os.getenv('SC_DASHBOARD_USER', ''))
+    if _no_email:
+        app.logger.warning('accounts waiting for an email address: %s', ', '.join(_no_email))
+except Exception as _exc:  # noqa: BLE001 — before migration 046, or the database is not up yet
+    app.logger.info('email address check skipped: %s', _exc)
 
 # auth is enabled iff at least one user row exists. Cached at startup — restart
 # is required if the table goes from empty to populated outside of the UI
@@ -1204,15 +1211,18 @@ def _rail_folders(acc, folders: list) -> list:
     tree nodes above them), each with its path and the permissions that decide its menu."""
     tree = acc.tree
     out = []
+    see_all = acc.superuser or any(g.kind == 'root' for g in acc.grants)
+    vis = None if see_all else acc.visible_nodes()
+    mine = lambda n: n if n and (vis is None or n in vis) else None   # noqa: E731  (no id of a layer above either)
     for f in folders:
         fid = f['folder_id']
         if tree.level.get(fid, 'folder') != 'folder':
             continue
         anc = tree.ancestors(fid)
-        out.append(dict(f, parent_id=tree.parent.get(fid),
-                        customer_id=next((a for a in anc if tree.level.get(a) == 'customer'), None),
-                        msp_id=next((a for a in anc if tree.level.get(a) == 'msp'), None),
-                        path=tree.path(fid)[:-1],
+        out.append(dict(f, parent_id=mine(tree.parent.get(fid)),
+                        customer_id=mine(next((a for a in anc if tree.level.get(a) == 'customer'), None)),
+                        msp_id=mine(next((a for a in anc if tree.level.get(a) == 'msp'), None)),
+                        path=(tree.path(fid) if see_all else acc.path(fid))[:-1],   # never the layers above the user
                         can_manage_tree=acc.can('tree.manage', node_id=fid),
                         can_manage_clusters=acc.can('cluster.manage', node_id=fid),
                         can_assign_share=acc.can('backup.targets.manage', node_id=fid)))
@@ -2518,6 +2528,11 @@ def console_proxy(sub):
             if sc and (sc == 'all' or rbac.vm_in_scope(sc, r.get('vm_uuid'), _vm_tags(str(r.get('cluster_id')), r.get('vm_uuid'))
                                                          if sc.get('tags') else [])):
                 keep.append(r)
+        # sessions of accounts above the reader: no name, and no address (an office IP names the MSP too)
+        access_db.hide_names(keep, ('username',), access_db.nameable_usernames(acc, session.get('username')))
+        for r in keep:
+            if 'username' in r.get('hidden', ()):
+                r['client_ip'] = None
         return jsonify(dict(data, sessions=keep) if isinstance(data, dict) else keep)
     return Response(raw, status=status, mimetype=ctype.split(';')[0])
 
@@ -3134,13 +3149,16 @@ def login_page():
                 return redirect(url_for('index'))
             error = 'Invalid OTP code. Check your authenticator app and try again.'
         else:
-            username = request.form.get('username', '').strip()
+            found = user_db.get_by_login(request.form.get('username', ''))
+            username = found['username'] if found else request.form.get('username', '').strip()
             password = request.form.get('password', '')
-            if user_db.verify_password(username, password):
-                u = user_db.get_by_username(username)
+            if found and user_db.verify_password(username, password):
+                u = found
                 if u.get('enabled') is False:
                     # only after a correct password: say why, so they do not retry into a lockout
-                    error = ('Your account is waiting for an administrator to assign its access.' if u.get('awaiting_access')
+                    error = ('Your account needs an email address. An administrator will send you an invitation.'
+                             if u.get('awaiting_email') else
+                             'Your account is waiting for an administrator to assign its access.' if u.get('awaiting_access')
                              else 'Your account is disabled. Ask an administrator.')
                     return render_template('login.html', step='password', error=error, otp_enabled=False)
                 if u['otp_enabled']:
@@ -3151,7 +3169,7 @@ def login_page():
                 session['username'] = u['username']
                 session['role']     = u['role']
                 return redirect(url_for('index'))
-            error = 'Invalid username or password.'
+            error = 'Invalid email address or password.'
 
     # pass otp_enabled=True only when on the OTP step (drives login.html hint text)
     pending = session.get('otp_pending')
@@ -3205,12 +3223,9 @@ def api_me_community_ack():
 
 
 def _may_manage_user(username: str) -> bool:
-    """users.manage at or above the user's home node (root for every pre-RBAC account)."""
-    acc = _access()
-    u = user_db.get_by_username(username)
-    if not u:
-        return False
-    return acc.can('users.manage', node_id=(str(u['home_node_id']) if u.get('home_node_id') else None))
+    """Deleting an account or setting its password: an administrator of the whole installation only
+    (credentials are never a tenant matter, PLAN-roles, Accounts 5)."""
+    return bool(user_db.get_by_username(username)) and _access().can('users.manage')
 
 
 @app.route('/api/users', methods=['GET'])
@@ -3230,11 +3245,16 @@ def api_users_list():
 @requires('users.manage', 'any')
 def api_users_create():
     data = request.get_json(force=True) or {}
-    username = (data.get('username') or '').strip()
     password = data.get('password', '')
     role     = data.get('role', 'user')
-    if not username or not password:
-        return jsonify({'error': 'username and password are required'}), 400
+    if not _access().can('users.manage'):
+        return jsonify({'error': 'Access denied'}), 403      # below the top level: Settings → Access, with the access
+    try:
+        username = access_db.normalise_email(data.get('username') or data.get('email'))
+    except access_db.AccessError as e:
+        return jsonify({'error': str(e)}), 400
+    if not password:
+        return jsonify({'error': 'email address and password are required'}), 400
     if role not in ('admin', 'user'):
         return jsonify({'error': 'role must be "admin" or "user"'}), 400
     if role == 'admin' and not _access().is_root_admin():
@@ -3243,7 +3263,7 @@ def api_users_create():
         user_db.create_user(username, password, role)
         return jsonify({'ok': True})
     except psycopg2.errors.UniqueViolation:
-        return jsonify({'error': f'Username "{username}" already exists'}), 409
+        return jsonify({'error': f'{username} already has an account'}), 409
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -102,9 +102,20 @@ MSP (**Settings → Access → Tenants**) shows the levels.
   it to another customer or MSP is for administrators of the whole installation.
 - The **folder menu** ("…" on a folder) holds **Access…**, **Backup target**, **Rename** and
   **Delete folder**.
-- **Settings → Access → Tenants** shows the whole tree: add a customer under an MSP, a folder under
-  a customer, rename, delete. A node can only be deleted from above it, and only when it is empty;
-  deleting removes its roles, groups and access, and disables the accounts that belong to it.
+- **Settings → Access → Tenants** is a column browser, like a file browser: MSPs in the first
+  column, a selected MSP's customers in the next, then a customer's folders, then a folder's
+  clusters. The wide pane on the right shows the selected layer: the users and groups assigned on
+  it (for a cluster also its tag and single-VM assignments), with **+ Assign** and a remove button,
+  and below them, dimmed, what it inherits from the layers above. Each column adds a customer,
+  folder or MSP at its foot; the pane renames and deletes the selected node. A node can only be
+  deleted from above it, and only when it is empty; deleting removes its roles, groups and access.
+  Accounts stay: they only lose the access they had there.
+- Nobody sees the layers above their own. A customer's administrators and users do not see the MSP
+  that serves them: not in the tree, the sidebar, labels or "who has access", and the accounts above
+  them (the MSP's staff, the installation's administrators) are not listed. In the audit log, the
+  guest console list and the console log their names show as "an administrator above your level",
+  and the console log leaves out their address. Roles defined higher up can still be handed
+  out below; only where they were defined is not shown.
 - Users below folder level (engineers, application managers, viewers) and folder administrators
   see their clusters as one list in the rail, without folders.
 
@@ -145,13 +156,27 @@ Each permission has a level, which decides where it can be given:
 
 ### Users
 
-**Add user** asks for a username, an optional full name, a password and where the account
-**belongs** (its home in the tree). Only administrators at or above that level can manage the
-account. **Access…** on a user opens its assignments:
+An account is a person's **email address**; it logs in with that address, in any capitals. Only
+the initial administrator (`SC_DASHBOARD_USER`) keeps a plain username. Two John Smiths are
+`jsmith@contoso.com` and `jsmith@mymail.com`: two accounts.
+
+An account belongs to the person, not to a tenant. Tenants hold the access that person has with
+them: an outside consultant can have access in two customers and sees both, side by side, without
+anything above them. You manage someone when they hold access in your part of the tree, and you
+see only that access, never what they hold elsewhere.
+
+**Add user** asks for the email address, an optional full name, a password and the account's
+**first access** (a role and where it applies). An address that already has an account is refused
+without saying where it is used. **Access…** on a user opens its assignments:
 
 - **Give access**: a role on a scope: the whole installation, an MSP, customer or folder, a
   cluster, the VMs with a tag on a cluster, or one VM.
-- Group memberships, **Disable**/**Enable**, **Reset password**, **Delete** (the username must be typed).
+- Group memberships of your part of the tree.
+- **Remove from my tenants**: removes all access the person has in your part of the tree; the
+  account, and access they have elsewhere, stay.
+- Administrators of the whole installation also see **Disable**/**Enable**, **Reset password**,
+  **Delete** (the address must be typed) and can change the address. Nobody below them touches an
+  account's password, two-factor or address: an account can have access in other tenants too.
 
 Rules that always hold:
 
@@ -159,7 +184,7 @@ Rules that always hold:
   that scope yourself, and only on scopes inside your own.
 - **Nobody changes their own access**; another administrator can.
 - The last enabled administrator of the whole installation cannot lose that role.
-- Usernames are unique across the installation.
+- One account per email address across the installation.
 
 Two-factor (TOTP) is set up by each user on their own **Account** page.
 
@@ -196,6 +221,11 @@ The upgrade makes every administrator **Admin** on the whole installation. Every
 dialog listing those accounts (suggested: Viewer on the folders they were a member of). It cannot
 be closed while one is left; **Assign** enables the account, **Delete** removes it. A user who
 signs in before that, with the right password, is told their account is waiting.
+
+Accounts are email addresses since this version. An account from before without an address (every
+one except the initial administrator) stays disabled until an administrator of the whole
+installation opens it and enters its address together with a new password; the old password does
+not carry over. The user list marks these accounts "needs an email address".
 
 ---
 

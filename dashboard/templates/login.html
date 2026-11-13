@@ -206,7 +206,7 @@
       </div>
 
     {% else %}
-      <!-- ── step 1: username + password ── -->
+      <!-- ── step 1: email address (or the main admin's username) + password ── -->
       <div class="card-title">Sign in</div>
       <div class="card-sub">
         {% if otp_enabled %}
@@ -222,7 +222,7 @@
 
       <form method="post" action="/login" autocomplete="on">
         <div class="field">
-          <label for="username">Username</label>
+          <label for="username">Email address</label>
           <input type="text" id="username" name="username"
                  autocomplete="username" autofocus required>
         </div>

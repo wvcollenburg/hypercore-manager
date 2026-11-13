@@ -336,16 +336,32 @@ class Access:
         return [n for n in nodes if not any(a in nodes for a in self.tree.ancestors(n)[1:])]
 
     def visible_nodes(self) -> set:
-        """Tree nodes this user may see in the sidebar: those on the path to anything they hold."""
+        """Tree nodes this user may see: every node at or below a node they hold something on, and the
+        folder of a cluster they hold something on. Never the layers above that: a customer does not
+        see which MSP serves it (a consultant may sell on an MSP's behalf without pointing at it)."""
         if self.superuser or any(g.kind == 'root' for g in self.grants):
             return set(self.tree.parent)
         out: set = set()
         for g in self.grants:
             if g.kind == 'node':
-                out |= set(self.tree.ancestors(g.node_id)) | self.tree.subtree(g.node_id)
-            elif g.cluster_id:
-                out |= set(self.tree.ancestors(self.tree.cluster_folder.get(g.cluster_id)))
+                out |= self.tree.subtree(g.node_id)
+            elif g.cluster_id and self.tree.cluster_folder.get(g.cluster_id):
+                out.add(self.tree.cluster_folder[g.cluster_id])
         return out
+
+    def nodes_above(self) -> set:
+        """The nodes over the visible ones: they exist for the rules (roles defined there apply below)
+        but are never named to this user."""
+        vis = self.visible_nodes()
+        out: set = set()
+        for n in vis:
+            out |= set(self.tree.ancestors(n)[1:])
+        return out - vis
+
+    def path(self, node_id: str | None) -> list[str]:
+        """A node's path as this user may see it: the hidden layers above are left out."""
+        vis = self.visible_nodes()
+        return list(reversed([self.tree.name.get(n, n) for n in self.tree.ancestors(node_id) if n in vis]))
 
 
 def vm_in_scope(scope_entry, vm_uuid: str, vm_tags=()) -> bool:

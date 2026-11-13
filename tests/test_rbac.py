@@ -154,9 +154,13 @@ def test_unknown_permission_is_refused():
 def test_top_nodes_and_visible_nodes():
     a = acc(rbac.Grant(role('admin'), 'node', node_id='cust1'), rbac.Grant(role('admin'), 'node', node_id='fold1'))
     assert a.top_nodes_with('users.manage') == ['cust1']
-    assert a.visible_nodes() == {'msp1', 'cust1', 'fold1', 'fold2'}
+    # never the layers above: a customer does not see which MSP serves it
+    assert a.visible_nodes() == {'cust1', 'fold1', 'fold2'}
+    assert a.nodes_above() == {'msp1'}
+    assert a.path('fold1') == [a.tree.name.get('cust1', 'cust1'), a.tree.name.get('fold1', 'fold1')]
     b = acc(rbac.Grant(role('viewer'), 'cluster', cluster_id='c4'))
-    assert b.visible_nodes() == {'fold3', 'cust2', 'msp1'}
+    assert b.visible_nodes() == {'fold3'}
+    assert b.nodes_above() == {'cust2', 'msp1'}
 
 
 def test_vm_in_scope():

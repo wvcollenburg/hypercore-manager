@@ -121,7 +121,6 @@ CREATE INDEX IF NOT EXISTS ix_assignments_cluster ON config.assignments (cluster
 -- ── users ────────────────────────────────────────────────────────────────────
 ALTER TABLE config.users ADD COLUMN IF NOT EXISTS enabled         BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE config.users ADD COLUMN IF NOT EXISTS awaiting_access BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE config.users ADD COLUMN IF NOT EXISTS home_node_id    UUID REFERENCES config.folders (folder_id) ON DELETE SET NULL;
 ALTER TABLE config.users ADD COLUMN IF NOT EXISTS display_name    TEXT;
 
 -- ── permissions seen by this installation (new ones in a later version raise a notice) ─────────

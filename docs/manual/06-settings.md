@@ -34,13 +34,16 @@ Changes apply at runtime; the services re-read them within a minute.
 
 Who may do what, and where. The tabs:
 
-- **Users**: accounts, where each belongs in the tree, and **Access…** per account: its roles and
+- **Users**: accounts (an account is an email address) and **Access…** per account: its roles and
   where they apply (the whole installation, an MSP, customer or folder, a cluster, the VMs with a
-  tag, or one VM), its groups, disable, password reset, delete.
+  tag, or one VM), its groups, and **Remove from my tenants**. Disable, password reset, address and
+  delete are for administrators of the whole installation.
 - **Groups**: a group gives its access to every member.
 - **Roles**: the five built-in roles (Admin, Engineer, App Manager, Backup Manager, Viewer) are
   templates; **Copy** one to make your own with exactly the permissions you want.
-- **Tenants**: MSPs, customers and folders.
+- **Tenants**: MSPs, customers, folders and clusters in columns, like a file browser. Click
+  through them; the pane on the right shows who is assigned on what you selected, and what it
+  inherits from above. Assign or remove people there.
 - **Guest console**: one-time console access for someone outside: a link plus a code, one VM, a
   time window. Requests from colleagues who may only ask wait here for approval.
 - **Audit**: every change to access, and every guest console event.

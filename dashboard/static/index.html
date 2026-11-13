@@ -4690,7 +4690,7 @@ async function _loadConsolePanel() {
   const sessions = (log && log.sessions) || [];
   const dur = s => { if (!s.ended_at) return s.live ? `<strong style="color:var(--accent-green)">${t('cc.live')}</strong>` : '—';
     const sec = (new Date(s.ended_at) - new Date(s.started_at)) / 1000; return sec < 90 ? Math.round(sec) + 's' : sec < 5400 ? Math.round(sec / 60) + 'm' : (sec / 3600).toFixed(1) + 'h'; };
-  const logRows = sessions.map(s => `<tr><td style="font-size:11px;">${_exFmt(s.started_at)}</td><td>${_clEsc(s.username)}</td><td>${_clEsc(s.vm_name || s.vm_uuid)}</td>
+  const logRows = sessions.map(s => `<tr><td style="font-size:11px;">${_exFmt(s.started_at)}</td><td>${(s.hidden || []).includes('username') ? `<span style="color:var(--text-muted)">${_clEsc(t('acc.actor_above'))}</span>` : _clEsc(s.username)}</td><td>${_clEsc(s.vm_name || s.vm_uuid)}</td>
       <td>${s.kind === 'screenshot' ? t('cc.kind_screenshot') : t('cc.kind_interactive')}</td><td>${dur(s)}</td>
       <td style="font-size:11px;color:var(--text-muted);">${_clEsc(s.end_reason || '')}</td><td style="font-size:11px;color:var(--text-muted);">${_clEsc(s.client_ip || '')}</td></tr>`).join('');
   el.innerHTML = `

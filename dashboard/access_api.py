@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from flask import jsonify, request, session
+from flask import g as flask_g, jsonify, request, session
 
 import access_db
 import rbac
@@ -43,8 +43,20 @@ def register(app, requires, access, clusters, vm_index_rows):
         return jsonify({'error': str(e)}), e.status
 
     # -- helpers --------------------------------------------------------------------------------------
+    def manageable(acc: rbac.Access):
+        """The account ids this reader manages, None for all (once per request)."""
+        if not hasattr(flask_g, 'hcm_manageable'):
+            flask_g.hcm_manageable = access_db.manageable_user_ids(acc)
+        return flask_g.hcm_manageable
+
     def may_manage_user(acc: rbac.Access, u: dict) -> bool:
-        return acc.can('users.manage', node_id=u.get('home_node_id'))
+        ids = manageable(acc)
+        return ids is None or u['user_id'] in ids
+
+    def top(acc: rbac.Access) -> bool:
+        """A user manager of the whole installation: the only one who touches an account itself (enable,
+        delete, address, password). Everyone else manages the access people hold in their reach."""
+        return acc.can('users.manage')
 
     def may_manage_group(acc: rbac.Access, g: dict) -> bool:
         return acc.can('groups.manage', node_id=g.get('node_id')) or acc.can('users.manage', node_id=g.get('node_id'))
@@ -60,13 +72,19 @@ def register(app, requires, access, clusters, vm_index_rows):
             return tree.is_within(scope['node_id'], r['node_id'])
         return tree.cluster_within(scope['cluster_id'], r['node_id'])
 
-    def node_label(node_id, tree: rbac.Tree) -> str:
-        """A node's path; a single-company install hides its default MSP and customer."""
-        path = tree.path(node_id)
-        single = sum(1 for v in tree.level.values() if v == 'msp') <= 1 and sum(1 for v in tree.level.values() if v == 'customer') <= 1
-        if single and len(path) > 1:
-            path = path[min(2, len(path) - 1):]
-        return ' / '.join(path) or str(node_id)
+    def seen(acc: rbac.Access):
+        """The nodes this reader may see named, or None when they see the whole tree."""
+        if acc.superuser or any(g.kind == 'root' for g in acc.grants):
+            return None
+        return acc.visible_nodes()
+
+    def node_label(node_id, tree: rbac.Tree, visible: set | None = None) -> str:
+        return access_db.node_label(node_id, tree, visible)
+
+    def nameable(acc: rbac.Access):
+        """The usernames this reader may see (themselves and the accounts they manage), or None for
+        all. Accounts above them (the MSP's staff, the installation's admins) are never named."""
+        return access_db.nameable_usernames(acc, actor())
 
     def scope_node(scope: dict, tree: rbac.Tree):
         """The tree node a scope sits at (for the audit log and the users.manage check)."""
@@ -118,7 +136,7 @@ def register(app, requires, access, clusters, vm_index_rows):
             raise AccessError(why, 403)
 
     def visible_roles(acc: rbac.Access) -> list[dict]:
-        nodes = acc.visible_nodes()
+        nodes = acc.visible_nodes() | acc.nodes_above()
         return [r for r in access_db.roles() if r['node_id'] is None or r['node_id'] in nodes or acc.superuser]
 
     def node_payload(acc: rbac.Access) -> list[dict]:
@@ -127,7 +145,10 @@ def register(app, requires, access, clusters, vm_index_rows):
         for n in access_db.nodes():
             if visible is not None and n['id'] not in visible:
                 continue
-            out.append({k: n[k] for k in ('id', 'parent_id', 'level', 'name', 'colour')})
+            row = {k: n[k] for k in ('id', 'parent_id', 'level', 'name', 'colour')}
+            if visible is not None and row['parent_id'] not in visible:
+                row['parent_id'] = None          # the reader's top: what is above it is not theirs to know
+            out.append(row)
         return out
 
     # -- overview ------------------------------------------------------------------------------------
@@ -137,9 +158,12 @@ def register(app, requires, access, clusters, vm_index_rows):
         """Everything Settings → Access shows, narrowed to what this user may manage or see."""
         acc = access()
         tree = acc.tree
-        users = [u for u in access_db.users() if may_manage_user(acc, u)] if acc.held_anywhere('users.manage') else []
         groups = [g for g in access_db.groups() if may_manage_group(acc, g)] if \
             (acc.held_anywhere('groups.manage') or acc.held_anywhere('users.manage')) else []
+        users = [u for u in access_db.users() if may_manage_user(acc, u)] if acc.held_anywhere('users.manage') else []
+        # a person's groups elsewhere are not this reader's to know
+        seen_groups = {x['group_id'] for x in groups}
+        users = [dict(u, groups=[gid for gid in u['groups'] if top(acc) or gid in seen_groups]) for u in users]
         visible_cids = set(acc.visible_clusters([c.cluster_id for c in clusters()]))
         cl = [{'cluster_id': c.cluster_id, 'name': c.name, 'folder_id': tree.cluster_folder.get(c.cluster_id)}
               for c in clusters() if c.cluster_id in visible_cids]
@@ -150,6 +174,8 @@ def register(app, requires, access, clusters, vm_index_rows):
             'groups': groups,
             'users': [{k: v for k, v in u.items() if k != 'legacy_folders'} for u in users],
             'pending': sum(1 for u in access_db.users() if u['awaiting_access']) if acc.is_root_admin() else 0,
+            'awaiting_email': sum(1 for u in access_db.users() if u['awaiting_email']) if top(acc) else 0,
+            'top_user_manager': top(acc),
             'new_permissions': access_db.unacknowledged_permissions() if acc.held_anywhere('roles.manage') else [],
             'manage': {p: ['*' if n is None else n for n in acc.top_nodes_with(p)] for p in sorted(rbac.NODE_LEVEL)},
             'single_tenant': sum(1 for n in tree.level.values() if n == 'msp') <= 1
@@ -202,12 +228,24 @@ def register(app, requires, access, clusters, vm_index_rows):
     @app.route('/api/access/users', methods=['POST'])
     @requires('users.manage', 'any')
     def access_user_create():
+        """A new account (its login the email address) with its first access: below the top level the access
+        is required, or the account would vanish from its creator's sight at once."""
         b = request.get_json(silent=True) or {}
         acc = access()
-        home = _uuid_or_none(b.get('home_node_id'))
-        if not acc.can('users.manage', node_id=home):
-            raise AccessError('Access denied', 403)
-        uid = access_db.create_user(b.get('username'), b.get('password') or '', home, b.get('display_name'), actor())
+        tree = acc.tree
+        r = scope = None
+        if b.get('role_id') or b.get('scope'):
+            r = access_db.role(_uuid_or_none(b.get('role_id')) or '')
+            if not r:
+                raise AccessError('unknown role', 404)
+            scope = parse_scope(b, tree)
+            grant_check(acc, r, scope)
+        elif not top(acc):
+            raise AccessError('choose the role and where it applies')
+        uid = access_db.create_user(b.get('email') or b.get('username'), b.get('password') or '', b.get('display_name'),
+                                    actor(), audit_node=scope_node(scope, tree) if scope else None, reveal_taken=top(acc))
+        if r:
+            access_db.add_assignment({'user_id': uid}, r['role_id'], scope, actor(), scope_node(scope, tree))
         return jsonify({'ok': True, 'user_id': uid}), 201
 
     def managed_user(user_id: str) -> dict:
@@ -220,40 +258,53 @@ def register(app, requires, access, clusters, vm_index_rows):
     @app.route('/api/access/users/<user_id>')
     @requires('users.manage', 'any')
     def access_user_get(user_id):
+        """One account as this reader may see it: below the top level only the access held in their reach
+        (what the person holds in other tenants is not theirs to know)."""
         u = managed_user(user_id)
-        tree = access().tree
-        rows = access_db.assignments(user_id=u['user_id'])
-        for g in u['groups']:
-            for a in access_db.assignments(group_id=g):
+        acc = access()
+        tree = acc.tree
+        all_ = top(acc)
+        rows = [a for a in access_db.assignments(user_id=u['user_id']) if all_ or access_db.assignment_in_reach(acc, a)]
+        groups = [gid for gid in u['groups']
+                  if all_ or acc.can('users.manage', node_id=(access_db.group(gid) or {}).get('node_id'))]
+        for gid in groups:
+            for a in access_db.assignments(group_id=gid):
                 rows.append(dict(a, via_group=True))
         for a in rows:
-            a['scope_label'] = access_db.scope_label(a, tree)
-        legacy = [node_label(f, tree) for f in u.get('legacy_folders') or []]
-        return jsonify(dict({k: v for k, v in u.items() if k != 'legacy_folders'}, assignments=rows, legacy_folder_names=legacy))
+            a['scope_label'] = access_db.scope_label(a, tree, seen(acc))
+        legacy = [node_label(f, tree, seen(acc)) for f in u.get('legacy_folders') or []] if all_ else []
+        out = {k: v for k, v in u.items() if k != 'legacy_folders'}
+        out.update(groups=groups, assignments=rows, legacy_folder_names=legacy,
+                   may={'account': all_, 'display_name': all_ or u['user_id'] == me_id()})
+        return jsonify(out)
 
     @app.route('/api/access/users/<user_id>', methods=['PUT'])
     @requires('users.manage', 'any')
     def access_user_update(user_id):
+        """enabled, email (+ password), display_name: the account itself, top-level only (a person's own
+        display name too)."""
         u = managed_user(user_id)
         b = request.get_json(silent=True) or {}
         acc = access()
         kw = {}
+        if ('enabled' in b or 'email' in b) and not top(acc):
+            raise AccessError('only an administrator of the whole installation changes the account itself', 403)
         if 'enabled' in b:
             if u['user_id'] == me_id():
                 raise AccessError('you cannot disable your own account', 409)
             kw['enabled'] = bool(b['enabled'])
-        if 'home_node_id' in b:
-            home = _uuid_or_none(b['home_node_id'])
-            if not acc.can('users.manage', node_id=home):
-                raise AccessError('Access denied', 403)
-            kw['home_node_id'] = home
+        if 'email' in b:
+            kw['email'] = b['email']
+            kw['password'] = b.get('password') or None
         if 'display_name' in b:
+            if not (top(acc) or u['user_id'] == me_id()):
+                raise AccessError('the name is the person\'s own: they or an administrator of the whole installation set it', 403)
             kw['display_name'] = str(b['display_name'] or '')
         access_db.update_user(u['user_id'], actor(), **kw)
         return jsonify({'ok': True})
 
     @app.route('/api/access/users/<user_id>', methods=['DELETE'])
-    @requires('users.manage', 'any')
+    @requires('users.manage', 'root')
     def access_user_delete(user_id):
         u = managed_user(user_id)
         if u['user_id'] == me_id():
@@ -261,9 +312,20 @@ def register(app, requires, access, clusters, vm_index_rows):
         access_db.delete_user(u['user_id'], actor())
         return jsonify({'ok': True})
 
-    @app.route('/api/access/users/<user_id>/password', methods=['PUT'])
+    @app.route('/api/access/users/<user_id>/remove', methods=['POST'])
     @requires('users.manage', 'any')
+    def access_user_remove(user_id):
+        """'Remove from my tenants': the access this reader manages goes, the account and its other access stay."""
+        u = managed_user(user_id)
+        if u['user_id'] == me_id():
+            raise AccessError('you cannot change your own access', 409)
+        n = access_db.remove_access_in_reach(access(), u['user_id'], actor())
+        return jsonify({'ok': True, 'removed': n})
+
+    @app.route('/api/access/users/<user_id>/password', methods=['PUT'])
+    @requires('users.manage', 'root')
     def access_user_password(user_id):
+        """Credentials are never a tenant matter (PLAN-roles, Accounts 5): top-level admins only."""
         import user_db
         u = managed_user(user_id)
         pw = (request.get_json(silent=True) or {}).get('new_password') or ''
@@ -273,7 +335,7 @@ def register(app, requires, access, clusters, vm_index_rows):
         conn = access_db._connect()
         try:
             with conn.cursor() as cur:
-                access_db.audit(cur, actor(), 'user.password_reset', u['username'], node_id=u['home_node_id'])
+                access_db.audit(cur, actor(), 'user.password_reset', u['username'])
             conn.commit()
         finally:
             conn.close()
@@ -417,10 +479,11 @@ def register(app, requires, access, clusters, vm_index_rows):
     @requires('groups.manage', 'any')
     def access_group_get(group_id):
         g = managed_group(group_id)
-        tree = access().tree
+        acc = access()
+        tree = acc.tree
         rows = access_db.assignments(group_id=g['group_id'])
         for a in rows:
-            a['scope_label'] = access_db.scope_label(a, tree)
+            a['scope_label'] = access_db.scope_label(a, tree, seen(acc))
         return jsonify(dict(g, assignments=rows))
 
     @app.route('/api/access/groups/<group_id>', methods=['PUT'])
@@ -469,7 +532,32 @@ def register(app, requires, access, clusters, vm_index_rows):
             before = int(request.args.get('before') or 0) or None
         except ValueError:
             before = None
-        return jsonify({'rows': access_db.audit_rows(nodes, 300, before)})
+        rows = access_db.audit_rows(nodes, 300, before)
+        vis = seen(acc)
+        if vis is not None:
+            # the stored texts carry full paths: drop the hidden layers' part of them
+            tree = acc.tree
+            prefixes = sorted({' / '.join(tree.path(tree.parent.get(n))) + ' / ' for n in vis
+                               if tree.parent.get(n) and tree.parent.get(n) not in vis}, key=len, reverse=True)
+            names = nameable(acc)
+
+            def scrub(v):
+                if isinstance(v, str):
+                    for p in prefixes:
+                        v = v.replace(p, '')
+                    return v
+                if isinstance(v, list):
+                    return [scrub(x) for x in v]
+                if isinstance(v, dict):
+                    # a parent above the reader is not even named by its id
+                    return {k: (None if k == 'parent' and x and x not in vis else scrub(x)) for k, x in v.items()}
+                return v
+            for r in rows:
+                r['target'] = scrub(r['target'])
+                r['detail'] = scrub(r['detail'])
+                if r['actor'] and r['actor'] not in names and not r['actor'].startswith('guest:'):   # guests stay named
+                    r['actor'], r['actor_above'] = None, True
+        return jsonify({'rows': rows})
 
     @app.route('/api/access/scoped-tags')
     @requires('vm.view')
@@ -518,6 +606,55 @@ def register(app, requires, access, clusters, vm_index_rows):
                 skipped.append(f"{who}: {a['role_name']} ({e})")
         return jsonify({'ok': True, 'copied': done, 'skipped': skipped})
 
+    # -- what is assigned on one layer (the tenant browser's preview pane) ----------------------------
+    @app.route('/api/access/at')
+    @requires('users.manage', 'any')
+    def access_at():
+        """The users and groups assigned on one tree node (?node=) or one cluster (?cluster=): 'here' are
+        the assignments made on that layer (for a cluster also its tags and single VMs), 'above' the ones
+        it inherits from the layers over it, nearest first."""
+        acc = access()
+        tree = acc.tree
+        node = _uuid_or_none(request.args.get('node'))
+        # a node wins: apiFetch adds the sidebar's selected cluster to every request
+        cid = None if node else _uuid_or_none(request.args.get('cluster'))
+        if cid:
+            if not acc.can('users.manage', cid):
+                raise AccessError('not found', 404)
+            chain = tree.ancestors(tree.cluster_folder.get(cid))
+        elif node and node in tree.parent:
+            if not acc.can('users.manage', node_id=node):
+                raise AccessError('not found', 404)
+            chain = tree.ancestors(node)[1:]
+        else:
+            raise AccessError('node or cluster required')
+        here, above = [], []
+        vis = seen(acc)                          # the layers above the reader stay out, with their people
+        names = nameable(acc)
+        depth = {n: i for i, n in enumerate(chain)}
+        for a in access_db.assignments():
+            k = a['scope_kind']
+            if cid and k in ('cluster', 'tag', 'vm') and a['cluster_id'] == cid:
+                here.append(a)
+            elif not cid and k == 'node' and a['node_id'] == node:
+                here.append(a)
+            elif k == 'node' and a['node_id'] in depth and (vis is None or a['node_id'] in vis):
+                above.append(a)
+            elif k == 'root' and vis is None:
+                above.append(a)
+        above.sort(key=lambda a: depth.get(a['node_id'], len(depth)) if a['scope_kind'] == 'node' else len(depth))
+
+        def row(a):
+            return {'assignment_id': a['assignment_id'], 'user_id': a['user_id'], 'group_id': a['group_id'],
+                    'username': a['username'], 'group_name': a['group_name'], 'role_name': a['role_name'],
+                    'builtin_key': a['builtin_key'], 'scope_kind': a['scope_kind'], 'tag': a['tag'],
+                    'vm_name': a['vm_name'] or a['vm_uuid'], 'scope_label': access_db.scope_label(a, tree, vis),
+                    'created_by': a['created_by'] if names is None or a['created_by'] in names else None}
+        members = {g['group_id']: len(g.get('members') or []) for g in access_db.groups()}
+        out_here = [dict(row(a), members=members.get(a['group_id'])) for a in here]
+        out_above = [dict(row(a), members=members.get(a['group_id'])) for a in above]
+        return jsonify({'node_id': node, 'cluster_id': cid, 'here': out_here, 'above': out_above})
+
     # -- who has access ------------------------------------------------------------------------------
     @app.route('/api/access/who')
     @requires('users.manage', 'any')
@@ -531,7 +668,9 @@ def register(app, requires, access, clusters, vm_index_rows):
         tree = acc.tree
         tags = next((v.get('tags') or [] for v in vm_index_rows(cid) if v.get('uuid') == vm), []) if vm else []
         out = []
-        users = access_db.users()
+        vis = seen(acc)
+        names = nameable(acc)                    # accounts above the reader are not listed
+        users = [u for u in access_db.users() if names is None or u['username'] in names]
         for u in users:
             grants = access_db.grants_of_principal(user_id=u['user_id'])
             a = rbac.Access(grants, tree)
@@ -553,9 +692,9 @@ def register(app, requires, access, clusters, vm_index_rows):
                 if not vm:
                     return True
                 return (k == 'vm' and x['vm_uuid'] == vm) or (k == 'tag' and x['tag'] in tags)
-            via = [dict(x, scope_label=access_db.scope_label(x, tree)) for x in access_db.assignments(user_id=u['user_id']) if covers(x)]
+            via = [dict(x, scope_label=access_db.scope_label(x, tree, vis)) for x in access_db.assignments(user_id=u['user_id']) if covers(x)]
             for gid in u['groups']:
-                via += [dict(x, scope_label=access_db.scope_label(x, tree), via_group=True)
+                via += [dict(x, scope_label=access_db.scope_label(x, tree, vis), via_group=True)
                         for x in access_db.assignments(group_id=gid) if covers(x)]
             out.append({'user_id': u['user_id'], 'username': u['username'], 'enabled': u['enabled'],
                         'permissions': sorted(perms),

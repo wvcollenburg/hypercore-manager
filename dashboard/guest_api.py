@@ -227,6 +227,8 @@ def register(app, sock, requires, public, h):
             d['expired'] = g['valid_until'] < _now()
             d['live'] = [{'id': s['id'], 'source': s.get('source'), 'started': s.get('started')} for s in sessions.get(g['id'], [])]
             out.append(d)
+        # who asked, gave or revoked: never an account above the reader (an MSP engineer stays unnamed)
+        access_db.hide_names(out, ('requested_by', 'granted_by', 'revoked_by'), access_db.nameable_usernames(acc, me))
         return jsonify({'grants': out, 'pending': sum(1 for d in out if d['status'] == 'requested' and d['can_grant'])})
 
     @app.route('/api/guest/requests', methods=['POST'])
@@ -284,7 +286,7 @@ def register(app, sock, requires, public, h):
     def guest_revoke(gid):
         g = managed(gid)
         update(g['id'], status='revoked', revoked_by=actor(), revoked_at=_now(), guest_nonce_hash=None)
-        h.console_call('POST', f"grants/{g['id']}/end", payload={'reason': f'guest access revoked by {actor()}'}, timeout=10)
+        h.console_call('POST', f"grants/{g['id']}/end", payload={'reason': 'guest access revoked'}, timeout=10)
         audit('guest.revoke', label(g), g['cluster_id'])
         return jsonify({'ok': True})
 
@@ -306,7 +308,7 @@ def register(app, sock, requires, public, h):
     @requires('guest_console.grant', 'any')
     def guest_end(gid):
         g = managed(gid)
-        status, raw, _ = h.console_call('POST', f"grants/{g['id']}/end", payload={'reason': f'ended by {actor()}'}, timeout=10)
+        status, raw, _ = h.console_call('POST', f"grants/{g['id']}/end", payload={'reason': 'ended by the person who gave access'}, timeout=10)
         audit('guest.end_session', label(g), g['cluster_id'])
         return Response(raw, status=status, mimetype='application/json')
 

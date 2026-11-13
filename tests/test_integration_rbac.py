@@ -97,12 +97,22 @@ def clusters(admin):
 
 
 _sessions: dict = {}
+DEMO_DOMAIN = 'demo.example'      # accounts are email addresses: demo user 'contoso-admin' logs in as contoso-admin@demo.example
+
+
+def email(name):
+    return name if '@' in name else f'{name}@{DEMO_DOMAIN}'
+
+
+def short(username):
+    """A demo account's address back to its short name (the tests speak of 'contoso-admin')."""
+    return username[:-len(DEMO_DOMAIN) - 1] if username and username.endswith('@' + DEMO_DOMAIN) else username
 
 
 def as_user(name):
     if name not in _sessions:
         c = Client()
-        if not c.login(name, PW):
+        if not c.login(email(name), PW):
             pytest.skip(f'demo user {name} missing')
         _sessions[name] = c
     return _sessions[name]
@@ -227,7 +237,7 @@ def _node(admin, name):
 
 
 def _uid(admin, name):
-    return next(u['user_id'] for u in admin.call('GET', '/api/access/overview')[1]['users'] if u['username'] == name)
+    return next(u['user_id'] for u in admin.call('GET', '/api/access/overview')[1]['users'] if u['username'] == email(name))
 
 
 def test_customer_admin_cannot_escalate(admin, clusters):
@@ -387,6 +397,46 @@ def test_copy_vm_access_to_a_new_vm(admin, clusters):
                                           {'cluster_id': clusters['Fake'], 'from_vm': vms['web01'], 'to_vm': vms['kiosk01']})[0] == 404
 
 
+def test_tenant_browser_pane(admin, clusters):
+    """Settings → Access → Tenants: what is assigned on a layer and what it inherits, never across tenants."""
+    nodes = {n['name']: n['id'] for n in admin.call('GET', '/api/access/overview')[1]['nodes']}
+    names = lambda rows: {short(r['username']) or r['group_name'] for r in rows}  # noqa: E731
+    st, d = admin.call('GET', f"/api/access/at?node={nodes['Production']}&cluster={clusters['Fake']}")
+    assert st == 200 and d['cluster_id'] is None, 'a node wins over the cluster apiFetch adds'
+    assert {'contoso-prod-admin', 'Contoso helpdesk'} <= names(d['here'])
+    assert {'contoso-admin', 'nw-admin'} <= names(d['above']) and 'tailspin-admin' not in names(d['above'])
+    st, d = as_user('contoso-admin').call('GET', f"/api/access/at?cluster={clusters['Fake']}")
+    assert st == 200 and {'contoso-erp', 'contoso-web'} <= names(d['here'])
+    assert as_user('contoso-admin').call('GET', f"/api/access/at?node={nodes['Tailspin']}")[0] == 404
+    assert as_user('contoso-admin').call('GET', f"/api/access/at?node={nodes['Fabrikam']}")[0] == 404
+    assert as_user('contoso-eng').call('GET', f"/api/access/at?node={nodes['Contoso']}")[0] == 403
+
+
+def test_the_layers_above_stay_hidden(admin, clusters):
+    """A customer's people never see the MSP above them: not in the tree, not in a label, not its staff."""
+    c = as_user('contoso-admin')
+    ov = c.call('GET', '/api/access/overview')[1]
+    assert 'Northwind IT' not in {n['name'] for n in ov['nodes']}
+    top = next(n for n in ov['nodes'] if n['name'] == 'Contoso')
+    assert top['parent_id'] is None
+    nodes = {n['name']: n['id'] for n in ov['nodes']}
+    d = c.call('GET', f"/api/access/at?node={nodes['Production']}")[1]
+    blob = json.dumps(d)
+    assert 'Northwind' not in blob and 'nw-admin' not in blob and 'nw-noc' not in blob
+    assert 'contoso-admin' in blob, 'the layers of their own reach are still shown'
+    who = json.dumps(c.call('GET', f"/api/access/who?cluster={clusters['Fake']}")[1])
+    assert 'nw-' not in who and 'Northwind' not in who and '"admin"' not in who
+    assert 'Northwind' not in json.dumps(c.call('GET', '/api/access/audit')[1])
+    assert 'Northwind' not in json.dumps(c.call('GET', '/api/clusters')[1]['folders'])
+    nw_id = next(n['id'] for n in admin.call('GET', '/api/access/overview')[1]['nodes'] if n['name'] == 'Northwind IT')
+    assert nw_id not in json.dumps(c.call('GET', '/api/clusters')[1]['folders']), 'not even the id of the MSP'
+    assert nw_id not in json.dumps(c.call('GET', '/api/access/audit')[1])
+    for uid in [u['user_id'] for u in ov['users']][:5]:
+        assert 'Northwind' not in json.dumps(c.call('GET', f'/api/access/users/{uid}')[1])
+    # the MSP's own admin still sees its layer
+    assert 'Northwind IT' in {n['name'] for n in as_user('nw-admin').call('GET', '/api/access/overview')[1]['nodes']}
+
+
 def test_the_last_root_admin_cannot_be_removed(admin):
     me = admin.call('GET', '/api/users/me')[1]
     rows = admin.call('GET', f"/api/access/users/{me['user_id']}")[1]['assignments']
@@ -498,7 +548,7 @@ def test_guest_request_and_approval(clusters, fake_vms):
         assert erp.call('POST', '/api/guest/requests', _guest_body(clusters, fake_vms, 'web01'))[0] == 404, 'not their VM'
         assert erp.call('POST', f"/api/guest/grants/{rq['id']}/approve", {})[0] == 403
         mine = erp.call('GET', '/api/guest/grants')[1]['grants']
-        assert all(x['requested_by'] == 'contoso-erp' for x in mine)
+        assert all(x['requested_by'] == email('contoso-erp') for x in mine)
         assert as_user('fabrikam-admin').call('POST', f"/api/guest/grants/{rq['id']}/approve", {})[0] == 404
         st, ap = as_user('contoso-admin').call('POST', f"/api/guest/grants/{rq['id']}/approve", {})
         assert st == 200 and ap['link'] and len(ap['code']) == 6
@@ -513,3 +563,131 @@ def test_guest_routes_are_public_but_bounded(admin):
     public = [r for r in routes if routes[r]['permission'] == 'public']
     assert all(r.startswith(('/guest', '/login', '/logout', '/internal/', '/console/ws')) for r in public), public
     assert Client().raw('GET', '/guest/lang/../app.py')[0] == 404
+
+
+def test_guest_and_console_lists_do_not_name_accounts_above(admin, clusters, fake_vms):
+    """A grant given by the installation's admin, and its console sessions, show no name to the customer."""
+    st, g = admin.call('POST', '/api/guest/grants', _guest_body(clusters, fake_vms, 'web01', guest_name='Above Test'))
+    assert st == 201, g
+    try:
+        ca = as_user('contoso-admin')
+        row = next(x for x in ca.call('GET', '/api/guest/grants')[1]['grants'] if x['id'] == g['id'])
+        assert row['granted_by'] is None and 'granted_by' in row['hidden']
+        mine = next(x for x in admin.call('GET', '/api/guest/grants')[1]['grants'] if x['id'] == g['id'])
+        assert mine['granted_by'] and 'hidden' not in mine, 'the admin still sees the name'
+    finally:
+        admin.call('POST', f"/api/guest/grants/{g['id']}/revoke", {})
+    st, d = ca.call('GET', f"/api/console/sessions?cluster={clusters['Fake']}&limit=200")
+    assert st == 200
+    rows = d['sessions'] if isinstance(d, dict) else d
+    above = {'admin', email('nw-admin'), email('nw-noc')}
+    assert not any(r.get('username') in above for r in rows)
+    assert all(r.get('client_ip') is None for r in rows if 'username' in r.get('hidden', []))
+
+
+
+# ------------------------------------------------------------------ accounts are email addresses (PLAN-roles, Accounts, E1)
+def _mk(admin, address, role_key, node_name, **extra):
+    st, d = admin.call('POST', '/api/access/users', dict({'email': address, 'password': PW, 'display_name': 'John Smith',
+                                                          'role_id': _role(admin, role_key),
+                                                          'scope': {'kind': 'node', 'node_id': _node(admin, node_name)}}, **extra))
+    assert st == 201, d
+    return d['user_id']
+
+
+def _drop(admin, *uids):
+    for uid in uids:
+        admin.call('DELETE', f'/api/access/users/{uid}')
+
+
+def test_two_john_smiths(admin, clusters):
+    a = _mk(admin, 'jsmith@contoso.example', 'viewer', 'Contoso')
+    b = _mk(admin, 'jsmith@fabrikam.example', 'viewer', 'Fabrikam')
+    try:
+        ca, fa = Client(), Client()
+        assert ca.login('JSmith@Contoso.Example', PW), 'the address logs in whatever its capitals'
+        assert fa.login('jsmith@fabrikam.example', PW)
+        assert {c['name'] for c in ca.call('GET', '/api/clusters')[1]['clusters']} == {'Fake', 'Contoso-DR'}
+        assert {c['name'] for c in fa.call('GET', '/api/clusters')[1]['clusters']} == {'Fabrikam-Main'}
+        seen = {u['username'] for u in as_user('contoso-admin').call('GET', '/api/access/overview')[1]['users']}
+        assert 'jsmith@contoso.example' in seen and 'jsmith@fabrikam.example' not in seen
+        assert admin.call('POST', '/api/access/users', {'email': 'JSMITH@contoso.example', 'password': PW})[0] == 409
+    finally:
+        _drop(admin, a, b)
+
+
+def test_a_taken_address_is_refused_without_saying_where(admin, clusters):
+    a = _mk(admin, 'taken@fabrikam.example', 'viewer', 'Fabrikam')
+    try:
+        st, d = as_user('contoso-admin').call('POST', '/api/access/users', {
+            'email': 'Taken@Fabrikam.example', 'password': PW, 'role_id': _role(admin, 'viewer'),
+            'scope': {'kind': 'node', 'node_id': _node(admin, 'Contoso')}})
+        assert st == 409 and 'already' not in json.dumps(d) and 'Fabrikam' not in json.dumps(d)
+        st, d = as_user('contoso-admin').call('POST', '/api/access/users', {'email': 'new@contoso.example', 'password': PW})
+        assert st == 400, 'below the top level an account comes with its first access'
+        assert as_user('contoso-admin').call('POST', '/api/access/users', {'email': 'not-an-address', 'password': PW,
+            'role_id': _role(admin, 'viewer'), 'scope': {'kind': 'node', 'node_id': _node(admin, 'Contoso')}})[0] == 400
+    finally:
+        _drop(admin, a)
+
+
+def test_a_consultant_in_two_tenants(admin, clusters):
+    uid = _mk(admin, 'consultant@mymail.example', 'viewer', 'Contoso')
+    try:
+        st, _ = admin.call('POST', '/api/access/assignments', {'user_id': uid, 'role_id': _role(admin, 'viewer'),
+                                                               'scope': {'kind': 'node', 'node_id': _node(admin, 'Tailspin')}})
+        assert st == 201
+        c = Client()
+        assert c.login('consultant@mymail.example', PW)
+        ov = c.call('GET', '/api/access/overview')[1]
+        tops = {n['name'] for n in ov['nodes'] if n['parent_id'] is None}
+        assert {'Contoso', 'Tailspin'} <= tops, 'a tree without a root'
+        assert not {'Northwind IT', 'Blue Harbor'} & {n['name'] for n in ov['nodes']}
+        assert {x['name'] for x in c.call('GET', '/api/clusters')[1]['clusters']} == {'Fake', 'Contoso-DR', 'Tailspin-Ops'}
+        # each tenant admin sees the person, and only the access held in their own tenant
+        d = as_user('contoso-admin').call('GET', f'/api/access/users/{uid}')[1]
+        blob = json.dumps(d)
+        assert 'Tailspin' not in blob and 'Blue Harbor' not in blob and len(d['assignments']) == 1
+        assert 'Contoso' not in json.dumps(as_user('tailspin-admin').call('GET', f'/api/access/users/{uid}')[1])
+        assert as_user('fabrikam-admin').call('GET', f'/api/access/users/{uid}')[0] == 404
+        # credentials and the account itself are not a tenant matter
+        ca = as_user('contoso-admin')
+        assert ca.call('PUT', f'/api/access/users/{uid}/password', {'new_password': 'Other-pass-123'})[0] == 403
+        assert ca.call('PUT', f'/api/access/users/{uid}', {'email': 'mine@contoso.example', 'password': 'Other-pass-123'})[0] == 403
+        assert ca.call('PUT', f'/api/access/users/{uid}', {'enabled': False})[0] == 403
+        assert ca.call('PUT', f'/api/access/users/{uid}', {'display_name': 'Renamed'})[0] == 403
+        assert ca.call('DELETE', f'/api/access/users/{uid}')[0] == 403
+        # removing them from Contoso leaves Tailspin
+        st, d = ca.call('POST', f'/api/access/users/{uid}/remove', {})
+        assert st == 200 and d['removed'] == 1
+        assert ca.call('GET', f'/api/access/users/{uid}')[0] == 404
+        assert {x['name'] for x in c.call('GET', '/api/clusters')[1]['clusters']} == {'Tailspin-Ops'}
+    finally:
+        _drop(admin, uid)
+
+
+def test_an_address_change_keeps_access(admin, clusters):
+    uid = _mk(admin, 'old@contoso.example', 'viewer', 'Contoso')
+    try:
+        st, _ = admin.call('PUT', f'/api/access/users/{uid}', {'email': 'New@Contoso.example'})
+        assert st == 200
+        c = Client()
+        assert not c.login('old@contoso.example', PW)
+        assert c.login('new@contoso.example', PW)
+        assert {x['name'] for x in c.call('GET', '/api/clusters')[1]['clusters']} == {'Fake', 'Contoso-DR'}
+        assert c.call('PUT', f'/api/access/users/{uid}', {'display_name': 'Me'})[0] in (403, 200)
+    finally:
+        _drop(admin, uid)
+
+
+def test_an_account_without_address_waits_for_one(admin):
+    u = next((x for x in admin.call('GET', '/api/access/overview')[1]['users'] if x['username'] == 'legacy-anna'), None)
+    if not u:
+        pytest.skip('demo account legacy-anna missing')
+    assert u['awaiting_email'] and not u['enabled']
+    st, raw = Client().raw('POST', '/login', form={'username': 'legacy-anna', 'password': PW})
+    if b'Invalid email address or password' in raw:
+        pytest.skip('legacy-anna does not use the demo password')
+    assert st == 200 and b'needs an email address' in raw
+    # the old password is not carried over: an address alone is refused
+    assert admin.call('PUT', f"/api/access/users/{u['user_id']}", {'email': 'anna@demo.example'})[0] == 400
