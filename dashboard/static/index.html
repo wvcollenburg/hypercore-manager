@@ -1745,6 +1745,7 @@
           <button class="refresh-btn" id="vmCloneBtn" hidden onclick="openVmAct('clone', vmDetailActiveUuid)" data-i18n="va.clone">Clone</button>
           <button class="refresh-btn" id="vmEditBtn" hidden onclick="openVmEdit(vmDetailActiveUuid)" data-i18n="ve.edit">Edit</button>
           <button class="refresh-btn" id="vmWhoBtn" hidden data-i18n="acc.who_btn">Who has access</button>
+          <button class="refresh-btn" id="vmGuestBtn" hidden data-i18n="gc.outside_btn">Outside access…</button>
           <button class="refresh-btn" id="vmConsoleBtn" hidden onclick="openVmConsole(currentCluster, vmDetailActiveUuid)" data-i18n="console.open" data-i18n-title="console.open_hint" title="Open this VM's console in a new window">Console</button>
           <button class="vm-modal-close" onclick="closeVmModal()">✕</button>
         </div>
@@ -2627,6 +2628,9 @@ async function openVmModal(vmUuid) {
   document.getElementById('vmEditBtn').hidden = !['vm.edit', 'vm.power', 'vm.delete'].some(p => canVm(p, currentCluster, vm.uuid, vt));
   document.getElementById('vmSnapBtn').hidden = !canVm('vm.snapshot', currentCluster, vm.uuid, vt);
   document.getElementById('vmCloneBtn').hidden = !canVm('vm.clone', currentCluster, vm.uuid, vt);
+  const outBtn = document.getElementById('vmGuestBtn');
+  if (outBtn) { outBtn.hidden = !canVm('guest_console.request', currentCluster, vm.uuid, vt);
+                outBtn.onclick = () => gcForm(canVm('guest_console.grant', currentCluster, vm.uuid, vt) ? 'grant' : 'request', {cluster_id: currentCluster, vm_uuid: vm.uuid}); }
   const whoBtn = document.getElementById('vmWhoBtn');
   if (whoBtn) { whoBtn.hidden = !canNode('users.manage', (CLUSTERS.find(c => c.cluster_id === currentCluster) || {}).folder_id); whoBtn.onclick = () => acWho(currentCluster, vm.uuid, vm.name); }
   document.getElementById('vmDetailBackdrop').classList.add('visible');
@@ -4632,7 +4636,7 @@ async function loadSettings() {
   const show = {
     clusters: can('cluster.manage') || can('cluster.view'),
     tunables: can('cluster.view', currentCluster) || can('cluster.settings'),
-    users: can('users.manage') || can('groups.manage') || can('roles.manage') || can('audit.view') || canAnyVmPerm('guest_console.grant'),
+    users: can('users.manage') || can('groups.manage') || can('roles.manage') || can('audit.view') || canAnyVmPerm('guest_console.request'),
     shares: can('backup.targets.manage') || can('backup.proxies.manage'),
     console: can('console_check.manage') || can('console.audit') || canAnyVmPerm('console.audit'),
   };

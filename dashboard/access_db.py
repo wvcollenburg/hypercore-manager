@@ -65,11 +65,23 @@ def _bump(cur) -> None:
                                                    at = NOW()''')
 
 
+_tl = threading.local()
+
+
+def begin_request() -> None:
+    """Called before every dashboard request: the first cache lookup of the request re-reads the shared
+    version (one small query per request), so a change made through another worker is seen at once."""
+    _tl.fresh = False
+
+
 def _version():
+    if getattr(_tl, 'fresh', None) is True:
+        return _tl.v
     now = time.monotonic()
-    with _lock:
-        if now - _ver['at'] < _VERSION_TTL:
-            return _ver['v']
+    if getattr(_tl, 'fresh', None) is None:                 # outside a request (startup, threads): a short TTL
+        with _lock:
+            if now - _ver['at'] < _VERSION_TTL:
+                return _ver['v']
     v = None
     try:
         conn = _connect()
@@ -84,6 +96,8 @@ def _version():
         v = None
     with _lock:
         _ver.update(at=now, v=v)
+    if getattr(_tl, 'fresh', None) is False:
+        _tl.fresh, _tl.v = True, v
     return v
 
 

@@ -92,9 +92,45 @@ def build(token: str, http: aiohttp.ClientSession) -> web.Application:
         if len(binding) < 32:
             return _err('binding required')
         target = await asyncio.to_thread(hc.console_target, cid, vm)    # VM running, cluster reachable
-        t = consoles.mint(cid, vm, target.vm_name, str(b.get('username') or '?'), binding, b.get('client_ip'))
+        source = b.get('source') if b.get('source') in ('user', 'guest', 'watch') else 'user'
+        try:
+            max_minutes = float(b['max_minutes']) if b.get('max_minutes') else None
+            grant_id = int(b['grant_id']) if b.get('grant_id') else None
+        except (TypeError, ValueError):
+            return _err('max_minutes and grant_id must be numbers')
+        t = consoles.mint(cid, vm, target.vm_name, str(b.get('username') or '?'), binding, b.get('client_ip'),
+                          source=source, view_only=bool(b.get('view_only')) or source == 'watch',
+                          max_minutes=max_minutes, grant_id=grant_id)
         return _json({'ticket': t, 'ttl': consoles.TICKET_TTL, 'vm_name': target.vm_name,
-                      'idle_minutes': consoles.IDLE_MINUTES, 'max_hours': consoles.MAX_HOURS})
+                      'idle_minutes': consoles.IDLE_MINUTES, 'max_hours': consoles.MAX_HOURS,
+                      'max_minutes': max_minutes, 'view_only': bool(b.get('view_only')) or source == 'watch'})
+
+    async def live(request):
+        """The console sessions open right now (optionally of one guest grant)."""
+        grant = request.query.get('grant')
+        rows = [dict(s) for s in consoles.active.values() if not grant or str(s.get('grant_id')) == grant]
+        return _json({'live': rows})
+
+    async def end_session(request):
+        b = await _body(request)
+        sid = int(request.match_info['sid'])
+        ok = consoles.end(sid, str(b.get('reason') or 'ended by an administrator'))
+        return _json({'ok': ok}, 200 if ok else 404)
+
+    async def end_grant(request):
+        b = await _body(request)
+        gid = int(request.match_info['gid'])
+        ended = [s['id'] for s in list(consoles.active.values()) if s.get('grant_id') == gid
+                 and consoles.end(s['id'], str(b.get('reason') or 'guest access ended'))]
+        return _json({'ended': ended})
+
+    async def verdict(request):
+        """Locked, open or unknown, right now: a guest only connects onto a console showing a login or
+        lock screen (the open-session classifier)."""
+        b = await _body(request)
+        cid, vm = _cluster(request, b), _vm(request, b)
+        settings = await asyncio.to_thread(store.get_settings, cid)
+        return _json(await checker.check_vm(http, cid, vm, settings, username='guest pre-check', source='system'))
 
     async def relay(request):
         return await consoles.relay(request, http)
@@ -197,6 +233,10 @@ def build(token: str, http: aiohttp.ClientSession) -> web.Application:
     r.add_post('/api/v1/tickets', ticket)
     r.add_get('/api/v1/relay', relay)
     r.add_get('/api/v1/sessions', sessions)
+    r.add_get('/api/v1/live', live)
+    r.add_post(r'/api/v1/sessions/{sid:\d+}/end', end_session)
+    r.add_post(r'/api/v1/grants/{gid:\d+}/end', end_grant)
+    r.add_post('/api/v1/check/verdict', verdict)
     r.add_post('/api/v1/screenshot', screenshot)
     r.add_get('/api/v1/check', check_get)
     r.add_put('/api/v1/check/settings', check_settings)

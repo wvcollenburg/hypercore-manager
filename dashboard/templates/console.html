@@ -16,11 +16,11 @@
     code = supported[lang] || 'en';
   }
   document.documentElement.lang = code;
-  document.write('<scr'+'ipt src="/static/lang/'+code+'.js"><\/scr'+'ipt>');
+  document.write('<scr'+'ipt src="{{ asset_base }}/lang/'+code+'.js"><\/scr'+'ipt>');
 })();
 </script>
 <style>
-  @import url('/static/vendor/fonts.css');
+  {% if mode != 'guest' %}@import url('/static/vendor/fonts.css');{% endif %}
   :root {
     --bg-primary: #0a0e14; --bg-secondary: #111820; --bg-card: #151c27; --border: #1e2a3a;
     --border-active: #2d4a6f; --text-primary: #f4f7fa; --text-secondary: #c0d0e0; --text-muted: #7a9ab0;
@@ -61,11 +61,12 @@
 </head>
 <body>
   <div class="bar">
-    <span class="title" id="vmName">{{ vm_uuid }}</span>
-    <span class="sub">{{ cluster_name }}</span>
+    <span class="title" id="vmName">{{ title }}</span>
+    <span class="sub">{{ subtitle }}</span>
+    {% if view_only %}<span class="sub" style="color:var(--accent-amber)" data-i18n="console.view_only">read-only</span>{% endif %}
     <span class="status"><span class="dot" id="dot"></span><span id="status"></span></span>
     <span class="spacer"></span>
-    <button id="btnCad" onclick="sendCad()" disabled data-i18n="console.ctrl_alt_del">Ctrl+Alt+Del</button>
+    {% if not view_only %}<button id="btnCad" onclick="sendCad()" disabled data-i18n="console.ctrl_alt_del">Ctrl+Alt+Del</button>
     <select id="keys" onchange="sendCombo(this)" disabled aria-label="Keys">
       <option value="" data-i18n="console.keys">Send keys…</option>
       <option value="win">Win</option>
@@ -80,7 +81,7 @@
       <option value="esc">Esc</option>
       <option value="prtsc">PrtSc</option>
     </select>
-    <button id="btnType" onclick="openType()" disabled data-i18n="console.type_text">Type text…</button>
+    <button id="btnType" onclick="openType()" disabled data-i18n="console.type_text">Type text…</button>{% endif %}
     <button id="btnScale" onclick="toggleScale()" data-i18n="console.scale">Fit to window</button>
     <button id="btnFull" onclick="toggleFull()" data-i18n="console.fullscreen">Full screen</button>
     <button id="btnDisc" class="danger" onclick="disconnect()" disabled data-i18n="console.disconnect">Disconnect</button>
@@ -91,7 +92,7 @@
         <h2 id="endTitle"></h2>
         <p id="endText"></p>
         <div class="row">
-          <button onclick="window.close()" data-i18n="console.close_window">Close window</button>
+          {% if mode != 'guest' %}<button onclick="window.close()" data-i18n="console.close_window">Close window</button>{% endif %}
           <button onclick="connect()" data-i18n="console.reconnect">Reconnect</button>
         </div>
       </div>
@@ -113,6 +114,11 @@
 <script>
   const CLUSTER = {{ cluster_id|tojson }};
   const VM = {{ vm_uuid|tojson }};
+  const MODE = {{ mode|tojson }};                 // user | watch | guest
+  const TICKET_URL = {{ ticket_url|tojson }};
+  const WS_PATH = {{ ws_path|tojson }};
+  const VIEW_ONLY = {{ view_only|tojson }};
+  const TITLE = {{ title|tojson }};
   function t(key, params) {
     const lang = window.LANG || {};
     let s = Object.prototype.hasOwnProperty.call(lang, key) ? lang[key] : key;
@@ -122,7 +128,7 @@
   document.querySelectorAll('[data-i18n]').forEach(el => { const v = t(el.dataset.i18n); if (v !== el.dataset.i18n) el.textContent = v; });
 </script>
 <script type="module">
-  import RFB from '/static/vendor/novnc/core/rfb.js';
+  import RFB from '{{ asset_base }}/vendor/novnc/core/rfb.js';
 
   const XK = { ctrl: 0xffe3, alt: 0xffe9, shift: 0xffe1, win: 0xffeb, tab: 0xff09, esc: 0xff1b, enter: 0xff0d,
                del: 0xffff, prtsc: 0xff61, f1: 0xffbe, f2: 0xffbf, f4: 0xffc1, f7: 0xffc4, l: 0x006c, r: 0x0072 };
@@ -136,7 +142,7 @@
     $('dot').className = 'dot' + (kind ? ' ' + kind : '');
   }
   function controls(on) {
-    for (const id of ['btnCad', 'keys', 'btnType', 'btnDisc']) $(id).disabled = !on;
+    for (const id of ['btnCad', 'keys', 'btnType', 'btnDisc']) if ($(id)) $(id).disabled = !on;
   }
   function ended(title, text) {
     controls(false);
@@ -151,8 +157,8 @@
     status(t('console.connecting'), 'warn');
     let d;
     try {
-      const r = await fetch('/api/console/ticket', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                                     body: JSON.stringify({ cluster_id: CLUSTER, vm_uuid: VM }) });
+      const r = await fetch(TICKET_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ cluster_id: CLUSTER, vm_uuid: VM }) });
       d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
     } catch (e) {
@@ -161,16 +167,19 @@
       return;
     }
     limits = d;
-    $('vmName').textContent = d.vm_name;
-    document.title = `${d.vm_name} · ${t('console.title')}`;
+    const name = MODE === 'guest' ? TITLE : (d.vm_name || TITLE);
+    $('vmName').textContent = name;
+    document.title = `${name} · ${t('console.title')}`;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${proto}//${location.host}/console/ws?ticket=${encodeURIComponent(d.ticket)}`;
+    const url = `${proto}//${location.host}${WS_PATH}?ticket=${encodeURIComponent(d.ticket)}`;
     if (rfb) { try { rfb.disconnect(); } catch (_) {} }
     rfb = new RFB($('screen'), url, { wsProtocols: [], shared: true });
     rfb.scaleViewport = scale;
-    rfb.focusOnClick = true;
+    rfb.viewOnly = VIEW_ONLY;
+    rfb.focusOnClick = !VIEW_ONLY;
     rfb.addEventListener('connect', () => {
-      status(t('console.connected', { idle: limits.idle_minutes }), 'ok');
+      status(VIEW_ONLY ? t('console.connected_view') : d.max_minutes ? t('console.connected_guest', { max: d.max_minutes })
+                       : t('console.connected', { idle: limits.idle_minutes }), 'ok');
       controls(true);
       rfb.focus();
     });
@@ -178,7 +187,7 @@
       status(t('console.disconnected'), 'err');
       if (userClosed) { ended(t('console.disconnected'), t('console.closed_by_you')); return; }
       ended(t('console.disconnected'), e.detail.clean
-        ? t('console.closed_limits', { idle: limits.idle_minutes, hours: limits.max_hours })
+        ? (MODE === 'guest' ? t('console.closed_guest') : t('console.closed_limits', { idle: limits.idle_minutes, hours: limits.max_hours }))
         : t('console.closed_error'));
     });
     rfb.addEventListener('securityfailure', e => ended(t('console.failed'), e.detail.reason || ''));

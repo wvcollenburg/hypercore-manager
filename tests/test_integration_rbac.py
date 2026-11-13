@@ -411,3 +411,105 @@ def test_a_removed_right_is_gone_on_every_worker(admin, clusters):
     time.sleep(1.2)
     codes = [c.call('POST', '/api/console/ticket', {'cluster_id': clusters['Fake'], 'vm_uuid': vms['dc01']})[0] for _ in range(12)]
     assert all(x in (403, 404) for x in codes), codes
+
+
+# ------------------------------------------------------------------ guest console access (R4)
+def _guest_body(clusters, vms, vm, **kw):
+    import datetime as dt
+    now = dt.datetime.now(dt.timezone.utc)
+    b = {'cluster_id': clusters['Fake'], 'vm_uuid': vms[vm], 'guest_name': 'Test Guest', 'guest_company': 'Outside BV',
+         'valid_from': now.isoformat(), 'valid_until': (now + dt.timedelta(hours=1)).isoformat(), 'max_minutes': 30,
+         'max_sessions': 1, 'label': 'Maintenance'}
+    b.update(kw)
+    return b
+
+
+@pytest.fixture(scope='module')
+def fake_vms(admin, clusters):
+    return {v['name']: v['uuid'] for v in admin.call('GET', f"/api/vm-index?cluster={clusters['Fake']}")[1]['vms']}
+
+
+def test_guest_link_code_and_one_console(admin, clusters, fake_vms):
+    ca = as_user('contoso-admin')
+    st, g = ca.call('POST', '/api/guest/grants', _guest_body(clusters, fake_vms, 'web01'))
+    assert st == 201, g
+    token = g['link'].rsplit('/', 1)[1]
+    try:
+        guest = Client()
+        st, html = guest.raw('GET', f'/guest/{token}')
+        assert st == 200 and b'name="code"' in html and b'web01' not in html
+        assert guest.raw('POST', f'/guest/{token}', form={'code': '000000'})[0] == 401
+        assert guest.raw('POST', f'/guest/{token}', form={'code': g['code']})[0] == 303
+        st, html = guest.raw('GET', f'/guest/{token}')
+        assert st == 200 and b'/guest/ws' in html
+        assert b'web01' not in html and clusters['Fake'].encode() not in html and fake_vms['web01'].encode() not in html
+        st, t1 = guest.call('POST', f'/guest/{token}/ticket', {})
+        assert st == 200 and set(t1) == {'ticket', 'max_minutes', 'idle_minutes'}, 'no VM name, no cluster'
+        assert guest.call('POST', f'/guest/{token}/ticket', {})[0] == 403, 'one session only'
+        # the guest cookie opens nothing else
+        for path in ('/api/vms', '/api/clusters', '/api/users/me', f"/api/vm-info?vm={fake_vms['web01']}", '/'):
+            assert guest.raw('GET', path)[0] in (302, 401), path
+        # a second browser with the right code takes over; the first one's cookie stops working
+        other = Client()
+        assert other.raw('POST', f'/guest/{token}', form={'code': g['code']})[0] == 303
+        assert guest.raw('GET', f'/guest/{token}')[1].count(b'name="code"') == 1
+    finally:
+        ca.call('POST', f"/api/guest/grants/{g['id']}/revoke", {})
+    assert Client().raw('GET', f'/guest/{token}')[0] == 404, 'a revoked link is dead'
+
+
+def test_guest_only_onto_a_locked_console(clusters, fake_vms):
+    ca = as_user('contoso-admin')
+    st, g = ca.call('POST', '/api/guest/grants', _guest_body(clusters, fake_vms, 'db01'))      # db01 shows a logged-in shell
+    token = g['link'].rsplit('/', 1)[1]
+    try:
+        guest = Client()
+        guest.raw('POST', f'/guest/{token}', form={'code': g['code']})
+        st, d = guest.call('POST', f'/guest/{token}/ticket', {})
+        assert st == 409 and d.get('not_ready'), d
+    finally:
+        ca.call('POST', f"/api/guest/grants/{g['id']}/revoke", {})
+
+
+def test_guest_code_locks_after_five_tries(clusters, fake_vms):
+    ca = as_user('contoso-admin')
+    st, g = ca.call('POST', '/api/guest/grants', _guest_body(clusters, fake_vms, 'dc01'))
+    token = g['link'].rsplit('/', 1)[1]
+    try:
+        guest = Client()
+        for _ in range(5):
+            st, _ = guest.raw('POST', f'/guest/{token}', form={'code': '999999'})
+        assert st == 403
+        assert guest.raw('POST', f'/guest/{token}', form={'code': g['code']})[0] == 403, 'locked: even the right code'
+        st, r = ca.call('POST', f"/api/guest/grants/{g['id']}/reissue", {})
+        assert st == 200
+        assert Client().raw('GET', f'/guest/{token}')[0] == 404, 'the old link died with the reissue'
+        assert Client().raw('POST', f"/guest/{r['link'].rsplit('/', 1)[1]}", form={'code': r['code']})[0] == 303
+    finally:
+        ca.call('POST', f"/api/guest/grants/{g['id']}/revoke", {})
+
+
+def test_guest_request_and_approval(clusters, fake_vms):
+    erp = as_user('contoso-erp')                       # App Manager on tag erp: may ask, not give
+    st, rq = erp.call('POST', '/api/guest/requests', _guest_body(clusters, fake_vms, 'db01', guest_name='Asked For'))
+    assert st == 201, rq
+    try:
+        assert erp.call('POST', '/api/guest/grants', _guest_body(clusters, fake_vms, 'db01'))[0] == 403
+        assert erp.call('POST', '/api/guest/requests', _guest_body(clusters, fake_vms, 'web01'))[0] == 404, 'not their VM'
+        assert erp.call('POST', f"/api/guest/grants/{rq['id']}/approve", {})[0] == 403
+        mine = erp.call('GET', '/api/guest/grants')[1]['grants']
+        assert all(x['requested_by'] == 'contoso-erp' for x in mine)
+        assert as_user('fabrikam-admin').call('POST', f"/api/guest/grants/{rq['id']}/approve", {})[0] == 404
+        st, ap = as_user('contoso-admin').call('POST', f"/api/guest/grants/{rq['id']}/approve", {})
+        assert st == 200 and ap['link'] and len(ap['code']) == 6
+    finally:
+        as_user('contoso-admin').call('POST', f"/api/guest/grants/{rq['id']}/revoke", {})
+
+
+def test_guest_routes_are_public_but_bounded(admin):
+    routes = {r['rule']: r for r in admin.call('GET', '/api/access/routes')[1]['routes']}
+    for rule in ('/guest/<token>', '/guest/<token>/ticket', '/guest/ws', '/guest/vendor/novnc/<path:filename>', '/guest/lang/<filename>'):
+        assert routes[rule]['permission'] == 'public', rule
+    public = [r for r in routes if routes[r]['permission'] == 'public']
+    assert all(r.startswith(('/guest', '/login', '/logout', '/internal/', '/console/ws')) for r in public), public
+    assert Client().raw('GET', '/guest/lang/../app.py')[0] == 404

@@ -171,5 +171,26 @@ def is_user_input(msg: bytes, handshake_done: bool) -> bool:
     return i != len(msg)
 
 
+def carries_input(msg: bytes) -> bool:
+    """True when a browser -> console message (after the handshake) holds a key event, a pointer event
+    or clipboard text: what a read-only viewer must not send. Screen-update requests (alone or batched),
+    the pixel format and the encodings pass; so do the handshake's short messages (version, security
+    choice, the shared flag), none of which starts with 4, 5 or 6."""
+    if not msg:
+        return False
+    if msg[0] in (4, 5, 6):
+        return True
+    if msg[0] == 3:
+        i = 0
+        while i + _SIZES[3] <= len(msg):
+            if msg[i] in (4, 5, 6):
+                return True
+            if msg[i] != 3:
+                return False
+            i += _SIZES[3]
+        return i < len(msg) and msg[i] in (4, 5, 6)
+    return False
+
+
 def first_message_type(msg: bytes) -> Optional[int]:
     return msg[0] if msg else None

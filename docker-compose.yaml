@@ -164,6 +164,9 @@ services:
       - BACKUP_API_TOKEN=${BACKUP_API_TOKEN:-${EXPORTS_API_TOKEN:-}}
       # VM console service (internal only; its token is derived from HCM_SECRET_KEY)
       - CONSOLE_API_URL=http://console:8084
+      # public address guests reach the guest console by (Settings → Access → Guest console); blank:
+      # the address the granter's browser used
+      - HCM_GUEST_BASE_URL=${HCM_GUEST_BASE_URL:-}
       # auto-update: repo is always at /repo inside the container via volume mount;
       # SC_HOST_REPO_PATH carries the real host-side path so docker run can mount
       # it correctly when spawning the updater container

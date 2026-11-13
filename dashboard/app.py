@@ -204,6 +204,11 @@ def public(reason: str):
     return deco
 
 
+@app.before_request
+def _access_fresh():
+    access_db.begin_request()
+
+
 @app.errorhandler(AccessDenied)
 def _access_denied(e):
     return jsonify({'error': str(e)}), e.status
@@ -2343,7 +2348,9 @@ def console_page(cluster_id, vm_uuid):
     c = _visible_cluster(cluster_id)
     if c is None or not re.fullmatch(r'[0-9A-Za-z-]{1,64}', vm_uuid) or not _can_vm('vm.console', cluster_id, vm_uuid):
         return Response('Unknown cluster or VM', status=404, mimetype='text/plain')
-    return render_template('console.html', cluster_id=cluster_id, cluster_name=c.name, vm_uuid=vm_uuid)
+    return render_template('console.html', cluster_id=cluster_id, vm_uuid=vm_uuid, mode='user', title=vm_uuid,
+                           subtitle=c.name, ticket_url='/api/console/ticket', ws_path='/console/ws', view_only=False,
+                           asset_base='/static')
 
 
 @app.route('/api/console/ticket', methods=['POST'])
@@ -2375,6 +2382,12 @@ def console_ws(ws):
     if not binding or not ticket:
         ws.close(reason=4401, message='console ticket required')
         return
+    _relay_pipe(ws, ticket, binding)
+
+
+def _relay_pipe(ws, ticket: str, binding: str) -> None:
+    """Pipe a browser websocket to the console service's relay for a ticket bound to `binding`. The
+    ticket is checked (and consumed) there. Shared by the users' console and the guest console."""
     url = CONSOLE_API_URL.replace('http://', 'ws://', 1).replace('https://', 'wss://', 1)
     qs = urllib.parse.urlencode({'ticket': ticket, 'binding': binding})
     try:
@@ -3719,6 +3732,11 @@ def index():
 
 import access_api  # noqa: E402 — needs requires() and the helpers above
 access_api.register(app, requires, _access, _enabled_clusters, _vm_index_rows)
+import guest_api  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+guest_api.register(app, sock, requires, public, SimpleNamespace(
+    access=_access, can_vm=_can_vm, console_call=_console_call, console_binding=_console_binding, client_ip=_client_ip,
+    relay_pipe=_relay_pipe, clusters=_enabled_clusters, vm_index_rows=_vm_index_rows))
 
 
 # =============================================================================

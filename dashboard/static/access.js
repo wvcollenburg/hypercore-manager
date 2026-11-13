@@ -175,7 +175,7 @@ function _accAncestors(nodeId) {
 function canSettings() {
   return ['cluster.settings', 'cluster.manage', 'users.manage', 'groups.manage', 'roles.manage', 'audit.view',
           'backup.targets.manage', 'backup.proxies.manage', 'console_check.manage', 'console.audit', 'install.manage',
-          'guest_console.grant'].some(p => can(p));
+          'guest_console.grant', 'guest_console.request'].some(p => can(p) || canAnyVmPerm(p));
 }
 
 function _accMe() {
@@ -230,6 +230,12 @@ function _acNodesFor(perm, levels) {
 
 // ─────────────────────────────────────────────────── the upgrade dialog ──
 async function hcmCheckPending() {
+  // outside console requests that wait for this user (anyone who may grant on their VM)
+  if (canAnyVmPerm('guest_console.grant')) {
+    const g = await apiFetch('/api/guest/grants');
+    if (g && g.pending) showToast(t('gc.pending_toast', { n: g.pending }), 'ok');
+    _ac.guestPending = (g && g.pending) || 0;
+  }
   if (!(window.HCM_ACCESS && window.HCM_ACCESS.root_admin)) return;
   const d = await apiFetch('/api/access/pending');
   if (!d || !(d.pending || []).length) return;
@@ -317,7 +323,7 @@ function renderAccessPanel() {
     ['groups', t('acc.tab_groups'), can('groups.manage') || can('users.manage')],
     ['roles', t('acc.tab_roles'), true],
     ['tree', t('acc.tab_tree'), can('tree.manage')],
-    ['guest', t('acc.tab_guest'), can('guest_console.grant') || canAnyVmPerm('guest_console.grant')],
+    ['guest', t('acc.tab_guest') + (_ac.guestPending ? ` (${_ac.guestPending})` : ''), canAnyVmPerm('guest_console.request')],
     ['audit', t('acc.tab_audit'), can('audit.view')],
   ].filter(x => x[2]);
   if (!tabs.some(x => x[0] === _ac.tab)) _ac.tab = tabs[0][0];
@@ -852,3 +858,137 @@ document.addEventListener('DOMContentLoaded', async () => {
   window._accMeCache = await hcmLoadAccess();
   setTimeout(hcmCheckPending, 600);
 });
+
+// ───────────────────────────────────────────── guest console access (R4) ──
+// One-time console access for an outsider: link + code, one VM, a time window, nothing else.
+function _gcDt(d) { const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+function _gcFmt(iso) { return iso ? new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '—'; }
+
+window.acRenderGuest = async function () {
+  const body = document.getElementById('acBody');
+  body.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
+  const d = await apiFetch('/api/guest/grants');
+  const rows = (d && d.grants) || [];
+  const mayGrant = canAnyVmPerm('guest_console.grant');
+  if (d && (d.pending || 0) !== (_ac.guestPending || 0)) { _ac.guestPending = d.pending || 0; renderAccessPanel(); return; }
+  const badge = g => {
+    const s = g.expired && ['active', 'locked'].includes(g.status) ? 'expired' : g.status;
+    const cls = { requested: 'hcm-badge-warn', active: 'um-badge-otp-on', locked: 'hcm-badge-warn', expired: 'hcm-badge-off', revoked: 'hcm-badge-off', rejected: 'hcm-badge-off' }[s] || '';
+    return `<span class="um-badge ${cls}">${_esc(t('gc.st_' + s))}</span>`;
+  };
+  const acts = g => {
+    if (!g.can_grant) return '';
+    const b = [];
+    if (g.status === 'requested') b.push(`<button class="um-primary-btn" onclick="gcApprove(${g.id})">${_esc(t('gc.approve'))}</button>`,
+                                         `<button class="um-action-btn danger" onclick="gcReject(${g.id})">${_esc(t('gc.reject'))}</button>`);
+    if (['active', 'locked'].includes(g.status) && !g.expired) b.push(`<button class="um-action-btn" onclick="gcReissue(${g.id})">${_esc(t('gc.new_code'))}</button>`,
+                                                                       `<button class="um-action-btn danger" onclick="gcRevoke(${g.id})">${_esc(t('gc.revoke'))}</button>`);
+    if ((g.live || []).some(s => s.source === 'guest')) b.push(`<button class="um-action-btn" onclick="window.open('/guest-watch/${g.id}', '_blank', 'noopener')">${_esc(t('gc.watch'))}</button>`,
+                                                               `<button class="um-action-btn danger" onclick="gcEnd(${g.id})">${_esc(t('gc.end'))}</button>`);
+    return b.join(' ');
+  };
+  body.innerHTML = `
+    <div class="um-toolbar"><span class="um-hint" style="flex:1">${_esc(t('gc.intro'))}</span>
+      ${mayGrant ? `<button class="um-primary-btn" onclick="gcForm('grant')">+ ${_esc(t('gc.give'))}</button>`
+                 : `<button class="um-primary-btn" onclick="gcForm('request')">+ ${_esc(t('gc.ask'))}</button>`}</div>
+    ${rows.length ? `<table class="um-table"><thead><tr><th>${_esc(t('gc.col_vm'))}</th><th>${_esc(t('gc.col_guest'))}</th><th>${_esc(t('gc.col_window'))}</th>
+        <th>${_esc(t('acc.col_state'))}</th><th>${_esc(t('gc.col_sessions'))}</th><th></th></tr></thead><tbody>
+      ${rows.map(g => `<tr>
+        <td class="um-username">${_esc(g.vm_name || g.vm_uuid)}<div class="um-hint">${_esc(g.cluster_name || '')} · “${_esc(g.label)}”</div></td>
+        <td>${_esc(g.guest_name)}${g.guest_company ? `<div class="um-hint">${_esc(g.guest_company)}</div>` : ''}${g.reason ? `<div class="um-hint">${_esc(g.reason)}</div>` : ''}</td>
+        <td class="um-hint" style="white-space:nowrap">${_esc(_gcFmt(g.valid_from))}<br>${_esc(_gcFmt(g.valid_until))}</td>
+        <td>${badge(g)}${(g.live || []).some(s => s.source === 'guest') ? ` <span class="um-badge um-badge-admin">${_esc(t('gc.live'))}</span>` : ''}
+            <div class="um-hint">${_esc(t('gc.by', { req: g.requested_by || '—', grant: g.granted_by || '—' }))}</div></td>
+        <td>${g.sessions_used} / ${g.max_sessions}<div class="um-hint">${g.max_minutes} min${g.allow_open_session ? ' · ' + _esc(t('gc.open_ok_short')) : ''}</div></td>
+        <td style="white-space:nowrap">${acts(g)}</td></tr>`).join('')}</tbody></table>`
+      : `<div class="um-hint" style="padding:10px 0">${_esc(t('gc.none'))}</div>`}`;
+};
+
+async function gcForm(kind, preset) {
+  preset = preset || {};
+  const perm = kind === 'grant' ? 'guest_console.grant' : 'guest_console.request';
+  const clusters = (CLUSTERS || []).filter(c => c.enabled && canSome(perm, c.cluster_id));
+  if (!clusters.length) { hcmAlert(t('gc.no_vms')); return; }
+  const now = new Date(), later = new Date(now.getTime() + 4 * 3600e3);
+  const m = hcmModal({
+    title: _esc(kind === 'grant' ? t('gc.give') : t('gc.ask')), width: 'min(720px, 96vw)',
+    body: `<div class="hcm-banner">${_esc(t('gc.warning'))}</div>
+      <div class="hcm-grid2">
+        <label class="hcm-field"><span>${_esc(t('acc.scope_cluster'))}</span><select class="um-select" id="gcCluster">
+          ${clusters.map(c => `<option value="${c.cluster_id}" ${c.cluster_id === (preset.cluster_id || currentCluster) ? 'selected' : ''}>${_esc(c.name)}</option>`).join('')}</select></label>
+        <label class="hcm-field"><span>${_esc(t('gc.col_vm'))}</span><select class="um-select" id="gcVm"></select></label>
+        <label class="hcm-field"><span>${_esc(t('gc.guest_name'))}</span><input class="um-input" id="gcName" autocomplete="off"></label>
+        <label class="hcm-field"><span>${_esc(t('gc.guest_company'))}</span><input class="um-input" id="gcCompany" autocomplete="off"></label>
+        <label class="hcm-field"><span>${_esc(t('gc.from'))}</span><input class="um-input" type="datetime-local" id="gcFrom" value="${_gcDt(now)}"></label>
+        <label class="hcm-field"><span>${_esc(t('gc.until'))}</span><input class="um-input" type="datetime-local" id="gcUntil" value="${_gcDt(later)}"></label>
+        <label class="hcm-field"><span>${_esc(t('gc.max_minutes'))}</span><input class="um-input" type="number" id="gcMinutes" min="5" max="720" value="120"></label>
+        <label class="hcm-field"><span>${_esc(t('gc.max_sessions'))}</span><input class="um-input" type="number" id="gcSessions" min="1" max="20" value="1"></label>
+      </div>
+      <label class="hcm-field" style="margin-top:10px"><span>${_esc(t('gc.label'))}</span><input class="um-input" id="gcLabel" value="${_esc(t('gc.label_default'))}" maxlength="60"></label>
+      <div class="um-hint">${_esc(t('gc.label_hint'))}</div>
+      <label class="hcm-field" style="margin-top:10px"><span>${_esc(t('gc.reason'))}</span><input class="um-input" id="gcReason" maxlength="500"></label>
+      ${kind === 'grant' ? `<label class="hcm-perm" style="margin-top:12px"><input type="checkbox" id="gcOpen"> <span>${_esc(t('gc.allow_open'))}</span></label>
+        <div class="um-hint">${_esc(t('gc.allow_open_hint'))}</div>` : ''}`,
+    buttons: [{ label: t('console.cancel'), onClick: h => h.close() },
+      { label: kind === 'grant' ? t('gc.create') : t('gc.send_request'), kind: 'primary', onClick: async h => {
+        const iso = id => { const v = document.getElementById(id).value; return v ? new Date(v).toISOString() : null; };
+        const body = { cluster_id: document.getElementById('gcCluster').value, vm_uuid: document.getElementById('gcVm').value,
+          guest_name: document.getElementById('gcName').value, guest_company: document.getElementById('gcCompany').value,
+          valid_from: iso('gcFrom'), valid_until: iso('gcUntil'), max_minutes: +document.getElementById('gcMinutes').value,
+          max_sessions: +document.getElementById('gcSessions').value, label: document.getElementById('gcLabel').value,
+          reason: document.getElementById('gcReason').value, allow_open_session: !!document.getElementById('gcOpen')?.checked };
+        try {
+          const r = await _acCall('POST', kind === 'grant' ? '/api/guest/grants' : '/api/guest/requests', body);
+          h.close();
+          if (kind === 'grant') _gcShowSecrets(r, body.guest_name); else hcmAlert(t('gc.request_sent'));
+          if (_ac.tab === 'guest' && document.getElementById('acBody')) window.acRenderGuest();
+        } catch (e) { h.setMsg(e.message); }
+      } }],
+  });
+  const fillVms = async () => {
+    const cid = document.getElementById('gcCluster').value;
+    const d = await apiFetch(`/api/vm-index?cluster=${encodeURIComponent(cid)}`);
+    const vms = ((d && d.vms) || []).filter(v => canVm(perm, cid, v.uuid, v.tags)).sort((a, b) => a.name.localeCompare(b.name));
+    document.getElementById('gcVm').innerHTML = vms.map(v => `<option value="${v.uuid}" ${v.uuid === preset.vm_uuid ? 'selected' : ''}>${_esc(v.name)}${v.state && v.state !== 'RUNNING' ? ' (' + _esc(v.state.toLowerCase()) + ')' : ''}</option>`).join('')
+      || `<option value="">${_esc(t('gc.no_vms'))}</option>`;
+  };
+  document.getElementById('gcCluster').onchange = fillVms;
+  fillVms();
+  return m;
+}
+
+function _gcShowSecrets(r, guest) {
+  hcmModal({
+    title: _esc(t('gc.secrets_title')), width: 'min(640px, 96vw)', closable: true,
+    body: `<p class="hcm-text">${_esc(t('gc.secrets_intro', { guest: guest || '' }))}</p>
+      <div class="um-section-title">${_esc(t('gc.link'))}</div>
+      <div class="hcm-guest-link" id="gcLink">${_esc(r.link)}</div>
+      <div style="margin:6px 0 14px"><button class="um-action-btn" onclick="navigator.clipboard.writeText(document.getElementById('gcLink').textContent)">${_esc(t('gc.copy_link'))}</button></div>
+      <div class="um-section-title">${_esc(t('gc.code'))}</div>
+      <div class="hcm-guest-code">${_esc(r.code)}</div>
+      <p class="um-hint">${_esc(t('gc.secrets_once'))}</p>`,
+    buttons: [{ label: t('gc.done'), kind: 'primary', onClick: h => h.close() }],
+  });
+}
+
+async function gcApprove(id) {
+  const ok = await hcmConfirm(t('gc.approve_confirm'), { confirmLabel: t('gc.approve') });
+  if (!ok) return;
+  try { const r = await _acCall('POST', `/api/guest/grants/${id}/approve`, {}); _gcShowSecrets(r); window.acRenderGuest(); } catch (e) { hcmAlert(e.message); }
+}
+async function gcReject(id) {
+  if (!await hcmConfirm(t('gc.reject_confirm'), { danger: true, confirmLabel: t('gc.reject') })) return;
+  try { await _acCall('POST', `/api/guest/grants/${id}/reject`, {}); window.acRenderGuest(); } catch (e) { hcmAlert(e.message); }
+}
+async function gcRevoke(id) {
+  if (!await hcmConfirm(t('gc.revoke_confirm'), { danger: true, confirmLabel: t('gc.revoke') })) return;
+  try { await _acCall('POST', `/api/guest/grants/${id}/revoke`, {}); window.acRenderGuest(); } catch (e) { hcmAlert(e.message); }
+}
+async function gcReissue(id) {
+  if (!await hcmConfirm(t('gc.reissue_confirm'), { confirmLabel: t('gc.new_code') })) return;
+  try { const r = await _acCall('POST', `/api/guest/grants/${id}/reissue`, {}); _gcShowSecrets(r); window.acRenderGuest(); } catch (e) { hcmAlert(e.message); }
+}
+async function gcEnd(id) {
+  if (!await hcmConfirm(t('gc.end_confirm'), { danger: true, confirmLabel: t('gc.end') })) return;
+  try { await _acCall('POST', `/api/guest/grants/${id}/end`, {}); setTimeout(window.acRenderGuest, 2500); } catch (e) { hcmAlert(e.message); }
+}
