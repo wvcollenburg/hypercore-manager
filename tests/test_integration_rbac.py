@@ -561,7 +561,7 @@ def test_guest_routes_are_public_but_bounded(admin):
     for rule in ('/guest/<token>', '/guest/<token>/ticket', '/guest/ws', '/guest/vendor/novnc/<path:filename>', '/guest/lang/<filename>'):
         assert routes[rule]['permission'] == 'public', rule
     public = [r for r in routes if routes[r]['permission'] == 'public']
-    assert all(r.startswith(('/guest', '/login', '/logout', '/internal/', '/console/ws')) for r in public), public
+    assert all(r.startswith(('/guest', '/login', '/logout', '/internal/', '/console/ws', '/invite/')) for r in public), public
     assert Client().raw('GET', '/guest/lang/../app.py')[0] == 404
 
 
@@ -616,19 +616,13 @@ def test_two_john_smiths(admin, clusters):
         _drop(admin, a, b)
 
 
-def test_a_taken_address_is_refused_without_saying_where(admin, clusters):
-    a = _mk(admin, 'taken@fabrikam.example', 'viewer', 'Fabrikam')
-    try:
-        st, d = as_user('contoso-admin').call('POST', '/api/access/users', {
-            'email': 'Taken@Fabrikam.example', 'password': PW, 'role_id': _role(admin, 'viewer'),
-            'scope': {'kind': 'node', 'node_id': _node(admin, 'Contoso')}})
-        assert st == 409 and 'already' not in json.dumps(d) and 'Fabrikam' not in json.dumps(d)
-        st, d = as_user('contoso-admin').call('POST', '/api/access/users', {'email': 'new@contoso.example', 'password': PW})
-        assert st == 400, 'below the top level an account comes with its first access'
-        assert as_user('contoso-admin').call('POST', '/api/access/users', {'email': 'not-an-address', 'password': PW,
-            'role_id': _role(admin, 'viewer'), 'scope': {'kind': 'node', 'node_id': _node(admin, 'Contoso')}})[0] == 400
-    finally:
-        _drop(admin, a)
+def test_accounts_with_a_password_are_made_at_the_top_level_only(admin, clusters):
+    """Below the top level people are invited (E3): nobody else chooses another person's password."""
+    st, d = as_user('contoso-admin').call('POST', '/api/access/users', {
+        'email': 'new@contoso.example', 'password': PW, 'role_id': _role(admin, 'viewer'),
+        'scope': {'kind': 'node', 'node_id': _node(admin, 'Contoso')}})
+    assert st == 403
+    assert admin.call('POST', '/api/access/users', {'email': 'not-an-address', 'password': PW})[0] == 400
 
 
 def test_a_consultant_in_two_tenants(admin, clusters):
@@ -689,8 +683,7 @@ def test_an_account_without_address_waits_for_one(admin):
     if b'Invalid email address or password' in raw:
         pytest.skip('legacy-anna does not use the demo password')
     assert st == 200 and b'needs an email address' in raw
-    # the old password is not carried over: an address alone is refused
-    assert admin.call('PUT', f"/api/access/users/{u['user_id']}", {'email': 'anna@demo.example'})[0] == 400
+    # giving it an address sends an invitation to set a new password: see test_an_account_from_before_gets_its_address_by_invitation
 
 
 # ------------------------------------------------------------------ mail (PLAN-roles, Accounts, E2)
@@ -705,15 +698,17 @@ def sink(admin):
     import sys
     sys.path.insert(0, os.path.dirname(__file__))
     from smtp_sink import Sink
-    s = Sink(2525).start()
     before = admin.call('GET', '/api/mail/settings')[1]
+    if before.get('host') not in (None, '', SINK_HOST):
+        # a real relay is set up on this stack: its stored password cannot be read back, so never overwrite it
+        pytest.skip(f"mail is set up for {before['host']} on this stack; clear Settings -> Mail to run the mail tests")
+    s = Sink(2525).start()
     st, d = admin.call('PUT', '/api/mail/settings', {'host': SINK_HOST, 'port': 2525, 'security': 'none', 'username': '',
                                                      'sender': 'hcm@demo.example', 'sender_name': 'HCM test',
                                                      'public_url': 'https://hcm.demo.example', 'password': ''})
     assert st == 200, d
     yield s
-    admin.call('PUT', '/api/mail/settings', {k: before.get(k) for k in ('host', 'port', 'security', 'username', 'sender',
-                                                                        'sender_name', 'public_url')})
+    admin.call('PUT', '/api/mail/settings', {'host': '', 'sender': '', 'password': ''})     # back to "not set up"
     s.stop()
 
 
@@ -762,3 +757,164 @@ def test_an_unreachable_relay_is_reported(admin, sink):
         admin.call('PUT', '/api/mail/settings', {'host': SINK_HOST, 'port': 2525, 'security': 'none',
                                                  'sender': 'hcm@demo.example', 'sender_name': 'HCM test',
                                                  'public_url': 'https://hcm.demo.example'})
+
+
+# ------------------------------------------------------------------ invitations (PLAN-roles, Accounts, E3)
+_LINK = re.compile(r'https?://\S+?(/invite/[A-Za-z0-9_-]+)')
+
+
+def _invite(c, admin, address, role_key='viewer', node='Contoso', **extra):
+    body = dict({'email': address, 'role_id': _role(admin, role_key), 'lang': 'en',
+                 'scope': {'kind': 'node', 'node_id': _node(admin, node)}}, **extra)
+    return c.call('POST', '/api/access/invitations', body)
+
+
+def _path_in(mail):
+    m = _LINK.search(mail['body'])
+    assert m, mail['body']
+    return m.group(1)
+
+
+def _uid_of(admin, address):
+    return next((u['user_id'] for u in admin.call('GET', '/api/access/overview')[1]['users'] if u['username'] == address), None)
+
+
+def test_an_invited_new_address_sets_its_password(admin, clusters, sink):
+    address = 'newbie@invited.example'
+    ca = as_user('contoso-admin')
+    st, d = _invite(ca, admin, address, lang='de')
+    try:
+        assert st == 201 and d['sent'] and d['link'] is None and d['hours'] == 48, d
+        mail = sink.to(address)[-1]
+        assert mail['subject'] == 'Sie sind zu HyperCore Manager eingeladen'
+        assert 'Contoso' in mail['body'] and 'Northwind' not in mail['body'] and 'contoso-admin' not in mail['body']
+        path = _path_in(mail)
+        p = Client()
+        st, raw = p.raw('GET', path)
+        assert st == 200 and b'Willkommen' in raw and address.encode() in raw
+        st, raw = p.raw('POST', path, form={'password': 'Short1', 'password2': 'Short1'})
+        assert st == 200 and b'8 Zeichen' in raw, 'too short is refused'
+        st, raw = p.raw('POST', path, form={'display_name': 'New Bie', 'password': 'Invited-2026!', 'password2': 'Invited-2026!'})
+        assert st == 302, raw[:300]
+        assert {x['name'] for x in p.call('GET', '/api/clusters')[1]['clusters']} == {'Fake', 'Contoso-DR'}, 'signed in, with the access'
+        assert Client().raw('GET', path)[0] == 404, 'the link works once'
+        assert Client().login('NewBie@Invited.example', 'Invited-2026!')
+    finally:
+        uid = _uid_of(admin, address)
+        if uid:
+            _drop(admin, uid)
+
+
+def test_inviting_an_existing_account_answers_the_same(admin, clusters, sink):
+    """The inviter cannot tell whether the address had an account; the person accepts after signing in."""
+    known = _mk(admin, 'known@mymail.example', 'viewer', 'Tailspin')
+    ca = as_user('contoso-admin')
+    try:
+        st1, fresh = _invite(ca, admin, 'unknown@mymail.example')
+        st2, existing = _invite(ca, admin, 'Known@MyMail.example')
+        assert st1 == st2 == 201
+        assert set(fresh) == set(existing) and fresh['sent'] == existing['sent'] and existing['link'] is None
+        mail = sink.to('known@mymail.example')[-1]
+        assert mail['subject'] == 'New access in HyperCore Manager'
+        path = _path_in(mail)
+        # someone else signed in cannot take it
+        st, raw = as_user('contoso-viewer').raw('GET', path)
+        assert st == 200 and b'invitation is for known@mymail.example' in raw
+        c = Client()
+        st, raw = c.raw('GET', path)
+        assert st == 200 and b'Sign in as known@mymail.example' in raw
+        st, _ = c.raw('POST', '/login', form={'username': 'known@mymail.example', 'password': PW})
+        assert st == 302
+        st, raw = c.raw('GET', path)
+        assert st == 200 and b'Accept' in raw
+        assert c.raw('POST', path)[0] == 302
+        assert {x['name'] for x in c.call('GET', '/api/clusters')[1]['clusters']} == {'Fake', 'Contoso-DR', 'Tailspin-Ops'}
+    finally:
+        _drop(admin, known)
+        for i in admin.call('GET', '/api/access/invitations')[1]['invitations']:
+            if i['email'] == 'unknown@mymail.example':
+                admin.call('DELETE', f"/api/access/invitations/{i['invitation_id']}")
+
+
+def test_without_mail_the_inviter_gets_the_link(admin, clusters, sink):
+    admin.call('PUT', '/api/mail/settings', {'host': '', 'sender': ''})
+    try:
+        st, d = _invite(as_user('contoso-admin'), admin, 'nomail@invited.example')
+        assert st == 201 and not d['sent'] and d['error'] == 'mail is not set up' and '/invite/' in d['link']
+        path = _LINK.search(d['link']).group(1)
+        assert Client().raw('GET', path)[0] == 200
+        admin.call('DELETE', f"/api/access/invitations/{d['invitation_id']}")
+        assert Client().raw('GET', path)[0] == 404, 'a withdrawn link is dead'
+    finally:
+        admin.call('PUT', '/api/mail/settings', {'host': SINK_HOST, 'port': 2525, 'security': 'none', 'sender': 'hcm@demo.example',
+                                                 'sender_name': 'HCM test', 'public_url': 'https://hcm.demo.example'})
+
+
+def test_invitations_stay_within_the_inviters_reach(admin, clusters, sink):
+    ca, fa = as_user('contoso-admin'), as_user('fabrikam-admin')
+    assert _invite(ca, admin, 'x@invited.example', node='Fabrikam')[0] in (403, 404)
+    assert _invite(ca, admin, 'x@invited.example', role_key='admin', node='Northwind IT')[0] in (403, 404)
+    assert _invite(as_user('contoso-eng'), admin, 'x@invited.example')[0] == 403
+    assert _invite(ca, admin, 'contoso-admin@demo.example')[0] == 409, 'not your own address'
+    st, d = _invite(fa, admin, 'fab-only@invited.example', node='Fabrikam')
+    assert st == 201
+    try:
+        assert not any(i['email'] == 'fab-only@invited.example' for i in ca.call('GET', '/api/access/invitations')[1]['invitations'])
+        assert ca.call('DELETE', f"/api/access/invitations/{d['invitation_id']}")[0] == 404
+        assert ca.call('POST', f"/api/access/invitations/{d['invitation_id']}/resend")[0] == 404
+        mine = next(i for i in fa.call('GET', '/api/access/invitations')[1]['invitations'] if i['invitation_id'] == d['invitation_id'])
+        from datetime import datetime
+        span = datetime.fromisoformat(mine['expires_at']) - datetime.fromisoformat(mine['created_at'])
+        assert abs(span.total_seconds() - 48 * 3600) < 60, 'valid 48 hours'
+        assert 'Northwind' not in json.dumps(mine)
+    finally:
+        fa.call('DELETE', f"/api/access/invitations/{d['invitation_id']}")
+
+
+def test_resend_kills_the_old_link(admin, clusters, sink):
+    ca = as_user('contoso-admin')
+    st, d = _invite(ca, admin, 'resend@invited.example')
+    old = _path_in(sink.to('resend@invited.example')[-1])
+    try:
+        st, r = ca.call('POST', f"/api/access/invitations/{d['invitation_id']}/resend")
+        assert st == 200 and r['sent']
+        new = _path_in(sink.to('resend@invited.example')[-1])
+        assert new != old and Client().raw('GET', old)[0] == 404 and Client().raw('GET', new)[0] == 200
+    finally:
+        ca.call('DELETE', f"/api/access/invitations/{d['invitation_id']}")
+
+
+def test_an_inviter_who_loses_the_right_voids_the_invitation(admin, clusters, sink):
+    temp = _mk(admin, 'temp-admin@contoso.example', 'admin', 'Contoso')
+    try:
+        t = Client()
+        assert t.login('temp-admin@contoso.example', PW)
+        st, d = _invite(t, admin, 'via-temp@invited.example')
+        assert st == 201
+        path = _path_in(sink.to('via-temp@invited.example')[-1])
+        assert Client().raw('GET', path)[0] == 200
+        for a in admin.call('GET', f'/api/access/users/{temp}')[1]['assignments']:
+            admin.call('DELETE', f"/api/access/assignments/{a['assignment_id']}")
+        assert Client().raw('GET', path)[0] == 404, 'what the inviter may no longer give is not given'
+    finally:
+        _drop(admin, temp)
+        for i in admin.call('GET', '/api/access/invitations')[1]['invitations']:
+            if i['email'] == 'via-temp@invited.example':
+                admin.call('DELETE', f"/api/access/invitations/{i['invitation_id']}")
+
+
+def test_an_account_from_before_gets_its_address_by_invitation(admin, clusters, sink):
+    u = next((x for x in admin.call('GET', '/api/access/overview')[1]['users'] if x['username'] == 'r0user'), None)
+    if not u:
+        pytest.skip('demo account r0user missing (already given an address)')
+    assert as_user('contoso-admin').call('PUT', f"/api/access/users/{u['user_id']}", {'email': 'r0@demo.example'})[0] in (403, 404)
+    st, d = admin.call('PUT', f"/api/access/users/{u['user_id']}", {'email': 'R0@demo.example'})
+    assert st == 200 and d['invitation']['sent'], d
+    mail = sink.to('r0@demo.example')[-1]
+    assert mail['subject'] == 'Your HyperCore Manager account needs a new password'
+    st, raw = Client().raw('POST', '/login', form={'username': 'r0@demo.example', 'password': PW})
+    assert b'invitation to set a new password was sent' in raw, 'the old password does not open it'
+    c = Client()
+    st, raw = c.raw('POST', _path_in(mail), form={'password': 'New-pass-2026', 'password2': 'New-pass-2026'})
+    assert st == 302, raw[:300]
+    assert c.call('GET', '/api/users/me')[1]['username'] == 'r0@demo.example'

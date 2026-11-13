@@ -371,8 +371,10 @@ function _acRenderUsers(keepFocus) {
     <div class="um-toolbar">
       <input class="um-input" id="acSearch" placeholder="${_esc(t('users.search_placeholder'))}" value="${_esc(_ac.query)}" oninput="acSearch(this.value)" autocomplete="off">
       <span style="flex:1"></span>
-      <button class="um-primary-btn" onclick="acNewUser()">+ ${_esc(t('users.add'))}</button>
+      ${_ac.data.top_user_manager ? `<button class="um-action-btn" onclick="acNewUser()">+ ${_esc(t('acc.add_user_pw'))}</button>` : ''}
+      <button class="um-primary-btn" onclick="acInvite()">+ ${_esc(t('acc.invite'))}</button>
     </div>
+    <div id="acInvites"></div>
     ${users.length ? `<table class="um-table"><thead><tr><th>${_esc(t('acc.col_email'))}</th>
         <th>${_esc(t('acc.col_state'))}</th><th>OTP</th><th></th></tr></thead><tbody>
       ${users.map(u => `<tr>
@@ -383,6 +385,7 @@ function _acRenderUsers(keepFocus) {
         <td style="white-space:nowrap"><button class="um-action-btn" onclick="acOpenUser('${u.user_id}')">${_esc(t('acc.access_btn'))}</button></td>
       </tr>`).join('')}</tbody></table>`
       : `<div class="um-hint" style="padding:10px 0">${_esc(t('users.none'))}</div>`}`;
+  _acRenderInvites();
   if (keepFocus) { const i = document.getElementById('acSearch'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
 }
 
@@ -490,7 +493,8 @@ async function acOpenUser(uid) {
             if (pw) body.password = pw.value;
           }
           if (!Object.keys(body).length) { h.close(); return; }
-          await _acCall('PUT', `/api/access/users/${uid}`, body);
+          const r = await _acCall('PUT', `/api/access/users/${uid}`, body);
+          if (r.invitation) { h.close(); _acInviteResult(r.invitation, body.email.toLowerCase()); await _acLoad(); renderAccessPanel(); return; }
           h.setMsg(t('acc.saved'), 'ok'); await _acLoad(); renderAccessPanel();
         } catch (e) { h.setMsg(e.message); }
       } },
@@ -837,7 +841,8 @@ async function _acTbPane() {
         <div class="hcm-tb-title">${_esc(name)}</div>
         <div class="hcm-tb-crumbs"><span class="hcm-tree-level">${_esc(kind === 'cluster' ? t('acc.scope_cluster') : _acLevelLabel(kind))}</span> ${_esc(crumbs)}</div></div>
       <div class="hcm-tb-actions">${actions}</div></div>
-    ${mayAssign ? `<button class="um-primary-btn" style="align-self:flex-start" onclick="acTbAssign()">+ ${_esc(t('acc.tb_assign'))}</button>` : ''}
+    ${mayAssign ? `<div style="display:flex;gap:6px"><button class="um-primary-btn" onclick="acTbAssign()">+ ${_esc(t('acc.tb_assign'))}</button>
+      <button class="um-action-btn" onclick="acTbInvite()">+ ${_esc(t('acc.invite'))}</button></div>` : ''}
     <div id="acTbList">${mayAssign ? `<div class="loading"><div class="spinner"></div></div>` : `<div class="hcm-tb-hint">${_esc(t('acc.tb_no_manage'))}</div>`}</div>`;
   if (!mayAssign) return;
   const want = c ? `cluster=${encodeURIComponent(c.cluster_id)}` : `node=${encodeURIComponent(n.id)}`;
@@ -867,8 +872,122 @@ async function _acTbPane() {
   box.innerHTML = `
     <div class="um-section-title">${_esc(t('acc.tb_here'))} <span class="um-hint">${d.here.length || ''}</span></div>
     ${d.here.length ? sortRows(d.here).map(a => line(a, true)).join('') : `<div class="hcm-tb-hint">${_esc(t('acc.tb_nobody_here'))}</div>`}
+    <div id="acTbInvited"></div>
     ${d.above.length ? `<div class="um-section-title" style="margin-top:16px">${_esc(t('acc.tb_above'))} <span class="um-hint">${d.above.length}</span></div>
       ${d.above.map(a => line(a, false)).join('')}` : ''}`;
+  const inv = await _acInvites();
+  const here = inv.filter(i => c ? (i.cluster_id === c.cluster_id) : (i.scope_kind === 'node' && i.node_id === nodeId));
+  const box2 = document.getElementById('acTbInvited');
+  if (box2 && here.length) box2.innerHTML = `<div class="um-section-title" style="margin-top:16px">${_esc(t('acc.tb_invited'))} <span class="um-hint">${here.length}</span></div>
+    ${here.map(i => `<div class="hcm-tb-who">${_acIcon('user')}<div class="hcm-tb-who-name">${_esc(i.email)}<div class="um-hint">${_esc(_acInviteState(i))}</div></div>
+      <span class="hcm-tb-role">${_esc(i.builtin_key ? t('acc.role_' + i.builtin_key) : (i.role_name || i.group_name || ''))}</span>
+      <button class="hcm-tb-x" title="${_esc(t('acc.withdraw'))}" onclick="acInviteWithdraw('${i.invitation_id}', '${_esc(i.email)}')">×</button></div>`).join('')}`;
+}
+
+function acTbInvite() {
+  const tb = _ac.tb;
+  acInvite(tb.cluster ? { kind: 'cluster', cluster_id: tb.cluster } : { kind: 'node', node_id: tb.path[tb.path.length - 1] });
+}
+
+// ── invitations (PLAN-roles, Accounts, E3) ───────────────────────────────────
+async function _acInvites() {
+  const d = await apiFetch('/api/access/invitations');
+  _ac.invites = (d && d.invitations) || [];
+  return _ac.invites;
+}
+
+function _acInviteState(i) {
+  return i.state === 'expired' ? t('acc.inv_expired') : t('acc.inv_expires', { at: new Date(i.expires_at).toLocaleString() });
+}
+
+async function _acRenderInvites() {
+  const inv = await _acInvites();
+  const box = document.getElementById('acInvites');
+  if (!box) return;
+  box.innerHTML = inv.length ? `<div class="um-section-title">${_esc(t('acc.invitations'))} <span class="um-hint">${inv.length}</span></div>
+    <table class="um-table" style="margin-bottom:14px"><thead><tr><th>${_esc(t('acc.col_email'))}</th><th>${_esc(t('acc.col_role'))}</th>
+      <th>${_esc(t('acc.col_scope'))}</th><th>${_esc(t('acc.col_by'))}</th><th>${_esc(t('acc.col_state'))}</th><th></th></tr></thead><tbody>
+    ${inv.map(i => `<tr><td class="um-username">${_esc(i.email)}${i.display_name ? `<div class="um-hint">${_esc(i.display_name)}</div>` : ''}</td>
+      <td>${_esc(i.kind === 'activate' ? t('acc.inv_activate') : i.builtin_key ? t('acc.role_' + i.builtin_key) : (i.role_name || t('acc.tab_groups') + ': ' + (i.group_name || '')))}</td>
+      <td class="um-hint">${_esc(i.kind === 'activate' ? '' : i.scope_label || '')}</td>
+      <td class="um-hint">${i.invited_by ? _esc(i.invited_by) : _esc(t('acc.actor_above'))}</td>
+      <td><span class="um-badge ${i.state === 'expired' ? 'hcm-badge-off' : 'hcm-badge-warn'}">${_esc(_acInviteState(i))}</span></td>
+      <td style="white-space:nowrap"><button class="um-action-btn" onclick="acInviteResend('${i.invitation_id}', '${_esc(i.email)}')">${_esc(t('acc.resend'))}</button>
+        <button class="um-action-btn danger" onclick="acInviteWithdraw('${i.invitation_id}', '${_esc(i.email)}')">${_esc(t('acc.withdraw'))}</button></td></tr>`).join('')}
+    </tbody></table>` : '';
+}
+
+/** After sending: say it went, or hand over the link when no mail went out. */
+function _acInviteResult(d, email) {
+  if (d.sent) { hcmAlert(t('acc.invite_sent', { email })); return; }
+  const m = hcmModal({
+    title: _esc(t('acc.invite_link_title')), width: 'min(640px, 96vw)',
+    body: `<div class="um-hint" style="margin-bottom:8px">${_esc(t('acc.invite_link_why', { email, hours: d.hours || 48, error: d.error || '' }))}</div>
+      <div style="display:flex;gap:6px"><input class="um-input" id="ivLink" readonly value="${_esc(d.link || '')}" style="flex:1;font-family:monospace">
+      <button class="um-primary-btn" id="ivCopy">${_esc(t('acc.copy'))}</button></div>`,
+    buttons: [{ label: t('acc.close'), onClick: h => h.close() }],
+  });
+  document.getElementById('ivCopy').onclick = async () => {
+    const i = document.getElementById('ivLink'); i.select();
+    try { await navigator.clipboard.writeText(i.value); } catch (_) { document.execCommand('copy'); }
+    document.getElementById('ivCopy').textContent = t('acc.copied');
+  };
+  return m;
+}
+
+/** Invite an address: with a role on a scope (preset from the Tenants pane) or into a group. */
+function acInvite(preset) {
+  const groups = (_ac.data.groups || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  const m = hcmModal({
+    title: _esc(t('acc.invite_title')), width: 'min(820px, 96vw)',
+    body: `<div class="hcm-form">
+      <label class="hcm-field"><span>${_esc(t('acc.col_email'))}</span><input class="um-input" id="ivEmail" type="email" autocomplete="off" placeholder="name@example.com"></label>
+      <label class="hcm-field"><span>${_esc(t('acc.display_name'))}</span><input class="um-input" id="ivName" autocomplete="off"></label>
+      <label class="hcm-field"><span>${_esc(t('acc.invite_give'))}</span><select class="um-select" id="ivWhat">
+        <option value="role">${_esc(t('acc.invite_role'))}</option>
+        ${groups.length && !preset ? `<option value="group">${_esc(t('acc.invite_group'))}</option>` : ''}</select></label>
+      <div id="ivRoleBox">${_acAssignForm('iv', preset)}</div>
+      <div id="ivGroupBox" style="display:none"><select class="um-select" id="ivGroup">${groups.map(g => `<option value="${g.group_id}">${_esc(g.name)}${g.node_id ? ' · ' + _esc(_acNodePath(g.node_id)) : ''}</option>`).join('')}</select></div>
+      <div class="um-hint">${_esc(t('acc.invite_hint', { hours: 48 }))}</div></div>`,
+    buttons: [
+      { label: t('console.cancel'), onClick: h => h.close() },
+      { label: t('acc.invite'), kind: 'primary', onClick: async h => {
+        const email = document.getElementById('ivEmail').value.trim();
+        const body = { email, display_name: document.getElementById('ivName').value, lang: window._hcmLang || 'en' };
+        if (document.getElementById('ivWhat').value === 'group') body.group_id = document.getElementById('ivGroup').value;
+        else { body.role_id = document.getElementById('ivRole').value; body.scope = _acScopeFrom('iv'); }
+        try {
+          const d = await _acCall('POST', '/api/access/invitations', body);
+          h.close(); _acInviteResult(d, email.toLowerCase());
+          if (_ac.tab === 'users') _acRenderInvites(); else if (_ac.tab === 'tree') _acTbPane();
+        } catch (e) { h.setMsg(e.message); }
+      } },
+    ],
+  });
+  const viewer = (_ac.data.roles || []).find(r => r.builtin_key === 'viewer');
+  if (viewer) document.getElementById('ivRole').value = viewer.role_id;
+  _acAssignWire('iv', {}, m, () => {});
+  document.getElementById('ivAdd').style.display = 'none';
+  if (preset) {            // the layer is fixed: a node fixes the node, a cluster offers cluster, tag or VM on it
+    const $ = id => document.getElementById('iv' + id);
+    [...$('Kind').options].forEach(o => { if (preset.kind === 'cluster' ? !['cluster', 'tag', 'vm'].includes(o.value) : o.value !== 'node') o.remove(); });
+    $('Node').disabled = true; $('Cluster').disabled = true;
+  }
+  document.getElementById('ivWhat').onchange = e => {
+    document.getElementById('ivRoleBox').style.display = e.target.value === 'role' ? '' : 'none';
+    document.getElementById('ivGroupBox').style.display = e.target.value === 'group' ? '' : 'none';
+  };
+}
+
+async function acInviteResend(id, email) {
+  try { const d = await _acCall('POST', `/api/access/invitations/${id}/resend`); _acInviteResult(d, email); _acRenderInvites(); }
+  catch (e) { hcmAlert(e.message); }
+}
+
+async function acInviteWithdraw(id, email) {
+  if (!await hcmConfirm(t('acc.withdraw_confirm', { email }), { danger: true, confirmLabel: t('acc.withdraw') })) return;
+  try { await _acCall('DELETE', `/api/access/invitations/${id}`); if (_ac.tab === 'users') _acRenderInvites(); else _acTbPane(); }
+  catch (e) { hcmAlert(e.message); }
 }
 
 async function acTbRemove(aid) {

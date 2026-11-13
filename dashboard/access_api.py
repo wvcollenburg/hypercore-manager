@@ -10,6 +10,7 @@ by someone who holds every permission in it on that scope; nobody changes their 
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
 
 from flask import g as flask_g, jsonify, request, session
 
@@ -226,10 +227,10 @@ def register(app, requires, access, clusters, vm_index_rows):
 
     # -- users ---------------------------------------------------------------------------------------
     @app.route('/api/access/users', methods=['POST'])
-    @requires('users.manage', 'any')
+    @requires('users.manage', 'root')
     def access_user_create():
-        """A new account (its login the email address) with its first access: below the top level the access
-        is required, or the account would vanish from its creator's sight at once."""
+        """A new account with a password set by its creator: administrators of the whole installation only
+        (testing, service accounts). Everyone else invites (invite_api): the person sets their own password."""
         b = request.get_json(silent=True) or {}
         acc = access()
         tree = acc.tree
@@ -293,15 +294,21 @@ def register(app, requires, access, clusters, vm_index_rows):
             if u['user_id'] == me_id():
                 raise AccessError('you cannot disable your own account', 409)
             kw['enabled'] = bool(b['enabled'])
+        activation = None
         if 'email' in b:
-            kw['email'] = b['email']
-            kw['password'] = b.get('password') or None
+            if u['awaiting_email'] and not b.get('password'):
+                # PLAN-roles, Accounts 7: the address gets an invitation to set a new password
+                import invite_api
+                activation = invite_api.send_activation(u, b['email'], actor(), request.host_url)
+            else:
+                kw['email'] = b['email']
+                kw['password'] = b.get('password') or None
         if 'display_name' in b:
             if not (top(acc) or u['user_id'] == me_id()):
                 raise AccessError('the name is the person\'s own: they or an administrator of the whole installation set it', 403)
             kw['display_name'] = str(b['display_name'] or '')
         access_db.update_user(u['user_id'], actor(), **kw)
-        return jsonify({'ok': True})
+        return jsonify(dict({'ok': True}, **({'invitation': activation} if activation else {})))
 
     @app.route('/api/access/users/<user_id>', methods=['DELETE'])
     @requires('users.manage', 'root')
@@ -701,3 +708,7 @@ def register(app, requires, access, clusters, vm_index_rows):
                         'via': [{'role': x['role_name'], 'scope': x['scope_label'], 'group': x.get('group_name') if x.get('via_group') else None}
                                 for x in via]})
         return jsonify({'cluster_id': cid, 'vm_uuid': vm, 'tags': tags, 'users': out})
+
+    # the checks the invitations (invite_api) share with this module
+    return SimpleNamespace(grant_check=grant_check, parse_scope=parse_scope, scope_node=scope_node, seen=seen,
+                           nameable=nameable, may_manage_group=may_manage_group, top=top, actor=actor, me_id=me_id)

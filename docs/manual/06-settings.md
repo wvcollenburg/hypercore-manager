@@ -34,10 +34,12 @@ Changes apply at runtime; the services re-read them within a minute.
 
 Who may do what, and where. The tabs:
 
-- **Users**: accounts (an account is an email address) and **Access…** per account: its roles and
-  where they apply (the whole installation, an MSP, customer or folder, a cluster, the VMs with a
-  tag, or one VM), its groups, and **Remove from my tenants**. Disable, password reset, address and
-  delete are for administrators of the whole installation.
+- **Users**: accounts (an account is an email address), **Invite** someone by address (a link
+  that works once, for 48 hours; open invitations are listed with Resend and Withdraw), and
+  **Access…** per account: its roles and where they apply (the whole installation, an MSP,
+  customer or folder, a cluster, the VMs with a tag, or one VM), its groups, and **Remove from my
+  tenants**. Disable, password reset, address and delete are for administrators of the whole
+  installation.
 - **Groups**: a group gives its access to every member.
 - **Roles**: the five built-in roles (Admin, Engineer, App Manager, Backup Manager, Viewer) are
   templates; **Copy** one to make your own with exactly the permissions you want.

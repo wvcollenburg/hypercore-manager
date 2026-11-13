@@ -3142,11 +3142,11 @@ def login_page():
             if user_db.verify_otp_code(pending_username, code):
                 u = user_db.get_by_username(pending_username)
                 session.pop('otp_pending', None)
-                session.pop('next', None)
+                dest = _after_login(session.pop('next', None))
                 session['user_id']  = str(u['user_id'])
                 session['username'] = u['username']
                 session['role']     = u['role']
-                return redirect(url_for('index'))
+                return redirect(dest)
             error = 'Invalid OTP code. Check your authenticator app and try again.'
         else:
             found = user_db.get_by_login(request.form.get('username', ''))
@@ -3156,7 +3156,9 @@ def login_page():
                 u = found
                 if u.get('enabled') is False:
                     # only after a correct password: say why, so they do not retry into a lockout
-                    error = ('Your account needs an email address. An administrator will send you an invitation.'
+                    error = ('An invitation to set a new password was sent to this address. Use the link in it.'
+                             if u.get('awaiting_email') and '@' in u['username'] else
+                             'Your account needs an email address. An administrator will send you an invitation.'
                              if u.get('awaiting_email') else
                              'Your account is waiting for an administrator to assign its access.' if u.get('awaiting_access')
                              else 'Your account is disabled. Ask an administrator.')
@@ -3164,11 +3166,11 @@ def login_page():
                 if u['otp_enabled']:
                     session['otp_pending'] = username
                     return redirect(url_for('login_page', step='otp'))
-                session.pop('next', None)
+                dest = _after_login(session.pop('next', None))
                 session['user_id']  = str(u['user_id'])
                 session['username'] = u['username']
                 session['role']     = u['role']
-                return redirect(url_for('index'))
+                return redirect(dest)
             error = 'Invalid email address or password.'
 
     # pass otp_enabled=True only when on the OTP step (drives login.html hint text)
@@ -3177,10 +3179,18 @@ def login_page():
     return render_template('login.html', step=step, error=error, otp_enabled=otp_hint)
 
 
+def _after_login(dest):
+    """Where a login continues: back to an invitation link that sent the person here, else the dashboard."""
+    return dest if isinstance(dest, str) and re.fullmatch(r'/invite/[A-Za-z0-9_-]{20,200}', dest) else url_for('index')
+
+
 @app.route('/logout')
 @public('logging out')
 def logout():
+    nxt = request.args.get('next')
     session.clear()
+    if _after_login(nxt) != url_for('index'):
+        session['next'] = nxt                 # 'sign out and switch' on an invitation for another address
     return redirect(url_for('login_page'))
 
 
@@ -3751,9 +3761,11 @@ def index():
 
 
 import access_api  # noqa: E402 — needs requires() and the helpers above
-access_api.register(app, requires, _access, _enabled_clusters, _vm_index_rows)
+_access_helpers = access_api.register(app, requires, _access, _enabled_clusters, _vm_index_rows)
 import mail_api  # noqa: E402
 mail_api.register(app, requires)
+import invite_api  # noqa: E402
+invite_api.register(app, requires, public, _access, _access_helpers)
 import guest_api  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
 guest_api.register(app, sock, requires, public, SimpleNamespace(

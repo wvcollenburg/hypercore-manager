@@ -703,6 +703,65 @@ def update_user(user_id: str, actor: str, *, enabled=None, display_name=None, em
     invalidate()
 
 
+def user_id_by_login(login: str | None) -> str | None:
+    """The account a login (address in any capitals, or the main admin's username) names, or None."""
+    login = (login or '').strip()
+    if not login:
+        return None
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT user_id::text AS id FROM config.users WHERE lower(username) = lower(%s)', (login,))
+            rows = cur.fetchall()
+            return rows[0]['id'] if len(rows) == 1 else None
+    finally:
+        conn.close()
+
+
+def create_invited_user(email: str, password: str, display_name: str | None) -> str:
+    """The account an invitation creates: the address verified by the link, the password the person chose.
+    AccessError when the address has an account by now."""
+    from werkzeug.security import generate_password_hash
+    email = normalise_email(email)
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute('''INSERT INTO config.users (username, password_hash, role, display_name, enabled, email_verified_at)
+                               VALUES (%s, %s, 'user', %s, TRUE, NOW()) RETURNING user_id::text AS id''',
+                            (email, generate_password_hash(password), (display_name or '').strip()[:120] or None))
+            except Exception as exc:  # noqa: BLE001
+                if 'duplicate key' in str(exc):
+                    raise AccessError('this address has an account', 409) from exc
+                raise
+            uid = cur.fetchone()['id']
+            audit(cur, email, 'user.create', email, detail={'via': 'invitation'})
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+    return uid
+
+
+def activate_user(user_id: str, password: str, display_name: str | None) -> None:
+    """An account from before E1 confirmed its new address through the link: new password, address verified,
+    enabled when it has its access."""
+    from werkzeug.security import generate_password_hash
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''UPDATE config.users SET password_hash = %s, email_verified_at = NOW(), awaiting_email = FALSE,
+                                  enabled = NOT awaiting_access, display_name = COALESCE(%s, display_name), updated_at = NOW()
+                            WHERE user_id = %s RETURNING username''', (generate_password_hash(password), display_name, user_id))
+            row = cur.fetchone()
+            if row:
+                audit(cur, row['username'], 'user.activate', row['username'])
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate()
+
+
 def require_email_addresses(main_admin: str | None) -> list[str]:
     """Accounts are email addresses (PLAN-roles, Accounts 1 and 7): every account without one, except the
     main admin from .env, is disabled until a top-level admin enters its address. Runs at start; does

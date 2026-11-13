@@ -165,9 +165,25 @@ them: an outside consultant can have access in two customers and sees both, side
 anything above them. You manage someone when they hold access in your part of the tree, and you
 see only that access, never what they hold elsewhere.
 
-**Add user** asks for the email address, an optional full name, a password and the account's
-**first access** (a role and where it applies). An address that already has an account is refused
-without saying where it is used. **Access…** on a user opens its assignments:
+**Invite** (in the user list, or **+ Invite** on a layer in **Tenants**) asks for the email
+address, an optional name, and what to give: a role on a scope, or membership of a group. You can
+invite onto your own part of the tree only, with access you could give yourself.
+
+- The person gets a mail with a link. A new address confirms itself and chooses its own password
+  (two-factor can be set up on the Account page afterwards); an existing account accepts after
+  signing in with that address. Either way you see the same answer: whether the address already had
+  an account, and where, is never shown to you.
+- The link works **once, for 48 hours**. **Open invitations** lists the ones in your reach, with
+  **Resend** (a new link; the old one stops working) and **Withdraw**.
+- If the person who sent an invitation can no longer give that access (their rights changed, or
+  their account was disabled or removed), the link stops working.
+- Without a mail server (**Settings → Mail**), or when sending fails, you get the link to pass on
+  yourself, in a way only that person can read.
+
+Administrators of the whole installation can also **Add user with password**, for testing or a
+service account; nobody else sets another person's password.
+
+**Access…** on a user opens its assignments:
 
 - **Give access**: a role on a scope: the whole installation, an MSP, customer or folder, a
   cluster, the VMs with a tag on a cluster, or one VM.
@@ -224,8 +240,9 @@ signs in before that, with the right password, is told their account is waiting.
 
 Accounts are email addresses since this version. An account from before without an address (every
 one except the initial administrator) stays disabled until an administrator of the whole
-installation opens it and enters its address together with a new password; the old password does
-not carry over. The user list marks these accounts "needs an email address".
+installation opens it and enters its address: an invitation goes there to choose a new password
+(or the administrator sets one). The old password does not carry over. The user list marks these
+accounts "needs an email address".
 
 ### Mail
 
