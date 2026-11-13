@@ -3244,6 +3244,7 @@ def api_users_delete(username):
         return jsonify({'error': 'Access denied'}), 403
     try:
         user_db.delete_user(username)
+        access_db.invalidate()               # every worker forgets the account at once
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

@@ -18,8 +18,10 @@ import rbac
 
 log = logging.getLogger(__name__)
 
-_TTL = 10.0
+_TTL = 60.0                 # an upper bound only: any change bumps the version below, which every worker sees
+_VERSION_TTL = 1.0          # how long a worker trusts its last look at the version
 _lock = threading.Lock()
+_ver: dict = {'at': 0.0, 'v': None}
 _tree_cache: dict = {'at': 0.0, 'tree': None}
 _grants_cache: dict[str, tuple[float, list]] = {}
 _state_cache: dict[str, tuple[float, dict | None]] = {}
@@ -37,11 +39,55 @@ class AccessError(Exception):
 
 
 def invalidate() -> None:
+    """Drop this worker's caches and bump the shared version, so the other gunicorn workers drop theirs
+    within _VERSION_TTL (a removed right must not linger in another worker's cache)."""
     with _lock:
         _tree_cache['at'] = 0.0
         _roles_cache['at'] = 0.0
         _grants_cache.clear()
         _state_cache.clear()
+        _ver['at'] = 0.0
+    try:
+        conn = _connect()
+        try:
+            with conn.cursor() as cur:
+                _bump(cur)
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 — before migration 044 there is no table to bump
+        log.debug('access version not bumped: %s', exc)
+
+
+def _bump(cur) -> None:
+    cur.execute('''INSERT INTO config.rbac_state (key, value) VALUES ('version', '1')
+                   ON CONFLICT (key) DO UPDATE SET value = (COALESCE(NULLIF(config.rbac_state.value, ''), '0')::bigint + 1)::text,
+                                                   at = NOW()''')
+
+
+def _version():
+    now = time.monotonic()
+    with _lock:
+        if now - _ver['at'] < _VERSION_TTL:
+            return _ver['v']
+    v = None
+    try:
+        conn = _connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT value FROM config.rbac_state WHERE key = 'version'")
+                row = cur.fetchone()
+                v = row['value'] if row else '0'
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 — no table yet (before 044): caches fall back to their TTL
+        v = None
+    with _lock:
+        _ver.update(at=now, v=v)
+    return v
+
+
+
 
 
 def _connect():
@@ -69,8 +115,9 @@ def rbac_ready() -> bool:
 # ---------------------------------------------------------------------------------------------------
 def load_tree() -> rbac.Tree:
     now = time.monotonic()
+    ver = _version()
     with _lock:
-        if _tree_cache['tree'] is not None and now - _tree_cache['at'] < _TTL:
+        if _tree_cache['tree'] is not None and now - _tree_cache['at'] < _TTL and _tree_cache.get('v') == ver:
             return _tree_cache['tree']
     tree = rbac.Tree()
     conn = _connect()
@@ -96,7 +143,7 @@ def load_tree() -> rbac.Tree:
     finally:
         conn.close()
     with _lock:
-        _tree_cache.update(at=now, tree=tree)
+        _tree_cache.update(at=now, tree=tree, v=ver)
     return tree
 
 
@@ -126,9 +173,10 @@ _GRANT_SQL = '''SELECT a.scope_kind, a.node_id::text AS node_id, a.cluster_id::t
 
 def load_grants(user_id: str) -> list[rbac.Grant]:
     now = time.monotonic()
+    ver = _version()
     with _lock:
         hit = _grants_cache.get(user_id)
-        if hit and now - hit[0] < _TTL:
+        if hit and now - hit[0] < _TTL and hit[2] == ver:
             return hit[1]
     conn = _connect()
     try:
@@ -146,7 +194,7 @@ def load_grants(user_id: str) -> list[rbac.Grant]:
     finally:
         conn.close()
     with _lock:
-        _grants_cache[user_id] = (now, grants)
+        _grants_cache[user_id] = (now, grants, ver)
     return grants
 
 
@@ -165,15 +213,17 @@ def _heal_root_admin(cur, user_id: str) -> None:
         cur.execute("INSERT INTO config.access_audit (actor, action, target) "
                     "SELECT 'system', 'assignment.add', username || ': Admin on the whole installation (first administrator)' "
                     "FROM config.users WHERE user_id = %s", (user_id,))
+        _bump(cur)
 
 
 def user_state(user_id: str) -> dict | None:
     """{username, enabled, awaiting_access} of a user id, or None when the user no longer exists (cached
     briefly: every API call asks)."""
     now = time.monotonic()
+    ver = _version()
     with _lock:
         hit = _state_cache.get(user_id)
-        if hit and now - hit[0] < _TTL:
+        if hit and now - hit[0] < _TTL and hit[2] == ver:
             return hit[1]
     conn = _connect()
     try:
@@ -192,7 +242,7 @@ def user_state(user_id: str) -> dict | None:
         conn.close()
     state = dict(row) if row else None
     with _lock:
-        _state_cache[user_id] = (now, state)
+        _state_cache[user_id] = (now, state, ver)
     return state
 
 
@@ -345,8 +395,9 @@ def delete_node(node_id: str, actor: str) -> dict:
 # ---------------------------------------------------------------------------------------------------
 def roles() -> list[dict]:
     now = time.monotonic()
+    ver = _version()
     with _lock:
-        if _roles_cache['roles'] is not None and now - _roles_cache['at'] < _TTL:
+        if _roles_cache['roles'] is not None and now - _roles_cache['at'] < _TTL and _roles_cache.get('v') == ver:
             return _roles_cache['roles']
     conn = _connect()
     try:
@@ -366,7 +417,7 @@ def roles() -> list[dict]:
     finally:
         conn.close()
     with _lock:
-        _roles_cache.update(at=now, roles=out)
+        _roles_cache.update(at=now, roles=out, v=ver)
     return out
 
 

@@ -774,9 +774,34 @@ async function acWho(clusterId, vmUuid, vmName) {
     body: `${vmUuid && (d.tags || []).length ? `<div class="um-hint">${_esc(t('acc.who_tags', { tags: d.tags.join(', ') }))}</div>` : ''}
       ${rows ? `<table class="um-table"><thead><tr><th>${_esc(t('users.col_username'))}</th><th>${_esc(t('acc.who_via'))}</th><th>${_esc(t('acc.col_permissions'))}</th></tr></thead><tbody>${rows}</tbody></table>`
              : `<div class="um-hint">${_esc(t('acc.who_nobody'))}</div>`}`,
-    buttons: [{ label: t('acc.close'), kind: 'primary', onClick: h => h.close() }],
+    buttons: [
+      ...(vmUuid ? [{ label: t('acc.copy_from'), onClick: () => acCopyVmAccess(clusterId, vmUuid, vmName) }] : []),
+      { label: t('acc.close'), kind: 'primary', onClick: h => h.close() },
+    ],
   });
   return m;
+}
+
+/** A restored or cloned VM has a new UUID: give it the single-VM access of the VM it came from. */
+async function acCopyVmAccess(clusterId, toVm, toName) {
+  const d = await apiFetch(`/api/vm-index?cluster=${encodeURIComponent(clusterId)}`);
+  const vms = ((d && d.vms) || []).filter(v => v.uuid !== toVm).sort((a, b) => a.name.localeCompare(b.name));
+  hcmModal({
+    title: `${_esc(t('acc.copy_from'))} · ${_esc(toName || toVm)}`, width: 'min(560px, 96vw)',
+    body: `<p class="hcm-text">${_esc(t('acc.copy_from_intro'))}</p>
+      <label class="hcm-field"><span>${_esc(t('acc.copy_from_vm'))}</span><select class="um-select" id="cpFrom">
+        ${vms.map(v => `<option value="${v.uuid}">${_esc(v.name)}</option>`).join('')}</select></label>`,
+    buttons: [{ label: t('console.cancel'), onClick: h => h.close() },
+      { label: t('acc.copy'), kind: 'primary', onClick: async h => {
+        try {
+          const r = await _acCall('POST', '/api/access/copy-vm-access', { cluster_id: clusterId, from_vm: document.getElementById('cpFrom').value, to_vm: toVm });
+          h.close();
+          _hcmModals[_hcmModals.length - 1]?.close();
+          await hcmAlert(t('acc.copy_done', { copied: r.copied.join(', ') || '—', skipped: r.skipped.join(', ') || '—' }));
+          acWho(clusterId, toVm, toName);
+        } catch (e) { h.setMsg(e.message); }
+      } }],
+  });
 }
 
 // ── the folder menu's "Access…" (assign on that folder) ─────────────────────

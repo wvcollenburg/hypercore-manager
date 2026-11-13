@@ -1451,4 +1451,10 @@ window.LANG = {
   // roles: tags that give access
   've.tags_grant': "Tags, die Personen Zugriff geben: {tags}.",
   've.tags_grant_locked': "Sie hinzuzufügen oder zu entfernen erfordert einen Benutzeradministrator.",
+
+  // roles: copy access to a restored or cloned VM
+  'acc.copy_from': "Zugriff von einer anderen VM kopieren…",
+  'acc.copy_from_intro': "Eine wiederhergestellte oder geklonte VM ist eine neue VM: Zugriff, der nur auf die ursprüngliche VM vergeben wurde, geht nicht mit. Wählen Sie die Ursprungs-VM, um denselben Personen hier denselben Zugriff zu geben.",
+  'acc.copy_from_vm': "Die Ursprungs-VM",
+  'acc.copy_done': "Kopiert: {copied}.\nÜbersprungen: {skipped}.",
 };

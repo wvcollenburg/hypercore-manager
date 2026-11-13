@@ -484,6 +484,40 @@ def register(app, requires, access, clusters, vm_index_rows):
             tags = {t: [] for t in tags}          # which tags matter, not who holds them
         return jsonify({'tags': tags, 'may_change': acc.can('users.manage', cid)})
 
+    @app.route('/api/access/copy-vm-access', methods=['POST'])
+    @requires('users.manage', 'any')
+    def access_copy_vm_access():
+        """{cluster_id, from_vm, to_vm}: a restore as a new VM or a clone gets a new UUID, so single-VM
+        access does not follow it. This gives the same people the same access on the new VM, for every
+        assignment the caller could have given (the others are listed as skipped)."""
+        b = request.get_json(silent=True) or {}
+        acc = access()
+        cid = _uuid_or_none(b.get('cluster_id'))
+        src, dst = str(b.get('from_vm') or ''), str(b.get('to_vm') or '')
+        if not cid or not re.fullmatch(r'[0-9A-Za-z-]{1,64}', src) or not re.fullmatch(r'[0-9A-Za-z-]{1,64}', dst) or src == dst:
+            raise AccessError('cluster_id, from_vm and to_vm required')
+        if not acc.can('users.manage', cid):
+            raise AccessError('not found', 404)
+        index = {v.get('uuid'): v for v in vm_index_rows(cid)}
+        if dst not in index:
+            raise AccessError('the new VM is not on that cluster', 404)
+        done, skipped = [], []
+        for a in access_db.assignments(cluster_id=cid):
+            if a['scope_kind'] != 'vm' or a['vm_uuid'] != src:
+                continue
+            scope = {'kind': 'vm', 'cluster_id': cid, 'vm_uuid': dst, 'vm_name': index[dst].get('name')}
+            who = a['username'] or f"group {a['group_name']}"
+            try:
+                if a['user_id'] == me_id():
+                    raise AccessError('your own access')
+                grant_check(acc, access_db.role(a['role_id']), scope)
+                principal = {'user_id': a['user_id']} if a['user_id'] else {'group_id': a['group_id']}
+                access_db.add_assignment(principal, a['role_id'], scope, actor(), acc.tree.cluster_folder.get(cid))
+                done.append(f"{who}: {a['role_name']}")
+            except AccessError as e:
+                skipped.append(f"{who}: {a['role_name']} ({e})")
+        return jsonify({'ok': True, 'copied': done, 'skipped': skipped})
+
     # -- who has access ------------------------------------------------------------------------------
     @app.route('/api/access/who')
     @requires('users.manage', 'any')

@@ -1452,4 +1452,10 @@ window.LANG = {
   // roles: tags that give access
   've.tags_grant': "Tags that give people access: {tags}.",
   've.tags_grant_locked': "Adding or removing them needs a user administrator.",
+
+  // roles: copy access to a restored or cloned VM
+  'acc.copy_from': "Copy access from another VM…",
+  'acc.copy_from_intro': "A restored or cloned VM is a new VM: access given to the original VM alone does not follow it. Pick the VM it came from to give the same people the same access here.",
+  'acc.copy_from_vm': "The VM it came from",
+  'acc.copy_done': "Copied: {copied}.\nSkipped: {skipped}.",
 };

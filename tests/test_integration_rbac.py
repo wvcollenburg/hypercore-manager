@@ -325,3 +325,89 @@ def test_tag_that_gives_access_cannot_be_moved_by_an_engineer(admin, clusters):
     assert st == 403 and 'erp' in d['error']
     st, d = eng.call('GET', f"/api/access/scoped-tags?cluster={clusters['Fake']}")
     assert st == 200 and 'erp' in d['tags'] and d['may_change'] is False and d['tags']['erp'] == []
+
+
+# ------------------------------------------------------------------ custom roles, groups, copying access (R3)
+def test_customer_admin_makes_and_uses_a_role(admin, clusters):
+    c = as_user('contoso-admin')
+    contoso = _node(admin, 'Contoso')
+    st, d = c.call('POST', '/api/access/roles', {'name': 'Contoso console only', 'node_id': contoso,
+                                                 'permissions': ['vm.console'], 'description': 'test role'})
+    assert st in (201, 409), d
+    rid = next(r['role_id'] for r in c.call('GET', '/api/access/overview')[1]['roles'] if r['name'] == 'Contoso console only')
+    role = next(r for r in c.call('GET', '/api/access/overview')[1]['roles'] if r['role_id'] == rid)
+    assert set(role['permissions']) == {'vm.console', 'vm.view'}, 'implications are stored with it'
+    viewer = _uid(admin, 'contoso-viewer')
+    st, d = c.call('POST', '/api/access/assignments', {'user_id': viewer, 'role_id': rid, 'scope': {'kind': 'node', 'node_id': _node(admin, 'DR')}})
+    assert st == 201, d
+    aid = d['assignment_id']
+    try:
+        # the role exists for Contoso only: even the MSP admin cannot use it at Fabrikam
+        st, d = as_user('nw-admin').call('POST', '/api/access/assignments', {'user_id': _uid(admin, 'fabrikam-admin'), 'role_id': rid,
+                                                                             'scope': {'kind': 'node', 'node_id': _node(admin, 'Main')}})
+        assert st == 403 and 'not defined' in d['error']
+        # in use: cannot be deleted
+        assert c.call('DELETE', f'/api/access/roles/{rid}')[0] == 409
+    finally:
+        assert c.call('DELETE', f'/api/access/assignments/{aid}')[0] == 200
+    assert c.call('DELETE', f'/api/access/roles/{rid}')[0] == 200
+
+
+def test_builtin_roles_are_read_only(admin):
+    rid = _role(admin, 'viewer')
+    st, d = admin.call('PUT', f'/api/access/roles/{rid}', {'permissions': ['vm.view', 'vm.console']})
+    assert st == 409 and 'template' in d['error']
+    assert admin.call('DELETE', f'/api/access/roles/{rid}')[0] == 409
+
+
+def test_group_membership_follows_the_no_escalation_rule(admin):
+    c = as_user('contoso-admin')
+    gid = next(g['group_id'] for g in c.call('GET', '/api/access/overview')[1]['groups'] if g['name'] == 'Contoso helpdesk')
+    st, _ = c.call('PUT', f'/api/access/groups/{gid}/members', {'user_id': _uid(admin, 'fabrikam-admin'), 'member': True})
+    assert st == 404, 'a user of another customer cannot be pulled into a Contoso group'
+    st, _ = as_user('contoso-eng').call('PUT', f'/api/access/groups/{gid}/members', {'user_id': _uid(admin, 'contoso-viewer'), 'member': True})
+    assert st == 403
+
+
+def test_copy_vm_access_to_a_new_vm(admin, clusters):
+    vms = {v['name']: v['uuid'] for v in admin.call('GET', f"/api/vm-index?cluster={clusters['Fake']}")[1]['vms']}
+    c = as_user('contoso-admin')
+    st, d = c.call('POST', '/api/access/copy-vm-access', {'cluster_id': clusters['Fake'], 'from_vm': vms['web01'], 'to_vm': vms['kiosk01']})
+    assert st == 200 and any('contoso-web' in x for x in d['copied']), d
+    try:
+        idx = {v['name'] for v in as_user('contoso-web').call('GET', f"/api/vm-index?cluster={clusters['Fake']}")[1]['vms']}
+        assert idx == {'web01', 'kiosk01'}
+    finally:
+        uid = _uid(admin, 'contoso-web')
+        for a in admin.call('GET', f'/api/access/users/{uid}')[1]['assignments']:
+            if a.get('vm_uuid') == vms['kiosk01']:
+                admin.call('DELETE', f"/api/access/assignments/{a['assignment_id']}")
+    # outside their reach
+    assert as_user('fabrikam-admin').call('POST', '/api/access/copy-vm-access',
+                                          {'cluster_id': clusters['Fake'], 'from_vm': vms['web01'], 'to_vm': vms['kiosk01']})[0] == 404
+
+
+def test_the_last_root_admin_cannot_be_removed(admin):
+    me = admin.call('GET', '/api/users/me')[1]
+    rows = admin.call('GET', f"/api/access/users/{me['user_id']}")[1]['assignments']
+    root = next(a for a in rows if a['scope_kind'] == 'root')
+    st, _ = admin.call('DELETE', f"/api/access/assignments/{root['assignment_id']}")
+    assert st == 409, 'nobody changes their own access (and the last root admin stays)'
+
+
+def test_a_removed_right_is_gone_on_every_worker(admin, clusters):
+    """The dashboard runs several gunicorn workers, each with caches; a change bumps a shared version, so a
+    removed right is refused by all of them within about a second."""
+    import time
+    vms = {v['name']: v['uuid'] for v in admin.call('GET', f"/api/vm-index?cluster={clusters['Fake']}")[1]['vms']}
+    uid = _uid(admin, 'contoso-viewer')
+    st, d = admin.call('POST', '/api/access/assignments', {'user_id': uid, 'role_id': _role(admin, 'app_manager'),
+                                                           'scope': {'kind': 'vm', 'cluster_id': clusters['Fake'], 'vm_uuid': vms['dc01']}})
+    assert st == 201, d
+    c = as_user('contoso-viewer')
+    time.sleep(1.2)
+    assert all(c.call('POST', '/api/console/ticket', {'cluster_id': clusters['Fake'], 'vm_uuid': vms['dc01']})[0] == 200 for _ in range(6))
+    assert admin.call('DELETE', f"/api/access/assignments/{d['assignment_id']}")[0] == 200
+    time.sleep(1.2)
+    codes = [c.call('POST', '/api/console/ticket', {'cluster_id': clusters['Fake'], 'vm_uuid': vms['dc01']})[0] for _ in range(12)]
+    assert all(x in (403, 404) for x in codes), codes

@@ -1451,4 +1451,10 @@ window.LANG = {
   // roles: tags that give access
   've.tags_grant': "Tags die mensen toegang geven: {tags}.",
   've.tags_grant_locked': "Ze toevoegen of weghalen vraagt een gebruikersbeheerder.",
+
+  // roles: copy access to a restored or cloned VM
+  'acc.copy_from': "Toegang kopiëren van een andere VM…",
+  'acc.copy_from_intro': "Een teruggezette of gekloonde VM is een nieuwe VM: toegang die alleen op de oorspronkelijke VM gegeven is, gaat niet mee. Kies de VM waar hij vandaan komt om dezelfde mensen hier dezelfde toegang te geven.",
+  'acc.copy_from_vm': "De VM waar hij vandaan komt",
+  'acc.copy_done': "Gekopieerd: {copied}.\nOvergeslagen: {skipped}.",
 };
