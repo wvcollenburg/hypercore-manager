@@ -136,8 +136,11 @@ def test_backup_targets_wiring(repo):
     for route in ("@app.get('/api/v1/targets')", "@app.post('/api/v1/targets')", "@app.delete('/api/v1/targets/<int:sid>')", "@app.post('/api/v1/targets/<int:sid>/test')"):
         assert route in api, route
     app = (repo / 'dashboard' / 'app.py').read_text()
-    assert "if sub.startswith(('targets', 'proxies', 'vmedit')) and not _is_admin_request()" in app, \
-        'target and proxy management, and VM edits, must stay admin-only'
+    # target and proxy management and VM edits sit behind their own permissions in the forward table
+    for line in ("r'targets',                                'backup.targets.manage', 'root'",
+                 "r'proxies/deploy',                         'backup.proxies.manage', 'cluster'",
+                 "r'vmedit/changes',                         None,                    'vmchange'"):
+        assert line in app, line
     reg = (repo / 'shared' / 'cluster_registry.py').read_text()
     assert 'share_id' in reg
 
@@ -151,7 +154,8 @@ def test_backup_forwarding_sends_only_the_validated_cluster(repo):
     body = body[:body.index('\n@app.')] if '\n@app.' in body else body
     assert 'request.query_string' not in body
     assert "if k != 'cluster'] + [('cluster', cid)]" in body
-    assert "payload['muted_by'] = session.get('username')" in body, 'who muted a notice comes from the session'
+    assert "payload['muted_by'] = user" in body and "user = session.get('username')" in body, \
+        'who muted a notice comes from the session'
 
 
 def test_cluster_notice_mutes_migration(repo):
@@ -187,6 +191,6 @@ def test_backup_forwarding_uses_the_cluster_check(repo):
     app = (repo / 'dashboard' / 'app.py').read_text()
     body = app[app.index('def backup_proxy(sub):'):]
     body = body[:body.index('\n@app.')] if '\n@app.' in body else body
-    assert 'body_cluster(payload, cid, {c.cluster_id for c in _visible_clusters()}' in body
+    assert 'body_cluster(payload, cid, {c.cluster_id for c in _visible_clusters(perm_for_body)}' in body
     assert "payload['cluster_id'] = cid" not in body, 'the old unconditional override'
     assert 'COPY dashboard/forwarding.py .' in (repo / 'dashboard' / 'Dockerfile').read_text(), 'the image needs the module'

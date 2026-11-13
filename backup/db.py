@@ -190,7 +190,7 @@ def update_run(run_id: int, **fields) -> None:
 
 
 def get_runs(cluster_id: Optional[str] = None, schedule_id: Optional[int] = None, limit: int = 50) -> list[dict]:
-    sql = '''SELECT r.*, s.vm_name, s.cluster_id::text AS cluster_id, c.cluster_name
+    sql = '''SELECT r.*, s.vm_name, s.vm_uuid, s.cluster_id::text AS cluster_id, c.cluster_name
                FROM backup.runs r JOIN backup.plans s ON s.id = r.schedule_id
                JOIN config.clusters c ON c.cluster_id = s.cluster_id'''
     where, params = [], []
@@ -770,7 +770,8 @@ def get_restore(restore_id: int) -> Optional[dict]:
 
 
 def get_restores(cluster_id: Optional[str] = None, limit: int = 50) -> list[dict]:
-    sql = 'SELECT r.*, r.cluster_id::text AS cluster_id FROM backup.restores r'
+    sql = '''SELECT r.*, r.cluster_id::text AS cluster_id, ch.vm_uuid
+               FROM backup.restores r LEFT JOIN backup.chains ch ON ch.id = r.chain_id'''
     params: list[Any] = []
     if cluster_id:
         sql += ' WHERE r.cluster_id = %s'; params.append(cluster_id)

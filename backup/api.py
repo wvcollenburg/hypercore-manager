@@ -112,6 +112,57 @@ def status():
     })
 
 
+# ------------------------------------------------------------------ owners
+def owner_of(kind: str, ident: str) -> dict | None:
+    """{cluster_id, vm_uuid, folder_id} of a resource addressed by its own id, for the dashboard's
+    access check (it cannot tell which cluster and VM a plan, chain, point or mount belongs to).
+    None when it does not exist. vm_uuid is None for cluster-level resources (proxies)."""
+    def chain_owner(chain):
+        return {'cluster_id': str(chain['cluster_id']), 'vm_uuid': chain.get('vm_uuid')} if chain else None
+    try:
+        if kind == 'mount':
+            m = flr._MOUNTS.get(ident)
+            return chain_owner(db.get_chain(m['chain_id'])) if m else None
+        num = int(ident)
+    except (TypeError, ValueError):
+        return None
+    if kind == 'plan':
+        p = db.get_schedule(num)
+        return {'cluster_id': str(p['cluster_id']), 'vm_uuid': p['vm_uuid']} if p else None
+    if kind == 'chain':
+        return chain_owner(db.get_chain(num))
+    if kind == 'point':
+        pt = db.get_point(num)
+        return chain_owner(db.get_chain(pt['chain_id'])) if pt else None
+    if kind == 'restore':
+        r = db.get_restore(num)
+        if not r:
+            return None
+        ch = db.get_chain(r['chain_id']) if r.get('chain_id') else None
+        return {'cluster_id': r['cluster_id'], 'vm_uuid': (ch or {}).get('vm_uuid')}
+    if kind == 'proxy':
+        p = db.get_proxy(num)
+        return {'cluster_id': str(p['cluster_id']), 'vm_uuid': None} if p else None
+    if kind == 'change':
+        c = vmedit.get(num)
+        return {'cluster_id': str(c['cluster_id']), 'vm_uuid': c.get('vm_uuid') or None, 'kind': c.get('kind')} if c else None
+    if kind == 'policy':
+        p = db.get_policy(num)
+        return {'cluster_id': None, 'vm_uuid': None, 'folder_id': p['folder_id']} if p else None
+    return None
+
+
+@app.get('/api/v1/owner')
+@_require_token
+def owner():
+    o = owner_of(request.args.get('kind') or '', request.args.get('id') or '')
+    if o is None:
+        return _err('not found', 404)
+    if o.get('folder_id') is not None:
+        o['folder_id'] = str(o['folder_id'])
+    return jsonify(o)
+
+
 # ------------------------------------------------------------------ VM edits
 # Edits and power actions for one VM, now or at run_at (see vmedit.py). The dashboard lets only
 # admins through and names the user in created_by / cancelled_by.
@@ -766,9 +817,11 @@ def runs():
 def runs_status():
     """Light snapshot the dashboard polls while anything is running."""
     sid = request.args.get('schedule_id', type=int)
-    runs_ = [{'id': r['id'], 'status': r['status'], 'message': r['message'] or ''} for r in db.get_runs(_cluster_arg(), sid, 50)]
+    runs_ = [{'id': r['id'], 'status': r['status'], 'message': r['message'] or '', 'vm_uuid': r.get('vm_uuid')}
+             for r in db.get_runs(_cluster_arg(), sid, 50)]
     imps = [] if sid else [{'id': i['id'], 'status': i['status'], 'message': i['message'] or ''} for i in db.get_imports(_cluster_arg(), 50)]
-    rsts = [] if sid else [{'id': i['id'], 'status': i['status'], 'message': i['message'] or ''} for i in db.get_restores(_cluster_arg(), 50)]
+    rsts = [] if sid else [{'id': i['id'], 'status': i['status'], 'message': i['message'] or '', 'vm_uuid': i.get('vm_uuid')}
+                           for i in db.get_restores(_cluster_arg(), 50)]
     return jsonify({'runs': runs_, 'imports': imps, 'restores': rsts, 'active': any(x['status'] == 'RUNNING' for x in (*runs_, *imps, *rsts))})
 
 
