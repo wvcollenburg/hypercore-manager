@@ -28,13 +28,26 @@ cluster you edit, or the Defaults that a newly registered cluster copies, or all
 once. Each field has an explanation, the reasoning behind the default and when to change it.
 Changes apply at runtime; the services re-read them within a minute.
 
-## Users
+## Access
 
-![Users](img/settings-users.png)
+![Access](img/settings-users.png)
 
-Accounts and their role, administrator or user, and for users the folders they are members of.
-A user without folders sees nothing. Two-factor authentication is per user and is set up by the
-user under Account; an administrator can reset it here.
+Who may do what, and where. The tabs:
+
+- **Users**: accounts, where each belongs in the tree, and **Access…** per account: its roles and
+  where they apply (the whole installation, an MSP, customer or folder, a cluster, the VMs with a
+  tag, or one VM), its groups, disable, password reset, delete.
+- **Groups**: a group gives its access to every member.
+- **Roles**: the five built-in roles (Admin, Engineer, App Manager, Backup Manager, Viewer) are
+  templates; **Copy** one to make your own with exactly the permissions you want.
+- **Tenants**: MSPs, customers and folders.
+- **Guest console**: one-time console access for someone outside: a link plus a code, one VM, a
+  time window. Requests from colleagues who may only ask wait here for approval.
+- **Audit**: every change to access, and every guest console event.
+
+You only see, and only hand out, what lies within your own reach: nobody gives away rights they do
+not hold, and nobody changes their own access. Two-factor authentication is set up by each user
+under Account. The details are in the administration guide.
 
 ## Console
 
