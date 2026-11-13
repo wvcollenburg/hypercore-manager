@@ -79,6 +79,15 @@ The check only sees the console: an RDP session left open is invisible to it. Ev
 is in the **console log** below as user `system`, hidden unless *Show automated screenshots*
 is ticked; those rows are kept for 30 days, the others for good.
 
+## Mail
+
+One mail server for the whole installation, set by its administrators: invitations, password
+resets and address changes go out through it. Enter the SMTP server, port and security (STARTTLS on
+587, TLS on 465, or none on 25 for a relay on your own network), an optional login, the sender
+address and name, and the **address in links**: how people reach this dashboard (empty: the address
+you are using). **Send test mail** checks it. Without a mail server, whoever sends an invitation
+gets the link to pass on themselves.
+
 ## Targets
 
 ![Targets](img/settings-shares.png)

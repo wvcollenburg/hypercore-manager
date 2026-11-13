@@ -3752,6 +3752,8 @@ def index():
 
 import access_api  # noqa: E402 — needs requires() and the helpers above
 access_api.register(app, requires, _access, _enabled_clusters, _vm_index_rows)
+import mail_api  # noqa: E402
+mail_api.register(app, requires)
 import guest_api  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
 guest_api.register(app, sock, requires, public, SimpleNamespace(

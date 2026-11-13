@@ -691,3 +691,74 @@ def test_an_account_without_address_waits_for_one(admin):
     assert st == 200 and b'needs an email address' in raw
     # the old password is not carried over: an address alone is refused
     assert admin.call('PUT', f"/api/access/users/{u['user_id']}", {'email': 'anna@demo.example'})[0] == 400
+
+
+# ------------------------------------------------------------------ mail (PLAN-roles, Accounts, E2)
+SINK_HOST = os.environ.get('HCM_SINK_HOST')      # this test container's network alias, for the dashboard to deliver to
+
+
+@pytest.fixture(scope='module')
+def sink(admin):
+    """An SMTP sink in this process, set as the installation's relay for the module; the old settings return after."""
+    if not SINK_HOST:
+        pytest.skip('HCM_SINK_HOST not set (run with --network-alias <name> -e HCM_SINK_HOST=<name>)')
+    import sys
+    sys.path.insert(0, os.path.dirname(__file__))
+    from smtp_sink import Sink
+    s = Sink(2525).start()
+    before = admin.call('GET', '/api/mail/settings')[1]
+    st, d = admin.call('PUT', '/api/mail/settings', {'host': SINK_HOST, 'port': 2525, 'security': 'none', 'username': '',
+                                                     'sender': 'hcm@demo.example', 'sender_name': 'HCM test',
+                                                     'public_url': 'https://hcm.demo.example', 'password': ''})
+    assert st == 200, d
+    yield s
+    admin.call('PUT', '/api/mail/settings', {k: before.get(k) for k in ('host', 'port', 'security', 'username', 'sender',
+                                                                        'sender_name', 'public_url')})
+    s.stop()
+
+
+def test_mail_settings_are_for_the_top_level_only(admin):
+    for u in ('contoso-admin', 'nw-admin'):
+        assert as_user(u).call('GET', '/api/mail/settings')[0] == 403
+        assert as_user(u).call('PUT', '/api/mail/settings', {'host': 'evil.example', 'sender': 'x@evil.example'})[0] == 403
+        assert as_user(u).call('POST', '/api/mail/test', {'to': 'x@demo.example'})[0] == 403
+
+
+def test_mail_settings_are_checked(admin, sink):
+    good = {'host': SINK_HOST, 'port': 2525, 'security': 'none', 'sender': 'hcm@demo.example', 'sender_name': 'HCM test'}
+    assert admin.call('PUT', '/api/mail/settings', dict(good, port=0))[0] == 400
+    assert admin.call('PUT', '/api/mail/settings', dict(good, security='ssl3'))[0] == 400
+    assert admin.call('PUT', '/api/mail/settings', dict(good, sender=''))[0] == 400
+    assert admin.call('PUT', '/api/mail/settings', dict(good, host='smtp://x'))[0] == 400
+    assert admin.call('PUT', '/api/mail/settings', dict(good, public_url='ftp://x'))[0] == 400
+    assert admin.call('PUT', '/api/mail/settings', dict(good, sender_name='a\r\nBcc: x@y.example'))[0] == 400
+    # a password is stored, never returned
+    st, d = admin.call('PUT', '/api/mail/settings', dict(good, public_url='https://hcm.demo.example', password='s3cret-relay'))
+    assert st == 200 and d['has_password'] and 'password' not in d and 's3cret' not in json.dumps(d)
+    st, d = admin.call('PUT', '/api/mail/settings', dict(good, public_url='https://hcm.demo.example'))
+    assert d['has_password'], 'a password left out is kept'
+    st, d = admin.call('PUT', '/api/mail/settings', dict(good, public_url='https://hcm.demo.example', password=''))
+    assert not d['has_password'], 'an empty password removes it'
+
+
+def test_the_test_mail_arrives(admin, sink):
+    st, d = admin.call('POST', '/api/mail/test', {'to': 'Mail-Test@Demo.example', 'lang': 'nl'})
+    assert st == 200 and d['sent'], d
+    m = sink.to('mail-test@demo.example')[-1]
+    assert m['subject'] == 'HyperCore Manager: testmail' and 'HCM test' in str(m['msg']['From'])
+    rows = admin.call('GET', '/api/access/audit')[1]['rows']
+    assert any(r['action'] == 'mail.test' and r['target'] == 'mail-test@demo.example' for r in rows)
+
+
+def test_an_unreachable_relay_is_reported(admin, sink):
+    st, _ = admin.call('PUT', '/api/mail/settings', {'host': 'no-such-relay.invalid', 'port': 25, 'security': 'none',
+                                                     'sender': 'hcm@demo.example', 'public_url': 'https://hcm.demo.example'})
+    assert st == 200
+    try:
+        st, d = admin.call('POST', '/api/mail/test', {'to': 'x@demo.example'})
+        assert st == 502 and not d['sent'] and 'no-such-relay.invalid' in d['error']
+        assert any(r['action'] == 'mail.failed' for r in admin.call('GET', '/api/access/audit')[1]['rows'])
+    finally:
+        admin.call('PUT', '/api/mail/settings', {'host': SINK_HOST, 'port': 2525, 'security': 'none',
+                                                 'sender': 'hcm@demo.example', 'sender_name': 'HCM test',
+                                                 'public_url': 'https://hcm.demo.example'})

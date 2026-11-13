@@ -227,6 +227,23 @@ one except the initial administrator) stays disabled until an administrator of t
 installation opens it and enters its address together with a new password; the old password does
 not carry over. The user list marks these accounts "needs an email address".
 
+### Mail
+
+**Settings → Mail** (administrators of the whole installation) sets the one SMTP server HCM sends
+through: invitations, password resets and address changes.
+
+- Plain SMTP to a relay or a mail service: STARTTLS (587), TLS (465), or none (25) for a relay on
+  your own network only; an optional login. The password is stored encrypted with
+  `HCM_SECRET_KEY`, like the cluster passwords, and never shown again.
+- **Address in links**: the address people use to reach the dashboard, put in the links of
+  invitations and resets. Empty: the address of the browser that sends the invitation.
+- **Send test mail** sends one and shows the server's answer when it fails. Every test, every
+  failed mail and every change to these settings is in the access audit.
+- Microsoft 365 / Exchange Online: use a connector or relay (SMTP AUTH with basic authentication is
+  being retired by Microsoft). Sending through Microsoft Graph is a later wish.
+- Without a mail server everything still works: whoever sends an invitation gets the link to pass
+  on.
+
 ---
 
 ## Guest console access

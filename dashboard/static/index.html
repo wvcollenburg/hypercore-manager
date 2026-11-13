@@ -1629,6 +1629,7 @@
       <div class="settings-sub-tab"        data-setpanel="users"    data-i18n="settings.tab.users"    onclick="switchSettingsPanel('users')">Users</div>
       <div class="settings-sub-tab"        data-setpanel="shares"   data-i18n="settings.tab.shares"   onclick="switchSettingsPanel('shares')">Targets</div>
       <div class="settings-sub-tab"        data-setpanel="console"  data-i18n="settings.tab.console"  onclick="switchSettingsPanel('console')">Console</div>
+      <div class="settings-sub-tab"        data-setpanel="mail"     data-i18n="settings.tab.mail"     onclick="switchSettingsPanel('mail')">Mail</div>
     </div>
     <div id="settingsContent">
       <div class="settings-panel active" id="setpanel-clusters"><div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div></div>
@@ -1636,6 +1637,7 @@
       <div class="settings-panel" id="setpanel-users"></div>
       <div class="settings-panel" id="setpanel-shares"></div>
       <div class="settings-panel" id="setpanel-console"></div>
+      <div class="settings-panel" id="setpanel-mail"></div>
     </div>
   </div>
   <div class="settings-toast" id="settingsToast"></div>
@@ -4639,6 +4641,7 @@ async function loadSettings() {
     users: can('users.manage') || can('groups.manage') || can('roles.manage') || can('audit.view') || canAnyVmPerm('guest_console.request'),
     shares: can('backup.targets.manage') || can('backup.proxies.manage'),
     console: can('console_check.manage') || can('console.audit') || canAnyVmPerm('console.audit'),
+    mail: can('install.manage'),
   };
   for (const [k, v] of Object.entries(show)) {
     const tab = document.querySelector(`[data-setpanel="${k}"]`);
@@ -4652,6 +4655,7 @@ async function loadSettings() {
   if (show.users) await loadAccessPanel(); else document.getElementById('setpanel-users').innerHTML = '';
   if (show.shares) await _loadSharesPanel(); else document.getElementById('setpanel-shares').innerHTML = '';
   if (show.console) _loadConsolePanel(); else document.getElementById('setpanel-console').innerHTML = '';
+  if (show.mail) loadMailPanel(); else document.getElementById('setpanel-mail').innerHTML = '';
 }
 
 // ── console panel (admin): the open console session check and the console audit log ─────────
@@ -7338,6 +7342,7 @@ async function checkDataQuality() {
 document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality, 1500));
 </script>
 <script src="/static/access.js"></script>
+<script src="/static/mail.js"></script>
 
 <div id="dataQualityBanner"></div>
 
