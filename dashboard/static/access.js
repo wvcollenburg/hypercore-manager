@@ -437,11 +437,7 @@ async function acOpenUser(uid) {
   const me = _accMe();
   const self = u.username === me.username;
   const may = u.may || {};
-  const rows = (u.assignments || []).map(a => `<tr>
-      <td>${_esc(a.builtin_key ? t('acc.role_' + a.builtin_key) : a.role_name)}</td>
-      <td>${_esc(a.scope_label)}${a.via_group ? ` <span class="um-hint">(${_esc(t('acc.via_group', { name: a.group_name }))})</span>` : ''}</td>
-      <td class="um-hint">${_esc(a.created_by || '')}</td>
-      <td>${!a.via_group && !self ? `<button class="um-action-btn danger" onclick="acRemoveAssignment('${a.assignment_id}', 'user', '${uid}')">${_esc(t('acc.remove'))}</button>` : ''}</td></tr>`).join('');
+  window._acUserCurrent = u;
   const m = hcmModal({
     title: `${_esc(t('acc.user'))} · ${_esc(u.display_name ? u.display_name + ' · ' + u.username : u.username)}`, width: 'min(900px, 96vw)',
     body: `
@@ -454,13 +450,10 @@ async function acOpenUser(uid) {
       ${may.account ? '' : `<div class="um-hint" style="margin-top:6px">${_esc(t('acc.account_top_only'))}</div>`}
       <div class="um-section-title" style="margin-top:14px">${_esc(t('acc.assignments'))}</div>
       ${self ? `<div class="um-hint">${_esc(t('acc.self_hint'))}</div>` : ''}
-      ${rows ? `<table class="um-table"><thead><tr><th>${_esc(t('acc.col_role'))}</th><th>${_esc(t('acc.col_scope'))}</th><th>${_esc(t('acc.col_by'))}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
-             : `<div class="um-hint">${_esc(t('acc.no_assignments'))}</div>`}
+      <div id="uaAccess">${_acUserAccess(u, uid, self)}</div>
       ${u.legacy_folder_names && u.legacy_folder_names.length ? `<div class="um-hint" style="margin-top:6px">${_esc(t('acc.legacy_folders', { list: u.legacy_folder_names.join(', ') }))}</div>` : ''}
       ${self ? '' : `<div class="um-section-title" style="margin-top:14px">${_esc(t('acc.add_assignment'))}</div>${_acAssignForm('ua')}`}
-      ${(_ac.data.groups || []).length && !self ? `<div class="um-section-title" style="margin-top:14px">${_esc(t('acc.tab_groups'))}</div>
-        <div class="hcm-chips">${(_ac.data.groups || []).map(g => `<label class="hcm-chip"><input type="checkbox" ${u.groups.includes(g.group_id) ? 'checked' : ''}
-          onchange="acToggleMember('${g.group_id}', '${uid}', this.checked, this)"> ${_esc(g.name)}</label>`).join('')}</div>` : ''}`,
+      <div id="uaGroups">${_acUserGroups(u, uid, self)}</div>`,
     buttons: [
       ...(self || may.account ? [] : [
         { label: t('acc.remove_from_tenants'), kind: 'danger', onClick: async h => {
@@ -506,12 +499,70 @@ async function acOpenUser(uid) {
     ],
   });
   window._acUserModal = m;
+  const viewer = (_ac.data.roles || []).find(r => r.builtin_key === 'viewer');
+  if (viewer && document.getElementById('uaRole')) document.getElementById('uaRole').value = viewer.role_id;   // the least to start from
   _acAssignWire('ua', { user_id: uid }, m, () => { m.close(); acOpenUser(uid); });
 }
 
-async function acToggleMember(gid, uid, member, box) {
-  try { await _acCall('PUT', `/api/access/groups/${gid}/members`, { user_id: uid, member }); await _acLoad(); }
-  catch (e) { box.checked = !member; hcmAlert(e.message); }
+/** A person's access rows; those through a group name the group and are removed there. */
+function _acUserAccess(u, uid, self) {
+  const rows = (u.assignments || []).map(a => `<tr>
+      <td>${_esc(a.builtin_key ? t('acc.role_' + a.builtin_key) : a.role_name)}</td>
+      <td>${_esc(a.scope_label)}${a.via_group ? ` <span class="um-hint">(${_esc(t('acc.via_group', { name: a.group_name }))})</span>` : ''}</td>
+      <td class="um-hint">${_esc(a.created_by || '')}</td>
+      <td>${!a.via_group && !self ? `<button class="um-action-btn danger" onclick="acRemoveAssignment('${a.assignment_id}', 'user', '${uid}')">${_esc(t('acc.remove'))}</button>` : ''}</td></tr>`).join('');
+  return rows ? `<table class="um-table"><thead><tr><th>${_esc(t('acc.col_role'))}</th><th>${_esc(t('acc.col_scope'))}</th><th>${_esc(t('acc.col_by'))}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+              : `<div class="um-hint">${_esc(t('acc.no_assignments'))}</div>`;
+}
+
+/** The groups a person is in (those of the reader's reach), as a list; others are found by searching. */
+function _acUserGroups(u, uid, self) {
+  const all = _ac.data.groups || [];
+  const mine = all.filter(g => u.groups.includes(g.group_id)).sort((a, b) => a.name.localeCompare(b.name));
+  if (!mine.length && (self || !all.length)) return '';
+  return `<div class="hcm-ga-head"><span class="um-section-title">${_esc(t('acc.tab_groups'))} <span class="um-hint">${mine.length || ''}</span></span>
+      <span style="flex:1"></span>
+      ${self ? '' : `<button class="um-action-btn" onclick="acUserGroupSearchOpen()">+ ${_esc(t('acc.add_to_group'))}</button>`}</div>
+    <div id="uaGroupSearchBox" class="hcm-ga-search" style="display:none">
+      <input class="um-input" id="uaGroupSearch" placeholder="${_esc(t('acc.group_search'))}" autocomplete="off" oninput="acUserGroupSearch('${uid}')">
+      <div id="uaGroupResults"></div></div>
+    ${mine.length ? mine.map(g => `<div class="hcm-tb-who">${_acIcon('group')}
+        <div class="hcm-tb-who-name"><a href="#" onclick="event.preventDefault(); acOpenGroup('${g.group_id}')">${_esc(g.name)}</a>
+          <div class="um-hint">${_esc(t('acc.defined_at', { where: _acNodePath(g.node_id) }))}</div></div>
+        ${self ? '<span class="hcm-tb-x-pad"></span>' : `<button class="hcm-tb-x" title="${_esc(t('acc.remove_member'))}" onclick="acUserGroup('${uid}', '${g.group_id}', false)">×</button>`}</div>`).join('')
+      : `<div class="hcm-tb-hint">${_esc(t('acc.in_no_groups'))}</div>`}`;
+}
+
+function acUserGroupSearchOpen() {
+  document.getElementById('uaGroupSearchBox').style.display = '';
+  document.getElementById('uaGroupSearch').focus();
+  acUserGroupSearch((window._acUserCurrent || {}).user_id);
+}
+
+function acUserGroupSearch(uid) {
+  const q = document.getElementById('uaGroupSearch').value.trim().toLowerCase();
+  const inGroups = new Set((window._acUserCurrent || {}).groups || []);
+  const hits = (_ac.data.groups || []).filter(g => !inGroups.has(g.group_id)
+      && (!q || g.name.toLowerCase().includes(q) || (g.description || '').toLowerCase().includes(q))).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 8);
+  document.getElementById('uaGroupResults').innerHTML = hits.length ? hits.map(g => `<div class="hcm-tb-item" onclick="acUserGroup('${uid}', '${g.group_id}', true)">${_acIcon('group')}
+      <span class="hcm-tb-name">${_esc(g.name)} <span class="um-hint">${_esc(_acNodePath(g.node_id))}</span></span><span class="hcm-tb-chev">+</span></div>`).join('')
+    : `<div class="hcm-tb-hint">${_esc(t('acc.no_group_match'))}</div>`;
+}
+
+/** Join or leave a group from the person's dialog; the groups and the access through them redraw in place. */
+async function acUserGroup(uid, gid, member) {
+  const m = window._acUserModal;
+  try {
+    await _acCall('PUT', `/api/access/groups/${gid}/members`, { user_id: uid, member });
+    await _acLoad();
+    const u = await apiFetch(`/api/access/users/${uid}`);
+    if (!u) return;
+    window._acUserCurrent = u;
+    const self = u.username === _accMe().username;
+    document.getElementById('uaGroups').innerHTML = _acUserGroups(u, uid, self);
+    document.getElementById('uaAccess').innerHTML = _acUserAccess(u, uid, self);
+    m && m.setMsg('');
+  } catch (e) { m ? m.setMsg(e.message) : hcmAlert(e.message); }
 }
 
 async function acRemoveAssignment(aid, kind, id) {
@@ -596,13 +647,13 @@ function _acNodeOptions(perm, selected, allowRoot) {
     + list.map(n => `<option value="${n.id}" ${n.id === selected ? 'selected' : ''}>${_esc(_acLevelLabel(n.level))}: ${_esc(_acNodePath(n.id))}</option>`).join('');
 }
 
-function acNewGroup() {
+function acNewGroup(presetNode) {
   hcmModal({
     title: _esc(t('acc.new_group')), width: 'min(520px, 96vw)',
     body: `<div class="hcm-form">
       <label class="hcm-field"><span>${_esc(t('acc.col_name'))}</span><input class="um-input" id="ngName"></label>
       <label class="hcm-field"><span>${_esc(t('acc.description'))}</span><input class="um-input" id="ngDesc"></label>
-      <label class="hcm-field"><span>${_esc(t('acc.col_defined_at'))}</span><select class="um-select" id="ngNode">${_acNodeOptions('groups.manage', null, true)}</select></label>
+      <label class="hcm-field"><span>${_esc(t('acc.col_defined_at'))}</span><select class="um-select" id="ngNode">${_acNodeOptions('groups.manage', presetNode || null, true)}</select></label>
       <div class="um-hint">${_esc(t('acc.defined_at_hint'))}</div></div>`,
     buttons: [{ label: t('console.cancel'), onClick: h => h.close() },
       { label: t('acc.create'), kind: 'primary', onClick: async h => {
@@ -613,39 +664,131 @@ function acNewGroup() {
   });
 }
 
+/** A group: who is in it and what every member gets. Members and access change at once (the dialog redraws
+ *  in place); name and description are saved with their own button. People are found by searching, never
+ *  listed wholesale: an installation can hold thousands of accounts from many tenants. */
 async function acOpenGroup(gid) {
-  const g = await apiFetch(`/api/access/groups/${gid}`);
-  if (!g) return;
-  const users = _ac.data.users || [];
-  const rows = (g.assignments || []).map(a => `<tr><td>${_esc(a.builtin_key ? t('acc.role_' + a.builtin_key) : a.role_name)}</td><td>${_esc(a.scope_label)}</td>
-      <td><button class="um-action-btn danger" onclick="acRemoveAssignment('${a.assignment_id}', 'group', '${gid}')">${_esc(t('acc.remove'))}</button></td></tr>`).join('');
-  const memberIds = new Set(g.members.map(x => x.user_id));
+  const g0 = await apiFetch(`/api/access/groups/${gid}`);
+  if (!g0) return;
   const m = hcmModal({
-    title: `${_esc(t('acc.group'))} · ${_esc(g.name)}`, width: 'min(900px, 96vw)',
-    body: `
-      <div class="hcm-grid2">
-        <label class="hcm-field"><span>${_esc(t('acc.col_name'))}</span><input class="um-input" id="gaName" value="${_esc(g.name)}"></label>
-        <label class="hcm-field"><span>${_esc(t('acc.description'))}</span><input class="um-input" id="gaDesc" value="${_esc(g.description || '')}"></label>
-      </div>
-      <div class="um-section-title" style="margin-top:14px">${_esc(t('acc.col_members'))}</div>
-      <div class="hcm-chips">${users.map(u => `<label class="hcm-chip"><input type="checkbox" ${memberIds.has(u.user_id) ? 'checked' : ''}
-          onchange="acToggleMember('${gid}', '${u.user_id}', this.checked, this)"> ${_esc(u.username)}</label>`).join('') || `<span class="um-hint">${_esc(t('users.none'))}</span>`}</div>
-      <div class="um-section-title" style="margin-top:14px">${_esc(t('acc.assignments'))}</div>
-      ${rows ? `<table class="um-table"><thead><tr><th>${_esc(t('acc.col_role'))}</th><th>${_esc(t('acc.col_scope'))}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
-             : `<div class="um-hint">${_esc(t('acc.no_assignments'))}</div>`}
-      <div class="um-section-title" style="margin-top:14px">${_esc(t('acc.add_assignment'))}</div>${_acAssignForm('ga')}`,
+    title: `${_esc(t('acc.group'))} · ${_esc(g0.name)}`, width: 'min(860px, 96vw)',
+    body: `<div id="gaBody"></div>`,
     buttons: [
       { label: t('acc.delete_group'), kind: 'danger', onClick: async h => {
-        if (!await hcmConfirm(t('acc.delete_group_confirm', { name: g.name }), { danger: true, confirmLabel: t('users.delete') })) return;
+        if (!await hcmConfirm(t('acc.delete_group_confirm', { name: g0.name }), { danger: true, confirmLabel: t('users.delete') })) return;
         try { await _acCall('DELETE', `/api/access/groups/${gid}`); h.close(); await loadAccessPanel(); } catch (e) { h.setMsg(e.message); }
       } },
-      { label: t('acc.save'), kind: 'primary', onClick: async h => {
-        try { await _acCall('PUT', `/api/access/groups/${gid}`, { name: document.getElementById('gaName').value, description: document.getElementById('gaDesc').value });
-          h.setMsg(t('acc.saved'), 'ok'); await _acLoad(); renderAccessPanel(); } catch (e) { h.setMsg(e.message); }
-      } },
+      { label: t('acc.close'), kind: 'primary', onClick: h => h.close() },
     ],
+    onClose: () => { _acLoad().then(() => renderAccessPanel()); },
   });
-  _acAssignWire('ga', { group_id: gid }, m, () => { m.close(); acOpenGroup(gid); });
+  window._acGroupModal = m;
+  await _acGroupRender(gid, g0);
+}
+
+async function _acGroupRender(gid, g) {
+  const box = document.getElementById('gaBody');
+  if (!box) return;
+  g = g || await apiFetch(`/api/access/groups/${gid}`);
+  if (!g) return;
+  const me = _accMe();
+  const byId = Object.fromEntries((_ac.data.users || []).map(u => [u.user_id, u]));
+  const members = g.members.slice().sort((a, b) => ((byId[a.user_id] || {}).display_name || a.username).localeCompare((byId[b.user_id] || {}).display_name || b.username));
+  const invited = (await _acInvites()).filter(i => i.group_id === gid);
+  const where = g.node_id ? _acNodePath(g.node_id) : t('acc.whole_install');
+  const role = a => a.builtin_key ? t('acc.role_' + a.builtin_key) : a.role_name;
+  box.innerHTML = `
+    <div class="hcm-grid2" style="align-items:end">
+      <label class="hcm-field"><span>${_esc(t('acc.col_name'))}</span><input class="um-input" id="gaName" value="${_esc(g.name)}" oninput="acGroupDirty()"></label>
+      <label class="hcm-field"><span>${_esc(t('acc.description'))}</span><input class="um-input" id="gaDesc" value="${_esc(g.description || '')}" oninput="acGroupDirty()"></label>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+      <span class="um-hint" style="flex:1">${_esc(t('acc.defined_at', { where }))}</span>
+      <button class="um-action-btn" id="gaSave" disabled onclick="acGroupSave('${gid}')">${_esc(t('acc.save'))}</button>
+    </div>
+
+    <div class="hcm-ga-head"><span class="um-section-title">${_esc(t('acc.col_members'))} <span class="um-hint">${members.length || ''}</span></span>
+      <span style="flex:1"></span>
+      <button class="um-action-btn" onclick="acGroupSearchOpen()">+ ${_esc(t('acc.add_member'))}</button>
+      <button class="um-action-btn" onclick="acInvite({ group_id: '${gid}' })">${_esc(t('acc.invite'))}</button></div>
+    <div id="gaSearchBox" class="hcm-ga-search" style="display:none">
+      <input class="um-input" id="gaSearch" placeholder="${_esc(t('acc.member_search'))}" autocomplete="off" oninput="acGroupSearch('${gid}')">
+      <div id="gaResults"></div>
+    </div>
+    ${members.length ? members.map(x => {
+      const u = byId[x.user_id] || {};
+      return `<div class="hcm-tb-who">${_acIcon('user')}
+        <div class="hcm-tb-who-name">${_esc(u.display_name || x.username)}${u.display_name ? `<div class="um-hint">${_esc(x.username)}</div>` : ''}</div>
+        ${x.username === me.username ? '<span class="hcm-tb-x-pad"></span>'
+          : `<button class="hcm-tb-x" title="${_esc(t('acc.remove_member'))}" onclick="acGroupMember('${gid}', '${x.user_id}', false)">×</button>`}</div>`;
+    }).join('') : `<div class="hcm-tb-hint">${_esc(t('acc.members_none'))}</div>`}
+    ${invited.map(i => `<div class="hcm-tb-who inherited">${_acIcon('user')}
+        <div class="hcm-tb-who-name">${_esc(i.email)}<div class="um-hint">${_esc(t('acc.tb_invited'))} · ${_esc(_acInviteState(i))}</div></div>
+        <button class="hcm-tb-x" title="${_esc(t('acc.withdraw'))}" onclick="acInviteWithdraw('${i.invitation_id}', '${_esc(i.email)}').then(() => _acGroupRender('${gid}'))">×</button></div>`).join('')}
+
+    <div class="hcm-ga-head"><span class="um-section-title">${_esc(t('acc.assignments'))}</span>
+      <span class="um-hint">${_esc(t('acc.group_access_hint'))}</span><span style="flex:1"></span>
+      <button class="um-action-btn" onclick="acGroupGiveOpen()">+ ${_esc(t('acc.give_access'))}</button></div>
+    <div id="gaGiveBox" style="display:none">${_acAssignForm('ga', g.node_id ? { kind: 'node', node_id: g.node_id } : null)}</div>
+    ${(g.assignments || []).length ? g.assignments.map(a => `<div class="hcm-tb-who">
+        <div class="hcm-tb-who-name">${_esc(a.scope_kind === 'root' ? t('acc.whole_install') : a.scope_label)}</div>
+        <span class="hcm-tb-role">${_esc(role(a))}</span>
+        <button class="hcm-tb-x" title="${_esc(t('acc.remove'))}" onclick="acGroupUnassign('${gid}', '${a.assignment_id}')">×</button></div>`).join('')
+      : `<div class="hcm-tb-hint">${_esc(t('acc.no_assignments'))}</div>`}`;
+  const viewer = (_ac.data.roles || []).find(r => r.builtin_key === 'viewer');
+  if (viewer && document.getElementById('gaRole')) document.getElementById('gaRole').value = viewer.role_id;   // the least to start from
+  _acAssignWire('ga', { group_id: gid }, window._acGroupModal, () => _acGroupRender(gid));
+  window._acGroupCurrent = g;
+}
+
+function acGroupDirty() {
+  const g = window._acGroupCurrent || {};
+  const changed = document.getElementById('gaName').value !== g.name || document.getElementById('gaDesc').value !== (g.description || '');
+  document.getElementById('gaSave').disabled = !changed;
+}
+
+async function acGroupSave(gid) {
+  try {
+    await _acCall('PUT', `/api/access/groups/${gid}`, { name: document.getElementById('gaName').value, description: document.getElementById('gaDesc').value });
+    window._acGroupModal.setMsg(t('acc.saved'), 'ok'); await _acGroupRender(gid);
+  } catch (e) { window._acGroupModal.setMsg(e.message); }
+}
+
+function acGroupSearchOpen() {
+  const b = document.getElementById('gaSearchBox');
+  b.style.display = ''; document.getElementById('gaSearch').focus();
+}
+
+function acGroupSearch(gid) {
+  const q = document.getElementById('gaSearch').value.trim().toLowerCase();
+  const out = document.getElementById('gaResults');
+  if (q.length < 2) { out.innerHTML = ''; return; }
+  const inGroup = new Set(((window._acGroupCurrent || {}).members || []).map(x => x.user_id));
+  const me = _accMe();
+  const hits = (_ac.data.users || []).filter(u => !inGroup.has(u.user_id) && u.username !== me.username
+      && (u.username.toLowerCase().includes(q) || (u.display_name || '').toLowerCase().includes(q))).slice(0, 8);
+  out.innerHTML = hits.length ? hits.map(u => `<div class="hcm-tb-item" onclick="acGroupMember('${gid}', '${u.user_id}', true)">${_acIcon('user')}
+      <span class="hcm-tb-name">${_esc(u.display_name || u.username)}${u.display_name ? ` <span class="um-hint">${_esc(u.username)}</span>` : ''}</span>
+      <span class="hcm-tb-chev">+</span></div>`).join('')
+    : `<div class="hcm-tb-hint">${_esc(t('acc.no_match'))}</div>`;
+}
+
+async function acGroupMember(gid, uid, member) {
+  try {
+    await _acCall('PUT', `/api/access/groups/${gid}/members`, { user_id: uid, member });
+    window._acGroupModal.setMsg('');
+    await _acGroupRender(gid);
+  } catch (e) { window._acGroupModal.setMsg(e.message); }
+}
+
+function acGroupGiveOpen() {
+  document.getElementById('gaGiveBox').style.display = '';
+}
+
+async function acGroupUnassign(gid, aid) {
+  if (!await hcmConfirm(t('acc.remove_assignment_confirm'), { danger: true, confirmLabel: t('acc.remove') })) return;
+  try { await _acCall('DELETE', `/api/access/assignments/${aid}`); await _acGroupRender(gid); }
+  catch (e) { window._acGroupModal.setMsg(e.message); }
 }
 
 // ── roles ───────────────────────────────────────────────────────────────────
@@ -744,6 +887,7 @@ const _AC_ICON = {
   user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
   group: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 20a7 7 0 0 1 14 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 13.5a7 7 0 0 1 4 6.5"/></svg>',
 };
+const _acMembers = n => n === 1 ? t('acc.tb_member_one') : t('acc.tb_members', { n });
 const _acIcon = k => `<span class="hcm-tb-icon hcm-tb-icon-${k}">${_AC_ICON[k] || ''}</span>`;
 _ac.tb = _ac.tb || { path: [], cluster: null };
 
@@ -864,11 +1008,16 @@ async function _acTbPane() {
     const role = a.builtin_key ? t('acc.role_' + a.builtin_key) : a.role_name;
     const where = here ? (a.scope_kind === 'tag' ? t('acc.tb_on_tag', { tag: a.tag }) : a.scope_kind === 'vm' ? t('acc.tb_on_vm', { vm: a.vm_name }) : '')
                        : (a.scope_kind === 'root' ? t('acc.whole_install') : a.scope_label);
+    // inherited: a link to the layer it comes from, where it can be removed
+    const whereHtml = !where ? '' : (!here && a.node_id && _acTbChain(a.node_id))
+      ? `<a href="#" class="hcm-tb-src" title="${_esc(t('acc.tb_go_source'))}" onclick="event.preventDefault(); acTbGoto('${a.node_id}')">${_esc(where)} ↗</a>` : _esc(where);
+    const gdef = isGroup ? ((_ac.data.groups || []).find(g => g.group_id === a.group_id) || {}).node_id : null;
+    const defined = isGroup && gdef && gdef !== a.node_id ? `<div class="um-hint">${_esc(t('acc.defined_at', { where: _acNodePath(gdef) }))}</div>` : '';
     return `<div class="hcm-tb-who${here ? '' : ' inherited'}">
       ${_acIcon(isGroup ? 'group' : 'user')}
       <div class="hcm-tb-who-name">${manageable ? `<a href="#" onclick="event.preventDefault(); ${open}">${_esc(who)}</a>` : _esc(who)}
-        ${isGroup && a.members != null ? `<span class="um-hint">${_esc(t('acc.tb_members', { n: a.members }))}</span>` : ''}
-        ${where ? `<div class="um-hint">${_esc(where)}</div>` : ''}</div>
+        ${isGroup && a.members != null ? `<span class="um-hint">${_esc(_acMembers(a.members))}</span>` : ''}
+        ${whereHtml ? `<div class="um-hint">${whereHtml}</div>` : ''}${defined}</div>
       <span class="hcm-tb-role">${_esc(role)}</span>
       ${here && !(a.username && a.username === me.username) ? `<button class="hcm-tb-x" title="${_esc(t('acc.remove'))}" onclick="acTbRemove('${a.assignment_id}')">×</button>` : '<span class="hcm-tb-x-pad"></span>'}
     </div>`;
@@ -878,6 +1027,7 @@ async function _acTbPane() {
     <div class="um-section-title">${_esc(t('acc.tb_here'))} <span class="um-hint">${d.here.length || ''}</span></div>
     ${d.here.length ? sortRows(d.here).map(a => line(a, true)).join('') : `<div class="hcm-tb-hint">${_esc(t('acc.tb_nobody_here'))}</div>`}
     <div id="acTbInvited"></div>
+    ${_acTbGroups(c ? null : nodeId, c ? c.folder_id : nodeId, d)}
     ${d.above.length ? `<div class="um-section-title" style="margin-top:16px">${_esc(t('acc.tb_above'))} <span class="um-hint">${d.above.length}</span></div>
       ${d.above.map(a => line(a, false)).join('')}` : ''}`;
   const inv = await _acInvites();
@@ -887,6 +1037,67 @@ async function _acTbPane() {
     ${here.map(i => `<div class="hcm-tb-who">${_acIcon('user')}<div class="hcm-tb-who-name">${_esc(i.email)}<div class="um-hint">${_esc(_acInviteState(i))}</div></div>
       <span class="hcm-tb-role">${_esc(i.builtin_key ? t('acc.role_' + i.builtin_key) : (i.role_name || i.group_name || ''))}</span>
       <button class="hcm-tb-x" title="${_esc(t('acc.withdraw'))}" onclick="acInviteWithdraw('${i.invitation_id}', '${_esc(i.email)}')">×</button></div>`).join('')}`;
+}
+
+/** The visible chain from the reader's top down to a node (ids), or null when the node is not theirs to see. */
+function _acTbChain(nodeId) {
+  const nodes = _ac.data.nodes || [];
+  const chain = [];
+  let cur = nodes.find(n => n.id === nodeId), guard = 0;
+  while (cur && guard++ < 10) { chain.unshift(cur.id); cur = cur.parent_id ? nodes.find(n => n.id === cur.parent_id) : null; }
+  return chain.length ? chain : null;
+}
+
+/** Jump the browser to the layer an inherited right comes from (to remove it there). */
+function acTbGoto(nodeId) {
+  const chain = _acTbChain(nodeId);
+  if (!chain) return;
+  const start = _acTbStart();
+  const i = start ? chain.indexOf(start) : -1;
+  _ac.tb.path = i >= 0 ? chain.slice(i + 1) : chain;
+  _ac.tb.cluster = null;
+  _acRenderTree();
+}
+
+/** Groups on this layer: those defined here, and those defined higher up with where their access stands here
+ *  (given here, inherited from a layer above, or none), so it is always clear where access comes from. */
+function _acTbGroups(definedAt, contextNode, d) {
+  const all = _ac.data.groups || [];
+  const chain = contextNode ? (_acTbChain(contextNode) || []) : [];
+  const own = definedAt ? all.filter(g => g.node_id === definedAt) : [];
+  const fromAbove = all.filter(g => g.node_id && g.node_id !== definedAt && chain.includes(g.node_id))
+                       .sort((a, b) => chain.indexOf(b.node_id) - chain.indexOf(a.node_id) || a.name.localeCompare(b.name));
+  const mayCreate = definedAt && canNode('groups.manage', definedAt);
+  const mayAssign = contextNode && (canNode('users.manage', contextNode) || (_ac.tb.cluster && can('users.manage', _ac.tb.cluster)));
+  if (!own.length && !fromAbove.length && !mayCreate) return '';
+  // where the group's access stands on this layer: a line under its name, and the role or an action on the right
+  const status = g => {
+    const here = (d.here || []).filter(a => a.group_id === g.group_id);
+    const above = (d.above || []).filter(a => a.group_id === g.group_id);
+    const role = a => a.builtin_key ? t('acc.role_' + a.builtin_key) : a.role_name;
+    if (here.length) return { line: '', right: `<span class="hcm-tb-role">${_esc(here.map(role).join(', '))}</span>` };
+    if (above.length) {
+      const a = above[0];
+      const src = a.node_id && _acTbChain(a.node_id) ? `<a href="#" class="hcm-tb-src" onclick="event.preventDefault(); acTbGoto('${a.node_id}')">${_esc(a.scope_label)} ↗</a>` : _esc(a.scope_label);
+      return { line: `${_esc(t('acc.tb_inherited_from'))} ${src}`, right: `<span class="hcm-tb-role">${_esc(role(a))}</span>` };
+    }
+    return { line: _esc(t('acc.tb_no_access_here')),
+             right: mayAssign ? `<button class="um-action-btn" onclick="acTbAssign('g:${g.group_id}')">${_esc(t('acc.tb_give_here'))}</button>` : '' };
+  };
+  const row = (g, mine) => {
+    const st = status(g);
+    const sub = [mine ? _esc(g.description || '') : _esc(t('acc.defined_at', { where: _acNodePath(g.node_id) })), st.line].filter(Boolean).join(' · ');
+    return `<div class="hcm-tb-who${mine ? '' : ' hcm-tb-dim'}">${_acIcon('group')}
+      <div class="hcm-tb-who-name"><a href="#" onclick="event.preventDefault(); acOpenGroup('${g.group_id}')">${_esc(g.name)}</a>
+        <span class="um-hint">${_esc(_acMembers(g.members.length))}</span>
+        ${sub ? `<div class="um-hint">${sub}</div>` : ''}</div>
+      ${st.right}</div>`;
+  };
+  return `<div class="hcm-ga-head"><span class="um-section-title">${_esc(t('acc.tb_groups'))} <span class="um-hint">${(own.length + fromAbove.length) || ''}</span></span>
+      <span style="flex:1"></span>
+      ${mayCreate ? `<button class="um-action-btn" onclick="acNewGroup('${definedAt}')">+ ${_esc(t('acc.new_group'))}</button>` : ''}</div>
+    ${own.map(g => row(g, true)).join('')}${fromAbove.map(g => row(g, false)).join('')}
+    ${!own.length && !fromAbove.length ? `<div class="hcm-tb-hint">${_esc(t('acc.tb_no_groups_here'))}</div>` : ''}`;
 }
 
 function acTbInvite() {
@@ -942,6 +1153,7 @@ function _acInviteResult(d, email) {
 
 /** Invite an address: with a role on a scope (preset from the Tenants pane) or into a group. */
 function acInvite(preset) {
+  const toGroup = preset && preset.group_id;          // from a group's dialog: into that group
   const groups = (_ac.data.groups || []).slice().sort((a, b) => a.name.localeCompare(b.name));
   const m = hcmModal({
     title: _esc(t('acc.invite_title')), width: 'min(820px, 96vw)',
@@ -949,10 +1161,10 @@ function acInvite(preset) {
       <label class="hcm-field"><span>${_esc(t('acc.col_email'))}</span><input class="um-input" id="ivEmail" type="email" autocomplete="off" placeholder="name@example.com"></label>
       <label class="hcm-field"><span>${_esc(t('acc.display_name'))}</span><input class="um-input" id="ivName" autocomplete="off"></label>
       <label class="hcm-field"><span>${_esc(t('acc.invite_give'))}</span><select class="um-select" id="ivWhat">
-        <option value="role">${_esc(t('acc.invite_role'))}</option>
-        ${groups.length && !preset ? `<option value="group">${_esc(t('acc.invite_group'))}</option>` : ''}</select></label>
-      <div id="ivRoleBox">${_acAssignForm('iv', preset)}</div>
-      <div id="ivGroupBox" style="display:none"><select class="um-select" id="ivGroup">${groups.map(g => `<option value="${g.group_id}">${_esc(g.name)}${g.node_id ? ' · ' + _esc(_acNodePath(g.node_id)) : ''}</option>`).join('')}</select></div>
+        ${toGroup ? '' : `<option value="role">${_esc(t('acc.invite_role'))}</option>`}
+        ${groups.length && (!preset || toGroup) ? `<option value="group">${_esc(t('acc.invite_group'))}</option>` : ''}</select></label>
+      <div id="ivRoleBox" style="${toGroup ? 'display:none' : ''}">${_acAssignForm('iv', toGroup ? null : preset)}</div>
+      <div id="ivGroupBox" style="${toGroup ? '' : 'display:none'}"><select class="um-select" id="ivGroup" ${toGroup ? 'disabled' : ''}>${groups.map(g => `<option value="${g.group_id}" ${toGroup === g.group_id ? 'selected' : ''}>${_esc(g.name)}${g.node_id ? ' · ' + _esc(_acNodePath(g.node_id)) : ''}</option>`).join('')}</select></div>
       <div class="um-hint">${_esc(t('acc.invite_hint', { hours: 48 }))}</div></div>`,
     buttons: [
       { label: t('console.cancel'), onClick: h => h.close() },
@@ -964,7 +1176,8 @@ function acInvite(preset) {
         try {
           const d = await _acCall('POST', '/api/access/invitations', body);
           h.close(); _acInviteResult(d, email.toLowerCase());
-          if (_ac.tab === 'users') _acRenderInvites(); else if (_ac.tab === 'tree') _acTbPane();
+          if (toGroup) _acGroupRender(toGroup);
+          else if (_ac.tab === 'users') _acRenderInvites(); else if (_ac.tab === 'tree') _acTbPane();
         } catch (e) { h.setMsg(e.message); }
       } },
     ],
@@ -973,7 +1186,7 @@ function acInvite(preset) {
   if (viewer) document.getElementById('ivRole').value = viewer.role_id;
   _acAssignWire('iv', {}, m, () => {});
   document.getElementById('ivAdd').style.display = 'none';
-  if (preset) {            // the layer is fixed: a node fixes the node, a cluster offers cluster, tag or VM on it
+  if (preset && !toGroup) {   // the layer is fixed: a node fixes the node, a cluster offers cluster, tag or VM on it
     const $ = id => document.getElementById('iv' + id);
     [...$('Kind').options].forEach(o => { if (preset.kind === 'cluster' ? !['cluster', 'tag', 'vm'].includes(o.value) : o.value !== 'node') o.remove(); });
     $('Node').disabled = true; $('Cluster').disabled = true;
@@ -1001,7 +1214,7 @@ async function acTbRemove(aid) {
 }
 
 /** Assign a user or group on the selected layer: the scope is preset to it (a cluster also offers its tags and VMs). */
-function acTbAssign() {
+function acTbAssign(preWho) {
   const tb = _ac.tb;
   const nodeId = tb.path[tb.path.length - 1];
   const preset = tb.cluster ? { kind: 'cluster', cluster_id: tb.cluster } : { kind: 'node', node_id: nodeId };
@@ -1017,6 +1230,7 @@ function acTbAssign() {
       <div style="margin-top:10px">${_acAssignForm('tb', preset)}</div>`,
     buttons: [{ label: t('acc.close'), onClick: h => h.close() }],
   });
+  if (preWho) document.getElementById('tbWho').value = preWho;
   // only this layer's scopes: a node fixes the node, a cluster offers cluster, tag or VM on it
   const $ = id => document.getElementById('tb' + id);
   [...$('Kind').options].forEach(o => { if (tb.cluster ? !['cluster', 'tag', 'vm'].includes(o.value) : o.value !== 'node') o.remove(); });

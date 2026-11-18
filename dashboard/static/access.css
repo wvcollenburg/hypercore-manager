@@ -59,22 +59,32 @@
 .hcm-tb-icon-msp { color: var(--accent-purple); } .hcm-tb-icon-customer { color: var(--accent-amber); }
 .hcm-tb-icon-folder { color: var(--accent-cyan); } .hcm-tb-icon-cluster { color: var(--accent-green, #22c55e); }
 .hcm-tb-icon-user, .hcm-tb-icon-group { color: var(--text-muted); }
-.hcm-tb-pane { flex: 1 1 340px; min-width: 320px; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.hcm-tb-pane { flex: 1 1 420px; min-width: 420px; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
 .hcm-tb-head { display: flex; align-items: flex-start; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .hcm-tb-head > .hcm-tb-icon { width: 28px; height: 28px; margin-top: 2px; }
 .hcm-tb-title { font-size: 16px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hcm-tb-crumbs { font-size: 11px; color: var(--text-muted); margin-top: 3px; display: flex; gap: 8px; align-items: center; }
-.hcm-tb-crumbs .hcm-tree-level { min-width: 0; }
+.hcm-tb-crumbs { font-size: 11px; color: var(--text-muted); margin-top: 3px; display: flex; gap: 4px 8px; align-items: baseline; flex-wrap: wrap; }
+.hcm-tb-crumbs .hcm-tree-level { flex: 0 0 auto; }
 .hcm-tb-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .hcm-tb-who { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px; font-size: 13px; }
 .hcm-tb-who:hover { background: var(--bg-card-hover); }
 .hcm-tb-who.inherited { opacity: .62; }
-.hcm-tb-who-name { flex: 1; min-width: 0; color: var(--text-primary); }
+.hcm-tb-who-name { flex: 1; min-width: 0; color: var(--text-primary); overflow-wrap: anywhere; }
 .hcm-tb-who-name a { color: inherit; text-decoration: none; } .hcm-tb-who-name a:hover { color: var(--accent-cyan); text-decoration: underline; }
 .hcm-tb-who-name > .um-hint { margin-left: 6px; }
 .hcm-tb-who-name div.um-hint { margin-left: 0; }
-.hcm-tb-role { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); white-space: nowrap; }
+.hcm-tb-role { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); white-space: nowrap; }
 .hcm-tb-x { width: 22px; height: 22px; border: none; background: none; color: var(--text-muted); font-size: 16px; border-radius: 4px; cursor: pointer; line-height: 1; }
 .hcm-tb-x:hover { color: var(--accent-red, #ef4444); background: rgba(239, 68, 68, .1); }
 .hcm-tb-x-pad { width: 22px; }
 @media (max-width: 900px) { .hcm-tb { flex-direction: column; height: auto; } .hcm-tb-cols { height: 300px; } .hcm-tb-col { flex-basis: 170px; } .hcm-tb-pane { min-width: 0; border-top: 1px solid var(--border); } }
+
+/* Settings → Access → a group's dialog: sections with their actions on the right, a search to add members */
+.hcm-ga-head { display: flex; align-items: center; gap: 8px; margin: 18px 0 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.hcm-ga-head .um-section-title { margin: 0; }
+.hcm-ga-search { margin: 4px 0 8px; padding: 8px; border: 1px dashed var(--border); border-radius: 8px; }
+.hcm-ga-search .um-input { width: 100%; margin-bottom: 4px; }
+.hcm-ga-search .hcm-tb-item { margin: 0; }
+.hcm-tb-dim .hcm-tb-who-name > a { color: var(--text-secondary); }
+.hcm-tb-src { color: var(--accent-cyan); text-decoration: none; } .hcm-tb-src:hover { text-decoration: underline; }
+.hcm-tb-who .um-action-btn { flex: 0 0 auto; }

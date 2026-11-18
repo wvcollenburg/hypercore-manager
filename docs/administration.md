@@ -106,7 +106,10 @@ MSP (**Settings → Access → Tenants**) shows the levels.
   column, a selected MSP's customers in the next, then a customer's folders, then a folder's
   clusters. The wide pane on the right shows the selected layer: the users and groups assigned on
   it (for a cluster also its tag and single-VM assignments), with **+ Assign** and a remove button,
-  and below them, dimmed, what it inherits from the layers above. Each column adds a customer,
+  and below them, dimmed, what it inherits from the layers above. Every inherited line links to the
+  layer it comes from (↗), where it can be changed or removed. **Groups** lists the groups defined on
+  the layer and, dimmed, those defined higher up, each with where its access stands here: given
+  here, inherited from a layer above, or none (**Give access here**). Each column adds a customer,
   folder or MSP at its foot; the pane renames and deletes the selected node. A node can only be
   deleted from above it, and only when it is empty; deleting removes its roles, groups and access.
   Accounts stay: they only lose the access they had there.
@@ -211,8 +214,15 @@ is seeded only once; manage accounts here afterwards.
 ### Groups
 
 A group gives its access to every member, and is defined at a level of the tree like a role.
-Adding someone to a group follows the same no-escalation rule as giving them the group's access
-directly. (Groups are also where an identity provider's groups will map later.)
+Where a group is defined only decides who manages it and where it can be used (that level and
+below); what its members get is the access the group is given, and that is inherited like anyone
+else's. Adding someone to a group follows the same no-escalation rule as giving them the group's
+access directly. (Groups are also where an identity provider's groups will map later.)
+
+A group's window lists its members (add one by searching for a name or address, or **Invite** an
+address into the group), and what every member gets (**+ Give access**). Changes apply at once. A
+person's window lists their groups the same way, with **+ Add to group**, and shows which access
+comes through which group.
 
 ### Tags hand out access
 

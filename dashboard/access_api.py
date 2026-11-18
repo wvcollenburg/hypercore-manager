@@ -656,6 +656,7 @@ def register(app, requires, access, clusters, vm_index_rows):
                     'username': a['username'], 'group_name': a['group_name'], 'role_name': a['role_name'],
                     'builtin_key': a['builtin_key'], 'scope_kind': a['scope_kind'], 'tag': a['tag'],
                     'vm_name': a['vm_name'] or a['vm_uuid'], 'scope_label': access_db.scope_label(a, tree, vis),
+                    'node_id': a['node_id'] if a['node_id'] and (vis is None or a['node_id'] in vis) else None,   # to go to its source
                     'created_by': a['created_by'] if names is None or a['created_by'] in names else None}
         members = {g['group_id']: len(g.get('members') or []) for g in access_db.groups()}
         out_here = [dict(row(a), members=members.get(a['group_id'])) for a in here]
