@@ -7,7 +7,7 @@ name; only an administrator of the whole installation sets a password or resets 
 - Forgot password: /account/forgot mails a link (60 minutes, once) to the account's address. The page says
   the same whether or not the address has an account; at most three links per account per hour.
 - Change of address: the Account page asks for the current password; a link goes to the NEW address
-  (24 hours, once) and only confirming it changes the login. The old address gets a notice and is kept as an
+  (60 minutes, once) and only confirming it changes the login. The old address gets a notice and is kept as an
   alias, so log rows written under it still name the same person. A taken address is refused only on the
   confirmation page, never to the person asking (that would tell them someone else's address has an account).
 - The links open a page first and act on a POST, so a mail scanner that follows links cannot use them.
@@ -24,7 +24,7 @@ import mailer
 from access_db import AccessError
 
 RESET_MINUTES = 60
-EMAIL_HOURS = 24
+EMAIL_MINUTES = 60
 RESETS_PER_HOUR = 3
 
 PAGE = {
@@ -164,7 +164,7 @@ def register(app, requires, public, h):
     """h: the checks shared with access_api (top, actor, me_id)."""
 
     def page(state, status=200, **vals):
-        t = {k: v.format(**{'minutes': RESET_MINUTES, 'hours': EMAIL_HOURS, 'email': '', 'new': '', 'old': '', **vals})
+        t = {k: v.format(**{'minutes': RESET_MINUTES, 'hours': EMAIL_MINUTES // 60, 'email': '', 'new': '', 'old': '', **vals})
              for k, v in PAGE[_lang()].items()}
         return render_template('account.html', state=state, t=t, lang=_lang(), **vals), status
 
@@ -230,13 +230,13 @@ def register(app, requires, public, h):
             raise AccessError('that is the address you use now')
         if not mailer.configured():
             raise AccessError('changing your address needs mail, which is not set up here: ask an administrator', 409)
-        token = _new_token('email', session['user_id'], EMAIL_HOURS * 60, new_email=new)
+        token = _new_token('email', session['user_id'], EMAIL_MINUTES, new_email=new)
         link = f"{mailer.link_base(request.host_url)}/account/email/{token}"
-        r = mailer.deliver(new, 'email_confirm', b.get('lang') or _lang(), by=me, link=link, hours=EMAIL_HOURS, new=new)
+        r = mailer.deliver(new, 'email_confirm', b.get('lang') or _lang(), by=me, link=link, minutes=EMAIL_MINUTES, new=new)
         _audit(me, 'user.email_requested', me, detail={'to': new})
         if not r['sent']:
             raise AccessError(f'the confirmation mail could not be sent: {r["error"]}', 502)
-        return jsonify({'ok': True, 'sent': True, 'hours': EMAIL_HOURS})
+        return jsonify({'ok': True, 'sent': True, 'minutes': EMAIL_MINUTES})
 
     @app.route('/account/email/<token>', methods=['GET', 'POST'])
     @public('an address confirmation link: the token is the credential')
@@ -257,6 +257,25 @@ def register(app, requires, public, h):
         if session.get('user_id') == tok['user_id']:
             session.clear()
         return page('email_done', new=new)
+
+    @app.route('/api/users/me/password', methods=['PUT'])
+    @requires(None)
+    def account_me_password():
+        """The person's own password: always with the current one, also for administrators."""
+        import user_db
+        b = request.get_json(silent=True) or {}
+        me = session.get('username')
+        if not session.get('user_id') or not me:
+            raise AccessError('sign in first', 401)
+        new = str(b.get('new_password') or '')
+        if not user_db.verify_password(me, str(b.get('current_password') or '')):
+            _audit(me, 'user.password_change_refused', me)
+            raise AccessError('the current password is not correct', 403)
+        if len(new) < 8:
+            raise AccessError('the password needs at least 8 characters')
+        user_db.set_password(me, new)
+        _audit(me, 'user.password_changed_self', me)
+        return jsonify({'ok': True})
 
     @app.route('/api/users/me', methods=['PUT'])
     @requires(None)

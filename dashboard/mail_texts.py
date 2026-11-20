@@ -18,7 +18,7 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
         'email_confirm': ("Confirm your new address for HyperCore Manager",
                           "Your HyperCore Manager account is to sign in with this address from now on: {new}\n\n"
                           "Open this link to confirm it:\n\n{link}\n\n"
-                          "The link works once and for {hours} hours. If you did not ask for this, ignore this mail.\n"),
+                          "The link works once and for {minutes} minutes. If you did not ask for this, ignore this mail.\n"),
         'email_notice': ("Your HyperCore Manager address was changed",
                          "Your HyperCore Manager account no longer signs in with this address; it now uses {new}.\n\n"
                          "If you did not do this, contact your administrator at once.\n"),
@@ -52,7 +52,7 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
         'email_confirm': ("Bevestig je nieuwe adres voor HyperCore Manager",
                           "Je HyperCore Manager-account logt voortaan in met dit adres: {new}\n\n"
                           "Open deze link om het te bevestigen:\n\n{link}\n\n"
-                          "De link werkt één keer en {hours} uur lang. Heb je hier niet om gevraagd, negeer deze mail dan.\n"),
+                          "De link werkt één keer en {minutes} minuten lang. Heb je hier niet om gevraagd, negeer deze mail dan.\n"),
         'email_notice': ("Je HyperCore Manager-adres is gewijzigd",
                          "Je HyperCore Manager-account logt niet meer in met dit adres; het gebruikt nu {new}.\n\n"
                          "Heb je dit niet zelf gedaan, neem dan meteen contact op met je beheerder.\n"),
@@ -86,7 +86,7 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
         'email_confirm': ("Bestätigen Sie Ihre neue Adresse für HyperCore Manager",
                           "Ihr HyperCore-Manager-Konto meldet sich künftig mit dieser Adresse an: {new}\n\n"
                           "Öffnen Sie diesen Link, um sie zu bestätigen:\n\n{link}\n\n"
-                          "Der Link funktioniert einmal und {hours} Stunden lang. Haben Sie das nicht angefordert, ignorieren Sie diese Mail.\n"),
+                          "Der Link funktioniert einmal und {minutes} Minuten lang. Haben Sie das nicht angefordert, ignorieren Sie diese Mail.\n"),
         'email_notice': ("Ihre HyperCore-Manager-Adresse wurde geändert",
                          "Ihr HyperCore-Manager-Konto meldet sich nicht mehr mit dieser Adresse an; es verwendet jetzt {new}.\n\n"
                          "Wenn Sie das nicht waren, wenden Sie sich sofort an Ihren Administrator.\n"),
@@ -120,7 +120,7 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
         'email_confirm': ("Confirmez votre nouvelle adresse pour HyperCore Manager",
                           "Votre compte HyperCore Manager se connectera désormais avec cette adresse : {new}\n\n"
                           "Ouvrez ce lien pour la confirmer :\n\n{link}\n\n"
-                          "Le lien fonctionne une fois, pendant {hours} heures. Si vous ne l'avez pas demandé, ignorez cet e-mail.\n"),
+                          "Le lien fonctionne une fois, pendant {minutes} minutes. Si vous ne l'avez pas demandé, ignorez cet e-mail.\n"),
         'email_notice': ("Votre adresse HyperCore Manager a été modifiée",
                          "Votre compte HyperCore Manager ne se connecte plus avec cette adresse ; il utilise maintenant {new}.\n\n"
                          "Si ce n'était pas vous, contactez immédiatement votre administrateur.\n"),

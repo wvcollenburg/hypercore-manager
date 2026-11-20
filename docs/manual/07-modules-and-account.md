@@ -18,5 +18,5 @@ with a time-based one-time password app. Two-factor applies to your account only
 can reset it for you if you lose the device. This page is the same for administrators and users.
 
 To sign in with another address, enter it with your current password: a link goes to the new
-address, and your login changes once you open it (within 24 hours). Forgot your password? Use the
+address, and your login changes once you open it (within 60 minutes). Forgot your password? Use the
 link on the sign-in page: a link to choose a new one is mailed to you (it works for 60 minutes).

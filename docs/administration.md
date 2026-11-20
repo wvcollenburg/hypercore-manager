@@ -264,7 +264,10 @@ through: invitations, password resets, address changes and guest console request
   your own network only; an optional login. The password is stored encrypted with
   `HCM_SECRET_KEY`, like the cluster passwords, and never shown again.
 - **Address in links**: the address people use to reach the dashboard, put in the links of
-  invitations and resets. Empty: the address of the browser that sends the invitation.
+  invitations, resets and guest requests. Empty: the address of the browser that sends the invitation.
+- **Address in guest console links**: how outside guests reach `/guest/` from the internet, for
+  example `https://support.example.com`. Empty: `HCM_GUEST_BASE_URL` from `.env`, else the address
+  of the browser of whoever gives the access.
 - **Send test mail** sends one and shows the server's answer when it fails. Every test, every
   failed mail and every change to these settings is in the access audit.
 - Microsoft 365 / Exchange Online: use a connector or relay (SMTP AUTH with basic authentication is
@@ -519,7 +522,7 @@ Credentials are the person's own; nobody below the top level touches them:
   once, for 60 minutes; at most three an hour). The page says the same whether or not the address
   has an account. Without a mail server it says to ask an administrator.
 - **Changing the address** asks for the current password and mails a link to the new address (once,
-  24 hours); only opening it changes the login. The old address gets a notice. The old address
+  60 minutes); only opening it changes the login. The old address gets a notice. The old address
   stays known to HCM, so log entries written under it still name the same person.
 - Administrators of the whole installation can **Reset password** and **Reset 2FA** for someone
   who is locked out, and change an address directly.

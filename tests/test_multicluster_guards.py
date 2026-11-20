@@ -106,8 +106,10 @@ def test_folder_rbac_wiring(repo):
     assert 'config.folders' in sql and 'config.folder_members' in sql and 'folder_id' in sql
     app = (repo / 'dashboard' / 'app.py').read_text()
     for route in ("'/api/folders', methods=['GET']", "'/api/folders', methods=['POST']",
-                  "'/api/folders/<folder_id>', methods=['DELETE']", "'/api/folders/<folder_id>/members', methods=['PUT']"):
+                  "'/api/folders/<folder_id>', methods=['DELETE']"):
         assert route in app, route
+    # folder membership is gone since roles (PLAN-roles): access is an assignment, not a member list
+    assert "'/api/folders/<folder_id>/members'" not in app
     # every data call resolves the cluster through the visibility filter
     assert 'def _visible_clusters' in app and 'visible = _visible_clusters()' in app
     reg = (repo / 'shared' / 'cluster_registry.py').read_text()

@@ -358,9 +358,9 @@ server {
 
 What that exposes: a page without a login that asks for a 6-digit code, behind a link with a long
 random token; five wrong codes lock the access. A guest who gets in controls that one VM's console
-and nothing else, within the window you set. The link HCM shows uses the name you reached the
-dashboard by, unless `HCM_GUEST_BASE_URL` in `.env` names the public address (as above:
-`HCM_GUEST_BASE_URL=https://console.your-domain.com`).
+and nothing else, within the window you set. Set the public address (as above:
+`https://console.your-domain.com`) under **Settings → Mail → Address in guest console links**.
+Without it, HCM uses `HCM_GUEST_BASE_URL` from `.env`, else the name you reached the dashboard by.
 
 ## Backing up the installation
 

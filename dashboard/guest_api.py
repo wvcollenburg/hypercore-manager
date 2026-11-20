@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import secrets
 import threading
@@ -170,7 +169,7 @@ def register(app, sock, requires, public, h):
 
     def link(token: str) -> str:
         """The guest's link, as the granter's browser reached HCM (behind a TLS proxy: https)."""
-        base = (os.getenv('HCM_GUEST_BASE_URL') or '').strip().rstrip('/')
+        base = mailer.guest_link_base()                   # Settings -> Mail, else HCM_GUEST_BASE_URL
         if base:
             return f'{base}/guest/{token}'
         host = request.headers.get('X-Forwarded-Host') or request.host

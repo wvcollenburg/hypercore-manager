@@ -1610,23 +1610,6 @@ def api_folders_delete(folder_id):
     return jsonify({'ok': True, **result})
 
 
-@app.route('/api/folders/<folder_id>/members', methods=['PUT'])
-@requires('users.manage', 'any')
-def api_folders_members(folder_id):
-    """Body: {"user_id": "...", "member": true|false}."""
-    if not cluster_registry.is_uuid(folder_id):
-        return jsonify({'error': 'invalid folder id'}), 400
-    if not _access().can('users.manage', node_id=folder_id):
-        return jsonify({'error': 'Access denied'}), 403
-    body = request.get_json(force=True, silent=True) or {}
-    uid = (body.get('user_id') or '').strip()
-    if not cluster_registry.is_uuid(uid):
-        return jsonify({'error': 'invalid user id'}), 400
-    cluster_registry.set_folder_member(folder_id, uid, bool(body.get('member', True)))
-    _invalidate_registry_cache()
-    return jsonify({'ok': True})
-
-
 # =============================================================================
 # Backup module proxy — the `backup` container owns plans, runs, imports and targets
 # =============================================================================
@@ -3149,7 +3132,7 @@ def login_page():
                 session['username'] = u['username']
                 session['role']     = u['role']
                 return redirect(dest)
-            error = 'Invalid OTP code. Check your authenticator app and try again.'
+            error = 'err_otp'
         else:
             found = user_db.get_by_login(request.form.get('username', ''))
             username = found['username'] if found else request.form.get('username', '').strip()
@@ -3158,13 +3141,10 @@ def login_page():
                 u = found
                 if u.get('enabled') is False:
                     # only after a correct password: say why, so they do not retry into a lockout
-                    error = ('An invitation to set a new password was sent to this address. Use the link in it.'
-                             if u.get('awaiting_email') and '@' in u['username'] else
-                             'Your account needs an email address. An administrator will send you an invitation.'
-                             if u.get('awaiting_email') else
-                             'Your account is waiting for an administrator to assign its access.' if u.get('awaiting_access')
-                             else 'Your account is disabled. Ask an administrator.')
-                    return render_template('login.html', step='password', error=error, otp_enabled=False)
+                    error = ('err_invited' if u.get('awaiting_email') and '@' in u['username'] else
+                             'err_needs_email' if u.get('awaiting_email') else
+                             'err_awaiting' if u.get('awaiting_access') else 'err_disabled')
+                    return _login_render('password', error, False)
                 if u['otp_enabled']:
                     session['otp_pending'] = username
                     return redirect(url_for('login_page', step='otp'))
@@ -3173,12 +3153,20 @@ def login_page():
                 session['username'] = u['username']
                 session['role']     = u['role']
                 return redirect(dest)
-            error = 'Invalid email address or password.'
+            error = 'err_login'
 
     # pass otp_enabled=True only when on the OTP step (drives login.html hint text)
     pending = session.get('otp_pending')
     otp_hint = bool(pending and user_db.get_by_username(pending or ''))
-    return render_template('login.html', step=step, error=error, otp_enabled=otp_hint)
+    return _login_render(step, error, otp_hint)
+
+
+def _login_render(step: str, error_key: str | None, otp_enabled: bool):
+    import login_texts
+    lang = login_texts.lang(request)
+    t = login_texts.TEXTS[lang]
+    return render_template('login.html', step=step, error=t.get(error_key) if error_key else None,
+                           otp_enabled=otp_enabled, t=t, lang=lang)
 
 
 def _after_login(dest):
@@ -3235,89 +3223,6 @@ def api_me_community_ack():
         return jsonify({'ok': True, 'dev_mode': True})
     user_db.set_community_ack(session['username'])
     return jsonify({'ok': True, 'dev_mode': False})
-
-
-def _may_manage_user(username: str) -> bool:
-    """Deleting an account or setting its password: an administrator of the whole installation only
-    (credentials are never a tenant matter, PLAN-roles, Accounts 5)."""
-    return bool(user_db.get_by_username(username)) and _access().can('users.manage')
-
-
-@app.route('/api/users', methods=['GET'])
-@requires('users.manage', 'any')
-def api_users_list():
-    users = user_db.get_all()
-    return jsonify([{
-        'user_id':     str(u['user_id']),
-        'username':    u['username'],
-        'role':        u['role'],
-        'otp_enabled': u['otp_enabled'],
-        'created_at':  u['created_at'].isoformat() if u['created_at'] else None,
-    } for u in users])
-
-
-@app.route('/api/users', methods=['POST'])
-@requires('users.manage', 'any')
-def api_users_create():
-    data = request.get_json(force=True) or {}
-    password = data.get('password', '')
-    role     = data.get('role', 'user')
-    if not _access().can('users.manage'):
-        return jsonify({'error': 'Access denied'}), 403      # below the top level: Settings → Access, with the access
-    try:
-        username = access_db.normalise_email(data.get('username') or data.get('email'))
-    except access_db.AccessError as e:
-        return jsonify({'error': str(e)}), 400
-    if not password:
-        return jsonify({'error': 'email address and password are required'}), 400
-    if role not in ('admin', 'user'):
-        return jsonify({'error': 'role must be "admin" or "user"'}), 400
-    if role == 'admin' and not _access().is_root_admin():
-        return jsonify({'error': 'Access denied'}), 403
-    try:
-        user_db.create_user(username, password, role)
-        return jsonify({'ok': True})
-    except psycopg2.errors.UniqueViolation:
-        return jsonify({'error': f'{username} already has an account'}), 409
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/users/<username>', methods=['DELETE'])
-@requires('users.manage', 'any')
-def api_users_delete(username):
-    if username == session.get('username'):
-        return jsonify({'error': 'Cannot delete your own account'}), 400
-    if not _may_manage_user(username):
-        return jsonify({'error': 'Access denied'}), 403
-    try:
-        user_db.delete_user(username)
-        access_db.invalidate()               # every worker forgets the account at once
-        return jsonify({'ok': True})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/users/<username>/password', methods=['PUT'])
-@requires(None)
-def api_users_set_password(username):
-    data     = request.get_json(force=True) or {}
-    is_self  = (_AUTH_ENABLED and username == session.get('username'))
-    is_admin = (not _AUTH_ENABLED or (not is_self and _may_manage_user(username)))
-    if not is_self and not is_admin:
-        return jsonify({'error': 'Access denied'}), 403
-    new_password = data.get('new_password', '')
-    if not new_password:
-        return jsonify({'error': 'new_password is required'}), 400
-    # non-admin users must supply their current password
-    if is_self and not is_admin:
-        if not user_db.verify_password(username, data.get('current_password', '')):
-            return jsonify({'error': 'Current password is incorrect'}), 403
-    try:
-        user_db.set_password(username, new_password)
-        return jsonify({'ok': True})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/users/me/otp/setup', methods=['GET'])

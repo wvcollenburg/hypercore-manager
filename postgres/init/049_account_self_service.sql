@@ -1,7 +1,7 @@
 -- Self-service (plans/PLAN-roles.md, "Accounts", E4): forgot password and changing one's own address.
 --
 -- config.account_tokens: one-time links mailed to a person. 'reset' (to the account's address, 60 minutes)
--- sets a new password; 'email' (to the NEW address, 24 hours) confirms an address change. Only the token's
+-- sets a new password; 'email' (to the NEW address, 60 minutes) confirms an address change. Only the token's
 -- SHA-256 is stored.
 --
 -- config.user_aliases: the addresses an account used before. Log rows keep the address used at the time;

@@ -4,6 +4,8 @@ Administrators of the whole installation only (install.manage).
 """
 from __future__ import annotations
 
+import os
+
 from flask import jsonify, request, session
 
 import access_db
@@ -20,6 +22,7 @@ def register(app, requires):
     def mail_settings_get():
         out = mailer.settings()
         out['suggested_public_url'] = request.host_url.rstrip('/')
+        out['env_guest_url'] = (os.getenv('HCM_GUEST_BASE_URL') or '').strip().rstrip('/') or None
         return jsonify(out)
 
     @app.route('/api/mail/settings', methods=['PUT'])

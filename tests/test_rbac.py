@@ -279,3 +279,22 @@ def test_guest_request_mail_skips_who_cannot_approve_that_vm():
     assert _granters(other_cust, other_vm, engineer, root) == ['root@x']
     assert _granters(other_cust, engineer, tag, root) == ['tag@x']
     assert _granters(other_cust, other_vm, engineer) == []
+
+
+def test_login_page_texts_exist_in_every_language():
+    import login_texts
+    keys = set(login_texts.TEXTS['en'])
+    for lang in ('nl', 'de', 'fr'):
+        assert set(login_texts.TEXTS[lang]) == keys, lang
+    tpl = (__import__('pathlib').Path(__file__).parent.parent / 'dashboard' / 'templates' / 'login.html').read_text()
+    used = set(re.findall(r'\bt\.(\w+)', tpl))
+    assert used <= keys, used - keys
+    assert '>Sign in<' not in tpl and 'Verification code' not in tpl, 'no English left in the template'
+
+
+def test_every_dashboard_module_is_in_the_image():
+    from pathlib import Path
+    root = Path(__file__).parent.parent / 'dashboard'
+    docker = (root / 'Dockerfile').read_text()
+    for py in root.glob('*.py'):
+        assert f'COPY dashboard/{py.name} .' in docker, py.name

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 TIMEOUT = 15                      # seconds for the whole SMTP conversation's steps
 SECURITY = ('starttls', 'tls', 'none')
-_FIELDS = ('host', 'port', 'security', 'username', 'sender', 'sender_name', 'public_url')
+_FIELDS = ('host', 'port', 'security', 'username', 'sender', 'sender_name', 'public_url', 'guest_url')
 
 
 class MailError(Exception):
@@ -88,13 +88,15 @@ def save(body: dict, actor: str) -> dict:
     name = str(body.get('sender_name') or '').strip()[:100] or None
     if name and any(c in name for c in '\r\n'):
         raise AccessError('the sender name cannot contain line breaks')
-    url = str(body.get('public_url') or '').strip().rstrip('/') or None
-    if url and not (url.startswith('https://') or url.startswith('http://')) or (url and any(c.isspace() for c in url)):
-        raise AccessError('the address in links must start with https:// (or http://)')
+    url = _link_address(body.get('public_url'), 'the address in links')
+    guest_url = _link_address(body.get('guest_url'), 'the address in guest links')
     username = str(body.get('username') or '').strip()[:200] or None
     conn = access_db._connect()
     try:
         with conn.cursor() as cur:
+            if 'guest_url' in body and _has_guest_url(cur):        # left out: kept (scripts, older pages)
+                cur.execute('''INSERT INTO config.mail_settings (id, guest_url) VALUES (1, %s)
+                               ON CONFLICT (id) DO UPDATE SET guest_url = EXCLUDED.guest_url''', (guest_url,))
             cur.execute('''INSERT INTO config.mail_settings (id, host, port, security, username, sender, sender_name, public_url,
                                                              updated_at, updated_by)
                            VALUES (1, %s, %s, %s, %s, %s, %s, %s, NOW(), %s)
@@ -108,11 +110,37 @@ def save(body: dict, actor: str) -> dict:
                 cur.execute('UPDATE config.mail_settings SET password_enc = %s WHERE id = 1',
                             (hcm_crypto.encrypt(pw) if pw else None,))
             access_db.audit(cur, actor, 'mail.settings', host or '(mail off)',
-                            detail={'port': port, 'security': security, 'sender': sender, 'login': bool(username)})
+                            detail={'port': port, 'security': security, 'sender': sender, 'login': bool(username),
+                                    'public_url': url, 'guest_url': guest_url})
         conn.commit()
     finally:
         conn.close()
     return settings()
+
+
+def _link_address(v, what: str) -> str | None:
+    url = str(v or '').strip().rstrip('/') or None
+    if url and (not url.startswith(('https://', 'http://')) or any(c.isspace() for c in url)):
+        raise AccessError(f'{what} must start with https:// (or http://)')
+    return url
+
+
+def _has_guest_url(cur) -> bool:
+    """Whether migration 050 ran (a dashboard briefly ahead of its database must still save the rest)."""
+    cur.execute("""SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'config' AND table_name = 'mail_settings' AND column_name = 'guest_url'""")
+    return cur.fetchone() is not None
+
+
+def guest_link_base() -> str | None:
+    """The public address for guest console links: the setting, else HCM_GUEST_BASE_URL; None: the caller
+    uses the address of the granter's browser."""
+    import os
+    try:
+        url = settings().get('guest_url')
+    except Exception:  # noqa: BLE001
+        url = None
+    return (url or (os.getenv('HCM_GUEST_BASE_URL') or '').strip()).rstrip('/') or None
 
 
 def link_base(request_host_url: str | None = None) -> str:

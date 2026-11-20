@@ -615,6 +615,36 @@ def test_one_guest_per_console(clusters, fake_vms):
             ca.call('POST', f'/api/guest/grants/{gid}/revoke', {})
 
 
+def test_the_old_user_api_is_gone(admin):
+    for method, path in (('GET', '/api/users'), ('POST', '/api/users'), ('DELETE', '/api/users/someone@demo.example'),
+                         ('PUT', '/api/users/someone@demo.example/password'),
+                         ('PUT', '/api/folders/00000000-0000-0000-0000-000000000000/members')):
+        assert admin.raw(method, path, {})[0] in (404, 405), (method, path)
+
+
+def test_own_password_needs_the_current_one(clusters):
+    c = Client()
+    assert c.login(email('contoso-viewer'), PW)
+    assert c.call('PUT', '/api/users/me/password', {'current_password': 'wrong', 'new_password': 'Other-pass-123'})[0] == 403
+    assert c.call('PUT', '/api/users/me/password', {'current_password': PW, 'new_password': 'short'})[0] == 400
+    assert c.call('PUT', '/api/users/me/password', {'current_password': PW, 'new_password': 'Other-pass-123'})[0] == 200
+    try:
+        assert Client().login(email('contoso-viewer'), 'Other-pass-123')
+    finally:
+        assert c.call('PUT', '/api/users/me/password', {'current_password': 'Other-pass-123', 'new_password': PW})[0] == 200
+    assert Client().login(email('contoso-viewer'), PW)
+
+
+def test_login_page_follows_the_language():
+    for lang, word in (('nl', 'Aanmelden'), ('de', 'Anmelden'), ('fr', 'Connexion'), ('en', 'Sign in')):
+        rq = urllib.request.Request(BASE + '/login', headers={'Accept-Language': lang})
+        with urllib.request.urlopen(rq, timeout=20) as r:
+            assert word in r.read().decode(), lang
+    rq = urllib.request.Request(BASE + '/login', headers={'Accept-Language': 'de', 'Cookie': 'hcm_lang=fr'})
+    with urllib.request.urlopen(rq, timeout=20) as r:
+        assert 'Connexion' in r.read().decode(), "the dashboard's own language choice wins"
+
+
 def test_guest_routes_are_public_but_bounded(admin):
     routes = {r['rule']: r for r in admin.call('GET', '/api/access/routes')[1]['routes']}
     for rule in ('/guest/<token>', '/guest/<token>/ticket', '/guest/ws', '/guest/vendor/novnc/<path:filename>', '/guest/lang/<filename>'):
