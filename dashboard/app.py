@@ -3432,7 +3432,9 @@ def _check_for_update():
     })
     try:
         r = subprocess.run(
-            ['git', '-C', _REPO_PATH, 'fetch', '--tags', '--quiet'],
+            # --force: a tag that was moved on GitHub replaces the local one instead of failing every check
+            # (a plain fetch refuses to clobber an existing tag, and with --quiet it does not even say why)
+            ['git', '-C', _REPO_PATH, 'fetch', '--tags', '--force', '--quiet'],
             capture_output=True, text=True, timeout=30,
         )
         if r.returncode != 0:
