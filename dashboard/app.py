@@ -53,13 +53,15 @@ from functools import wraps
 
 import psycopg2
 import psycopg2.extras
-from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, Response, session, url_for
+from flask import Flask, g, jsonify, redirect, render_template, request, send_from_directory, Response, session, url_for
 from flask_cors import CORS
 from flask_sock import Sock
 import simple_websocket
 from influxdb_client import InfluxDBClient
 import config_db
 import user_db
+import rbac
+import access_db
 import cluster_registry
 import hypercore_tasks
 import hcm_crypto
@@ -94,39 +96,129 @@ app.secret_key = _secret_key
 # bootstrap the users table and seed the admin account from env vars on first run
 user_db.ensure_table()
 user_db.seed_admin_from_env()
+try:
+    # accounts are email addresses: the ones without, except the main admin, wait for one (PLAN-roles, Accounts)
+    _no_email = access_db.require_email_addresses(os.getenv('SC_DASHBOARD_USER', ''))
+    if _no_email:
+        app.logger.warning('accounts waiting for an email address: %s', ', '.join(_no_email))
+except Exception as _exc:  # noqa: BLE001 — before migration 046, or the database is not up yet
+    app.logger.info('email address check skipped: %s', _exc)
 
 # auth is enabled iff at least one user row exists. Cached at startup — restart
 # is required if the table goes from empty to populated outside of the UI
 _AUTH_ENABLED = user_db.has_any_users()
 
 
-def require_auth(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not _AUTH_ENABLED:
-            return f(*args, **kwargs)
-        if not session.get('user_id'):
-            if request.path.startswith('/api/'):
-                return jsonify({'error': 'Authentication required'}), 401
-            return redirect(url_for('login_page'))
-        if not request.path.startswith('/api/') and not user_db.get_by_username(session.get('username') or ''):
-            # a cookie signed before the users table was recreated (a reinstall that kept the
-            # secret key): the session passes but its user is gone, so it is treated as logged out
-            session.clear()
-            return redirect(url_for('login_page'))
-        return f(*args, **kwargs)
-    return decorated
+class AccessDenied(Exception):
+    """Raised inside a route when the user may not do this here: 403 (or 404 when `hide`)."""
+    def __init__(self, message: str = 'Access denied', status: int = 403):
+        super().__init__(message)
+        self.status = status
 
 
-def require_admin(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not _AUTH_ENABLED:
+def _access() -> 'rbac.Access':
+    """The current user's resolved rights, once per request."""
+    acc = g.get('hcm_access')
+    if acc is None:
+        acc = access_db.access_for(session.get('user_id'), superuser=not _AUTH_ENABLED)
+        g.hcm_access = acc
+    return acc
+
+
+def _login_problem():
+    """A response when the request has no usable login, else None."""
+    if not _AUTH_ENABLED:
+        return None
+    if not session.get('user_id'):
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Authentication required'}), 401
+        return redirect(url_for('login_page'))
+    try:
+        state = access_db.user_state(session.get('user_id'))
+    except Exception as exc:  # noqa: BLE001 — database down: fail closed, but do not log the user out
+        app.logger.warning('user state unavailable: %s', exc)
+        return jsonify({'error': 'user store unavailable'}), 503
+    if state is None or state.get('username') != session.get('username'):
+        # a cookie signed before the users table was recreated (a reinstall that kept the secret key),
+        # or a deleted user: the session passes the signature but its user is gone
+        session.clear()
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Authentication required'}), 401
+        return redirect(url_for('login_page'))
+    if not state.get('enabled', True):
+        session.clear()
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Your account is waiting for an administrator to assign its access'}), 401
+        return redirect(url_for('login_page'))
+    return None
+
+
+_ROUTE_PERMS: dict = {}         # view function name -> (permission or None, scope); read by /api/access/routes
+
+
+def requires(perm: str | None, scope: str = 'cluster'):
+    """Every route declares exactly one permission (plans/PLAN-roles.md, deny by default).
+
+    perm None: any logged-in user. scope:
+      'cluster' — the selected cluster (?cluster=): the user must hold `perm` there, on the whole
+                  cluster or (VM-level permissions) on some of its VMs; the handler narrows to VMs.
+                  A cluster named in the request that fails is refused, never swapped for another.
+      'any'     — held anywhere; the handler checks the exact target (a body cluster, a node, a VM).
+      'root'    — on the whole installation.
+    """
+    if perm is not None and perm not in rbac.PERMISSIONS:
+        raise ValueError(f'unknown permission {perm!r}')
+
+    def deco(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            problem = _login_problem()
+            if problem is not None:
+                return problem
+            g.hcm_perm = perm
+            if perm is not None:
+                acc = _access()
+                if scope == 'root':
+                    ok = acc.can(perm)
+                elif scope == 'any':
+                    ok = acc.held_anywhere(perm)
+                else:
+                    ok = bool(_visible_clusters(perm))
+                    wanted = (request.args.get('cluster') or '').strip()
+                    if ok and wanted and cluster_registry.is_uuid(wanted) and \
+                            wanted not in {c.cluster_id for c in _visible_clusters(perm)}:
+                        # reads fall back to the first allowed cluster (the UI recovers after a cluster was
+                        # taken away); anything that changes something is refused
+                        ok = request.method in ('GET', 'HEAD')
+                if not ok:
+                    if request.path.startswith('/api/'):
+                        return jsonify({'error': 'Access denied', 'permission': perm}), 403
+                    return Response('Access denied', status=403, mimetype='text/plain')
             return f(*args, **kwargs)
-        if session.get('role') != 'admin':
-            return jsonify({'error': 'Admin access required'}), 403
-        return f(*args, **kwargs)
-    return decorated
+        wrapped._hcm_perm = (perm, scope)
+        _ROUTE_PERMS[f.__name__] = (perm, scope)
+        return wrapped
+    return deco
+
+
+def public(reason: str):
+    """A route open without the permission check (login page, internal token routes, the guest
+    console): named on purpose so the startup check can tell it from a forgotten declaration."""
+    def deco(f):
+        f._hcm_perm = ('public', reason)
+        _ROUTE_PERMS[f.__name__] = ('public', reason)
+        return f
+    return deco
+
+
+@app.before_request
+def _access_fresh():
+    access_db.begin_request()
+
+
+@app.errorhandler(AccessDenied)
+def _access_denied(e):
+    return jsonify({'error': str(e)}), e.status
 
 
 def get_influx_client():
@@ -185,15 +277,20 @@ def _enabled_clusters():
 
 def _invalidate_registry_cache():
     _registry_cache['at'] = 0.0
-    _membership_cache.clear()
-
-
-# folder memberships per user, cached briefly like the registry
-_membership_cache: dict = {}
+    access_db.invalidate()
 
 
 class BadRequest(Exception):
     pass
+
+
+def _days_arg(default: int = 7) -> int:
+    """?days= as a whole number (it is written into a Flux query: never pass the raw text)."""
+    raw = request.args.get('days', str(default))
+    try:
+        return max(1, min(int(raw), 3650))
+    except (TypeError, ValueError):
+        raise BadRequest(f'days must be a whole number of days, not {raw!r}')
 
 
 def _hours_arg(default: int = 1) -> int:
@@ -211,43 +308,100 @@ def _bad_request(e):
 
 
 def _is_admin_request() -> bool:
-    return (not _AUTH_ENABLED) or session.get('role') == 'admin'
+    """Root admin (or auth disabled): sees and may do everything."""
+    return _access().is_root_admin()
 
 
-def _visible_folder_ids() -> set:
-    uid = session.get('user_id') or ''
-    now = time.time()
-    hit = _membership_cache.get(uid)
-    if hit and now - hit[0] < _REGISTRY_TTL:
-        return hit[1]
-    try:
-        ids = cluster_registry.folder_ids_for_user(uid)
-    except Exception as exc:
-        app.logger.warning('folder memberships unavailable: %s', exc)
-        ids = set()
-    _membership_cache[uid] = (now, ids)
-    return ids
-
-
-def _visible_clusters():
-    """Enabled clusters the current user may see: everything for admins, otherwise the
-    clusters in folders the user is a member of. Unfiled clusters are admin-only."""
+def _visible_clusters(perm: str | None = None):
+    """Enabled clusters for this request: where the user holds `perm` (default: the route's own
+    permission), on the whole cluster or on some of its VMs. Without one: where they hold anything."""
     enabled = _enabled_clusters()
-    if _is_admin_request():
-        return enabled
-    folders = _visible_folder_ids()
-    return [c for c in enabled if c.folder_id and c.folder_id in folders]
+    acc = _access()
+    perm = perm or g.get('hcm_perm')
+    ids = [c.cluster_id for c in enabled]
+    allowed = set(acc.scope_for(perm, ids)) if perm else set(acc.visible_clusters(ids))
+    return [c for c in enabled if c.cluster_id in allowed]
 
 
 def _cluster_id() -> str:
-    """Cluster the current request is about: ?cluster=<uuid> when it names a cluster the
-    user may see, else the first visible cluster, else the defaults template (no data)."""
+    """Cluster the current request is about: ?cluster=<uuid> when the user may use it for this
+    route, else the first such cluster, else the defaults template (no data). The route decorator
+    has already refused a named cluster for anything but a read."""
     visible = _visible_clusters()
     wanted = (request.args.get('cluster') or '').strip() if request else ''
     if wanted and cluster_registry.is_uuid(wanted):
         if any(c.cluster_id == wanted for c in visible):
             return wanted
     return visible[0].cluster_id if visible else cluster_registry.TEMPLATE_CLUSTER_ID
+
+
+def _named_cluster(perm: str) -> str:
+    """The cluster in ?cluster= when the user holds `perm` on the whole of it; refused otherwise."""
+    wanted = (request.args.get('cluster') or '').strip() or _cluster_id()
+    if not cluster_registry.is_uuid(wanted) or not _access().can(perm, wanted):
+        raise AccessDenied('Access denied')
+    return wanted
+
+
+def _vm_scope(perm: str | None = None, cid: str | None = None):
+    """For the selected cluster: 'all', or {'vms': [...], 'tags': [...]} for a user who holds `perm`
+    only on some of its VMs."""
+    cid = cid or _cluster_id()
+    perm = perm or g.get('hcm_perm')
+    return _access().scope_for(perm, [cid]).get(cid)
+
+
+def _vm_tags(cid: str, vm_uuid: str) -> list:
+    """A VM's tags (for tag-scoped access), from the console service's VM index (cached a minute there)."""
+    for v in _vm_index_rows(cid):
+        if v.get('uuid') == vm_uuid:
+            return v.get('tags') or []
+    return []
+
+
+def _vm_index_rows(cid: str, fresh: bool = False) -> list:
+    q = {'cluster': cid}
+    if fresh:
+        q['fresh'] = '1'
+    status, raw, _ = _console_call('GET', 'vm-index', query=urllib.parse.urlencode(q), timeout=30)
+    if status != 200:
+        return []
+    try:
+        return json.loads(raw.decode() or '{}').get('vms') or []
+    except ValueError:
+        return []
+
+
+def _can_vm(perm: str, cid: str, vm_uuid: str) -> bool:
+    acc = _access()
+    if perm in acc.cluster_perms(cid) or acc.superuser:
+        return True
+    if not acc.vm_grants(cid):
+        return False
+    return acc.can(perm, cid, vm_uuid, _vm_tags(cid, vm_uuid))
+
+
+def _require_vm(perm: str, cid: str, vm_uuid: str) -> None:
+    if not _can_vm(perm, cid, vm_uuid):
+        raise AccessDenied('Access denied')
+
+
+def _filter_vms(rows, scope, key: str = 'uuid', tags_key: str | None = None, cid: str | None = None):
+    """Rows of one cluster's VMs narrowed to a VM scope ('all' keeps everything)."""
+    if scope == 'all':
+        return rows
+    if not scope:
+        return []
+    tag_of = {}
+    if scope.get('tags') and not tags_key:
+        tag_of = {v.get('uuid'): v.get('tags') or [] for v in _vm_index_rows(cid or _cluster_id())}
+    out = []
+    for r in rows:
+        u = r.get(key)
+        tags = r.get(tags_key) if tags_key else tag_of.get(u, [])
+        if rbac.vm_in_scope(scope, u, tags or []):
+            out.append(r)
+    return out
 
 
 def _flux_cluster() -> str:
@@ -287,7 +441,7 @@ def is_stale(history_list, stale_secs=None):
 # API: node metrics (last 1 hour, 1-minute windows)
 # =============================================================================
 @app.route('/api/nodes')
-@require_auth
+@requires('cluster.view')
 def get_nodes():
     range_hours = _hours_arg()
     client = get_influx_client()
@@ -438,7 +592,7 @@ def _vm_sizes(client, vms: dict) -> None:
 
 
 @app.route('/api/vms')
-@require_auth
+@requires('vm.view')
 def get_vms():
     range_hours = _hours_arg()
     client = get_influx_client()
@@ -503,7 +657,7 @@ def get_vms():
         active = [v for v in vms.values() if not is_stale(v['history'], stale_secs)]
         listed = {v['uuid']: v for v in active}
         _vm_sizes(client, listed)
-        return jsonify(list(listed.values()))
+        return jsonify(_filter_vms(list(listed.values()), _vm_scope()))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -514,7 +668,7 @@ def get_vms():
 # API: drive metrics (physical drives, nested under nodes)
 # =============================================================================
 @app.route('/api/drives')
-@require_auth
+@requires('cluster.view')
 def get_drives():
     range_hours = _hours_arg()
     include_stale = request.args.get('include_stale', 'false').lower() == 'true'
@@ -575,7 +729,7 @@ def get_drives():
 # API: VSD metrics (virtual storage devices, nested under VMs)
 # =============================================================================
 @app.route('/api/vsds')
-@require_auth
+@requires('vm.view')
 def get_vsds():
     """Per-disk history. With ?vm=<uuid> only that VM's disks (the VM detail panel); the overview
     views use /api/storage/summary instead, which carries no per-disk history."""
@@ -625,7 +779,7 @@ def get_vsds():
         # filter out VSDs that haven't reported recently
         stale_secs = _stale_seconds()
         active = [v for v in vsds.values() if not is_stale(v['history'], stale_secs)]
-        return jsonify(active)
+        return jsonify(_filter_vms(active, _vm_scope(), key='vm_uuid'))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -636,7 +790,7 @@ def get_vsds():
 # API: storage overview — per-VM series + cluster totals, no per-disk history
 # =============================================================================
 @app.route('/api/storage/summary')
-@require_auth
+@requires('vm.view')
 def get_storage_summary():
     """What the Infraviewer overview needs from the disks: per VM one series (IOPS and
     throughput summed over its disks, latency of the worst disk), a cluster total series, and
@@ -663,6 +817,11 @@ def get_storage_summary():
                                'time': r.get_time().isoformat(), **{f: r.values.get(f) for f in storage_summary.FIELDS}})
         out = storage_summary.build(rows, latest, datetime.now(timezone.utc), stale_secs)
         out['hours'] = range_hours
+        scope = _vm_scope()
+        if scope != 'all':
+            # a user with only some VMs sees those, not the cluster's totals (that is cluster.view)
+            out['vms'] = _filter_vms(out.get('vms') or [], scope)
+            out['cluster'] = {'history': []}
         return jsonify(out)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -674,7 +833,7 @@ def get_storage_summary():
 # API: migration events (last 7 days by default)
 # =============================================================================
 @app.route('/api/cluster/tasks')
-@require_auth
+@requires('cluster.view')
 def api_cluster_tasks():
     """Live activity of the selected cluster from the REST v2 task feed the collector keeps."""
     cid = _cluster_id()
@@ -688,9 +847,9 @@ def api_cluster_tasks():
 
 
 @app.route('/api/migrations')
-@require_auth
+@requires('cluster.view')
 def get_migrations():
-    range_days = request.args.get('days', '7')
+    range_days = _days_arg()
     client = get_influx_client()
     try:
         query = f'''
@@ -729,9 +888,9 @@ def get_migrations():
 # API: predictive engine — recommendation log
 # =============================================================================
 @app.route('/api/predictions')
-@require_auth
+@requires('cluster.view')
 def get_predictions():
-    range_days = request.args.get('days', '7')
+    range_days = _days_arg()
     client = get_influx_client()
     try:
         query = f'''
@@ -771,9 +930,9 @@ def get_predictions():
 # API: predictive engine — per-run summary log
 # =============================================================================
 @app.route('/api/forecast_runs')
-@require_auth
+@requires('cluster.view')
 def get_forecast_runs():
-    range_days = request.args.get('days', '7')
+    range_days = _days_arg()
     client = get_influx_client()
     try:
         query = f'''
@@ -823,8 +982,7 @@ def get_forecast_runs():
 # up here automatically — no frontend code changes needed
 # =============================================================================
 @app.route('/api/modules')
-@require_auth
-@require_admin
+@requires('install.manage', 'root')
 def get_modules():
     client = get_influx_client()
     try:
@@ -857,8 +1015,7 @@ def get_modules():
 # any backend changes
 # =============================================================================
 @app.route('/api/query/<measurement>')
-@require_auth
-@require_admin
+@requires('install.manage', 'root')
 def query_measurement(measurement):
     try:
         range_hours = _hours_arg()
@@ -902,7 +1059,7 @@ def query_measurement(measurement):
 # API: data quality — gap detection for forecast reliability warning
 # =============================================================================
 @app.route('/api/data-quality')
-@require_auth
+@requires('cluster.view')
 def get_data_quality():
     """
     Checks the last 14 days of node_metrics for collection gaps.
@@ -1004,11 +1161,13 @@ from(bucket: "{INFLUX_BUCKET}")
 # API: tunables config (live read/write)
 # =============================================================================
 @app.route('/api/config', methods=['GET'])
-@require_auth
+@requires('cluster.view')
 def get_config():
     """Return all tunables with metadata for the settings UI (selected cluster, or the
     defaults template when ?cluster=defaults)."""
     try:
+        if request.args.get('cluster') == 'defaults' and not _access().held_anywhere('cluster.settings'):
+            return jsonify({'error': 'Access denied'}), 403
         cid = config_db.TEMPLATE_CLUSTER_ID if request.args.get('cluster') == 'defaults' else _cluster_id()
         return jsonify(config_db.get_with_meta(cid))
     except Exception as e:
@@ -1016,20 +1175,29 @@ def get_config():
 
 
 @app.route('/api/config', methods=['POST'])
-@require_auth
-@require_admin
+@requires('cluster.settings', 'any')
 def post_config():
     """Update one or more tunables. Accepts {key: value, ...} JSON body."""
     try:
         updates = request.get_json(force=True)
         if not isinstance(updates, dict):
             return jsonify({'error': 'Expected a JSON object'}), 400
-        cid = config_db.TEMPLATE_CLUSTER_ID if request.args.get('cluster') == 'defaults' else _cluster_id()
+        acc = _access()
+        if request.args.get('cluster') == 'defaults':
+            if not acc.can('install.manage'):
+                return jsonify({'error': 'Access denied'}), 403
+            cid = config_db.TEMPLATE_CLUSTER_ID
+        else:
+            cid = _named_cluster('cluster.settings')
         config_db.save_many(updates, cid)
         if request.args.get('apply_to_all') == '1':
+            # every cluster this user may change settings on, never more
             for c in _enabled_clusters():
-                config_db.save_many(updates, c.cluster_id)
+                if acc.can('cluster.settings', c.cluster_id):
+                    config_db.save_many(updates, c.cluster_id)
         return jsonify({'ok': True})
+    except AccessDenied:
+        raise
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1037,6 +1205,29 @@ def post_config():
 # =============================================================================
 # cluster registry API — clusters are configured here, not in .env
 # =============================================================================
+
+def _rail_folders(acc, folders: list) -> list:
+    """Only the 'folder' level of the tree goes into the rail's folder lists (MSPs and customers are
+    tree nodes above them), each with its path and the permissions that decide its menu."""
+    tree = acc.tree
+    out = []
+    see_all = acc.superuser or any(g.kind == 'root' for g in acc.grants)
+    vis = None if see_all else acc.visible_nodes()
+    mine = lambda n: n if n and (vis is None or n in vis) else None   # noqa: E731  (no id of a layer above either)
+    for f in folders:
+        fid = f['folder_id']
+        if tree.level.get(fid, 'folder') != 'folder':
+            continue
+        anc = tree.ancestors(fid)
+        out.append(dict(f, parent_id=mine(tree.parent.get(fid)),
+                        customer_id=mine(next((a for a in anc if tree.level.get(a) == 'customer'), None)),
+                        msp_id=mine(next((a for a in anc if tree.level.get(a) == 'msp'), None)),
+                        path=(tree.path(fid) if see_all else acc.path(fid))[:-1],   # never the layers above the user
+                        can_manage_tree=acc.can('tree.manage', node_id=fid),
+                        can_manage_clusters=acc.can('cluster.manage', node_id=fid),
+                        can_assign_share=acc.can('backup.targets.manage', node_id=fid)))
+    return out
+
 
 def _cluster_payload(c, extras=None):
     d = c.to_dict()
@@ -1078,7 +1269,7 @@ def _cluster_extras(clusters):
 
 
 @app.route('/api/clusters', methods=['GET'])
-@require_auth
+@requires(None)
 def api_clusters_list():
     """All registered clusters (never the defaults template) plus the selection the
     server would make for this request, so the UI can initialise its picker."""
@@ -1087,11 +1278,14 @@ def api_clusters_list():
         folders = cluster_registry.list_folders()
     except Exception as e:
         return jsonify({'error': str(e), 'clusters': [], 'folders': [], 'selected': None}), 200
-    admin = _is_admin_request()
+    acc = _access()
+    admin = acc.is_root_admin()
+    folders = _rail_folders(acc, folders)
     if not admin:
-        allowed = _visible_folder_ids()
-        clusters = [c for c in clusters if c.folder_id and c.folder_id in allowed]
-        folders = [{k: v for k, v in f.items() if k != 'members'} for f in folders if f['folder_id'] in allowed]
+        allowed = set(acc.visible_clusters([c.cluster_id for c in clusters]))
+        clusters = [c for c in clusters if c.cluster_id in allowed]
+        nodes = acc.visible_nodes()
+        folders = [{k: v for k, v in f.items() if k != 'members'} for f in folders if f['folder_id'] in nodes]
     enabled = [c for c in clusters if c.enabled]
     extras = _cluster_extras(clusters)
     groups = cluster_registry.duplicate_groups(enabled)
@@ -1120,10 +1314,14 @@ def _cluster_form(body: dict) -> dict:
 
 
 @app.route('/api/clusters', methods=['POST'])
-@require_auth
-@require_admin
+@requires('cluster.manage', 'any')
 def api_clusters_create():
     body = request.get_json(force=True, silent=True) or {}
+    target_folder = (body.get('folder_id') or '').strip() or None
+    if target_folder and not cluster_registry.is_uuid(target_folder):
+        return jsonify({'error': 'invalid folder id'}), 400
+    if not _access().can('cluster.manage', node_id=target_folder):
+        return jsonify({'error': 'Access denied'}), 403
     f = _cluster_form(body)
     if not (f['name'] and f['host'] and f['username'] and f['password']):
         return jsonify({'error': 'name, host, username and password are required'}), 400
@@ -1154,6 +1352,8 @@ def api_clusters_create():
         if 'ux_clusters_name' in msg or 'duplicate key' in msg:
             return jsonify({'error': 'a cluster with that name already exists'}), 409
         return jsonify({'error': msg}), 500
+    if target_folder:
+        cluster_registry.update(cid, folder_id=target_folder)
     if probe_nodes:
         cluster_registry.upsert_nodes(cid, probe_nodes, seed_host=f['host'])
     if probe.get('timezone'):
@@ -1164,12 +1364,16 @@ def api_clusters_create():
 
 
 @app.route('/api/clusters/<cluster_id>', methods=['PUT'])
-@require_auth
-@require_admin
+@requires('cluster.manage', 'any')
 def api_clusters_update(cluster_id):
     if not cluster_registry.get(cluster_id):
         return jsonify({'error': 'cluster not found'}), 404
+    acc = _access()
+    if not acc.can('cluster.manage', cluster_id):
+        return jsonify({'error': 'cluster not found'}), 404
     body = request.get_json(force=True, silent=True) or {}
+    if 'folder_id' in body and not _may_move_cluster(acc, cluster_id, body['folder_id'] or None):
+        return jsonify({'error': 'Access denied'}), 403
     fields = {}
     for k in ('name', 'host', 'username', 'password', 'colour', 'api_version', 'timezone'):
         if k in body:
@@ -1193,10 +1397,9 @@ def api_clusters_update(cluster_id):
 
 
 @app.route('/api/clusters/<cluster_id>', methods=['DELETE'])
-@require_auth
-@require_admin
+@requires('cluster.manage', 'any')
 def api_clusters_delete(cluster_id):
-    if not cluster_registry.get(cluster_id):
+    if not cluster_registry.get(cluster_id) or not _access().can('cluster.manage', cluster_id):
         return jsonify({'error': 'cluster not found'}), 404
     purge = request.args.get('purge') == '1'
     try:
@@ -1208,8 +1411,7 @@ def api_clusters_delete(cluster_id):
 
 
 @app.route('/api/clusters/test', methods=['POST'])
-@require_auth
-@require_admin
+@requires('cluster.manage', 'any')
 def api_clusters_test_new():
     """Connection test for the add/edit form (credentials from the body)."""
     f = _cluster_form(request.get_json(force=True, silent=True) or {})
@@ -1219,12 +1421,11 @@ def api_clusters_test_new():
 
 
 @app.route('/api/clusters/<cluster_id>/test', methods=['POST'])
-@require_auth
-@require_admin
+@requires('cluster.manage', 'any')
 def api_clusters_test_existing(cluster_id):
     """Connection test with the stored credentials; records the outcome on the cluster."""
     c = cluster_registry.get(cluster_id)
-    if not c:
+    if not c or not _access().can('cluster.manage', cluster_id):
         return jsonify({'ok': False, 'error': 'cluster not found'}), 404
     try:
         username, password = cluster_registry.credentials(cluster_id)
@@ -1241,6 +1442,21 @@ def api_clusters_test_existing(cluster_id):
         cluster_registry.mark_error(cluster_id, result.get('error', 'connection test failed'))
     _invalidate_registry_cache()
     return jsonify(result)
+
+
+def _may_move_cluster(acc, cluster_id: str, folder_id) -> bool:
+    """Moving a cluster to another folder (or out of every folder: root only). Both ends must be the
+    user's to manage, and below root a cluster never leaves its customer (plans/PLAN-roles.md, Q3)."""
+    if folder_id is not None and not cluster_registry.is_uuid(str(folder_id)):
+        return False
+    if acc.is_root_admin():
+        return True
+    if folder_id is None or not acc.can('cluster.manage', cluster_id) or not acc.can('cluster.manage', node_id=folder_id):
+        return False
+    tree = acc.tree
+    here = tree.cluster_folder.get(cluster_id)
+    cust = lambda n: next((a for a in tree.ancestors(n) if tree.level.get(a) == 'customer'), None)  # noqa: E731
+    return cust(here) == cust(folder_id)
 
 
 def _test_every_node(c, username, password) -> dict:
@@ -1279,7 +1495,7 @@ MANUAL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'manual')
 
 @app.route('/manual/')
 @app.route('/manual/<slug>')
-@require_auth
+@requires(None)
 def manual_page(slug=''):
     """The user manual, rendered from docs/manual (behind the login: it shows this installation's
     screenshots and names)."""
@@ -1294,17 +1510,16 @@ def manual_page(slug=''):
 
 
 @app.route('/manual/img/<path:filename>')
-@require_auth
+@requires(None)
 def manual_image(filename):
     return send_from_directory(os.path.join(MANUAL_DIR, 'img'), filename)
 
 
 @app.route('/api/clusters/<cluster_id>/nodes/<node_uuid>', methods=['DELETE'])
-@require_auth
-@require_admin
+@requires('cluster.manage', 'any')
 def api_clusters_forget_node(cluster_id, node_uuid):
     """Drop a node row that is no longer part of the cluster (present nodes are kept)."""
-    if not cluster_registry.get(cluster_id):
+    if not cluster_registry.get(cluster_id) or not _access().can('cluster.manage', cluster_id):
         return jsonify({'error': 'cluster not found'}), 404
     try:
         gone = cluster_registry.forget_node(cluster_id, node_uuid)
@@ -1318,42 +1533,54 @@ def api_clusters_forget_node(cluster_id, node_uuid):
 
 # folders: grouping in the rail plus access rights for non-admin users
 @app.route('/api/folders', methods=['GET'])
-@require_auth
+@requires(None)
 def api_folders_list():
     try:
         folders = cluster_registry.list_folders()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-    if not _is_admin_request():
-        allowed = _visible_folder_ids()
-        folders = [{k: v for k, v in f.items() if k != 'members'} for f in folders if f['folder_id'] in allowed]
+    acc = _access()
+    folders = _rail_folders(acc, folders)
+    if not acc.is_root_admin():
+        nodes = acc.visible_nodes()
+        folders = [{k: v for k, v in f.items() if k != 'members'} for f in folders if f['folder_id'] in nodes]
     return jsonify(folders)
 
 
 @app.route('/api/folders', methods=['POST'])
-@require_auth
-@require_admin
+@requires('tree.manage', 'any')
 def api_folders_create():
     body = request.get_json(force=True, silent=True) or {}
+    acc = _access()
+    parent = (body.get('parent_id') or '').strip() or None
+    if parent is None:
+        # the rail's "New folder": under the only customer of a single-company install
+        customers = [n for n, lv in acc.tree.level.items() if lv == 'customer' and acc.can('tree.manage', node_id=n)]
+        if len(customers) != 1:
+            return jsonify({'error': 'choose the customer the folder belongs to'}), 400
+        parent = customers[0]
+    if not acc.can('tree.manage', node_id=parent):
+        return jsonify({'error': 'Access denied'}), 403
     try:
-        fid = cluster_registry.create_folder(body.get('name', ''), body.get('colour'))
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        if 'ux_folders_name' in str(e) or 'duplicate key' in str(e):
-            return jsonify({'error': 'a folder with that name already exists'}), 409
-        return jsonify({'error': str(e)}), 500
+        fid = access_db.create_node(body.get('name', ''), 'folder', parent, body.get('colour'),
+                                    session.get('username') or 'anonymous')
+    except access_db.AccessError as e:
+        return jsonify({'error': str(e)}), e.status
     _invalidate_registry_cache()
     return jsonify({'ok': True, 'folder_id': fid}), 201
 
 
 @app.route('/api/folders/<folder_id>', methods=['PUT'])
-@require_auth
-@require_admin
+@requires('tree.manage', 'any')
 def api_folders_update(folder_id):
     if not cluster_registry.is_uuid(folder_id):
         return jsonify({'error': 'invalid folder id'}), 400
+    acc = _access()
+    if not acc.can('tree.manage', node_id=folder_id):
+        return jsonify({'error': 'Access denied'}), 403
     body = request.get_json(force=True, silent=True) or {}
+    if 'share_id' in body and not acc.can('backup.targets.manage', node_id=folder_id):
+        return jsonify({'error': 'Access denied'}), 403
     try:
         cluster_registry.update_folder(folder_id, name=body.get('name'), colour=body.get('colour'),
                                        share_id=body['share_id'] if 'share_id' in body else ...)
@@ -1366,23 +1593,29 @@ def api_folders_update(folder_id):
 
 
 @app.route('/api/folders/<folder_id>', methods=['DELETE'])
-@require_auth
-@require_admin
+@requires('tree.manage', 'any')
 def api_folders_delete(folder_id):
     if not cluster_registry.is_uuid(folder_id):
         return jsonify({'error': 'invalid folder id'}), 400
-    cluster_registry.delete_folder(folder_id)
+    acc = _access()
+    if not acc.can('tree.manage', node_id=acc.tree.parent.get(folder_id)):
+        return jsonify({'error': 'Access denied'}), 403
+    try:
+        result = access_db.delete_node(folder_id, session.get('username') or 'anonymous')
+    except access_db.AccessError as e:
+        return jsonify({'error': str(e)}), e.status
     _invalidate_registry_cache()
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, **result})
 
 
 @app.route('/api/folders/<folder_id>/members', methods=['PUT'])
-@require_auth
-@require_admin
+@requires('users.manage', 'any')
 def api_folders_members(folder_id):
     """Body: {"user_id": "...", "member": true|false}."""
     if not cluster_registry.is_uuid(folder_id):
         return jsonify({'error': 'invalid folder id'}), 400
+    if not _access().can('users.manage', node_id=folder_id):
+        return jsonify({'error': 'Access denied'}), 403
     body = request.get_json(force=True, silent=True) or {}
     uid = (body.get('user_id') or '').strip()
     if not cluster_registry.is_uuid(uid):
@@ -1446,6 +1679,7 @@ def _internal_token_ok() -> bool:
 
 
 @app.route('/internal/proxy-image/version')
+@public('backup service, bearer BACKUP_API_TOKEN')
 def proxy_image_version():
     """{version, tag, available, detail}: what a push would carry. Bearer BACKUP_API_TOKEN."""
     if not _internal_token_ok():
@@ -1461,6 +1695,7 @@ def proxy_image_version():
 
 
 @app.route('/internal/proxy-image')
+@public('backup service, bearer BACKUP_API_TOKEN')
 def proxy_image_export():
     """Stream `docker save` of the stack's proxy image, tagged hcm-proxy:<version>, to the backup
     service. Nothing is spooled; the tag travels in the X-Image-Tag header."""
@@ -1491,8 +1726,264 @@ def proxy_image_export():
     return Response(stream(), mimetype='application/x-tar', headers={'X-Image-Tag': tag, 'X-Image-Version': version})
 
 
+# The backup service knows no users; this table is the only thing standing between a browser and it.
+# One line per endpoint: (methods, sub-path, permission, target). Anything not listed is refused.
+# Targets:
+#   'cluster'  the cluster named in the body, else the selected one; the whole cluster
+#   'some'     the selected cluster, held there on some VMs at least (lists, narrowed to those VMs)
+#   'vm'       the VM in the body (vm_uuid) or the query (?vm= / ?vm_uuid=) on that cluster
+#   'folder'   the folder of the selected cluster (backup schedules belong to a folder)
+#   'root'     the whole installation
+#   'any'      held anywhere (nothing cluster-specific in it)
+#   ('owner', kind[, group])  the resource whose id is in the path (or body), looked up in the service
+#   'vmchange' VM edits: the permission follows the kind of change (power, delete, snapshot, ...)
+_BACKUP_ROUTES = [
+    ('GET',    r'vmedit/vm',                              'vm.view',               'vm'),
+    ('GET',    r'vmedit/options',                         'vm.create',             'cluster'),
+    ('POST',   r'vmedit/new',                             'vm.create',             'cluster'),
+    ('GET',    r'vmedit/changes',                         'vm.view',               'some'),
+    ('POST',   r'vmedit/changes',                         None,                    'vmchange'),
+    ('POST',   r'vmedit/changes/(\d+)/cancel',            None,                    ('owner', 'change')),
+    ('GET',    r'notices',                                'cluster.view',          'cluster'),
+    ('POST',   r'notices/mute',                           'cluster.alerts.mute',   'cluster'),
+    ('GET',    r'vms',                                    'backup.view',           'some'),
+    ('GET',    r'plans',                                  'backup.view',           'some'),
+    ('POST',   r'plans',                                  'backup.schedule',       'vm'),
+    ('PUT',    r'plans/(\d+)',                            'backup.schedule',       ('owner', 'plan')),
+    ('POST',   r'plans/(\d+)/toggle',                     'backup.schedule',       ('owner', 'plan')),
+    ('DELETE', r'plans/(\d+)',                            'backup.schedule',       ('owner', 'plan')),
+    ('POST',   r'plans/(\d+)/run',                        'backup.run',            ('owner', 'plan')),
+    ('GET',    r'policies',                               'backup.view',           'some'),
+    ('GET',    r'policies/(\d+)/night',                   'backup.view',           'some'),
+    ('POST',   r'policies/preview',                       'backup.schedule',       'any'),
+    ('POST',   r'policies',                               'backup.schedule',       'folder'),
+    ('PUT',    r'policies/(\d+)',                         'backup.schedule',       'folder'),
+    ('POST',   r'policies/(\d+)/toggle',                  'backup.schedule',       'folder'),
+    ('POST',   r'policies/(\d+)/run',                     'backup.run',            'folder'),
+    ('DELETE', r'policies/(\d+)',                         'backup.schedule',       'folder'),
+    ('POST',   r'policies/(\d+)/members',                 'backup.schedule',       'vm'),
+    ('DELETE', r'policies/(\d+)/members/(\d+)',           'backup.schedule',       ('owner', 'plan', 2)),
+    ('GET',    r'runs',                                   'backup.view',           'some'),
+    ('GET',    r'runs/status',                            'backup.view',           'some'),
+    ('GET',    r'import/known',                           'backup.import',         'cluster'),
+    ('POST',   r'import/browse',                          'backup.import',         'cluster'),
+    ('POST',   r'import/start',                           'backup.import',         'cluster'),
+    ('GET',    r'targets',                                'backup.targets.manage', 'root'),
+    ('POST',   r'targets(/probe|/\d+/test)?',             'backup.targets.manage', 'root'),
+    ('PUT',    r'targets/\d+',                            'backup.targets.manage', 'root'),
+    ('DELETE', r'targets/\d+',                            'backup.targets.manage', 'root'),
+    ('GET',    r'proxies',                                'backup.proxies.manage', 'cluster'),
+    ('POST',   r'proxies',                                'backup.proxies.manage', 'cluster'),
+    ('GET',    r'proxies/image',                          'backup.proxies.manage', 'any'),
+    ('GET',    r'proxies/deployments',                    'backup.proxies.manage', 'cluster'),
+    ('DELETE', r'proxies/deployments',                    'backup.proxies.manage', 'cluster'),
+    ('POST',   r'proxies/deploy',                         'backup.proxies.manage', 'cluster'),
+    ('PUT',    r'proxies/(\d+)',                          'backup.proxies.manage', ('owner', 'proxy')),
+    ('DELETE', r'proxies/(\d+)',                          'backup.proxies.manage', ('owner', 'proxy')),
+    ('POST',   r'proxies/(\d+)/(update|test|bench)',      'backup.proxies.manage', ('owner', 'proxy')),
+    ('GET',    r'proxies/(\d+)/(logs|bench)',             'backup.proxies.manage', ('owner', 'proxy')),
+    ('GET',    r'chains',                                 'backup.view',           'some'),
+    ('GET',    r'chains/(\d+)/points',                    'backup.view',           ('owner', 'chain')),
+    ('DELETE', r'chains/(\d+)',                           'backup.delete',         ('owner', 'chain')),
+    ('POST',   r'chains/(\d+)/verify',                    'backup.verify',         ('owner', 'chain')),
+    ('GET',    r'chains/(\d+)/verify',                    'backup.view',           ('owner', 'chain')),
+    ('GET',    r'restores',                               'backup.view',           'some'),
+    ('POST',   r'restores',                               'backup.restore.full',   ('owner', 'point', 'point_id')),
+    ('GET',    r'flr/mounts',                             'backup.browse',         'some'),
+    ('POST',   r'flr/mounts',                             'backup.browse',         ('owner', 'point', 'point_id')),
+    ('GET',    r'flr/mounts/([0-9A-Za-z_-]+)/ls',         'backup.browse',         ('owner', 'mount')),
+    ('GET',    r'flr/mounts/([0-9A-Za-z_-]+)/(file|zip)', 'backup.download',       ('owner', 'mount')),
+    ('POST',   r'flr/mounts/([0-9A-Za-z_-]+)/iso',        'backup.restore.file',   ('owner', 'mount')),
+    ('POST',   r'flr/iso/(\d+)/eject',                    'backup.restore.file',   ('owner', 'restore')),
+    ('DELETE', r'flr/mounts/([0-9A-Za-z_-]+)',            'backup.browse',         ('owner', 'mount')),
+]
+_BACKUP_ROUTES_RE = [(m.split('|'), re.compile(rx), perm, tgt) for m, rx, perm, tgt in _BACKUP_ROUTES]
+
+# VM edits: which permission a change set needs
+_VMCHANGE_PERMS = {'edit': 'vm.edit', 'power': 'vm.power', 'delete': 'vm.delete', 'snapshot': 'vm.snapshot',
+                   'clone': 'vm.clone', 'create': 'vm.create'}
+
+
+def _backup_route(method: str, sub: str):
+    for methods, rx, perm, tgt in _BACKUP_ROUTES_RE:
+        if method in methods:
+            m = rx.fullmatch(sub)
+            if m:
+                return perm, tgt, m
+    return None
+
+
+def _backup_call(method: str, sub: str, query: str = '', timeout: float = 15):
+    url, token = _backup_env()
+    rq = urllib.request.Request(f'{url}/api/v1/{sub}' + (f'?{query}' if query else ''), method=method,
+                                headers={'Authorization': f'Bearer {token}'} if token else {})
+    with urllib.request.urlopen(rq, timeout=timeout) as resp:
+        return json.loads(resp.read().decode() or 'null')
+
+
+def _backup_owner(kind: str, ident) -> dict | None:
+    try:
+        return _backup_call('GET', 'owner', urllib.parse.urlencode({'kind': kind, 'id': ident}))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
+
+
+def _vmchange_perms(payload: dict) -> list[str]:
+    """Permissions a change set needs: its kind's, plus tag editing when it touches the tags."""
+    kind = str(payload.get('kind') or 'edit')
+    perms = [_VMCHANGE_PERMS.get(kind, 'vm.edit')]
+    if kind == 'edit' and any((o or {}).get('op') == 'vm' and 'tags' in ((o or {}).get('fields') or {})
+                              for o in payload.get('ops') or []):
+        perms.append('vm.tags.edit')
+    return perms
+
+
+def _tags_of(value) -> set:
+    if isinstance(value, list):
+        return {str(t).strip() for t in value if str(t).strip()}
+    return {t.strip() for t in str(value or '').split(',') if t.strip()}
+
+
+def _tag_guard(cid: str, vm: str | None, payload: dict, kind: str) -> str | None:
+    """Tags can hand out access (tag-scoped assignments), so adding or removing a tag that some assignment
+    depends on needs users.manage on the cluster (plans/PLAN-roles.md, the escalation guard). Returns the
+    refusal text, or None."""
+    scoped = access_db.scoped_tags(cid)
+    if not scoped or _access().can('users.manage', cid):
+        return None
+    old = set(_vm_tags(cid, vm)) if vm else set()
+    if kind == 'edit':
+        new = None
+        for o in payload.get('ops') or []:
+            f = (o or {}).get('fields') or {}
+            if (o or {}).get('op') == 'vm' and 'tags' in f:
+                new = _tags_of(f['tags'])
+        if new is None:
+            return None
+        touched = (old ^ new) & set(scoped)
+    elif kind == 'clone':
+        new = set()
+        for o in payload.get('ops') or []:
+            if 'tags' in (o or {}):
+                new = _tags_of(o['tags'])
+        touched = (new - old) & set(scoped)
+    elif kind == 'create':
+        touched = _tags_of(((payload.get('spec') or {}).get('tags'))) & set(scoped)
+    else:
+        return None
+    if not touched:
+        return None
+    t = sorted(touched)[0]
+    return f"the tag '{t}' gives access to this VM ({'; '.join(scoped[t][:3])}): changing it needs users.manage on the cluster"
+
+
+def _backup_check(method: str, sub: str, cid: str, payload: dict | None):
+    """(scope for narrowing lists or None, error response or None) for one forwarded request."""
+    route = _backup_route(method, sub)
+    if route is None:
+        return None, (jsonify({'error': 'Not found'}), 404)
+    perm, tgt, m = route
+    acc = _access()
+    denied = (jsonify({'error': 'Access denied'}), 403)
+    payload = payload or {}
+    body_cid = str(payload.get('cluster_id') or '') or cid
+    if perm and not acc.held_anywhere(perm):
+        return None, denied                          # deny first: input is only looked at for someone who may
+    if perm is None and not any(acc.held_anywhere(p) for p in _VMCHANGE_PERMS.values()):
+        return None, denied
+    if request.args.get('all') and not acc.is_root_admin():
+        return None, denied                          # ?all= lists every cluster's rows
+    if tgt == 'root':
+        return None, (None if acc.can(perm) else denied)
+    if tgt == 'any':
+        return None, (None if acc.held_anywhere(perm) else denied)
+    if tgt == 'cluster':
+        if not acc.can(perm, body_cid):
+            return None, denied
+        if sub == 'vmedit/new':
+            why = _tag_guard(body_cid, None, payload, 'create')
+            if why:
+                return None, (jsonify({'error': why}), 403)
+        return None, None
+    if tgt == 'some':
+        sc = acc.scope_for(perm, [cid]).get(cid)
+        return sc, (None if sc else denied)
+    if tgt == 'folder':
+        return None, (None if acc.can(perm, node_id=acc.tree.cluster_folder.get(cid)) else denied)
+    if tgt == 'vm':
+        vm = str(payload.get('vm_uuid') or request.args.get('vm') or request.args.get('vm_uuid') or '')
+        if not vm:
+            return None, (jsonify({'error': 'vm_uuid required'}), 400)
+        return None, (None if _can_vm(perm, body_cid, vm) else denied)
+    if tgt == 'vmchange':
+        vm = str(payload.get('vm_uuid') or '')
+        if not vm:
+            return None, (jsonify({'error': 'vm_uuid required'}), 400)
+        ok = all(_can_vm(p, body_cid, vm) for p in _vmchange_perms(payload))
+        if not ok:
+            return None, denied
+        why = _tag_guard(body_cid, vm, payload, str(payload.get('kind') or 'edit'))
+        return None, ((jsonify({'error': why}), 403) if why else None)
+    if isinstance(tgt, tuple) and tgt[0] == 'owner':
+        kind = tgt[1]
+        where = tgt[2] if len(tgt) > 2 else 1
+        ident = payload.get(where) if isinstance(where, str) else m.group(where)
+        if ident in (None, ''):
+            return None, (jsonify({'error': f'{where} required'}), 400)
+        try:
+            owner = _backup_owner(kind, ident)
+        except Exception as e:  # noqa: BLE001
+            return None, (jsonify({'error': f'Backup service unreachable: {e}'}), 503)
+        if owner is None:
+            return None, (jsonify({'error': 'Not found'}), 404)
+        need = perm or _VMCHANGE_PERMS.get(owner.get('kind') or 'edit', 'vm.edit')
+        if owner.get('vm_uuid'):
+            ok = _can_vm(need, owner['cluster_id'], owner['vm_uuid'])
+        else:
+            ok = acc.can(need, owner['cluster_id'])
+        if ok and sub.endswith('/iso') and payload.get('vm_uuid'):
+            # files restored into a VM: that VM must be the user's to restore into as well
+            ok = _can_vm('backup.restore.file', owner['cluster_id'], str(payload['vm_uuid']))
+        # 404 rather than 403: do not confirm that another tenant's id exists
+        return None, (None if ok else (jsonify({'error': 'Not found'}), 404))
+    return None, (jsonify({'error': 'Not found'}), 404)
+
+
+def _narrow_backup(sub: str, data, scope, cid: str):
+    """A list answer narrowed to the VMs of a VM-scoped user ('all' passes untouched)."""
+    if scope == 'all' or data is None:
+        return data
+    tags = {v.get('uuid'): v.get('tags') or [] for v in _vm_index_rows(cid)} if scope.get('tags') else {}
+    keep = lambda u: rbac.vm_in_scope(scope, u, tags.get(u, []))  # noqa: E731
+    rows = lambda xs, key='vm_uuid': [x for x in (xs or []) if isinstance(x, dict) and keep(x.get(key))]  # noqa: E731
+    if sub == 'vms':
+        return rows(data, 'uuid')
+    if sub in ('plans', 'chains', 'restores', 'flr/mounts'):
+        return rows(data)
+    if sub == 'vmedit/changes':
+        return dict(data, changes=rows(data.get('changes')))
+    if sub in ('runs', 'runs/status'):
+        # imports are cluster-level (backup.import): a VM-scoped user does not see them
+        return dict(data, runs=rows(data.get('runs')), restores=rows(data.get('restores')), imports=[])
+    if sub == 'policies':
+        pols = []
+        for p in data.get('policies') or []:
+            mine = rows(p.get('members'))
+            if mine:
+                pols.append(dict(p, members=mine))
+        return dict(data, policies=pols)
+    if re.fullmatch(r'policies/\d+/night', sub):
+        items = rows(data.get('items'))
+        if not items:
+            return {'items': []}
+        return dict(data, items=items)
+    return data
+
+
 @app.route('/api/backup/status')
-@require_auth
+@requires('backup.view')
 def backup_status():
     """Reachability of the optional backup container; the tab hides when it is off."""
     url, token = _backup_env()
@@ -1502,42 +1993,51 @@ def backup_status():
         with urllib.request.urlopen(rq, timeout=3) as resp:
             data = json.loads(resp.read().decode())
         data['available'] = True
-        return jsonify(data if _is_admin_request() else _strip_sensitive(data))
+        return jsonify(data if _access().can('backup.targets.manage') else _strip_sensitive(data))
     except Exception:
         return jsonify({'available': False})
 
 
 @app.route('/api/backup/<path:sub>', methods=['GET', 'POST', 'PUT', 'DELETE'])
-@require_auth
+@requires(None)
 def backup_proxy(sub):
-    """Forward to the backup API with the selected cluster and the bearer token.
-    Reads are open to every user who can see the cluster; changes need admin."""
-    # folder members manage plans and imports for their clusters (the target and its credentials
-    # are the admin's business); target management itself is admin-only
-    # VM edits and power actions: admins only for now (finer roles will follow, the console too)
-    if sub.startswith(('targets', 'proxies', 'vmedit')) and not _is_admin_request():
-        return jsonify({'error': 'Admin access required'}), 403
+    """Forward to the backup API with the selected cluster and the bearer token, after the check in
+    _BACKUP_ROUTES. Lists are narrowed to the user's VMs; target paths and accounts are stripped for
+    anyone who does not manage targets."""
     url, token = _backup_env()
+    route = _backup_route(request.method, sub)
+    g.hcm_perm = route[0] if route and route[0] else 'vm.view'
     cid = _cluster_id()
+    payload = None
+    if request.method in ('POST', 'PUT'):
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify({'error': 'expected a JSON object'}), 400
+    scope, problem = _backup_check(request.method, sub, cid, payload)
+    if problem is not None:
+        return problem
     # the validated cluster only: the backup service reads the first `cluster` it gets, so one sent by
     # the browser would otherwise win over the check above and reach a cluster the user may not see
     qs = urllib.parse.urlencode([(k, v) for k, v in request.args.items(multi=True) if k != 'cluster'] + [('cluster', cid)])
     body = None
     headers = {'Authorization': f'Bearer {token}'} if token else {}
-    if request.method in ('POST', 'PUT'):
-        payload = request.get_json(silent=True) or {}
+    if payload is not None:
         # a cluster named in the body is checked, not replaced (forms with their own cluster choice,
         # e.g. proxy deployment); a body without one gets the selected cluster where it is needed
-        body_cid, err = body_cluster(payload, cid, {c.cluster_id for c in _visible_clusters()},
+        perm_for_body = g.hcm_perm
+        body_cid, err = body_cluster(payload, cid, {c.cluster_id for c in _visible_clusters(perm_for_body)},
                                      fill='cluster_id' in payload or sub.endswith(('plans', 'import/start')))
         if err:
             return jsonify({'error': err}), 403
         if body_cid:
             payload['cluster_id'] = body_cid
+        user = session.get('username') or ('anonymous' if not _AUTH_ENABLED else None)
         if sub == 'notices/mute':                    # who muted it is the session's user, not the body's
-            payload['muted_by'] = session.get('username') or None
+            payload['muted_by'] = user
         if sub.startswith('vmedit'):                 # who changed or cancelled it, likewise
-            payload['created_by'] = session.get('username') or ('anonymous' if not _AUTH_ENABLED else None)
+            payload['created_by'] = user
+        if sub in ('restores', 'flr/mounts') or sub.endswith('/iso'):
+            payload['requested_by'] = user
         body = json.dumps(payload).encode()
         headers['Content-Type'] = 'application/json'
     if request.method == 'GET' and (sub.startswith('flr/mounts/') and sub.rsplit('/', 1)[-1] in ('file', 'zip')
@@ -1564,16 +2064,21 @@ def backup_proxy(sub):
         rq = urllib.request.Request(f'{url}/api/v1/{sub}?{qs}', data=body, headers=headers, method=request.method)
         with urllib.request.urlopen(rq, timeout=60) as resp:
             raw = resp.read()
-            if _is_admin_request():
-                return Response(raw, status=resp.status, mimetype='application/json')
-            try:
-                return jsonify(_strip_sensitive(json.loads(raw.decode() or 'null'))), resp.status
-            except ValueError:
-                return Response(raw, status=resp.status, mimetype='application/json')
+            status = resp.status
     except urllib.error.HTTPError as e:
         return Response(e.read(), status=e.code, mimetype='application/json')
     except Exception as e:
         return jsonify({'error': f'Backup service unreachable: {e}'}), 503
+    sees_targets = _access().can('backup.targets.manage')
+    if sees_targets and scope in (None, 'all'):
+        return Response(raw, status=status, mimetype='application/json')
+    try:
+        data = json.loads(raw.decode() or 'null')
+    except ValueError:
+        return Response(raw, status=status, mimetype='application/json')
+    if scope not in (None, 'all'):
+        data = _narrow_backup(sub, data, scope, cid)
+    return jsonify(data if sees_targets else _strip_sensitive(data)), status
 
 
 # =============================================================================
@@ -1672,7 +2177,7 @@ def _alert_mutes(cids: list[str]) -> dict[tuple, dict]:
 
 
 @app.route('/api/cluster-alerts')
-@require_auth
+@requires('cluster.view', 'any')
 def cluster_alerts():
     """{clusters: {id: {items, counts}}} for every visible cluster, or only ?cluster=<id>."""
     visible = [c.cluster_id for c in _visible_clusters()]
@@ -1703,12 +2208,12 @@ def cluster_alerts():
 
 
 @app.route('/api/cluster-alerts/mute', methods=['POST'])
-@require_auth
+@requires('cluster.alerts.mute', 'any')
 def cluster_alert_mute():
     """{cluster_id, key, days}: mute one alert for 1-365 days, for every user; days 0 lifts it."""
     b = request.get_json(silent=True) or {}
     cid, key = str(b.get('cluster_id') or ''), str(b.get('key') or '').strip()
-    if cid not in {c.cluster_id for c in _visible_clusters()}:
+    if cid not in {c.cluster_id for c in _visible_clusters()} or not _access().can('cluster.alerts.mute', cid):
         return jsonify({'error': 'Unknown cluster'}), 404
     if not key or len(key) > 300:
         return jsonify({'error': 'key required'}), 400
@@ -1731,7 +2236,7 @@ def cluster_alert_mute():
 
 
 @app.route('/api/cluster-alerts/history')
-@require_auth
+@requires('cluster.view')
 def cluster_alert_history():
     """Past condition episodes of one cluster: ?cluster=&days=30&severity=critical,warning"""
     cid = _cluster_id()
@@ -1847,25 +2352,24 @@ def _visible_cluster(cid: str):
 
 
 @app.route('/console/<cluster_id>/<vm_uuid>')
-@require_auth
+@requires('vm.console', 'any')
 def console_page(cluster_id, vm_uuid):
     """The console window of one VM (opened from the VM's details)."""
-    if not _is_admin_request():
-        return Response('Admin access required', status=403, mimetype='text/plain')
     c = _visible_cluster(cluster_id)
-    if c is None or not re.fullmatch(r'[0-9A-Za-z-]{1,64}', vm_uuid):
+    if c is None or not re.fullmatch(r'[0-9A-Za-z-]{1,64}', vm_uuid) or not _can_vm('vm.console', cluster_id, vm_uuid):
         return Response('Unknown cluster or VM', status=404, mimetype='text/plain')
-    return render_template('console.html', cluster_id=cluster_id, cluster_name=c.name, vm_uuid=vm_uuid)
+    return render_template('console.html', cluster_id=cluster_id, vm_uuid=vm_uuid, mode='user', title=vm_uuid,
+                           subtitle=c.name, ticket_url='/api/console/ticket', ws_path='/console/ws', view_only=False,
+                           asset_base='/static')
 
 
 @app.route('/api/console/ticket', methods=['POST'])
-@require_auth
-@require_admin
+@requires('vm.console', 'any')
 def console_ticket():
     """A one-time ticket (30 s, single use, this browser session, this VM) for /console/ws."""
     b = request.get_json(silent=True) or {}
     cid, vm = str(b.get('cluster_id') or ''), str(b.get('vm_uuid') or '')
-    if _visible_cluster(cid) is None:
+    if _visible_cluster(cid) is None or not re.fullmatch(r'[0-9A-Za-z-]{1,64}', vm) or not _can_vm('vm.console', cid, vm):
         return jsonify({'error': 'Unknown cluster'}), 404
     status, raw, ctype = _console_call('POST', 'tickets', payload={
         'cluster_id': cid, 'vm_uuid': vm, 'username': _console_user(),
@@ -1874,17 +2378,26 @@ def console_ticket():
 
 
 @sock.route('/console/ws')
+@public('checks the session and the one-time ticket itself')
 def console_ws(ws):
     """The browser's console websocket: checks the HCM session and the ticket's binding, then pipes
     bytes to and from the console service's relay. The ticket itself is checked (and consumed) there."""
-    if _AUTH_ENABLED and (not session.get('user_id') or session.get('role') != 'admin'):
-        ws.close(reason=4401, message='not logged in as an admin')
+    # the ticket was only issued after the vm.console check for that one VM (console_ticket); here the
+    # session must still be a live, enabled login, and the ticket must be bound to it
+    if _AUTH_ENABLED and (not session.get('user_id') or _login_problem() is not None):
+        ws.close(reason=4401, message='not logged in')
         return
     binding = _console_binding(create=False)
     ticket = request.args.get('ticket', '')
     if not binding or not ticket:
         ws.close(reason=4401, message='console ticket required')
         return
+    _relay_pipe(ws, ticket, binding)
+
+
+def _relay_pipe(ws, ticket: str, binding: str) -> None:
+    """Pipe a browser websocket to the console service's relay for a ticket bound to `binding`. The
+    ticket is checked (and consumed) there. Shared by the users' console and the guest console."""
     url = CONSOLE_API_URL.replace('http://', 'ws://', 1).replace('https://', 'wss://', 1)
     qs = urllib.parse.urlencode({'ticket': ticket, 'binding': binding})
     try:
@@ -1931,40 +2444,62 @@ def console_ws(ws):
 
 
 @app.route('/api/vm-index')
-@require_auth
+@requires('vm.view')
 def vm_index():
     """Searchable facts of every VM of the selected cluster (live, through the console service)."""
-    q = {'cluster': _cluster_id()}
+    cid = _cluster_id()
+    q = {'cluster': cid}
     if request.args.get('fresh') == '1':
         q['fresh'] = '1'
     status, raw, ctype = _console_call('GET', 'vm-index', query=urllib.parse.urlencode(q), timeout=30)
-    return Response(raw, status=status, mimetype=ctype.split(';')[0])
+    scope = _vm_scope()
+    if status != 200 or scope == 'all':
+        return Response(raw, status=status, mimetype=ctype.split(';')[0])
+    try:
+        data = json.loads(raw.decode() or '{}')
+    except ValueError:
+        return Response(raw, status=status, mimetype=ctype.split(';')[0])
+    return jsonify(dict(data, vms=_filter_vms(data.get('vms') or [], scope, tags_key='tags')))
 
 
 @app.route('/api/vm-info')
-@require_auth
+@requires('vm.view')
 def vm_info():
     """Live details of one VM from HyperCore, through the console service's session (read-only, so
     for every user who may see the cluster)."""
     vm = request.args.get('vm') or ''
     if not re.fullmatch(r'[0-9A-Za-z-]{1,64}', vm):
         return jsonify({'error': 'vm required'}), 400
-    status, raw, ctype = _console_call('GET', 'vm', query=urllib.parse.urlencode({'cluster': _cluster_id(), 'vm': vm}),
+    cid = _cluster_id()
+    if not _can_vm('vm.view', cid, vm):
+        return jsonify({'error': 'Not found'}), 404
+    status, raw, ctype = _console_call('GET', 'vm', query=urllib.parse.urlencode({'cluster': cid, 'vm': vm}),
                                        timeout=30)
     return Response(raw, status=status, mimetype=ctype.split(';')[0])
 
 
 @app.route('/api/console/<path:sub>', methods=['GET', 'POST', 'PUT', 'DELETE'])
-@require_auth
-@require_admin
+@requires(None)
 def console_proxy(sub):
-    """The console service's admin API: audit log, screenshots, the open-session check."""
+    """The console service's API: the console audit log, screenshots, the open-session check."""
     if not re.fullmatch(r'(sessions|screenshot|check(/(settings|run|learn|exclude|image|refs(/\d+)?|flags))?)', sub):
         return jsonify({'error': 'Not found'}), 404
+    perm = 'console.audit' if sub == 'sessions' else ('cluster.view' if sub == 'check/flags' else 'console_check.manage')
+    if request.method not in ('GET', 'HEAD') and sub == 'sessions':
+        return jsonify({'error': 'Not found'}), 404
+    g.hcm_perm = perm
+    acc = _access()
+    if not acc.held_anywhere(perm):
+        return jsonify({'error': 'Access denied'}), 403
     if sub == 'sessions' and not request.args.get('cluster'):
-        cid = None                                    # the audit log across every cluster the admin sees
+        cid = None                                    # the audit log across every cluster the user may audit
     else:
         cid = _cluster_id()
+        wanted = (request.args.get('cluster') or '').strip()
+        if wanted and wanted != cid and request.method not in ('GET', 'HEAD'):
+            return jsonify({'error': 'Access denied'}), 403
+        if perm != 'console.audit' and not acc.can(perm, cid):
+            return jsonify({'error': 'Access denied'}), 403
     args = [(k, v) for k, v in request.args.items(multi=True) if k != 'cluster']
     if cid:
         args.append(('cluster', cid))
@@ -1978,6 +2513,27 @@ def console_proxy(sub):
         payload['username'] = _console_user()
     status, raw, ctype = _console_call(request.method, sub, query=urllib.parse.urlencode(args), payload=payload,
                                        timeout=90)
+    if sub == 'sessions' and status == 200:
+        # the audit log, narrowed to the clusters and VMs this user may audit
+        try:
+            data = json.loads(raw.decode() or '{}')
+        except ValueError:
+            return Response(raw, status=status, mimetype=ctype.split(';')[0])
+        ids = [c.cluster_id for c in _enabled_clusters()]
+        scopes = acc.scope_for('console.audit', ids)
+        rows = data.get('sessions') if isinstance(data, dict) else data
+        keep = []
+        for r in rows or []:
+            sc = scopes.get(str(r.get('cluster_id')))
+            if sc and (sc == 'all' or rbac.vm_in_scope(sc, r.get('vm_uuid'), _vm_tags(str(r.get('cluster_id')), r.get('vm_uuid'))
+                                                         if sc.get('tags') else [])):
+                keep.append(r)
+        # sessions of accounts above the reader: no name, and no address (an office IP names the MSP too)
+        access_db.hide_names(keep, ('username',), access_db.nameable_usernames(acc, session.get('username')))
+        for r in keep:
+            if 'username' in r.get('hidden', ()):
+                r['client_ip'] = None
+        return jsonify(dict(data, sessions=keep) if isinstance(data, dict) else keep)
     return Response(raw, status=status, mimetype=ctype.split(';')[0])
 
 
@@ -2006,7 +2562,7 @@ def _sentinel_query(sql: str, params: list) -> list[dict]:
 
 
 @app.route('/api/sentinel/summary')
-@require_auth
+@requires('cluster.view')
 def sentinel_summary():
     """E3/E6 — Health score + counts for the overview dashboard."""
     try:
@@ -2110,7 +2666,7 @@ def sentinel_summary():
 
 
 @app.route('/api/sentinel/forecasts')
-@require_auth
+@requires('cluster.view')
 def sentinel_forecasts():
     """E1 — Latest forecast snapshots, optionally filtered by ?dimension= or ?horizon="""
     try:
@@ -2143,7 +2699,7 @@ def sentinel_forecasts():
 
 
 @app.route('/api/sentinel/rightsizing')
-@require_auth
+@requires('cluster.view')
 def sentinel_rightsizing():
     """E2 — Right-sizing results (C1, C2)."""
     try:
@@ -2173,7 +2729,7 @@ def sentinel_rightsizing():
 
 
 @app.route('/api/sentinel/resize')
-@require_auth
+@requires('cluster.view')
 def sentinel_resize():
     """E2 — Concrete resize advice (C3-C6)."""
     try:
@@ -2196,7 +2752,7 @@ def sentinel_resize():
 
 
 @app.route('/api/sentinel/exhaustion')
-@require_auth
+@requires('cluster.view')
 def sentinel_exhaustion():
     """E4 — Resource exhaustion alerts, most urgent first."""
     try:
@@ -2221,7 +2777,7 @@ def sentinel_exhaustion():
 
 
 @app.route('/api/sentinel/cluster-health')
-@require_auth
+@requires('cluster.view')
 def sentinel_cluster_health():
     """E3 — Cluster health score history."""
     try:
@@ -2242,7 +2798,7 @@ def sentinel_cluster_health():
 
 
 @app.route('/api/sentinel/status')
-@require_auth
+@requires('cluster.view', 'any')
 def sentinel_status():
     """Proxy the sentinel health/detail endpoint so the dashboard knows when the next analysis run is."""
     sentinel_url = os.getenv('SENTINEL_HEALTH_URL', 'http://sentinel:8080')
@@ -2256,7 +2812,7 @@ def sentinel_status():
 
 
 @app.route('/api/sentinel/report.pdf')
-@require_auth
+@requires('cluster.view')
 def sentinel_report_pdf():
     """E5 — Generate and download a PDF capacity intelligence report."""
     try:
@@ -2367,7 +2923,7 @@ def _get_branding() -> dict:
 
 
 @app.route('/api/sentinel/branding', methods=['GET'])
-@require_auth
+@requires('cluster.view')
 def sentinel_get_branding():
     """E7: Return current report branding configuration."""
     try:
@@ -2377,8 +2933,7 @@ def sentinel_get_branding():
 
 
 @app.route('/api/sentinel/branding', methods=['PUT'])
-@require_auth
-@require_admin
+@requires('cluster.settings')
 def sentinel_put_branding():
     """E7: Save report branding configuration (UPSERT)."""
     body = request.get_json(silent=True) or {}
@@ -2421,7 +2976,7 @@ def sentinel_put_branding():
 # ---------------------------------------------------------------------------
 
 @app.route('/api/sentinel/vms')
-@require_auth
+@requires('cluster.view')
 def sentinel_vms():
     """Return VM list with profile data available for add_vms_like simulation."""
     import urllib.request as _req
@@ -2444,7 +2999,7 @@ def sentinel_vms():
 
 
 @app.route('/api/sentinel/whatif', methods=['POST'])
-@require_auth
+@requires('cluster.view')
 def sentinel_whatif():
     """
     D5: Forward a what-if scenario simulation request to the Sentinel REST API
@@ -2484,7 +3039,7 @@ def sentinel_whatif():
 # T3 — sentinel live tunables proxy (Phase 3.5)
 
 @app.route('/api/sentinel/tunables', methods=['GET'])
-@require_auth
+@requires('cluster.view')
 def sentinel_get_tunables():
     """T3: Forward GET /api/sentinel/tunables → sentinel /api/v1/tunables."""
     import urllib.request as _req
@@ -2507,8 +3062,7 @@ def sentinel_get_tunables():
 
 
 @app.route('/api/sentinel/tunables', methods=['PUT'])
-@require_auth
-@require_admin
+@requires('cluster.settings')
 def sentinel_put_tunables():
     """T3: Forward PUT /api/sentinel/tunables → sentinel /api/v1/tunables."""
     import urllib.request as _req
@@ -2537,8 +3091,7 @@ def sentinel_put_tunables():
 
 
 @app.route('/api/sentinel/trend/run', methods=['POST'])
-@require_auth
-@require_admin
+@requires('cluster.settings')
 def sentinel_trigger_trend_run():
     """Forward POST /api/sentinel/trend/run → sentinel /api/v1/trend/run."""
     import urllib.request as _req
@@ -2569,6 +3122,7 @@ def sentinel_trigger_trend_run():
 # =============================================================================
 
 @app.route('/login', methods=['GET', 'POST'])
+@public('the login page')
 def login_page():
     if not _AUTH_ENABLED:
         return redirect(url_for('index'))
@@ -2588,26 +3142,36 @@ def login_page():
             if user_db.verify_otp_code(pending_username, code):
                 u = user_db.get_by_username(pending_username)
                 session.pop('otp_pending', None)
-                session.pop('next', None)
+                dest = _after_login(session.pop('next', None))
                 session['user_id']  = str(u['user_id'])
                 session['username'] = u['username']
                 session['role']     = u['role']
-                return redirect(url_for('index'))
+                return redirect(dest)
             error = 'Invalid OTP code. Check your authenticator app and try again.'
         else:
-            username = request.form.get('username', '').strip()
+            found = user_db.get_by_login(request.form.get('username', ''))
+            username = found['username'] if found else request.form.get('username', '').strip()
             password = request.form.get('password', '')
-            if user_db.verify_password(username, password):
-                u = user_db.get_by_username(username)
+            if found and user_db.verify_password(username, password):
+                u = found
+                if u.get('enabled') is False:
+                    # only after a correct password: say why, so they do not retry into a lockout
+                    error = ('An invitation to set a new password was sent to this address. Use the link in it.'
+                             if u.get('awaiting_email') and '@' in u['username'] else
+                             'Your account needs an email address. An administrator will send you an invitation.'
+                             if u.get('awaiting_email') else
+                             'Your account is waiting for an administrator to assign its access.' if u.get('awaiting_access')
+                             else 'Your account is disabled. Ask an administrator.')
+                    return render_template('login.html', step='password', error=error, otp_enabled=False)
                 if u['otp_enabled']:
                     session['otp_pending'] = username
                     return redirect(url_for('login_page', step='otp'))
-                session.pop('next', None)
+                dest = _after_login(session.pop('next', None))
                 session['user_id']  = str(u['user_id'])
                 session['username'] = u['username']
                 session['role']     = u['role']
-                return redirect(url_for('index'))
-            error = 'Invalid username or password.'
+                return redirect(dest)
+            error = 'Invalid email address or password.'
 
     # pass otp_enabled=True only when on the OTP step (drives login.html hint text)
     pending = session.get('otp_pending')
@@ -2615,9 +3179,18 @@ def login_page():
     return render_template('login.html', step=step, error=error, otp_enabled=otp_hint)
 
 
+def _after_login(dest):
+    """Where a login continues: back to an invitation link that sent the person here, else the dashboard."""
+    return dest if isinstance(dest, str) and re.fullmatch(r'/invite/[A-Za-z0-9_-]{20,200}', dest) else url_for('index')
+
+
 @app.route('/logout')
+@public('logging out')
 def logout():
+    nxt = request.args.get('next')
     session.clear()
+    if _after_login(nxt) != url_for('index'):
+        session['next'] = nxt                 # 'sign out and switch' on an invitation for another address
     return redirect(url_for('login_page'))
 
 
@@ -2626,27 +3199,31 @@ def logout():
 # =============================================================================
 
 @app.route('/api/users/me')
-@require_auth
+@requires(None)
 def api_me():
     if not _AUTH_ENABLED:
         return jsonify({'user_id': None, 'username': 'dev', 'role': 'admin',
-                        'otp_enabled': False, 'dev_mode': True, 'community_ack': None})
+                        'otp_enabled': False, 'dev_mode': True, 'community_ack': None,
+                        'access': _access_summary(_access())})
     u = user_db.get_by_username(session['username'])
     if not u:
         session.clear()                     # see require_auth: the session outlived its user
         return jsonify({'error': 'Authentication required'}), 401
+    acc = _access()
     return jsonify({
         'user_id':     str(u['user_id']),
         'username':    u['username'],
-        'role':        u['role'],
+        'display_name': u.get('display_name'),
+        'role':        'admin' if acc.is_root_admin() else 'user',
         'otp_enabled': u['otp_enabled'],
         'dev_mode':    False,
         'community_ack': bool(u.get('community_ack', False)),
+        'access':      _access_summary(acc),
     })
 
 
 @app.route('/api/users/me/community-ack', methods=['POST'])
-@require_auth
+@requires(None)
 def api_me_community_ack():
     """Record that the current user has seen the community-support notice."""
     if not _AUTH_ENABLED:
@@ -2656,9 +3233,14 @@ def api_me_community_ack():
     return jsonify({'ok': True, 'dev_mode': False})
 
 
+def _may_manage_user(username: str) -> bool:
+    """Deleting an account or setting its password: an administrator of the whole installation only
+    (credentials are never a tenant matter, PLAN-roles, Accounts 5)."""
+    return bool(user_db.get_by_username(username)) and _access().can('users.manage')
+
+
 @app.route('/api/users', methods=['GET'])
-@require_auth
-@require_admin
+@requires('users.manage', 'any')
 def api_users_list():
     users = user_db.get_all()
     return jsonify([{
@@ -2671,45 +3253,53 @@ def api_users_list():
 
 
 @app.route('/api/users', methods=['POST'])
-@require_auth
-@require_admin
+@requires('users.manage', 'any')
 def api_users_create():
     data = request.get_json(force=True) or {}
-    username = (data.get('username') or '').strip()
     password = data.get('password', '')
     role     = data.get('role', 'user')
-    if not username or not password:
-        return jsonify({'error': 'username and password are required'}), 400
+    if not _access().can('users.manage'):
+        return jsonify({'error': 'Access denied'}), 403      # below the top level: Settings → Access, with the access
+    try:
+        username = access_db.normalise_email(data.get('username') or data.get('email'))
+    except access_db.AccessError as e:
+        return jsonify({'error': str(e)}), 400
+    if not password:
+        return jsonify({'error': 'email address and password are required'}), 400
     if role not in ('admin', 'user'):
         return jsonify({'error': 'role must be "admin" or "user"'}), 400
+    if role == 'admin' and not _access().is_root_admin():
+        return jsonify({'error': 'Access denied'}), 403
     try:
         user_db.create_user(username, password, role)
         return jsonify({'ok': True})
     except psycopg2.errors.UniqueViolation:
-        return jsonify({'error': f'Username "{username}" already exists'}), 409
+        return jsonify({'error': f'{username} already has an account'}), 409
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/users/<username>', methods=['DELETE'])
-@require_auth
-@require_admin
+@requires('users.manage', 'any')
 def api_users_delete(username):
     if username == session.get('username'):
         return jsonify({'error': 'Cannot delete your own account'}), 400
+    if not _may_manage_user(username):
+        return jsonify({'error': 'Access denied'}), 403
     try:
         user_db.delete_user(username)
+        access_db.invalidate()               # every worker forgets the account at once
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/users/<username>/password', methods=['PUT'])
-@require_auth
+@requires(None)
 def api_users_set_password(username):
     data     = request.get_json(force=True) or {}
     is_self  = (_AUTH_ENABLED and username == session.get('username'))
-    is_admin = (not _AUTH_ENABLED or session.get('role') == 'admin')
+    is_admin = (not _AUTH_ENABLED or (not is_self and _may_manage_user(username)))
     if not is_self and not is_admin:
         return jsonify({'error': 'Access denied'}), 403
     new_password = data.get('new_password', '')
@@ -2727,7 +3317,7 @@ def api_users_set_password(username):
 
 
 @app.route('/api/users/me/otp/setup', methods=['GET'])
-@require_auth
+@requires(None)
 def api_otp_setup():
     username = session.get('username', 'dev')
     try:
@@ -2737,7 +3327,7 @@ def api_otp_setup():
 
 
 @app.route('/api/users/me/otp/enable', methods=['POST'])
-@require_auth
+@requires(None)
 def api_otp_enable():
     username = session.get('username', 'dev')
     data = request.get_json(force=True) or {}
@@ -2750,7 +3340,7 @@ def api_otp_enable():
 
 
 @app.route('/api/users/me/otp/disable', methods=['POST'])
-@require_auth
+@requires(None)
 def api_otp_disable():
     username = session.get('username', 'dev')
     data = request.get_json(force=True) or {}
@@ -3004,6 +3594,13 @@ def _apply_migrations_on_startup():
         return
     import migrations as _migrations
     applied = _migrations.apply_until_done(_pg, init_dir)
+    try:
+        new_perms = access_db.sync_known_permissions()
+        if new_perms:
+            app.logger.warning('this version brings new permissions (custom roles do not get them by themselves): %s',
+                               ', '.join(new_perms))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning('could not record the known permissions: %s', exc)
     if applied:
         app.logger.info(
             'Applied %d pending migration(s) on startup: %s',
@@ -3118,7 +3715,7 @@ def _do_apply_update():
 
 
 @app.route('/api/update/status')
-@require_auth
+@requires(None)
 def api_update_status():
     state = _read_update_file()
     return jsonify({
@@ -3137,15 +3734,14 @@ def api_update_status():
 
 
 @app.route('/api/update/check', methods=['POST'])
-@require_auth
+@requires('install.manage', 'root')
 def api_update_check():
     threading.Thread(target=_check_for_update, daemon=True).start()
     return jsonify({'ok': True})
 
 
 @app.route('/api/update/apply', methods=['POST'])
-@require_auth
-@require_admin
+@requires('install.manage', 'root')
 def api_update_apply():
     state = _read_update_file()
     if state.get('apply_in_progress'):
@@ -3160,9 +3756,80 @@ def api_update_apply():
 # =============================================================================
 
 @app.route('/')
-@require_auth
+@requires(None)
 def index():
     return send_from_directory('static', 'index.html')
+
+
+import access_api  # noqa: E402 — needs requires() and the helpers above
+_access_helpers = access_api.register(app, requires, _access, _enabled_clusters, _vm_index_rows)
+import mail_api  # noqa: E402
+mail_api.register(app, requires)
+import invite_api  # noqa: E402
+invite_api.register(app, requires, public, _access, _access_helpers)
+import account_api  # noqa: E402
+account_api.register(app, requires, public, _access_helpers)
+import guest_api  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+guest_api.register(app, sock, requires, public, SimpleNamespace(
+    access=_access, can_vm=_can_vm, console_call=_console_call, console_binding=_console_binding, client_ip=_client_ip,
+    relay_pipe=_relay_pipe, clusters=_enabled_clusters, vm_index_rows=_vm_index_rows))
+
+
+# =============================================================================
+# access summary and the route check
+# =============================================================================
+def _access_summary(acc) -> dict:
+    """What the browser needs to show or hide controls (the server checks again on every call)."""
+    ids = [c.cluster_id for c in _enabled_clusters()]
+    clusters = {}
+    for cid in acc.visible_clusters(ids):
+        whole = acc.cluster_perms(cid)
+        some: set = set()
+        grants = []
+        for gr in acc.vm_grants(cid):
+            some |= gr.effective()
+            grants.append({'vm': gr.vm_uuid, 'tag': gr.tag, 'perms': sorted(gr.effective())})
+        clusters[cid] = {'all': sorted(whole), 'some': sorted(some - whole), 'grants': grants}
+    nodes = {}
+    for perm in sorted(rbac.NODE_LEVEL):
+        top = acc.top_nodes_with(perm)
+        if top:
+            nodes[perm] = ['*' if n is None else n for n in top]
+    return {'root_admin': acc.is_root_admin(), 'anywhere': sorted(acc.perms_anywhere()),
+            'clusters': clusters, 'nodes': nodes}
+
+
+@app.route('/api/access/routes')
+@requires('install.manage', 'root')
+def api_access_routes():
+    """Every route with its declared permission (for the access tests and for review)."""
+    out = []
+    for rule in app.url_map.iter_rules():
+        fn = app.view_functions.get(rule.endpoint)
+        decl = getattr(fn, '_hcm_perm', None)
+        out.append({'rule': rule.rule, 'methods': sorted(m for m in rule.methods if m not in ('HEAD', 'OPTIONS')),
+                    'endpoint': rule.endpoint, 'permission': decl[0] if decl else None,
+                    'scope': decl[1] if decl else None, 'declared': decl is not None or rule.endpoint == 'static'})
+    return jsonify({'routes': out, 'backup': [{'methods': m, 'path': rx, 'permission': p, 'target': t if isinstance(t, str) else list(t)}
+                                               for m, rx, p, t in _BACKUP_ROUTES]})
+
+
+def undeclared_routes() -> list[str]:
+    """Routes without a permission declaration (requires/public). Must stay empty."""
+    return sorted(ep for ep, fn in app.view_functions.items() if ep != 'static' and not hasattr(fn, '_hcm_perm'))
+
+
+_undeclared = undeclared_routes()
+if _undeclared:
+    app.logger.error('routes without a permission declaration (they answer 500): %s', ', '.join(_undeclared))
+    if os.getenv('HCM_STRICT_ROUTES') == '1':
+        raise RuntimeError(f'routes without a permission declaration: {_undeclared}')
+
+    @app.before_request
+    def _refuse_undeclared():
+        if request.endpoint in _undeclared:
+            return jsonify({'error': 'route without a permission declaration'}), 500
 
 
 

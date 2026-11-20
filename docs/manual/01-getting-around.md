@@ -2,8 +2,9 @@
 
 ![Login](img/login.png)
 
-**Logging in.** The dashboard runs on port 5000. Log in with the user name and password an
-administrator gave you; if your account has two-factor authentication, the one-time code is
+**Logging in.** The dashboard runs on port 5000. Log in with your email address and your password;
+a new account chooses its password through the invitation mail (the initial administrator logs in
+with its username); if your account has two-factor authentication, the one-time code is
 asked next. On the first login everyone sees a one-time notice that this is community-supported
 software and where to report issues.
 

@@ -153,6 +153,29 @@ def get_by_username(username: str) -> dict | None:
         return None
 
 
+def get_by_login(login: str) -> dict | None:
+    """The account a login form names: an email address in any capitals, or the main admin's username."""
+    login = (login or '').strip()
+    if not login:
+        return None
+    try:
+        conn = _connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute('SELECT * FROM config.users WHERE username = %s', (login,))
+                row = cur.fetchone()
+                if not row:
+                    cur.execute('SELECT * FROM config.users WHERE lower(username) = lower(%s)', (login,))
+                    rows = cur.fetchall()
+                    row = rows[0] if len(rows) == 1 else None
+                return dict(row) if row else None
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning('user_db: get_by_login error: %s', exc)
+        return None
+
+
 def get_all() -> list:
     """Return all users without password_hash, ordered by created_at."""
     try:

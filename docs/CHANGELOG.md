@@ -4,6 +4,48 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Roles, tenants and fine-grained access** (migrations `044`, `045`). Clusters are arranged in a
+  tree, **MSP > customer > folder > cluster**; a single-company installation keeps looking as before
+  (its one MSP and customer are hidden). Access is a **role on a scope**: the whole installation, an
+  MSP, customer or folder, a cluster, the VMs with a tag on a cluster, or one VM. Five built-in
+  roles are templates (Admin, Engineer, App Manager, Backup Manager, Viewer); copy one to make your
+  own from a catalogue of permissions, one per action. Groups give their access to every member.
+  **Settings → Access** (the former Users tab) has users, groups, roles, tenants, guest console and
+  an audit log of every access change; **Who has access** on a VM shows everyone who can reach it and
+  why. No escalation anywhere: a role can only be given or taken away by someone who holds all of it
+  on that scope, and nobody changes their own access.
+- **One-time console access for outsiders** (Settings → Access → Guest console, or **Outside
+  access…** on a VM): a link plus a 6-digit code given separately, one VM, a time window, a number
+  of sessions of a set length. The guest sees that console under your title and nothing else, only
+  connects onto a console showing a login or lock screen (unless you allow otherwise), and is
+  locked out after five wrong codes. Colleagues who may only ask send a request for approval.
+  Granters watch read-only, end the session or revoke the access. Everything a guest needs is under
+  `/guest/`, so a reverse proxy can publish that path alone (`HCM_GUEST_BASE_URL` sets the public
+  address for the links).
+- Tags that give access are guarded: adding or removing one in a VM edit, clone or new VM needs the
+  right to manage users on the cluster; the VM edit window marks them.
+
+### Changed
+- **After this update, accounts other than administrators cannot sign in until an administrator
+  gives them access.** At the first login an administrator gets a dialog listing those accounts
+  (suggested: Viewer on the folders they were a member of); it cannot be closed while one is left.
+  Administrators become Admin on the whole installation.
+- Every dashboard route declares the one permission it needs and refuses everyone else; the two
+  forwards to the backup and console services go through explicit tables, unknown paths are refused.
+- Dialogs are in-page everywhere: no browser prompt, confirm or alert boxes any more.
+- Changing your own password asks for the current one, also for administrators.
+
+### Fixed
+- **Backup resources of other clusters could be reached by id.** Plans, chains, restore points,
+  file-recovery mounts and proxies were accepted by id from any folder member, whatever cluster
+  they belong to (a restore or file browse of another tenant's backup was possible). Each id is now
+  checked against its cluster and VM; a foreign id answers "not found".
+- `?days=` on the migration, recommendation and forecast logs went into the database query
+  unchecked.
+
 ## [1.2.1]
 
 ### Fixed

@@ -51,10 +51,15 @@ def _exec(sql: str, params: tuple = ()) -> None:
 
 # ------------------------------------------------------------- audit log
 def session_start(cluster_id: str, vm_uuid: str, vm_name: str, username: str, *, source: str = 'user',
-                  kind: str = 'interactive', client_ip: Optional[str] = None) -> int:
-    row = _one("""INSERT INTO console.sessions (cluster_id, vm_uuid, vm_name, username, source, kind, client_ip)
-                  VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
-               (cluster_id, vm_uuid, vm_name, username, source, kind, client_ip))
+                  kind: str = 'interactive', client_ip: Optional[str] = None, guest_grant_id: Optional[int] = None) -> int:
+    if guest_grant_id is None:
+        row = _one("""INSERT INTO console.sessions (cluster_id, vm_uuid, vm_name, username, source, kind, client_ip)
+                      VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                   (cluster_id, vm_uuid, vm_name, username, source, kind, client_ip))
+    else:
+        row = _one("""INSERT INTO console.sessions (cluster_id, vm_uuid, vm_name, username, source, kind, client_ip, guest_grant_id)
+                      VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                   (cluster_id, vm_uuid, vm_name, username, source, kind, client_ip, guest_grant_id))
     return int(row['id'])
 
 

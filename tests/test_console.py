@@ -249,3 +249,18 @@ def test_console_service_is_internal_only():
     compose = (REPO / 'docker-compose.yaml').read_text()
     block = re.search(r'\n  console:\n(.*?)\n  # -{10,}', compose, re.S).group(1)
     assert 'ports:' not in block
+
+
+def test_carries_input_for_read_only_viewers():
+    """A watcher's browser may ask for screen updates but never send keys, pointer or clipboard."""
+    import importlib, sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'console'))
+    rfb = importlib.import_module('rfb')
+    fbur = bytes([3, 1, 0, 0, 0, 0, 4, 0, 3, 0])
+    assert not rfb.carries_input(fbur)
+    assert not rfb.carries_input(fbur * 3)
+    assert rfb.carries_input(bytes([4, 1, 0, 0, 0, 0, 0, 0x61]))           # key event
+    assert rfb.carries_input(bytes([5, 1, 0, 10, 0, 10]))                   # pointer event
+    assert rfb.carries_input(bytes([6, 0, 0, 0, 0, 0, 0, 1, 0x61]))         # clipboard
+    assert rfb.carries_input(fbur + bytes([4, 1, 0, 0, 0, 0, 0, 0x61]))     # batched behind an update request
+    assert not rfb.carries_input(b'RFB 003.008\n') and not rfb.carries_input(b'\x01')

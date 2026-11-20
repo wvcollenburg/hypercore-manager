@@ -696,6 +696,15 @@ def build_schema() -> list[Section]:
                     why_default="A working day; reopening the console takes one click.",
                     when_change="Rarely; shorten it where policy limits privileged sessions.",
                 ),
+                Field(
+                    key="HCM_GUEST_BASE_URL",
+                    label="Public address for guest console links",
+                    type="text",
+                    default="",
+                    description="One-time console access for outsiders: the public address guests use, e.g. https://console.your-domain.com (publish only /guest/ there).",
+                    why_default="Blank: the links use the address the granting administrator's browser used.",
+                    when_change="Set it when guests reach HCM by another name than your staff do.",
+                ),
             ],
         ),
 

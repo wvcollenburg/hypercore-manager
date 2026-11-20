@@ -4,10 +4,10 @@ Day-to-day administration of a HyperCore Manager installation: registering clust
 them into folders, giving people access, and setting up targets for the Backup module. Everything
 here happens in the dashboard; nothing requires a restart or an `.env` change.
 
-Two roles exist. **Administrators** see every cluster and every panel described below.
-**Users** see the clusters in the folders they are members of, operate them (balancer settings,
-Foresight, backup plans, imports) and manage their own account; they do not see Settings or Modules.
-When authentication is disabled (`SC_DASHBOARD_USER` left blank), everyone is an administrator.
+Who may do what is set per person and per place: a **role** (a set of permissions) on a part of
+the **tenant tree** (MSP > customer > folder > cluster, down to VMs with a tag or a single VM). See
+**People and access** below. When authentication is disabled (`SC_DASHBOARD_USER` left blank),
+everyone may do everything.
 
 ---
 
@@ -87,47 +87,218 @@ Changes take effect without a restart.
 
 ---
 
-## Folders
+## Tenants and folders
 
-Folders group clusters in the rail and are the unit of access for users. A cluster is in at most
-one folder; clusters in no folder appear under **No folder**, which only administrators see.
+Clusters are arranged in a tree: **MSP > customer > folder > cluster**. A cluster is in at most one
+folder; clusters in no folder appear under **No folder**, which only administrators of the whole
+installation see. A single-company installation has one MSP and one customer, created by the
+upgrade and hidden in the interface: it shows folders only, as before. Adding a second customer or
+MSP (**Settings → Access → Tenants**) shows the levels.
 
-- **New folder** is at the bottom of the rail. Folders can be renamed, deleted (their clusters
-  stay registered and fall back to **No folder**), collapsed individually, or all at once from
-  the rail header.
-- The **cluster menu** ("…" on a cluster) moves it to another folder. The list is searchable and
-  can create a new folder on the spot.
-- The **folder menu** ("…" on a folder) holds **Members**, **Backup target**, **Rename** and
+- **New folder** is at the bottom of the rail (for whoever manages the tree at customer level or
+  above). Folders can be renamed, deleted (their clusters stay registered and fall back to **No
+  folder**), collapsed individually, or all at once from the rail header.
+- The **cluster menu** ("…" on a cluster) moves it to another folder of the same customer; moving
+  it to another customer or MSP is for administrators of the whole installation.
+- The **folder menu** ("…" on a folder) holds **Access…**, **Backup target**, **Rename** and
   **Delete folder**.
-- The **rail search** matches folder names, cluster names and management addresses.
-
-### Members
-
-A folder's members see every cluster in it. The members dialog lists all non-admin users with a
-search box, a scrollable list and **Add shown** / **Remove shown** for bulk changes. Administrators
-are never listed: they see everything regardless of membership.
-
-The same relationship is editable from the other side: **Settings → Users → Folders** on a user
-shows which folders that user belongs to.
+- **Settings → Access → Tenants** is a column browser, like a file browser: MSPs in the first
+  column, a selected MSP's customers in the next, then a customer's folders, then a folder's
+  clusters. The wide pane on the right shows the selected layer: the users and groups assigned on
+  it (for a cluster also its tag and single-VM assignments), with **+ Assign** and a remove button,
+  and below them, dimmed, what it inherits from the layers above. Every inherited line links to the
+  layer it comes from (↗), where it can be changed or removed. **Groups** lists the groups defined on
+  the layer and, dimmed, those defined higher up, each with where its access stands here: given
+  here, inherited from a layer above, or none (**Give access here**). Each column adds a customer,
+  folder or MSP at its foot; the pane renames and deletes the selected node. A node can only be
+  deleted from above it, and only when it is empty; deleting removes its roles, groups and access.
+  Accounts stay: they only lose the access they had there.
+- Nobody sees the layers above their own. A customer's administrators and users do not see the MSP
+  that serves them: not in the tree, the sidebar, labels or "who has access", and the accounts above
+  them (the MSP's staff, the installation's administrators) are not listed. In the audit log, the
+  guest console list and the console log their names show as "an administrator above your level",
+  and the console log leaves out their address. Roles defined higher up can still be handed
+  out below; only where they were defined is not shown.
+- Users below folder level (engineers, application managers, viewers) and folder administrators
+  see their clusters as one list in the rail, without folders.
 
 ---
 
-## Users
+## People and access
 
-**Settings → Users** lists the accounts with a search box and two orderings: **A–Z** and **By
-folder** (collapsible groups, administrators first, then one group per folder, then users without
-a folder).
+**Settings → Access** has a tab per subject: **Users**, **Groups**, **Roles**, **Tenants**,
+**Guest console** and **Audit**. Each shows only the part of the tree you manage.
 
-- **Create** a user with a role (`user` or `admin`) and an initial password. The role is fixed at
-  creation; to change it, create a new account and delete the old one.
-- **Reset password** and **delete** are available per account. An administrator cannot delete
-  their own account.
-- **Folders** opens the user's folder memberships.
-- Two-factor (TOTP) is enabled by each user on their own **Account** page, not by an
-  administrator.
+### Roles and permissions
+
+A role is a set of permissions. Five are built in, as read-only templates:
+
+| Role | What it may do |
+|---|---|
+| Admin | Everything at its scope: VMs, backups, settings, and the users, groups, roles and tree below it |
+| Engineer | Full VM control: console, power, edit, snapshot, clone, create, delete; sees backups |
+| App Manager | Sees VMs and their details and opens their console; changes nothing |
+| Backup Manager | Every backup action: schedules, runs, file browse and download, file and full restores, verification |
+| Viewer | Sees clusters, VMs and backups; changes nothing |
+
+**Copy** a built-in role to make your own, at the level that should be able to use it (a role
+defined at a customer is usable within that customer only). The editor groups the permissions by
+area; ticking one ticks what it needs, and permissions you do not hold yourself are greyed out.
+Editing a role changes everyone who has it at once (it is logged); a role still assigned cannot be
+deleted. When a new version brings new permissions, the built-in roles get them, your own roles do
+not: a banner on the Access panel names them until a role manager acknowledges it.
+
+Each permission has a level, which decides where it can be given:
+
+- **VM**: down to VMs with a tag, or a single VM (console, power, edit, the backup actions, ...).
+- **Cluster**: needs the whole cluster (the overview, cluster settings, creating VMs, proxies, ...).
+  A tag or VM assignment never carries them: a user with only some VMs sees the VM list and those
+  VMs' details, not the nodes, the balancer, Foresight or the cluster events.
+- **Tree**: users, groups, roles, the tree itself, backup targets, adding clusters.
+- **Installation**: the updater and the default settings; only on the whole installation.
+
+### Users
+
+An account is a person's **email address**; it logs in with that address, in any capitals. Only
+the initial administrator (`SC_DASHBOARD_USER`) keeps a plain username. Two John Smiths are
+`jsmith@contoso.com` and `jsmith@mymail.com`: two accounts.
+
+An account belongs to the person, not to a tenant. Tenants hold the access that person has with
+them: an outside consultant can have access in two customers and sees both, side by side, without
+anything above them. You manage someone when they hold access in your part of the tree, and you
+see only that access, never what they hold elsewhere.
+
+**Invite** (in the user list, or **+ Invite** on a layer in **Tenants**) asks for the email
+address, an optional name, and what to give: a role on a scope, or membership of a group. You can
+invite onto your own part of the tree only, with access you could give yourself.
+
+- The person gets a mail with a link. A new address confirms itself and chooses its own password
+  (two-factor can be set up on the Account page afterwards); an existing account accepts after
+  signing in with that address. Either way you see the same answer: whether the address already had
+  an account, and where, is never shown to you.
+- The link works **once, for 48 hours**. **Open invitations** lists the ones in your reach, with
+  **Resend** (a new link; the old one stops working) and **Withdraw**.
+- If the person who sent an invitation can no longer give that access (their rights changed, or
+  their account was disabled or removed), the link stops working.
+- Without a mail server (**Settings → Mail**), or when sending fails, you get the link to pass on
+  yourself, in a way only that person can read.
+
+Administrators of the whole installation can also **Add user with password**, for testing or a
+service account; nobody else sets another person's password.
+
+**Access…** on a user opens its assignments:
+
+- **Give access**: a role on a scope: the whole installation, an MSP, customer or folder, a
+  cluster, the VMs with a tag on a cluster, or one VM.
+- Group memberships of your part of the tree.
+- **Remove from my tenants**: removes all access the person has in your part of the tree; the
+  account, and access they have elsewhere, stay.
+- Administrators of the whole installation also see **Disable**/**Enable**, **Reset password**,
+  **Delete** (the address must be typed) and can change the address. Nobody below them touches an
+  account's password, two-factor or address: an account can have access in other tenants too.
+
+Rules that always hold:
+
+- **No escalation**: you can only give (or take away) a role whose every permission you hold on
+  that scope yourself, and only on scopes inside your own.
+- **Nobody changes their own access**; another administrator can.
+- The last enabled administrator of the whole installation cannot lose that role.
+- One account per email address across the installation.
+
+Two-factor (TOTP) is set up by each user on their own **Account** page; an administrator of the
+whole installation can reset it (**Reset 2FA**) for someone who lost the device.
 
 The initial administrator comes from `SC_DASHBOARD_USER` / `SC_DASHBOARD_PASSWORD` in `.env` and
 is seeded only once; manage accounts here afterwards.
+
+### Groups
+
+A group gives its access to every member, and is defined at a level of the tree like a role.
+Where a group is defined only decides who manages it and where it can be used (that level and
+below); what its members get is the access the group is given, and that is inherited like anyone
+else's. Adding someone to a group follows the same no-escalation rule as giving them the group's
+access directly. (Groups are also where an identity provider's groups will map later.)
+
+A group's window lists its members (add one by searching for a name or address, or **Invite** an
+address into the group), and what every member gets (**+ Give access**). Changes apply at once. A
+person's window lists their groups the same way, with **+ Add to group**, and shows which access
+comes through which group.
+
+### Tags hand out access
+
+An assignment on "the VMs with tag `erp` on cluster X" covers whatever VM carries that tag, now or
+later. So adding or removing a tag that an assignment depends on, in a VM edit, a clone or a new
+VM, needs **users.manage** on the cluster; the VM edit window marks those tags. Tags changed
+directly in HyperCore change access within a minute. **Who has access** on a VM's details lists
+everyone who can reach it and why.
+
+A restored or cloned VM is a new VM: access given to the original VM alone does not follow it.
+**Who has access → Copy access from another VM…** gives the same people the same access on the
+new one.
+
+### Audit
+
+Every change to users, groups, roles, assignments and the tree, and every guest console event, is
+in **Settings → Access → Audit**, narrowed to your part of the tree.
+
+### After upgrading to roles
+
+The upgrade makes every administrator **Admin** on the whole installation. Every other account is
+**disabled** until an administrator gives it access: at the first login an administrator gets a
+dialog listing those accounts (suggested: Viewer on the folders they were a member of). It cannot
+be closed while one is left; **Assign** enables the account, **Delete** removes it. A user who
+signs in before that, with the right password, is told their account is waiting.
+
+Accounts are email addresses since this version. An account from before without an address (every
+one except the initial administrator) stays disabled until an administrator of the whole
+installation opens it and enters its address: an invitation goes there to choose a new password
+(or the administrator sets one). The old password does not carry over. The user list marks these
+accounts "needs an email address".
+
+### Mail
+
+**Settings → Mail** (administrators of the whole installation) sets the one SMTP server HCM sends
+through: invitations, password resets and address changes.
+
+- Plain SMTP to a relay or a mail service: STARTTLS (587), TLS (465), or none (25) for a relay on
+  your own network only; an optional login. The password is stored encrypted with
+  `HCM_SECRET_KEY`, like the cluster passwords, and never shown again.
+- **Address in links**: the address people use to reach the dashboard, put in the links of
+  invitations and resets. Empty: the address of the browser that sends the invitation.
+- **Send test mail** sends one and shows the server's answer when it fails. Every test, every
+  failed mail and every change to these settings is in the access audit.
+- Microsoft 365 / Exchange Online: use a connector or relay (SMTP AUTH with basic authentication is
+  being retired by Microsoft). Sending through Microsoft Graph is a later wish.
+- Without a mail server everything still works: whoever sends an invitation gets the link to pass
+  on.
+
+---
+
+## Guest console access
+
+One-time console access for someone outside, for example an engineer of a telephony supplier
+installing a SIP server on one VM: they get that VM's console within a time window, and nothing
+else: no VM name, no cluster, no other page.
+
+- **Settings → Access → Guest console → Give outside access** (or **Outside access…** on a VM's
+  details): the VM, the guest's name and company, the window, the length and number of sessions,
+  and the title the guest sees. You get a **link** and a **6-digit code**, shown once. Give the
+  link by e-mail and the code by phone or text message: both are needed.
+- Someone who may only **ask** (for example an App Manager) sends a request; whoever may give
+  outside access on that VM is told at login and approves or rejects it.
+- The guest opens the link, enters the code and gets the console. Five wrong codes lock the grant
+  (**New code** issues a new link and code). Redeeming binds the access to that one browser.
+- A guest only connects onto a console that shows a **login or lock screen**, so they never land
+  in someone's open session; they log in with credentials you give them. Tick **Also connect when
+  the console is logged in** to allow it anyway.
+- While the guest is connected: **Watch** shows the console read-only (your keyboard and mouse do
+  not reach the VM), **End session** closes it, **Revoke** ends the access altogether.
+- The guest controls the VM completely through its console (keyboard, reboot keys, boot menus) and
+  can reach whatever the VM can reach on the network.
+
+Everything a guest needs lives under `/guest/`, so the reverse proxy can publish that path to the
+internet and keep the rest of the dashboard internal; see **Installing and updating → Securing the
+installation** in the manual.
 
 ---
 
@@ -329,6 +500,19 @@ the copies already on the target.
 
 ## Account
 
-Everyone has an **Account** page in the rail footer: change the own password, enable or disable
-TOTP two-factor (scan the QR code, confirm with a code), and see the language selector in the
+Everyone has an **Account** page in the rail footer: the own name and email address, the own
+password, TOTP two-factor (scan the QR code, confirm with a code), and the language selector in the
 header. Administrators use the same page for their own account.
+
+Credentials are the person's own; nobody below the top level touches them:
+
+- **Forgot your password?** on the sign-in page mails a link to the account's address (it works
+  once, for 60 minutes; at most three an hour). The page says the same whether or not the address
+  has an account. Without a mail server it says to ask an administrator.
+- **Changing the address** asks for the current password and mails a link to the new address (once,
+  24 hours); only opening it changes the login. The old address gets a notice. The old address
+  stays known to HCM, so log entries written under it still name the same person.
+- Administrators of the whole installation can **Reset password** and **Reset 2FA** for someone
+  who is locked out, and change an address directly.
+- The initial administrator (`SC_DASHBOARD_USER`) has no address: its password is changed on the
+  Account page or in `.env` before the first start.

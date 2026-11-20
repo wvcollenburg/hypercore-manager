@@ -163,7 +163,7 @@ def test_backup_proxy_hides_paths_from_non_admins(session, creds):
         pytest.skip('backup container not running')
     assert 'plans' in data  # the count key follows the module's naming
     # temporary non-admin user, created and removed through the admin API
-    name = 'hcm-it-viewer'
+    name = 'hcm-it-viewer@demo.example'   # accounts are email addresses
     session('/api/users', 'POST', json.dumps({'username': name, 'password': 'It-Viewer-1234', 'role': 'user'}).encode())
     try:
         jar = http.cookiejar.CookieJar()

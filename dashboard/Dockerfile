@@ -28,6 +28,15 @@ COPY dashboard/cluster_registry.py .
 COPY dashboard/hypercore_tasks.py .
 COPY dashboard/hcm_crypto.py .
 COPY dashboard/migrations.py .
+COPY dashboard/rbac.py .
+COPY dashboard/access_db.py .
+COPY dashboard/access_api.py .
+COPY dashboard/guest_api.py .
+COPY dashboard/mailer.py .
+COPY dashboard/mail_texts.py .
+COPY dashboard/mail_api.py .
+COPY dashboard/invite_api.py .
+COPY dashboard/account_api.py .
 COPY dashboard/reports/ reports/
 COPY dashboard/static/ static/
 COPY dashboard/templates/ templates/

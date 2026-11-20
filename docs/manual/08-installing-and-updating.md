@@ -285,8 +285,8 @@ Before the stack is reachable from anything but localhost, work through this lis
 - [ ] The dashboard (port 5000) behind a reverse proxy with TLS, never directly internet-facing
 - [ ] InfluxDB (8086), Sentinel (8081) and the backup API (8082) not reachable beyond the host;
       the proxy API (8083) reachable from the backup service only
-- [ ] Non-admin users only where needed, folder membership reviewed: users see every cluster in
-      their folders
+- [ ] Access reviewed under Settings → Access: every account has the narrowest role and scope it
+      needs; nobody but the administrators holds Admin on the whole installation
 
 The dashboard does not terminate TLS itself. Put nginx or Caddy in front of it. The proxy must
 pass websockets (the VM console uses one on `/console/ws`); Caddy does that by itself, nginx
@@ -326,6 +326,41 @@ server {
     return 301 https://$host$request_uri;
 }
 ```
+
+### Publishing only the guest console
+
+One-time console access for outsiders (Settings → Access → Guest console) needs the guest to reach
+HCM. Everything a guest uses lives under `/guest/`: the page, its scripts and its websocket. To keep
+the dashboard itself internal, publish that path and nothing else, for example as a second
+`server` on a public name:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name console.your-domain.com;          # the public name you give to guests
+
+    ssl_certificate     /etc/letsencrypt/live/console.your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/console.your-domain.com/privkey.pem;
+
+    location /guest/ {
+        proxy_pass         http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade           $http_upgrade;     # the guest console is a websocket too
+        proxy_set_header   Connection        $connection_upgrade;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+    location / { return 404; }
+}
+```
+
+What that exposes: a page without a login that asks for a 6-digit code, behind a link with a long
+random token; five wrong codes lock the access. A guest who gets in controls that one VM's console
+and nothing else, within the window you set. The link HCM shows uses the name you reached the
+dashboard by, unless `HCM_GUEST_BASE_URL` in `.env` names the public address (as above:
+`HCM_GUEST_BASE_URL=https://console.your-domain.com`).
 
 ## Backing up the installation
 

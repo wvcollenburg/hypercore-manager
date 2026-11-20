@@ -28,13 +28,31 @@ cluster you edit, or the Defaults that a newly registered cluster copies, or all
 once. Each field has an explanation, the reasoning behind the default and when to change it.
 Changes apply at runtime; the services re-read them within a minute.
 
-## Users
+## Access
 
-![Users](img/settings-users.png)
+![Access](img/settings-users.png)
 
-Accounts and their role, administrator or user, and for users the folders they are members of.
-A user without folders sees nothing. Two-factor authentication is per user and is set up by the
-user under Account; an administrator can reset it here.
+Who may do what, and where. The tabs:
+
+- **Users**: accounts (an account is an email address), **Invite** someone by address (a link
+  that works once, for 48 hours; open invitations are listed with Resend and Withdraw), and
+  **Access…** per account: its roles and where they apply (the whole installation, an MSP,
+  customer or folder, a cluster, the VMs with a tag, or one VM), its groups, and **Remove from my
+  tenants**. Disable, password reset, address and delete are for administrators of the whole
+  installation.
+- **Groups**: a group gives its access to every member.
+- **Roles**: the five built-in roles (Admin, Engineer, App Manager, Backup Manager, Viewer) are
+  templates; **Copy** one to make your own with exactly the permissions you want.
+- **Tenants**: MSPs, customers, folders and clusters in columns, like a file browser. Click
+  through them; the pane on the right shows who is assigned on what you selected, and what it
+  inherits from above. Assign or remove people there.
+- **Guest console**: one-time console access for someone outside: a link plus a code, one VM, a
+  time window. Requests from colleagues who may only ask wait here for approval.
+- **Audit**: every change to access, and every guest console event.
+
+You only see, and only hand out, what lies within your own reach: nobody gives away rights they do
+not hold, and nobody changes their own access. Two-factor authentication is set up by each user
+under Account. The details are in the administration guide.
 
 ## Console
 
@@ -62,6 +80,15 @@ again.
 The check only sees the console: an RDP session left open is invisible to it. Every screenshot
 is in the **console log** below as user `system`, hidden unless *Show automated screenshots*
 is ticked; those rows are kept for 30 days, the others for good.
+
+## Mail
+
+One mail server for the whole installation, set by its administrators: invitations, password
+resets and address changes go out through it. Enter the SMTP server, port and security (STARTTLS on
+587, TLS on 465, or none on 25 for a relay on your own network), an optional login, the sender
+address and name, and the **address in links**: how people reach this dashboard (empty: the address
+you are using). **Send test mail** checks it. Without a mail server, whoever sends an invitation
+gets the link to pass on themselves.
 
 ## Targets
 

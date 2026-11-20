@@ -48,20 +48,36 @@ class Ticket:
     username: str
     binding: str
     client_ip: Optional[str]
+    source: str = 'user'                 # user | guest (an outsider, plans/PLAN-roles.md R4) | watch (read-only)
+    view_only: bool = False              # input from the browser is dropped here, whatever the page does
+    max_minutes: Optional[float] = None  # shorter than MAX_HOURS for a guest grant
+    grant_id: Optional[int] = None
     expires: float = field(default_factory=lambda: time.monotonic() + TICKET_TTL)
 
 
 _tickets: dict[str, Ticket] = {}
 active: dict[int, dict] = {}            # audit id -> live session info (for the admin view)
+_ending: dict[int, str] = {}            # audit id -> why it was ended from outside (revoked, ended by ...)
 
 
-def mint(cluster_id: str, vm_uuid: str, vm_name: str, username: str, binding: str, client_ip: Optional[str]) -> str:
+def mint(cluster_id: str, vm_uuid: str, vm_name: str, username: str, binding: str, client_ip: Optional[str], *,
+         source: str = 'user', view_only: bool = False, max_minutes: Optional[float] = None,
+         grant_id: Optional[int] = None) -> str:
     now = time.monotonic()
     for k in [k for k, t in _tickets.items() if t.expires < now]:
         del _tickets[k]
     token = secrets.token_urlsafe(32)
-    _tickets[token] = Ticket(cluster_id, vm_uuid, vm_name, username, binding, client_ip)
+    _tickets[token] = Ticket(cluster_id, vm_uuid, vm_name, username, binding, client_ip, source=source,
+                             view_only=view_only, max_minutes=max_minutes, grant_id=grant_id)
     return token
+
+
+def end(session_id: int, reason: str) -> bool:
+    """Ask a live session to close (a revoked guest grant, 'end session' by a granter)."""
+    if session_id not in active:
+        return False
+    _ending[session_id] = reason[:120]
+    return True
 
 
 def consume(token: str, binding: str) -> Optional[Ticket]:
@@ -102,11 +118,14 @@ async def relay(request: web.Request, http: aiohttp.ClientSession) -> web.WebSoc
         return down
 
     sid = await asyncio.to_thread(store.session_start, ticket.cluster_id, ticket.vm_uuid, target.vm_name,
-                                  ticket.username, client_ip=ticket.client_ip)
+                                  ticket.username, client_ip=ticket.client_ip, source=ticket.source,
+                                  guest_grant_id=ticket.grant_id)
     started = time.monotonic()
     state = {'last_input': started, 'in': 0, 'out': 0}
+    max_s = min(MAX_HOURS * 3600, (ticket.max_minutes or 1e9) * 60)
     active[sid] = {'id': sid, 'cluster_id': ticket.cluster_id, 'vm_uuid': ticket.vm_uuid,
-                   'vm_name': target.vm_name, 'username': ticket.username, 'started': time.time()}
+                   'vm_name': target.vm_name, 'username': ticket.username, 'started': time.time(),
+                   'source': ticket.source, 'view_only': ticket.view_only, 'grant_id': ticket.grant_id}
     log.info('console opened', extra={'session': sid, 'user': ticket.username, 'vm': target.vm_name,
                                       'vm_uuid': ticket.vm_uuid, 'cluster_id': ticket.cluster_id,
                                       'client_ip': ticket.client_ip})
@@ -120,6 +139,8 @@ async def relay(request: web.Request, http: aiohttp.ClientSession) -> web.WebSoc
             else:
                 break
             state['in'] += len(data)
+            if ticket.view_only and rfb.carries_input(data):
+                continue                      # read-only: keys, pointer and clipboard never reach the VM
             if rfb.is_user_input(data, True):
                 state['last_input'] = time.monotonic()
             await up.send_bytes(data)
@@ -135,12 +156,14 @@ async def relay(request: web.Request, http: aiohttp.ClientSession) -> web.WebSoc
 
     async def limits():
         while True:
-            await asyncio.sleep(5)
+            await asyncio.sleep(2)
             now = time.monotonic()
-            if now - state['last_input'] > IDLE_MINUTES * 60:
+            if sid in _ending:
+                return _ending.pop(sid)
+            if not ticket.view_only and now - state['last_input'] > IDLE_MINUTES * 60:
                 return f'idle for {IDLE_MINUTES:g} minutes'
-            if now - started > MAX_HOURS * 3600:
-                return f'maximum duration of {MAX_HOURS:g} hours reached'
+            if now - started > max_s:
+                return f'maximum duration of {max_s / 60:g} minutes reached'
 
     tasks = [asyncio.create_task(c()) for c in (browser_to_cluster, cluster_to_browser, limits)]
     reason = 'ended'
@@ -160,6 +183,7 @@ async def relay(request: web.Request, http: aiohttp.ClientSession) -> web.WebSoc
             await down.close(code=4000 if 'idle' in reason or 'maximum' in reason else 1000,
                              message=reason[:120].encode())
         active.pop(sid, None)
+        _ending.pop(sid, None)
         await asyncio.to_thread(store.session_end, sid, reason, state['in'], state['out'])
         log.info('console closed', extra={'session': sid, 'user': ticket.username, 'vm': target.vm_name,
                                           'reason': reason, 'seconds': round(time.monotonic() - started)})

@@ -1,0 +1,90 @@
+/* HyperCore Manager — dialogs and Settings → Access (access.js). Uses the theme variables of index.html. */
+.hcm-modal { padding-bottom: 18px; }
+.hcm-modal-body { font-size: 13px; color: var(--text-secondary); }
+.hcm-modal-msg:not(:empty) { margin-top: 10px; }
+.hcm-modal-foot { display: flex; gap: 10px; justify-content: flex-end; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+.hcm-modal-foot:empty { display: none; }
+.hcm-modal-foot .hcm-btn-danger { margin-right: auto; }
+.hcm-text { line-height: 1.55; color: var(--text-secondary); margin: 0 0 8px; }
+.hcm-form { display: flex; flex-direction: column; gap: 10px; }
+.hcm-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-muted); letter-spacing: .02em; }
+.hcm-field .um-input, .hcm-field .um-select { width: 100%; box-sizing: border-box; }
+.hcm-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .hcm-grid2 { grid-template-columns: 1fr; } }
+.hcm-assign { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; border: 1px dashed var(--border); border-radius: 8px; }
+.hcm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.hcm-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px;
+            font-size: 12px; cursor: pointer; color: var(--text-secondary); }
+.hcm-chip:has(input:checked) { border-color: var(--accent-cyan); color: var(--text-primary); }
+.hcm-banner { display: flex; align-items: center; gap: 12px; padding: 9px 12px; margin: 8px 0 12px; border-radius: 8px;
+              background: rgba(245, 158, 11, .10); border: 1px solid rgba(245, 158, 11, .35); color: var(--accent-amber); font-size: 12px; }
+.hcm-banner .um-action-btn { margin-left: auto; }
+.um-badge.hcm-badge-warn { background: rgba(245, 158, 11, .14); color: var(--accent-amber); border-color: rgba(245, 158, 11, .4); }
+.um-badge.hcm-badge-off { background: rgba(148, 163, 184, .12); color: var(--text-muted); border-color: var(--border); }
+.hcm-permgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.hcm-permarea { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--bg-card); }
+.hcm-perm { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+.hcm-perm.na { opacity: .45; cursor: not-allowed; }
+.hcm-perm span:nth-of-type(1) { flex: 1; }
+.hcm-level { font-family: 'JetBrains Mono', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted);
+             border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+.hcm-tree { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.hcm-tree-row { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
+.hcm-tree-row:last-child { border-bottom: none; }
+.hcm-tree-row:hover { background: var(--bg-card-hover); }
+.hcm-tree-level { font-family: 'JetBrains Mono', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--accent-cyan);
+                  min-width: 64px; }
+.hcm-tree-name { color: var(--text-primary); font-weight: 500; }
+.hcm-who-line { font-size: 12px; padding: 3px 0; color: var(--text-secondary); }
+.rail-tenant { font-family: 'JetBrains Mono', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted);
+               padding: 10px 10px 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hcm-guest-link { font-family: 'JetBrains Mono', monospace; font-size: 12px; word-break: break-all; padding: 8px 10px; border-radius: 6px;
+                  background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); }
+.hcm-guest-code { font-family: 'JetBrains Mono', monospace; font-size: 28px; letter-spacing: .3em; color: var(--accent-cyan); text-align: center; padding: 10px; }
+/* Settings → Access → Tenants: a column browser with a preview pane */
+.hcm-tb { display: flex; border: 1px solid var(--border); border-radius: 8px; height: min(62vh, 600px); min-height: 360px; overflow: hidden; background: var(--bg-card); }
+.hcm-tb-cols { display: flex; flex: 0 1 auto; min-width: 0; overflow-x: auto; }
+.hcm-tb-col { flex: 0 0 210px; display: flex; flex-direction: column; border-right: 1px solid var(--border); overflow-y: auto; padding: 4px 0; }
+.hcm-tb-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; margin: 0 4px; border-radius: 6px; font-size: 13px; color: var(--text-primary); cursor: pointer; user-select: none; }
+.hcm-tb-item:hover { background: var(--bg-card-hover); }
+.hcm-tb-item.sel { background: rgba(6, 182, 212, .16); box-shadow: inset 0 0 0 1px rgba(6, 182, 212, .35); }
+.hcm-tb-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hcm-tb-count { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.hcm-tb-chev { color: var(--text-muted); font-size: 15px; line-height: 1; }
+.hcm-tb-empty, .hcm-tb-hint { font-size: 12px; color: var(--text-muted); padding: 8px 12px; }
+.hcm-tb-add { margin: 6px 8px; padding: 5px 8px; border: 1px dashed var(--border); border-radius: 6px; background: none; color: var(--text-muted); font-size: 12px; cursor: pointer; text-align: left; }
+.hcm-tb-add:hover { color: var(--accent-cyan); border-color: var(--accent-cyan); }
+.hcm-tb-icon { flex: 0 0 auto; width: 16px; height: 16px; display: inline-flex; }
+.hcm-tb-icon svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.hcm-tb-icon-msp { color: var(--accent-purple); } .hcm-tb-icon-customer { color: var(--accent-amber); }
+.hcm-tb-icon-folder { color: var(--accent-cyan); } .hcm-tb-icon-cluster { color: var(--accent-green, #22c55e); }
+.hcm-tb-icon-user, .hcm-tb-icon-group { color: var(--text-muted); }
+.hcm-tb-pane { flex: 1 1 420px; min-width: 420px; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.hcm-tb-head { display: flex; align-items: flex-start; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.hcm-tb-head > .hcm-tb-icon { width: 28px; height: 28px; margin-top: 2px; }
+.hcm-tb-title { font-size: 16px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hcm-tb-crumbs { font-size: 11px; color: var(--text-muted); margin-top: 3px; display: flex; gap: 4px 8px; align-items: baseline; flex-wrap: wrap; }
+.hcm-tb-crumbs .hcm-tree-level { flex: 0 0 auto; }
+.hcm-tb-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.hcm-tb-who { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px; font-size: 13px; }
+.hcm-tb-who:hover { background: var(--bg-card-hover); }
+.hcm-tb-who.inherited { opacity: .62; }
+.hcm-tb-who-name { flex: 1; min-width: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+.hcm-tb-who-name a { color: inherit; text-decoration: none; } .hcm-tb-who-name a:hover { color: var(--accent-cyan); text-decoration: underline; }
+.hcm-tb-who-name > .um-hint { margin-left: 6px; }
+.hcm-tb-who-name div.um-hint { margin-left: 0; }
+.hcm-tb-role { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); white-space: nowrap; }
+.hcm-tb-x { width: 22px; height: 22px; border: none; background: none; color: var(--text-muted); font-size: 16px; border-radius: 4px; cursor: pointer; line-height: 1; }
+.hcm-tb-x:hover { color: var(--accent-red, #ef4444); background: rgba(239, 68, 68, .1); }
+.hcm-tb-x-pad { width: 22px; }
+@media (max-width: 900px) { .hcm-tb { flex-direction: column; height: auto; } .hcm-tb-cols { height: 300px; } .hcm-tb-col { flex-basis: 170px; } .hcm-tb-pane { min-width: 0; border-top: 1px solid var(--border); } }
+
+/* Settings → Access → a group's dialog: sections with their actions on the right, a search to add members */
+.hcm-ga-head { display: flex; align-items: center; gap: 8px; margin: 18px 0 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.hcm-ga-head .um-section-title { margin: 0; }
+.hcm-ga-search { margin: 4px 0 8px; padding: 8px; border: 1px dashed var(--border); border-radius: 8px; }
+.hcm-ga-search .um-input { width: 100%; margin-bottom: 4px; }
+.hcm-ga-search .hcm-tb-item { margin: 0; }
+.hcm-tb-dim .hcm-tb-who-name > a { color: var(--text-secondary); }
+.hcm-tb-src { color: var(--accent-cyan); text-decoration: none; } .hcm-tb-src:hover { text-decoration: underline; }
+.hcm-tb-who .um-action-btn { flex: 0 0 auto; }
