@@ -18,7 +18,7 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
         'email_confirm': ("Confirm your new address for HyperCore Manager",
                           "Your HyperCore Manager account is to sign in with this address from now on: {new}\n\n"
                           "Open this link to confirm it:\n\n{link}\n\n"
-                          "The link works once and for {hours} hours. If you did not ask for this, ignore this mail.\n"),
+                          "The link works once and for {minutes} minutes. If you did not ask for this, ignore this mail.\n"),
         'email_notice': ("Your HyperCore Manager address was changed",
                          "Your HyperCore Manager account no longer signs in with this address; it now uses {new}.\n\n"
                          "If you did not do this, contact your administrator at once.\n"),
@@ -34,6 +34,12 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                      "Your HyperCore Manager account now signs in with this email address.\n\n"
                      "Open this link to confirm the address and choose a new password:\n\n{link}\n\n"
                      "The link works once and for {hours} hours. If you did not expect this, ignore this mail.\n"),
+        'guest_request': ("HyperCore Manager: console access requested for {vm}",
+                          "Someone asks for outside console access to a VM you may give it for.\n\n"
+                          "VM: {vm} (cluster {cluster})\nGuest: {guest}\n\n"
+                          "Approve or reject it in HyperCore Manager:\n\n{link}\n\n"
+                          "Nothing is granted until someone approves it there. Anyone who may give this access can decide; "
+                          "if a colleague already did, the link shows it.\n"),
         'test': ("HyperCore Manager: test mail",
                  "This is a test mail from HyperCore Manager, sent by {actor}.\n\n"
                  "If you can read this, mail from HyperCore Manager reaches you.\n"),
@@ -46,7 +52,7 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
         'email_confirm': ("Bevestig je nieuwe adres voor HyperCore Manager",
                           "Je HyperCore Manager-account logt voortaan in met dit adres: {new}\n\n"
                           "Open deze link om het te bevestigen:\n\n{link}\n\n"
-                          "De link werkt één keer en {hours} uur lang. Heb je hier niet om gevraagd, negeer deze mail dan.\n"),
+                          "De link werkt één keer en {minutes} minuten lang. Heb je hier niet om gevraagd, negeer deze mail dan.\n"),
         'email_notice': ("Je HyperCore Manager-adres is gewijzigd",
                          "Je HyperCore Manager-account logt niet meer in met dit adres; het gebruikt nu {new}.\n\n"
                          "Heb je dit niet zelf gedaan, neem dan meteen contact op met je beheerder.\n"),
@@ -62,6 +68,12 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                      "Je HyperCore Manager-account logt voortaan in met dit e-mailadres.\n\n"
                      "Open deze link om het adres te bevestigen en een nieuw wachtwoord te kiezen:\n\n{link}\n\n"
                      "De link werkt één keer en {hours} uur lang. Verwachtte je dit niet, negeer deze mail dan.\n"),
+        'guest_request': ("HyperCore Manager: consoletoegang aangevraagd voor {vm}",
+                          "Iemand vraagt externe consoletoegang tot een VM waarvoor jij die toegang mag geven.\n\n"
+                          "VM: {vm} (cluster {cluster})\nGast: {guest}\n\n"
+                          "Keur de aanvraag goed of af in HyperCore Manager:\n\n{link}\n\n"
+                          "Er wordt niets gegeven tot iemand de aanvraag daar goedkeurt. Iedereen die deze toegang mag geven kan beslissen; "
+                          "heeft een collega dat al gedaan, dan toont de link het.\n"),
         'test': ("HyperCore Manager: testmail",
                  "Dit is een testmail van HyperCore Manager, verstuurd door {actor}.\n\n"
                  "Als je dit kunt lezen, komt mail van HyperCore Manager bij je aan.\n"),
@@ -74,7 +86,7 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
         'email_confirm': ("Bestätigen Sie Ihre neue Adresse für HyperCore Manager",
                           "Ihr HyperCore-Manager-Konto meldet sich künftig mit dieser Adresse an: {new}\n\n"
                           "Öffnen Sie diesen Link, um sie zu bestätigen:\n\n{link}\n\n"
-                          "Der Link funktioniert einmal und {hours} Stunden lang. Haben Sie das nicht angefordert, ignorieren Sie diese Mail.\n"),
+                          "Der Link funktioniert einmal und {minutes} Minuten lang. Haben Sie das nicht angefordert, ignorieren Sie diese Mail.\n"),
         'email_notice': ("Ihre HyperCore-Manager-Adresse wurde geändert",
                          "Ihr HyperCore-Manager-Konto meldet sich nicht mehr mit dieser Adresse an; es verwendet jetzt {new}.\n\n"
                          "Wenn Sie das nicht waren, wenden Sie sich sofort an Ihren Administrator.\n"),
@@ -90,6 +102,12 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                      "Ihr HyperCore-Manager-Konto meldet sich jetzt mit dieser E-Mail-Adresse an.\n\n"
                      "Öffnen Sie diesen Link, um die Adresse zu bestätigen und ein neues Passwort zu wählen:\n\n{link}\n\n"
                      "Der Link funktioniert einmal und {hours} Stunden lang. Wenn Sie das nicht erwartet haben, ignorieren Sie diese Mail.\n"),
+        'guest_request': ("HyperCore Manager: Konsolenzugang für {vm} beantragt",
+                          "Jemand beantragt externen Konsolenzugang zu einer VM, für die Sie diesen Zugang vergeben dürfen.\n\n"
+                          "VM: {vm} (Cluster {cluster})\nGast: {guest}\n\n"
+                          "Genehmigen oder ablehnen in HyperCore Manager:\n\n{link}\n\n"
+                          "Es wird nichts vergeben, bis jemand den Antrag dort genehmigt. Jeder, der diesen Zugang vergeben darf, kann entscheiden; "
+                          "hat ein Kollege das schon getan, zeigt der Link es an.\n"),
         'test': ("HyperCore Manager: Testmail",
                  "Dies ist eine Testmail von HyperCore Manager, gesendet von {actor}.\n\n"
                  "Wenn Sie dies lesen können, erreicht Sie Mail von HyperCore Manager.\n"),
@@ -102,7 +120,7 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
         'email_confirm': ("Confirmez votre nouvelle adresse pour HyperCore Manager",
                           "Votre compte HyperCore Manager se connectera désormais avec cette adresse : {new}\n\n"
                           "Ouvrez ce lien pour la confirmer :\n\n{link}\n\n"
-                          "Le lien fonctionne une fois, pendant {hours} heures. Si vous ne l'avez pas demandé, ignorez cet e-mail.\n"),
+                          "Le lien fonctionne une fois, pendant {minutes} minutes. Si vous ne l'avez pas demandé, ignorez cet e-mail.\n"),
         'email_notice': ("Votre adresse HyperCore Manager a été modifiée",
                          "Votre compte HyperCore Manager ne se connecte plus avec cette adresse ; il utilise maintenant {new}.\n\n"
                          "Si ce n'était pas vous, contactez immédiatement votre administrateur.\n"),
@@ -118,6 +136,12 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                      "Votre compte HyperCore Manager se connecte désormais avec cette adresse e-mail.\n\n"
                      "Ouvrez ce lien pour confirmer l'adresse et choisir un nouveau mot de passe :\n\n{link}\n\n"
                      "Le lien fonctionne une fois, pendant {hours} heures. Si vous ne vous y attendiez pas, ignorez cet e-mail.\n"),
+        'guest_request': ("HyperCore Manager : accès console demandé pour {vm}",
+                          "Quelqu'un demande un accès console externe à une VM pour laquelle vous pouvez donner cet accès.\n\n"
+                          "VM : {vm} (cluster {cluster})\nInvité : {guest}\n\n"
+                          "Approuvez ou refusez la demande dans HyperCore Manager :\n\n{link}\n\n"
+                          "Rien n'est accordé tant que personne ne l'a approuvée là-bas. Toute personne autorisée à donner cet accès peut décider ; "
+                          "si un collègue l'a déjà fait, le lien l'indique.\n"),
         'test': ("HyperCore Manager : e-mail de test",
                  "Ceci est un e-mail de test de HyperCore Manager, envoyé par {actor}.\n\n"
                  "Si vous pouvez lire ceci, les e-mails de HyperCore Manager vous parviennent.\n"),

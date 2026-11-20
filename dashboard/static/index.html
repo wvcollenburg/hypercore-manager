@@ -5028,17 +5028,17 @@ function _renderMyAccountCard(me) {
   const devBadge = me.dev_mode ? `<span class="um-dev-notice">DEV MODE</span>` : '';
   const otpSection = me.dev_mode ? '' : `
     <div class="um-section">
-      <div class="um-section-title">Two-factor authentication</div>
+      <div class="um-section-title">${_esc(t('acct.otp_title'))}</div>
       ${me.otp_enabled
         ? `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-             <span class="um-badge um-badge-otp-on">OTP enabled</span>
-             <button class="um-action-btn danger" onclick="umDisableOtp()">Disable OTP</button>
+             <span class="um-badge um-badge-otp-on">${_esc(t('acct.otp_on'))}</span>
+             <button class="um-action-btn danger" onclick="umDisableOtp()">${_esc(t('acct.otp_disable'))}</button>
            </div>
            <div id="umOtpMsg"></div>`
         : `<div style="color:var(--text-muted);font-size:12px;margin-bottom:10px;">
-             Not configured — set up an authenticator app for extra security.
+             ${_esc(t('acct.otp_off'))}
            </div>
-           <button class="um-primary-btn" onclick="umShowOtpSetup()">Set up OTP</button>
+           <button class="um-primary-btn" onclick="umShowOtpSetup()">${_esc(t('acct.otp_setup'))}</button>
            <div id="umOtpSetup" style="display:none;margin-top:14px;"></div>
            <div id="umOtpMsg"></div>`
       }
@@ -5064,12 +5064,12 @@ function _renderMyAccountCard(me) {
 
   const pwSection = me.dev_mode ? '' : `
     <div class="um-section">
-      <div class="um-section-title">Change password</div>
+      <div class="um-section-title">${_esc(t('acct.pw_title'))}</div>
       <div class="um-field-row" id="umPwForm">
-        <input class="um-input" type="password" id="umCurPw" placeholder="${_esc(t('acc.current_password'))}" style="width:160px;">
-        <input class="um-input" type="password" id="umNewPw"  placeholder="New password" style="width:160px;">
-        <input class="um-input" type="password" id="umNewPw2" placeholder="Confirm" style="width:160px;">
-        <button class="um-primary-btn" onclick="umChangePassword('${me.username}', false)">Update</button>
+        <input class="um-input" type="password" id="umCurPw" placeholder="${_esc(t('acct.current_password'))}" style="width:160px;" autocomplete="current-password">
+        <input class="um-input" type="password" id="umNewPw"  placeholder="${_esc(t('acct.pw_new'))}" style="width:160px;" autocomplete="new-password">
+        <input class="um-input" type="password" id="umNewPw2" placeholder="${_esc(t('acct.pw_repeat'))}" style="width:160px;" autocomplete="new-password">
+        <button class="um-primary-btn" onclick="umChangePassword()">${_esc(t('acct.pw_update'))}</button>
       </div>
       <div id="umPwMsg"></div>
     </div>`;
@@ -5078,11 +5078,10 @@ function _renderMyAccountCard(me) {
     <div class="settings-group">
       <div class="settings-group-header">
         <div class="chart-title-dot" style="background:var(--accent-cyan)"></div>
-        <span class="settings-group-title">MY ACCOUNT</span>
-        <span style="font-size:12px;color:var(--text-muted);">${me.username}${devBadge}</span>
-        <span class="um-badge ${me.role === 'admin' ? 'um-badge-admin' : 'um-badge-user'}">${me.role}</span>
+        <span class="settings-group-title">${_esc(t('acct.title'))}</span>
+        <span style="font-size:12px;color:var(--text-muted);">${_esc(me.username)}${devBadge}</span>
         <a href="/logout" style="margin-left:auto;font-size:11px;color:var(--text-muted);text-decoration:none;"
-           onmouseover="this.style.color='var(--accent-blue)'" onmouseout="this.style.color='var(--text-muted)'">Sign out</a>
+           onmouseover="this.style.color='var(--accent-blue)'" onmouseout="this.style.color='var(--text-muted)'">${_esc(t('acct.sign_out'))}</a>
       </div>
       ${profileSection}${pwSection}${otpSection}
     </div>`;
@@ -5100,7 +5099,7 @@ async function umChangeEmail() {
   const email = document.getElementById('umNewEmail').value.trim();
   try {
     const d = await _acCall('PUT', '/api/users/me/email', { email, password: document.getElementById('umEmailPw').value, lang: window._hcmLang || 'en' });
-    m.textContent = t('acct.confirm_sent', { email: email.toLowerCase(), hours: d.hours }); m.style.color = 'var(--accent-green)';
+    m.textContent = t('acct.confirm_sent', { email: email.toLowerCase(), minutes: d.minutes }); m.style.color = 'var(--accent-green)';
     document.getElementById('umEmailPw').value = '';
   } catch (e) { m.textContent = e.message; m.style.color = 'var(--accent-red, #ef4444)'; }
 }
@@ -5111,31 +5110,29 @@ function _esc(s) {
 
 // ── my account actions ───────────────────────────────────────────────────────
 
-async function umChangePassword(username, isAdmin) {
-  const cur  = isAdmin ? null : (document.getElementById('umCurPw')  || {}).value;
+async function umChangePassword() {
+  const cur  = (document.getElementById('umCurPw')  || {}).value || '';
   const np   = (document.getElementById('umNewPw')  || {}).value || '';
   const np2  = (document.getElementById('umNewPw2') || {}).value || '';
   const msg  = document.getElementById('umPwMsg');
-  if (np !== np2) { msg.innerHTML = '<div class="um-error">Passwords do not match.</div>'; return; }
-  if (np.length < 6) { msg.innerHTML = '<div class="um-error">Password must be at least 6 characters.</div>'; return; }
-  const body = { new_password: np };
-  if (!isAdmin && cur !== null) body.current_password = cur;
-  const r = await fetch(`${API_BASE}/api/users/${encodeURIComponent(username)}/password`, {
-    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+  if (np !== np2) { msg.innerHTML = `<div class="um-error">${_esc(t('acct.pw_mismatch'))}</div>`; return; }
+  if (np.length < 8) { msg.innerHTML = `<div class="um-error">${_esc(t('acct.pw_short'))}</div>`; return; }
+  const r = await fetch(`${API_BASE}/api/users/me/password`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ current_password: cur, new_password: np })
   });
-  const d = await r.json();
+  const d = await r.json().catch(() => ({}));
   if (r.ok) {
-    msg.innerHTML = '<div class="um-success">Password updated.</div>';
+    msg.innerHTML = `<div class="um-success">${_esc(t('acct.pw_done'))}</div>`;
     ['umCurPw','umNewPw','umNewPw2'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
     setTimeout(() => { msg.innerHTML = ''; }, 3000);
   } else {
-    msg.innerHTML = `<div class="um-error">${_esc(d.error || 'Error')}</div>`;
+    msg.innerHTML = `<div class="um-error">${_esc(r.status === 403 ? t('acct.pw_wrong_current') : (d.error || 'Error'))}</div>`;
   }
 }
 
 async function umShowOtpSetup() {
   const box = document.getElementById('umOtpSetup');
-  box.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">Loading…</div>';
+  box.innerHTML = `<div style="color:var(--text-muted);font-size:12px;">${_esc(t('acct.loading'))}</div>`;
   box.style.display = 'block';
   const r = await fetch(`${API_BASE}/api/users/me/otp/setup`);
   const d = await r.json();
@@ -5144,13 +5141,13 @@ async function umShowOtpSetup() {
     <div class="um-otp-qr">
       <img src="${d.qr_data_url}" width="160" height="160" alt="OTP QR code">
       <div>
-        <div class="um-section-title" style="margin-bottom:6px;">Manual entry key</div>
+        <div class="um-section-title" style="margin-bottom:6px;">${_esc(t('acct.otp_key'))}</div>
         <div class="um-secret-box">${_esc(d.secret)}</div>
-        <div class="um-hint" style="margin-top:8px;">Scan with Google Authenticator, Authy, or any TOTP app.</div>
+        <div class="um-hint" style="margin-top:8px;">${_esc(t('acct.otp_scan'))}</div>
         <div class="um-field-row" style="margin-top:12px;">
-          <input class="um-input" type="text" id="umOtpCode" placeholder="6-digit code" maxlength="6"
+          <input class="um-input" type="text" id="umOtpCode" placeholder="${_esc(t('acct.otp_code'))}" maxlength="6"
                  inputmode="numeric" style="width:120px;letter-spacing:0.2em;text-align:center;">
-          <button class="um-primary-btn" onclick="umConfirmOtp()">Verify &amp; enable</button>
+          <button class="um-primary-btn" onclick="umConfirmOtp()">${_esc(t('acct.otp_verify'))}</button>
         </div>
         <div id="umOtpMsg"></div>
       </div>
@@ -5165,10 +5162,10 @@ async function umConfirmOtp() {
   });
   const d = await r.json();
   if (r.ok) {
-    showToast('OTP enabled successfully.', 'ok');
-    loadSettings();
+    showToast(t('acct.otp_enabled'), 'ok');
+    loadAccount();
   } else {
-    msg.innerHTML = `<div class="um-error">${_esc(d.error || 'Invalid code')}</div>`;
+    msg.innerHTML = `<div class="um-error">${_esc(t('acct.otp_bad_code'))}</div>`;
   }
 }
 
@@ -5180,8 +5177,8 @@ async function umDisableOtp() {
   });
   const d = await r.json();
   if (r.ok) {
-    showToast('OTP disabled.', 'ok');
-    loadSettings();
+    showToast(t('acct.otp_disabled'), 'ok');
+    loadAccount();
   } else {
     document.getElementById('umOtpMsg').innerHTML = `<div class="um-error">${_esc(d.error || 'Error')}</div>`;
   }

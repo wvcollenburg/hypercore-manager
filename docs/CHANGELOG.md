@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.3.0]
 
 ### Added
 - **Roles, tenants and fine-grained access** (migrations `044`, `045`). Clusters are arranged in a
@@ -23,20 +23,59 @@ All notable changes to this project are documented here. The format follows
   connects onto a console showing a login or lock screen (unless you allow otherwise), and is
   locked out after five wrong codes. Colleagues who may only ask send a request for approval.
   Granters watch read-only, end the session or revoke the access. Everything a guest needs is under
-  `/guest/`, so a reverse proxy can publish that path alone (`HCM_GUEST_BASE_URL` sets the public
-  address for the links).
+  `/guest/`, so a reverse proxy can publish that path alone (**Settings → Mail → Address in guest console
+  links** sets the public address for the links; `HCM_GUEST_BASE_URL` in `.env` is the default). A request mails the approvers nearest the VM (the VM's, else its
+  folder's, customer's, MSP's, and only then the installation's), with a link that opens it in
+  HCM; approving is done there, never by mail. One outside person per console: giving or approving
+  access while another guest holds that VM's console warns, then revokes the other access and ends
+  its session.
 - Tags that give access are guarded: adding or removing one in a VM edit, clone or new VM needs the
   right to manage users on the cluster; the VM edit window marks them.
+- **Accounts are email addresses** (migration `046`). Everyone signs in with their address, in any
+  capitals; only the main administrator from `.env` keeps its username. An account belongs to the
+  person, not to a tenant: someone working for two customers has one login and sees both.
+- **Invitations** (migration `048`): an administrator of a layer, or above, invites an address
+  with a role on a scope or into a group. The link proves the address: a new person chooses their
+  own password, an existing account accepts after signing in. Valid 48 hours, once; Resend and
+  Withdraw. The inviter gets the same answer whether or not the address already had an account.
+  Creating an account with a password set by someone else is for administrators of the whole
+  installation only.
+- **Settings → Mail** (migrations `047`, `050`): one SMTP relay for the installation (STARTTLS,
+  TLS or none, optional login, the password stored encrypted), the address put in links, the
+  address in guest console links and a test mail. Without mail, whoever invites gets the link to
+  pass on. Mails are plain text in English, Dutch, German or French.
+- **Self-service** (migration `049`): **Forgot your password?** on the sign-in page mails a link
+  (once, 60 minutes, at most three an hour); changing one's own address is confirmed from the new
+  address (once, 60 minutes) and the old one gets a notice; one's own name on the Account page.
+  Administrators of the whole installation can reset someone's two-factor authentication.
+- **Tenants** in Settings → Access is a column browser (MSP > customer > folder > cluster) with a
+  pane showing who is assigned on the selected layer, the groups defined there and above, and what
+  it inherits, each line linking to the layer it comes from.
+- **Nobody sees the layers above their own.** A customer's staff never see the MSP or the
+  installation above them: not in paths, lists, "who has access" or the audit; accounts above them
+  show as "an administrator above your level".
 
 ### Changed
 - **After this update, accounts other than administrators cannot sign in until an administrator
   gives them access.** At the first login an administrator gets a dialog listing those accounts
   (suggested: Viewer on the folders they were a member of); it cannot be closed while one is left.
   Administrators become Admin on the whole installation.
+- **Accounts whose username is not an email address need one.** They show as "needs an email
+  address" under Settings → Access; an administrator of the whole installation enters the address,
+  which sends the person an invitation to confirm it and choose a new password. Until then they
+  cannot sign in. The main administrator from `.env` is not affected.
 - Every dashboard route declares the one permission it needs and refuses everyone else; the two
   forwards to the backup and console services go through explicit tables, unknown paths are refused.
 - Dialogs are in-page everywhere: no browser prompt, confirm or alert boxes any more.
 - Changing your own password asks for the current one, also for administrators.
+- The sign-in page follows the dashboard's language (or the browser's): English, Dutch, German or
+  French. So does the password form on the Account page, which now needs at least 8 characters.
+
+### Removed
+- The old user API: `GET`/`POST /api/users`, `DELETE /api/users/<username>`,
+  `PUT /api/users/<username>/password` and `PUT /api/folders/<id>/members`. Scripts use
+  `/api/access/users` (and assignments instead of folder membership); one's own password is
+  `PUT /api/users/me/password`, always with the current password.
 
 ### Fixed
 - **Backup resources of other clusters could be reached by id.** Plans, chains, restore points,

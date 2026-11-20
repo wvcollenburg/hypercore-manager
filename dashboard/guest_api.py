@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import secrets
+import threading
 from datetime import datetime, timedelta, timezone
 
 from flask import Response, jsonify, make_response, redirect, render_template, request, send_from_directory, session
@@ -31,6 +31,8 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import access_db
+import mailer
+import rbac
 from access_db import AccessError
 
 COOKIE = 'hcm_guest'
@@ -62,6 +64,40 @@ def _row(r) -> dict:
         if k in ('token_hash', 'code_hash', 'guest_nonce_hash'):
             continue
         out[k] = v.isoformat() if hasattr(v, 'isoformat') else (str(v) if k == 'cluster_id' else v)
+    return out
+
+
+def _closeness(g: rbac.Grant, tree: rbac.Tree, cid: str, vm: str, tags) -> int | None:
+    """How near a grant carrying guest_console.grant sits to one VM (higher is nearer); None: it does
+    not give that right on the VM. VM > tag > cluster > folder > customer > MSP > whole installation."""
+    if 'guest_console.grant' not in g.effective():
+        return None
+    if g.kind == 'vm':
+        return 1000 if g.cluster_id == cid and g.vm_uuid == vm else None
+    if g.kind == 'tag':
+        return 900 if g.cluster_id == cid and g.tag in tags else None
+    if g.kind == 'cluster':
+        return 800 if g.cluster_id == cid else None
+    if g.kind == 'node':
+        return 10 + len(tree.ancestors(g.node_id)) if tree.cluster_within(cid, g.node_id) else None
+    return 0 if g.kind == 'root' else None
+
+
+def nearest_granters(candidates, tree: rbac.Tree, cid: str, vm: str, tags=()) -> list[dict]:
+    """Who hears of a guest request: of the accounts that may approve it, those whose right sits nearest
+    the VM. A customer's own approvers are asked before its MSP, the MSP before the installation's
+    administrators; a level only counts when someone there can be mailed (the caller passes only those).
+    candidates: [(user, [Grant])]."""
+    best, out = None, []
+    tags = set(tags or ())
+    for user, grants in candidates:
+        near = max((c for c in (_closeness(g, tree, cid, vm, tags) for g in grants) if c is not None), default=None)
+        if near is None:
+            continue
+        if best is None or near > best:
+            best, out = near, [user]
+        elif near == best:
+            out.append(user)
     return out
 
 
@@ -133,7 +169,7 @@ def register(app, sock, requires, public, h):
 
     def link(token: str) -> str:
         """The guest's link, as the granter's browser reached HCM (behind a TLS proxy: https)."""
-        base = (os.getenv('HCM_GUEST_BASE_URL') or '').strip().rstrip('/')
+        base = mailer.guest_link_base()                   # Settings -> Mail, else HCM_GUEST_BASE_URL
         if base:
             return f'{base}/guest/{token}'
         host = request.headers.get('X-Forwarded-Host') or request.host
@@ -172,21 +208,66 @@ def register(app, sock, requires, public, h):
                 'max_minutes': max_minutes, 'max_sessions': max_sessions,
                 'allow_open_session': bool(b.get('allow_open_session'))}
 
-    def insert(f: dict, status: str, token: str | None, code: str | None) -> int:
+    def insert(f: dict, status: str, token: str | None, code: str | None, cur=None) -> int:
+        if cur is None:
+            conn = db()
+            try:
+                with conn.cursor() as c:
+                    gid = insert(f, status, token, code, c)
+                conn.commit()
+            finally:
+                conn.close()
+            return gid
+        cols = list(f) + ['status', 'requested_by']
+        vals = list(f.values()) + [status, actor()]
+        if token:
+            cols += ['token_hash', 'code_hash', 'granted_by', 'granted_at']
+            vals += [_sha(token), generate_password_hash(code), actor(), _now()]
+        cur.execute(f"INSERT INTO console.guest_grants ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))}) RETURNING id", vals)
+        return cur.fetchone()['id']
+
+    class Occupied(Exception):
+        """The console already has a live grant and the granter did not confirm replacing it."""
+        def __init__(self, holders):
+            super().__init__('occupied')
+            self.holders = holders
+
+    def one_guest_per_console(cid: str, vm: str, replace: bool, write, keep_id: int | None = None):
+        """Give a console to one guest only. Under a lock on this VM, find its other live grants (active or
+        locked, window not over); without `replace` refuse with Occupied, with it revoke them in the same
+        transaction as write(cur) (the new grant or the approval), then end their sessions. Two granters
+        approving at once cannot both win: the second one waits for the lock and then sees the first."""
         conn = db()
         try:
             with conn.cursor() as cur:
-                cols = list(f) + ['status', 'requested_by']
-                vals = list(f.values()) + [status, actor()]
-                if token:
-                    cols += ['token_hash', 'code_hash', 'granted_by', 'granted_at']
-                    vals += [_sha(token), generate_password_hash(code), actor(), _now()]
-                cur.execute(f"INSERT INTO console.guest_grants ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))}) RETURNING id", vals)
-                gid = cur.fetchone()['id']
+                cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (f'hcm-guest:{cid}:{vm}',))
+                cur.execute("""SELECT id, guest_name, guest_company, vm_name, vm_uuid, valid_from, valid_until, status
+                                 FROM console.guest_grants
+                                WHERE cluster_id = %s AND vm_uuid = %s AND status IN ('active', 'locked')
+                                  AND valid_until > NOW() AND id <> %s""", (cid, vm, keep_id or -1))
+                holders = [dict(r) for r in cur.fetchall()]
+                if holders and not replace:
+                    conn.rollback()
+                    raise Occupied(holders)
+                for o in holders:
+                    cur.execute("""UPDATE console.guest_grants SET status = 'revoked', revoked_by = %s, revoked_at = NOW(),
+                                          guest_nonce_hash = NULL WHERE id = %s""", (actor(), o['id']))
+                result = write(cur)
             conn.commit()
         finally:
             conn.close()
-        return gid
+        for o in holders:
+            h.console_call('POST', f"grants/{o['id']}/end", payload={'reason': 'guest access given to someone else'}, timeout=10)
+            audit('guest.revoke', label(o), cid, {'reason': 'replaced by a new grant on this console'})
+        return result
+
+    def occupied(e) -> tuple:
+        """409 with who holds the console now, for the granter's 'are you sure'."""
+        live_ids = {int(s['grant_id']) for s in live() if s.get('grant_id') and s.get('source') == 'guest'}
+        return jsonify({'error': 'another guest already has access to this console', 'occupied': [
+            {'id': o['id'], 'guest_name': o['guest_name'], 'guest_company': o['guest_company'],
+             'valid_until': o['valid_until'].isoformat(), 'status': o['status'], 'live': o['id'] in live_ids}
+            for o in e.holders]}), 409
 
     def live(gid=None) -> list:
         status, raw, _ = h.console_call('GET', 'live', query=f'grant={gid}' if gid else '', timeout=10)
@@ -242,7 +323,44 @@ def register(app, sock, requires, public, h):
         gid = insert(f, 'requested', None, None)
         audit('guest.request', label(f), f['cluster_id'], {'window': [f['valid_from'].isoformat(), f['valid_until'].isoformat()],
                                                            'reason': f['reason']})
-        return jsonify({'ok': True, 'id': gid}), 201
+        mailed = notify_granters(gid, f, str(b.get('lang') or '')[:2] or None)
+        return jsonify({'ok': True, 'id': gid, 'mailed': mailed}), 201
+
+    def notify_granters(gid: int, f: dict, lang: str | None) -> bool:
+        """Mail the nearest approvers that a request waits (no approving by mail: the link opens it in HCM).
+        Sent in the background; True when at least one mail is on its way."""
+        if not mailer.configured():
+            return False
+        try:
+            tree = h.access().tree
+            tags = next((v.get('tags') or [] for v in h.vm_index_rows(f['cluster_id']) if v.get('uuid') == f['vm_uuid']), [])
+            me = session.get('user_id')
+            candidates = [(u, access_db.grants_of_principal(user_id=u['user_id'])) for u in access_db.users()
+                          if u['enabled'] and not u.get('awaiting_email') and not u.get('awaiting_access')
+                          and '@' in (u['username'] or '') and u['user_id'] != me]
+            to = [u['username'] for u in nearest_granters(candidates, tree, f['cluster_id'], f['vm_uuid'], tags)]
+        except Exception as exc:  # noqa: BLE001 — the request stands; the badge and toast still tell the approvers
+            app.logger.warning('guest request %s: approvers not found for mail: %s', gid, exc)
+            return False
+        if not to:
+            return False
+        cluster = next((c.name for c in h.clusters() if str(c.cluster_id) == f['cluster_id']), '')
+        values = {'vm': f['vm_name'], 'cluster': cluster or '-',
+                  'guest': f['guest_name'] + (f" ({f['guest_company']})" if f.get('guest_company') else ''),
+                  'link': f'{mailer.link_base(request.host_url)}/guest-requests/{gid}'}
+        by = actor()
+
+        def send():
+            for addr in to:
+                mailer.deliver(addr, 'guest_request', lang, by=by, **values)
+        threading.Thread(target=send, daemon=True, name='guest-request-mail').start()
+        return True
+
+    @app.route('/guest-requests/<int:gid>')
+    @requires(None)
+    def guest_request_link(gid):
+        """The link in the request mail: the dashboard opens Settings → Access → Guest console on it."""
+        return redirect(f'/?guest_request={gid}')
 
     @app.route('/api/guest/grants', methods=['POST'])
     @requires('guest_console.grant', 'any')
@@ -252,7 +370,11 @@ def register(app, sock, requires, public, h):
         if not h.can_vm('guest_console.grant', f['cluster_id'], f['vm_uuid']):
             raise AccessError('not found', 404)
         token, code = new_secrets()
-        gid = insert(f, 'active', token, code)
+        try:
+            gid = one_guest_per_console(f['cluster_id'], f['vm_uuid'], bool(b.get('replace')),
+                                        lambda cur: insert(f, 'active', token, code, cur))
+        except Occupied as e:
+            return occupied(e)
         audit('guest.grant', label(f), f['cluster_id'], {'window': [f['valid_from'].isoformat(), f['valid_until'].isoformat()],
                                                          'max_minutes': f['max_minutes'], 'max_sessions': f['max_sessions'],
                                                          'allow_open_session': f['allow_open_session']})
@@ -266,8 +388,17 @@ def register(app, sock, requires, public, h):
             raise AccessError('only a request can be approved', 409)
         b = request.get_json(silent=True) or {}
         token, code = new_secrets()
-        update(g['id'], status='active', token_hash=_sha(token), code_hash=generate_password_hash(code), granted_by=actor(),
-               granted_at=_now(), allow_open_session=bool(b.get('allow_open_session')))
+
+        def approve(cur):
+            cur.execute("""UPDATE console.guest_grants SET status = 'active', token_hash = %s, code_hash = %s, granted_by = %s,
+                                  granted_at = NOW(), allow_open_session = %s WHERE id = %s AND status = 'requested'""",
+                        (_sha(token), generate_password_hash(code), actor(), bool(b.get('allow_open_session')), g['id']))
+            if cur.rowcount != 1:
+                raise AccessError('this request was decided meanwhile', 409)
+        try:
+            one_guest_per_console(g['cluster_id'], g['vm_uuid'], bool(b.get('replace')), approve, keep_id=g['id'])
+        except Occupied as e:
+            return occupied(e)
         audit('guest.approve', label(g), g['cluster_id'], {'requested_by': g['requested_by']})
         return jsonify({'ok': True, 'link': link(token), 'code': code})
 
@@ -298,8 +429,15 @@ def register(app, sock, requires, public, h):
         if g['status'] not in ('active', 'locked'):
             raise AccessError('only an active or locked grant gets a new code', 409)
         token, code = new_secrets()
-        update(g['id'], status='active', token_hash=_sha(token), code_hash=generate_password_hash(code), failed_codes=0,
-               guest_nonce_hash=None)
+
+        def reissue(cur):
+            cur.execute("""UPDATE console.guest_grants SET status = 'active', token_hash = %s, code_hash = %s, failed_codes = 0,
+                                  guest_nonce_hash = NULL WHERE id = %s""", (_sha(token), generate_password_hash(code), g['id']))
+        try:
+            one_guest_per_console(g['cluster_id'], g['vm_uuid'], bool((request.get_json(silent=True) or {}).get('replace')),
+                                  reissue, keep_id=g['id'])
+        except Occupied as e:
+            return occupied(e)
         h.console_call('POST', f"grants/{g['id']}/end", payload={'reason': 'new code issued'}, timeout=10)
         audit('guest.reissue', label(g), g['cluster_id'])
         return jsonify({'ok': True, 'link': link(token), 'code': code})
@@ -427,6 +565,11 @@ def register(app, sock, requires, public, h):
             return jsonify({'error': 'enter the code first'}), 401
         if g['sessions_used'] >= g['max_sessions']:
             return jsonify({'error': 'every session of this access has been used'}), 403
+        # one outside person on a console at a time, also should two grants ever be live (rows from before the rule)
+        if any(s.get('source') == 'guest' and str(s.get('cluster_id')) == g['cluster_id'] and s.get('vm_uuid') == g['vm_uuid']
+               and s.get('grant_id') != g['id'] for s in live()):
+            audit('guest.blocked_occupied', label(g), g['cluster_id'], who=f"guest:{g['guest_name']}")
+            return jsonify({'error': 'Someone else is working on this console right now. Try again later.', 'not_ready': True}), 409
         if not g['allow_open_session']:
             st, raw, _ = h.console_call('POST', 'check/verdict', payload={'cluster_id': g['cluster_id'], 'vm_uuid': g['vm_uuid']},
                                         timeout=60)

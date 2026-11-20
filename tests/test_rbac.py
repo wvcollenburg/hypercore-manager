@@ -247,3 +247,54 @@ def test_access_frontend_uses_no_browser_popups(repo):
     for rel in ('dashboard/static/index.html', 'dashboard/static/access.js', 'dashboard/templates/console.html'):
         src = (repo / rel).read_text()
         assert not re.search(r'(?<![A-Za-z_.])(prompt|confirm|alert)\(', src), rel
+
+
+# ------------------------------------------------------------------ who hears of a guest request
+def _granters(*people):
+    import guest_api
+    cands = [({'username': name}, list(grants)) for name, grants in people]
+    return [u['username'] for u in guest_api.nearest_granters(cands, tree(), 'c1', 'v1', ['erp'])]
+
+
+def test_guest_request_mail_goes_to_the_nearest_approvers():
+    root = ('root@x', [rbac.Grant(role('admin'), 'root')])
+    msp = ('msp@x', [rbac.Grant(role('admin'), 'node', node_id='msp1')])
+    cust = ('cust@x', [rbac.Grant(role('admin'), 'node', node_id='cust1')])
+    cust_b = ('cust-b@x', [rbac.Grant(role('admin'), 'node', node_id='cust1')])
+    fold = ('fold@x', [rbac.Grant(role('admin'), 'node', node_id='fold1')])
+    vm = ('vm@x', [rbac.Grant(role('admin'), 'vm', cluster_id='c1', vm_uuid='v1')])
+    assert _granters(root, msp, cust, cust_b) == ['cust@x', 'cust-b@x']     # the customer decides, not its MSP
+    assert _granters(root, msp, cust, fold) == ['fold@x']
+    assert _granters(root, msp, fold, vm) == ['vm@x']
+    assert _granters(root, msp) == ['msp@x']                                # nobody at the customer: up one level
+    assert _granters(root) == ['root@x']
+
+
+def test_guest_request_mail_skips_who_cannot_approve_that_vm():
+    other_cust = ('other@x', [rbac.Grant(role('admin'), 'node', node_id='cust2')])
+    other_vm = ('vm2@x', [rbac.Grant(role('admin'), 'vm', cluster_id='c1', vm_uuid='v2')])
+    engineer = ('eng@x', [rbac.Grant(role('engineer'), 'node', node_id='fold1')])    # may only request
+    tag = ('tag@x', [rbac.Grant(role('admin'), 'tag', cluster_id='c1', tag='erp')])
+    root = ('root@x', [rbac.Grant(role('admin'), 'root')])
+    assert _granters(other_cust, other_vm, engineer, root) == ['root@x']
+    assert _granters(other_cust, engineer, tag, root) == ['tag@x']
+    assert _granters(other_cust, other_vm, engineer) == []
+
+
+def test_login_page_texts_exist_in_every_language():
+    import login_texts
+    keys = set(login_texts.TEXTS['en'])
+    for lang in ('nl', 'de', 'fr'):
+        assert set(login_texts.TEXTS[lang]) == keys, lang
+    tpl = (__import__('pathlib').Path(__file__).parent.parent / 'dashboard' / 'templates' / 'login.html').read_text()
+    used = set(re.findall(r'\bt\.(\w+)', tpl))
+    assert used <= keys, used - keys
+    assert '>Sign in<' not in tpl and 'Verification code' not in tpl, 'no English left in the template'
+
+
+def test_every_dashboard_module_is_in_the_image():
+    from pathlib import Path
+    root = Path(__file__).parent.parent / 'dashboard'
+    docker = (root / 'Dockerfile').read_text()
+    for py in root.glob('*.py'):
+        assert f'COPY dashboard/{py.name} .' in docker, py.name

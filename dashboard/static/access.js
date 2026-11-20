@@ -201,7 +201,7 @@ async function _acLoad() {
 async function _acCall(method, path, body) {
   const r = await fetch(`${API_BASE}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  if (!r.ok) { const e = new Error(d.error || `HTTP ${r.status}`); e.status = r.status; e.data = d; throw e; }
   return d;
 }
 
@@ -1381,6 +1381,7 @@ async function acFolderAccess(folderId) {
 // ── boot ────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   window._accMeCache = await hcmLoadAccess();
+  _gcOpenFromLink();
   setTimeout(hcmCheckPending, 600);
 });
 
@@ -1391,11 +1392,24 @@ function _gcDt(d) { const p = n => String(n).padStart(2, '0'); return `${d.getFu
 function _gcWho(g, f) { return (g.hidden || []).includes(f) ? t('acc.actor_above') : (g[f] || '—'); }
 function _gcFmt(iso) { return iso ? new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '—'; }
 
+/** The link in a request mail (/guest-requests/<id> → /?guest_request=<id>): open the guest console tab on it. */
+function _gcOpenFromLink() {
+  let id = null;
+  try { id = parseInt(new URLSearchParams(location.search).get('guest_request'), 10); } catch (_) {}
+  if (!id) return;
+  try { const u = new URL(location.href); u.searchParams.delete('guest_request'); history.replaceState(null, '', u.pathname + u.search + u.hash); } catch (_) {}
+  _ac.focusGrant = id;
+  _ac.tab = 'guest';
+  switchSettingsPanel('users');
+  switchTab('settings');
+}
+
 window.acRenderGuest = async function () {
   const body = document.getElementById('acBody');
   body.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
   const d = await apiFetch('/api/guest/grants');
   const rows = (d && d.grants) || [];
+  _ac.guestRows = rows;
   const mayGrant = canAnyVmPerm('guest_console.grant');
   if (d && (d.pending || 0) !== (_ac.guestPending || 0)) { _ac.guestPending = d.pending || 0; renderAccessPanel(); return; }
   const badge = g => {
@@ -1420,7 +1434,7 @@ window.acRenderGuest = async function () {
                  : `<button class="um-primary-btn" onclick="gcForm('request')">+ ${_esc(t('gc.ask'))}</button>`}</div>
     ${rows.length ? `<table class="um-table"><thead><tr><th>${_esc(t('gc.col_vm'))}</th><th>${_esc(t('gc.col_guest'))}</th><th>${_esc(t('gc.col_window'))}</th>
         <th>${_esc(t('acc.col_state'))}</th><th>${_esc(t('gc.col_sessions'))}</th><th></th></tr></thead><tbody>
-      ${rows.map(g => `<tr>
+      ${rows.map(g => `<tr data-gid="${g.id}">
         <td class="um-username">${_esc(g.vm_name || g.vm_uuid)}<div class="um-hint">${_esc(g.cluster_name || '')} · “${_esc(g.label)}”</div></td>
         <td>${_esc(g.guest_name)}${g.guest_company ? `<div class="um-hint">${_esc(g.guest_company)}</div>` : ''}${g.reason ? `<div class="um-hint">${_esc(g.reason)}</div>` : ''}</td>
         <td class="um-hint" style="white-space:nowrap">${_esc(_gcFmt(g.valid_from))}<br>${_esc(_gcFmt(g.valid_until))}</td>
@@ -1429,6 +1443,14 @@ window.acRenderGuest = async function () {
         <td>${g.sessions_used} / ${g.max_sessions}<div class="um-hint">${g.max_minutes} min${g.allow_open_session ? ' · ' + _esc(t('gc.open_ok_short')) : ''}</div></td>
         <td style="white-space:nowrap">${acts(g)}</td></tr>`).join('')}</tbody></table>`
       : `<div class="um-hint" style="padding:10px 0">${_esc(t('gc.none'))}</div>`}`;
+  if (_ac.focusGrant) {                      // arrived from a request mail
+    const id = _ac.focusGrant, g = rows.find(x => x.id === id);
+    _ac.focusGrant = null;
+    const tr = g && body.querySelector(`tr[data-gid="${id}"]`);
+    if (tr) { tr.classList.add('gc-focus'); tr.scrollIntoView({ block: 'center' }); }
+    if (!g || !g.can_grant) hcmAlert(t('gc.link_gone'));
+    else if (g.status !== 'requested') showToast(t('gc.link_decided', { state: t('gc.st_' + g.status) }), 'ok');
+  }
 };
 
 async function gcForm(kind, preset) {
@@ -1463,11 +1485,15 @@ async function gcForm(kind, preset) {
           guest_name: document.getElementById('gcName').value, guest_company: document.getElementById('gcCompany').value,
           valid_from: iso('gcFrom'), valid_until: iso('gcUntil'), max_minutes: +document.getElementById('gcMinutes').value,
           max_sessions: +document.getElementById('gcSessions').value, label: document.getElementById('gcLabel').value,
-          reason: document.getElementById('gcReason').value, allow_open_session: !!document.getElementById('gcOpen')?.checked };
+          reason: document.getElementById('gcReason').value, allow_open_session: !!document.getElementById('gcOpen')?.checked,
+          lang: window._hcmLang || 'en' };
         try {
-          const r = await _acCall('POST', kind === 'grant' ? '/api/guest/grants' : '/api/guest/requests', body);
+          const r = kind === 'grant'
+            ? await _gcWithReplace(replace => _acCall('POST', '/api/guest/grants', { ...body, replace }))
+            : await _acCall('POST', '/api/guest/requests', body);
+          if (!r) return;                          // kept the current guest: the form stays open
           h.close();
-          if (kind === 'grant') _gcShowSecrets(r, body.guest_name); else hcmAlert(t('gc.request_sent'));
+          if (kind === 'grant') _gcShowSecrets(r, body.guest_name); else hcmAlert(t(r && r.mailed ? 'gc.request_mailed' : 'gc.request_sent'));
           if (_ac.tab === 'guest' && document.getElementById('acBody')) window.acRenderGuest();
         } catch (e) { h.setMsg(e.message); }
       } }],
@@ -1498,10 +1524,36 @@ function _gcShowSecrets(r, guest) {
   });
 }
 
+// One outside person per console: giving access while another guest holds it revokes theirs (and ends their session).
+function _gcLive(g) { return g.status && ['active', 'locked'].includes(g.status) && new Date(g.valid_until) > new Date(); }
+function _gcReplaceMsg(holders) {
+  const list = holders.map(o => `• ${o.guest_name}${o.guest_company ? ' (' + o.guest_company + ')' : ''}, ${t('gc.until_short', { when: _gcFmt(o.valid_until) })}`
+    + (o.live ? ' — ' + t('gc.connected_now') : '')).join('\n');
+  return t('gc.replace_confirm', { list });
+}
+/** Run call(replace); when the server says the console is held, ask, then run it again replacing the holder. */
+async function _gcWithReplace(call) {
+  try { return await call(false); }
+  catch (e) {
+    if (e.status !== 409 || !(e.data && e.data.occupied)) throw e;
+    if (!await hcmConfirm(_gcReplaceMsg(e.data.occupied), { danger: true, title: t('gc.replace_title'), confirmLabel: t('gc.replace_ok') })) return null;
+    return await call(true);
+  }
+}
+
 async function gcApprove(id) {
-  const ok = await hcmConfirm(t('gc.approve_confirm'), { confirmLabel: t('gc.approve') });
+  const g = (_ac.guestRows || []).find(x => x.id === id) || {};
+  const holders = (_ac.guestRows || []).filter(x => x.id !== id && x.cluster_id === g.cluster_id && x.vm_uuid === g.vm_uuid && _gcLive(x))
+    .map(x => ({ ...x, live: (x.live || []).some(s => s.source === 'guest') }));
+  const ok = holders.length
+    ? await hcmConfirm(_gcReplaceMsg(holders), { danger: true, title: t('gc.replace_title'), confirmLabel: t('gc.replace_ok') })
+    : await hcmConfirm(t('gc.approve_confirm'), { confirmLabel: t('gc.approve') });
   if (!ok) return;
-  try { const r = await _acCall('POST', `/api/guest/grants/${id}/approve`, {}); _gcShowSecrets(r); window.acRenderGuest(); } catch (e) { hcmAlert(e.message); }
+  try {
+    const r = await _gcWithReplace(replace => _acCall('POST', `/api/guest/grants/${id}/approve`, { replace: replace || holders.length > 0 }));
+    if (r) _gcShowSecrets(r);
+    window.acRenderGuest();
+  } catch (e) { hcmAlert(e.message); window.acRenderGuest(); }
 }
 async function gcReject(id) {
   if (!await hcmConfirm(t('gc.reject_confirm'), { danger: true, confirmLabel: t('gc.reject') })) return;
@@ -1513,7 +1565,7 @@ async function gcRevoke(id) {
 }
 async function gcReissue(id) {
   if (!await hcmConfirm(t('gc.reissue_confirm'), { confirmLabel: t('gc.new_code') })) return;
-  try { const r = await _acCall('POST', `/api/guest/grants/${id}/reissue`, {}); _gcShowSecrets(r); window.acRenderGuest(); } catch (e) { hcmAlert(e.message); }
+  try { const r = await _gcWithReplace(replace => _acCall('POST', `/api/guest/grants/${id}/reissue`, { replace })); if (r) _gcShowSecrets(r); window.acRenderGuest(); } catch (e) { hcmAlert(e.message); }
 }
 async function gcEnd(id) {
   if (!await hcmConfirm(t('gc.end_confirm'), { danger: true, confirmLabel: t('gc.end') })) return;

@@ -258,13 +258,16 @@ accounts "needs an email address".
 ### Mail
 
 **Settings → Mail** (administrators of the whole installation) sets the one SMTP server HCM sends
-through: invitations, password resets and address changes.
+through: invitations, password resets, address changes and guest console requests.
 
 - Plain SMTP to a relay or a mail service: STARTTLS (587), TLS (465), or none (25) for a relay on
   your own network only; an optional login. The password is stored encrypted with
   `HCM_SECRET_KEY`, like the cluster passwords, and never shown again.
 - **Address in links**: the address people use to reach the dashboard, put in the links of
-  invitations and resets. Empty: the address of the browser that sends the invitation.
+  invitations, resets and guest requests. Empty: the address of the browser that sends the invitation.
+- **Address in guest console links**: how outside guests reach `/guest/` from the internet, for
+  example `https://support.example.com`. Empty: `HCM_GUEST_BASE_URL` from `.env`, else the address
+  of the browser of whoever gives the access.
 - **Send test mail** sends one and shows the server's answer when it fails. Every test, every
   failed mail and every change to these settings is in the access audit.
 - Microsoft 365 / Exchange Online: use a connector or relay (SMTP AUTH with basic authentication is
@@ -284,8 +287,17 @@ else: no VM name, no cluster, no other page.
   details): the VM, the guest's name and company, the window, the length and number of sessions,
   and the title the guest sees. You get a **link** and a **6-digit code**, shown once. Give the
   link by e-mail and the code by phone or text message: both are needed.
-- Someone who may only **ask** (for example an App Manager) sends a request; whoever may give
-  outside access on that VM is told at login and approves or rejects it.
+- Someone who may only **ask** (for example an App Manager) sends a request. Approving or rejecting
+  happens in HCM only: the approvers get a mail saying a request waits, with a link that opens it
+  (after signing in), and are also told at login. The mail goes to the approvers **nearest the
+  VM**: whoever may give outside access on the VM itself, else on its tag, its cluster, its folder,
+  its customer, its MSP, and only then the whole installation's administrators. A level counts only
+  when someone there has a confirmed email address. Without a mail server there is no mail; the
+  notice at login remains.
+- **One outside person per console.** A VM has at most one live grant (active or locked, window not
+  over). Giving or approving access while another guest holds that console asks first, then revokes
+  the other grant and ends its session at once. A guest is also refused while a guest of another
+  grant is connected to that console.
 - The guest opens the link, enters the code and gets the console. Five wrong codes lock the grant
   (**New code** issues a new link and code). Redeeming binds the access to that one browser.
 - A guest only connects onto a console that shows a **login or lock screen**, so they never land
@@ -510,7 +522,7 @@ Credentials are the person's own; nobody below the top level touches them:
   once, for 60 minutes; at most three an hour). The page says the same whether or not the address
   has an account. Without a mail server it says to ask an administrator.
 - **Changing the address** asks for the current password and mails a link to the new address (once,
-  24 hours); only opening it changes the login. The old address gets a notice. The old address
+  60 minutes); only opening it changes the login. The old address gets a notice. The old address
   stays known to HCM, so log entries written under it still name the same person.
 - Administrators of the whole installation can **Reset password** and **Reset 2FA** for someone
   who is locked out, and change an address directly.

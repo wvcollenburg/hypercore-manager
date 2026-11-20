@@ -37,6 +37,7 @@ COPY dashboard/mail_texts.py .
 COPY dashboard/mail_api.py .
 COPY dashboard/invite_api.py .
 COPY dashboard/account_api.py .
+COPY dashboard/login_texts.py .
 COPY dashboard/reports/ reports/
 COPY dashboard/static/ static/
 COPY dashboard/templates/ templates/

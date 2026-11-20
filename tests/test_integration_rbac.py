@@ -16,6 +16,7 @@ from __future__ import annotations
 import http.cookiejar
 import json
 import os
+import time
 import re
 import urllib.error
 import urllib.parse
@@ -539,21 +540,109 @@ def test_guest_code_locks_after_five_tries(clusters, fake_vms):
         ca.call('POST', f"/api/guest/grants/{g['id']}/revoke", {})
 
 
-def test_guest_request_and_approval(clusters, fake_vms):
+def test_guest_request_and_approval(clusters, fake_vms, sink):
+    """Needs the mail sink: a request mails its approvers, and must never reach a real relay from a test."""
     erp = as_user('contoso-erp')                       # App Manager on tag erp: may ask, not give
-    st, rq = erp.call('POST', '/api/guest/requests', _guest_body(clusters, fake_vms, 'db01', guest_name='Asked For'))
-    assert st == 201, rq
+    sink.mails.clear()
+    st, rq = erp.call('POST', '/api/guest/requests', dict(_guest_body(clusters, fake_vms, 'db01', guest_name='Asked For'), lang='nl'))
+    assert st == 201 and rq['mailed'], rq
     try:
+        # the nearest approvers only: the Production folder's admin, not the customer's, the MSP's or the installation's
+        for _ in range(50):
+            if sink.mails:
+                break
+            time.sleep(0.2)
+        time.sleep(0.5)
+        assert [a for m in sink.mails for a in m['to']] == [email('contoso-prod-admin')], sink.mails
+        m = sink.mails[0]
+        assert 'db01' in m['subject'] and 'aangevraagd' in m['subject']
+        assert f"https://hcm.demo.example/guest-requests/{rq['id']}" in str(m['msg'])
         assert erp.call('POST', '/api/guest/grants', _guest_body(clusters, fake_vms, 'db01'))[0] == 403
         assert erp.call('POST', '/api/guest/requests', _guest_body(clusters, fake_vms, 'web01'))[0] == 404, 'not their VM'
         assert erp.call('POST', f"/api/guest/grants/{rq['id']}/approve", {})[0] == 403
         mine = erp.call('GET', '/api/guest/grants')[1]['grants']
         assert all(x['requested_by'] == email('contoso-erp') for x in mine)
         assert as_user('fabrikam-admin').call('POST', f"/api/guest/grants/{rq['id']}/approve", {})[0] == 404
-        st, ap = as_user('contoso-admin').call('POST', f"/api/guest/grants/{rq['id']}/approve", {})
+        ca = as_user('contoso-admin')
+        st, held = ca.call('POST', '/api/guest/grants', _guest_body(clusters, fake_vms, 'db01', guest_name='Holding Guest'))
+        assert st == 201, held
+        st, d = ca.call('POST', f"/api/guest/grants/{rq['id']}/approve", {})
+        assert st == 409 and d['occupied'][0]['id'] == held['id'], 'approving must not silently put a second guest on the console'
+        assert _grant_status(ca, rq['id']) == 'requested'
+        st, ap = ca.call('POST', f"/api/guest/grants/{rq['id']}/approve", {'replace': True})
         assert st == 200 and ap['link'] and len(ap['code']) == 6
+        assert _grant_status(ca, held['id']) == 'revoked'
     finally:
         as_user('contoso-admin').call('POST', f"/api/guest/grants/{rq['id']}/revoke", {})
+
+
+def _grant_status(who, gid):
+    return next(x['status'] for x in who.call('GET', '/api/guest/grants')[1]['grants'] if x['id'] == gid)
+
+
+def test_one_guest_per_console(clusters, fake_vms):
+    """Two outsiders never hold one console: a second grant is refused until the granter confirms replacing the first,
+    which revokes it; two granters at once cannot both win."""
+    ca = as_user('contoso-admin')
+    made = []
+    try:
+        st, a = ca.call('POST', '/api/guest/grants', _guest_body(clusters, fake_vms, 'db01', guest_name='First Guest'))
+        assert st == 201, a
+        made.append(a['id'])
+        st, d = ca.call('POST', '/api/guest/grants', _guest_body(clusters, fake_vms, 'db01', guest_name='Second Guest'))
+        assert st == 409 and [o['id'] for o in d['occupied']] == [a['id']] and d['occupied'][0]['guest_name'] == 'First Guest', d
+        st, o = ca.call('POST', '/api/guest/grants', _guest_body(clusters, fake_vms, 'web01', guest_name='Other VM'))
+        assert st == 201, ('another VM is not affected', o)
+        made.append(o['id'])
+        st, b = ca.call('POST', '/api/guest/grants', dict(_guest_body(clusters, fake_vms, 'db01', guest_name='Second Guest'), replace=True))
+        assert st == 201, b
+        made.append(b['id'])
+        assert _grant_status(ca, a['id']) == 'revoked' and _grant_status(ca, b['id']) == 'active'
+        rows = ca.call('GET', '/api/access/audit')[1]['rows']
+        assert any(r['action'] == 'guest.revoke' and 'First Guest' in r['target'] for r in rows)
+        # a new code for a grant that lost its console must not take it back silently
+        assert ca.call('POST', f"/api/guest/grants/{a['id']}/reissue", {})[0] == 409
+        # two granters at the same moment: exactly one gets the console
+        ca.call('POST', f"/api/guest/grants/{b['id']}/revoke", {})
+        import concurrent.futures as cf
+        with cf.ThreadPoolExecutor(2) as pool:
+            res = list(pool.map(lambda n: as_user('contoso-admin').call(
+                'POST', '/api/guest/grants', _guest_body(clusters, fake_vms, 'db01', guest_name=f'Race {n}')), (1, 2)))
+        made += [d['id'] for st, d in res if st == 201]
+        assert sorted(st for st, _ in res) == [201, 409], res
+    finally:
+        for gid in made:
+            ca.call('POST', f'/api/guest/grants/{gid}/revoke', {})
+
+
+def test_the_old_user_api_is_gone(admin):
+    for method, path in (('GET', '/api/users'), ('POST', '/api/users'), ('DELETE', '/api/users/someone@demo.example'),
+                         ('PUT', '/api/users/someone@demo.example/password'),
+                         ('PUT', '/api/folders/00000000-0000-0000-0000-000000000000/members')):
+        assert admin.raw(method, path, {})[0] in (404, 405), (method, path)
+
+
+def test_own_password_needs_the_current_one(clusters):
+    c = Client()
+    assert c.login(email('contoso-viewer'), PW)
+    assert c.call('PUT', '/api/users/me/password', {'current_password': 'wrong', 'new_password': 'Other-pass-123'})[0] == 403
+    assert c.call('PUT', '/api/users/me/password', {'current_password': PW, 'new_password': 'short'})[0] == 400
+    assert c.call('PUT', '/api/users/me/password', {'current_password': PW, 'new_password': 'Other-pass-123'})[0] == 200
+    try:
+        assert Client().login(email('contoso-viewer'), 'Other-pass-123')
+    finally:
+        assert c.call('PUT', '/api/users/me/password', {'current_password': 'Other-pass-123', 'new_password': PW})[0] == 200
+    assert Client().login(email('contoso-viewer'), PW)
+
+
+def test_login_page_follows_the_language():
+    for lang, word in (('nl', 'Aanmelden'), ('de', 'Anmelden'), ('fr', 'Connexion'), ('en', 'Sign in')):
+        rq = urllib.request.Request(BASE + '/login', headers={'Accept-Language': lang})
+        with urllib.request.urlopen(rq, timeout=20) as r:
+            assert word in r.read().decode(), lang
+    rq = urllib.request.Request(BASE + '/login', headers={'Accept-Language': 'de', 'Cookie': 'hcm_lang=fr'})
+    with urllib.request.urlopen(rq, timeout=20) as r:
+        assert 'Connexion' in r.read().decode(), "the dashboard's own language choice wins"
 
 
 def test_guest_routes_are_public_but_bounded(admin):

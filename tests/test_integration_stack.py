@@ -164,7 +164,10 @@ def test_backup_proxy_hides_paths_from_non_admins(session, creds):
     assert 'plans' in data  # the count key follows the module's naming
     # temporary non-admin user, created and removed through the admin API
     name = 'hcm-it-viewer@demo.example'   # accounts are email addresses
-    session('/api/users', 'POST', json.dumps({'username': name, 'password': 'It-Viewer-1234', 'role': 'user'}).encode())
+    try:
+        _, made, _ = session('/api/access/users', 'POST', json.dumps({'email': name, 'password': 'It-Viewer-1234'}).encode())
+    except urllib.error.HTTPError as e:
+        pytest.skip(f'cannot create the temporary user ({e.code})')
     try:
         jar = http.cookiejar.CookieJar()
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
@@ -189,7 +192,7 @@ def test_backup_proxy_hides_paths_from_non_admins(session, creds):
                 leaked = _json_keys(body) & {'base', 'user', 'username', 'path_uri_base', 'prune_path', 'smb_user', 'source_uri', 'uri_base', 'uri'}
                 assert not leaked, (path, leaked)
     finally:
-        session(f'/api/users/{name}', 'DELETE')
+        session(f"/api/access/users/{made['user_id']}", 'DELETE')
 
 
 

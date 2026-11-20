@@ -31,6 +31,8 @@ async function loadMailPanel() {
         <label class="hcm-field"><span>${_esc(t('mail.sender_name'))}</span><input class="um-input" id="mlName" value="${_esc(d.sender_name || '')}" placeholder="HyperCore Manager"></label>
         <label class="hcm-field" style="grid-column:1/-1"><span>${_esc(t('mail.public_url'))}</span><input class="um-input" id="mlUrl" value="${_esc(d.public_url || '')}" placeholder="${_esc(d.suggested_public_url)}">
           <span class="um-hint">${_esc(t('mail.public_url_hint'))}</span></label>
+        <label class="hcm-field" style="grid-column:1/-1"><span>${_esc(t('mail.guest_url'))}</span><input class="um-input" id="mlGuestUrl" value="${_esc(d.guest_url || '')}" placeholder="${_esc(d.env_guest_url || d.public_url || d.suggested_public_url)}">
+          <span class="um-hint">${_esc(t('mail.guest_url_hint'))}</span></label>
       </div>
       <div id="mlSecWarn" class="um-hint hcm-badge-warn" style="margin-top:6px;${d.security === 'none' ? '' : 'display:none'}">${_esc(t('mail.sec_none_warn'))}</div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
@@ -60,7 +62,7 @@ function _mailMsg(text, ok) {
 async function mailSave(extra) {
   const v = id => document.getElementById(id).value;
   const body = { host: v('mlHost'), port: Number(v('mlPort')), security: v('mlSec'), username: v('mlUser'),
-                 sender: v('mlSender'), sender_name: v('mlName'), public_url: v('mlUrl'), ...(extra || {}) };
+                 sender: v('mlSender'), sender_name: v('mlName'), public_url: v('mlUrl'), guest_url: v('mlGuestUrl'), ...(extra || {}) };
   if (v('mlPw')) body.password = v('mlPw');
   try { await _acCall('PUT', '/api/mail/settings', body); await loadMailPanel(); _mailMsg(t('acc.saved'), true); }
   catch (e) { _mailMsg(e.message, false); }
