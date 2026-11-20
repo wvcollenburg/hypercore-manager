@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.2]
+
+### Fixed
+- **An installation upgraded from 1.2 could not add a customer or an MSP.** A single-company
+  installation hides its default MSP and customer, and the Tenants tab only offered new folders. An
+  administrator of the whole installation now gets **+ Customer** and **+ MSP** there; the existing
+  folders stay under the default customer, which can then be renamed.
+
 ## [1.3.1]
 
 ### Fixed
@@ -11,10 +19,6 @@ All notable changes to this project are documented here. The format follows
   overwrite a tag that already exists locally, so an installation that had fetched a release tag
   before it was changed on GitHub failed every later check, and never saw a newer version. The check
   now fetches tags with `--force`; applying an update was not affected.
-- **An installation upgraded from 1.2 could not add a customer or an MSP.** A single-company
-  installation hides its default MSP and customer, and the Tenants tab only offered new folders. An
-  administrator of the whole installation now gets **+ Customer** and **+ MSP** there; the existing
-  folders stay under the default customer, which can then be renamed.
 
 ## [1.3.0]
 
