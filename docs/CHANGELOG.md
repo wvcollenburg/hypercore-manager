@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.1]
+
+### Fixed
+- **The update check could fail with only "git fetch failed".** A plain `git fetch --tags` refuses to
+  overwrite a tag that already exists locally, so an installation that had fetched a release tag
+  before it was changed on GitHub failed every later check, and never saw a newer version. The check
+  now fetches tags with `--force`; applying an update was not affected.
+
 ## [1.3.0]
 
 ### Added

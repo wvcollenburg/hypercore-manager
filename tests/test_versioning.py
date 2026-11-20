@@ -88,3 +88,11 @@ def test_updater_recreates_the_application_services_only(repo):
     # 1.2.1: the restart container reads the services from the pulled compose file (fixed list = fallback)
     assert "'sh', '-c', restart_command()" in src
     assert '--remove-orphans' not in src.split('def _do_apply_update')[1].split('@app.route')[0]
+
+
+def test_update_check_accepts_a_moved_tag():
+    """1.3.0's tag was moved after some installs had fetched it: a plain `git fetch --tags` then fails
+    on every check ("would clobber existing tag"), so the updater must fetch tags with --force."""
+    from pathlib import Path
+    src = (Path(__file__).parent.parent / 'dashboard' / 'app.py').read_text()
+    assert "'fetch', '--tags', '--force'" in src
