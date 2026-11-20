@@ -949,8 +949,12 @@ function _acRenderTree() {
       ${mayAdd ? `<button class="hcm-tb-add" onclick="acNewNode('${addLevel}', ${c.parent ? `'${c.parent}'` : 'null'})">+ ${_esc(_acLevelLabel(addLevel))}</button>` : ''}
     </div>`;
   };
+  // a single-company install hides its default MSP and customer: the way to serve more companies starts here
+  const grow = _ac.data.single_tenant && window.HCM_ACCESS.root_admin && canNode('tree.manage', null);
   body.innerHTML = `
-    <div class="um-toolbar"><span class="um-hint" style="flex:1">${_esc(t('acc.tree_intro'))}</span></div>
+    <div class="um-toolbar"><span class="um-hint" style="flex:1">${_esc(t(grow ? 'acc.tb_single_intro' : 'acc.tree_intro'))}</span>
+      ${grow ? `<button class="um-action-btn" onclick="acGrowTenants('customer')">+ ${_esc(_acLevelLabel('customer'))}</button>
+                <button class="um-action-btn" onclick="acGrowTenants('msp')">+ ${_esc(_acLevelLabel('msp'))}</button>` : ''}</div>
     <div class="hcm-tb">
       <div class="hcm-tb-cols" id="acTbCols">${cols.map(colHtml).join('')}</div>
       <div class="hcm-tb-pane" id="acTbPane"></div>
@@ -1256,6 +1260,17 @@ async function acNewNode(level, parent) {
   if (!name) return;
   try { await _acCall('POST', '/api/access/nodes', { name, level, parent_id: parent }); await _acLoad(); renderAccessPanel(); loadClusters(); }
   catch (e) { hcmAlert(e.message); }
+}
+/** The first customer or MSP beside the hidden defaults: say what changes, then create it. */
+async function acGrowTenants(level) {
+  const nodes = _ac.data.nodes || [];
+  const msp = nodes.find(n => n.level === 'msp' && !n.parent_id);
+  const cust = msp && nodes.find(n => n.level === 'customer' && n.parent_id === msp.id);
+  const ok = await hcmConfirm(t('acc.tb_grow_confirm', { msp: msp ? msp.name : 'Default', customer: cust ? cust.name : 'Default' }),
+                              { title: `+ ${_acLevelLabel(level)}`, confirmLabel: t('acc.tb_grow_ok') });
+  if (!ok) return;
+  _ac.tb = { path: [], cluster: null };            // the columns start at the top once the levels show
+  await acNewNode(level, level === 'customer' ? (msp ? msp.id : null) : null);
 }
 async function acRenameNode(id) {
   const n = (_ac.data.nodes || []).find(x => x.id === id);

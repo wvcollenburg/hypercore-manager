@@ -92,8 +92,10 @@ Changes take effect without a restart.
 Clusters are arranged in a tree: **MSP > customer > folder > cluster**. A cluster is in at most one
 folder; clusters in no folder appear under **No folder**, which only administrators of the whole
 installation see. A single-company installation has one MSP and one customer, created by the
-upgrade and hidden in the interface: it shows folders only, as before. Adding a second customer or
-MSP (**Settings → Access → Tenants**) shows the levels.
+upgrade and hidden in the interface: it shows folders only, as before. An administrator of the
+whole installation adds a second customer or MSP with **+ Customer** or **+ MSP** in **Settings →
+Access → Tenants**; the levels then show everywhere. The existing folders stay under the default
+customer ("Default" in the MSP "Default"): rename both to your own company.
 
 - **New folder** is at the bottom of the rail (for whoever manages the tree at customer level or
   above). Folders can be renamed, deleted (their clusters stay registered and fall back to **No
