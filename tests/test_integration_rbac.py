@@ -645,6 +645,65 @@ def test_login_page_follows_the_language():
         assert 'Connexion' in r.read().decode(), "the dashboard's own language choice wins"
 
 
+# ------------------------------------------------------------------ clusters registered at folder level
+SPARE_HOST = 'fakehc5'      # tools/fake_hypercore: a fake cluster the demo does not register
+
+
+def _spare(body=None, **kw):
+    b = {'name': 'Branch Office', 'host': SPARE_HOST, 'username': 'admin', 'password': 'fake', 'verify_tls': False}
+    b.update(body or {}, **kw)
+    return b
+
+
+def _reachable_spare(admin):
+    st, d = admin.call('POST', '/api/clusters/test', _spare())
+    if not (st == 200 and d.get('ok')):
+        pytest.skip(f'{SPARE_HOST} not running (docker compose ... up -d fakehc5)')
+
+
+def test_customer_admin_registers_a_cluster_in_their_own_folder(admin, clusters):
+    _reachable_spare(admin)
+    ca = as_user('contoso-admin')
+    prod, fab = _node(admin, 'Production'), _node(admin, 'Main')
+    assert as_user('contoso-eng').call('POST', '/api/clusters', _spare(folder_id=prod))[0] == 403, 'an Engineer may not register'
+    assert ca.call('POST', '/api/clusters', _spare())[0] == 403, 'no folder: installation admins only'
+    assert ca.call('POST', '/api/clusters', _spare(folder_id=fab))[0] == 403, "another customer's folder"
+    assert ca.call('POST', '/api/clusters', _spare(folder_id=_node(admin, 'Contoso')))[0] == 400, 'a cluster belongs in a folder'
+    st, d = ca.call('POST', '/api/clusters', _spare(folder_id=prod))
+    assert st == 201, d
+    cid = d['cluster']['cluster_id']
+    try:
+        assert cid in {c['cluster_id'] for c in ca.call('GET', '/api/clusters')[1]['clusters']}
+        assert cid not in {c['cluster_id'] for c in as_user('fabrikam-admin').call('GET', '/api/clusters')[1]['clusters']}
+        assert next(c for c in ca.call('GET', '/api/access/overview')[1]['clusters'] if c['cluster_id'] == cid)['folder_id'] == prod
+        # names are unique per folder: Fabrikam's cluster name is free here, a name already in this folder is not
+        assert ca.call('PUT', f'/api/clusters/{cid}', {'name': 'Fabrikam-Main'})[0] == 200
+        assert ca.call('PUT', f'/api/clusters/{cid}', {'name': 'fake'})[0] == 409
+        # disabled, it stays in the tree, where it is enabled again
+        assert ca.call('PUT', f'/api/clusters/{cid}', {'enabled': False})[0] == 200
+        row = next(c for c in ca.call('GET', '/api/access/overview')[1]['clusters'] if c['cluster_id'] == cid)
+        assert row['enabled'] is False
+        assert ca.call('PUT', f'/api/clusters/{cid}', {'enabled': True})[0] == 200
+        assert as_user('fabrikam-admin').call('PUT', f'/api/clusters/{cid}', {'name': 'mine'})[0] == 404
+        assert ca.call('PUT', f'/api/clusters/{cid}', {'folder_id': fab})[0] == 403, 'never out of the customer'
+    finally:
+        assert ca.call('DELETE', f'/api/clusters/{cid}?purge=1')[0] == 200
+
+
+def test_a_cluster_registered_elsewhere_is_not_named(admin, clusters):
+    """Registering a HyperCore cluster another tenant already has: refused without its name, and only an
+    administrator of the whole installation may force a second entry."""
+    ca = as_user('contoso-admin')
+    prod = _node(admin, 'Production')
+    other = {'name': 'Probe', 'host': 'fakehc3', 'username': 'admin', 'password': 'fake', 'verify_tls': False, 'folder_id': prod}
+    st, d = ca.call('POST', '/api/clusters', other)
+    assert st == 409 and 'Fabrikam' not in json.dumps(d) and 'duplicate_of' not in d, d
+    assert ca.call('POST', '/api/clusters', dict(other, force=True))[0] == 409, 'force is for installation admins'
+    own = dict(other, host='fakehc')                     # their own cluster: they may see its name
+    st, d = ca.call('POST', '/api/clusters', own)
+    assert st == 409 and d.get('duplicate_of') == clusters['Fake'] and not d.get('may_force'), d
+
+
 def test_guest_routes_are_public_but_bounded(admin):
     routes = {r['rule']: r for r in admin.call('GET', '/api/access/routes')[1]['routes']}
     for rule in ('/guest/<token>', '/guest/<token>/ticket', '/guest/ws', '/guest/vendor/novnc/<path:filename>', '/guest/lang/<filename>'):

@@ -1531,6 +1531,8 @@ window.LANG = {
   'acc.new_perms': "This version brings new permissions: {list}. Built-in roles have them; check whether your own roles should.",
   'acc.new_perms_ack': "Done, hide this",
   'acc.tree_intro': "MSPs hold customers, customers hold folders, folders hold clusters. Rights given on a level reach everything below it.",
+  'acc.tb_unfiled_hint': "Clusters in no folder: only administrators of the whole installation see them. Select one and use Edit to put it in a folder.",
+  'clusters.force_duplicate': "{error}. Register a second entry for the same HyperCore cluster anyway? It is polled twice; only the first entry balances.",
   'acc.tb_single_intro': "One company: its folders hold clusters, and rights given on a folder reach everything in it. Serving several customers? Add a customer or an MSP.",
   'acc.tb_grow_confirm': "The levels MSP and customer then appear everywhere (Access, the cluster list, paths). Your existing folders stay where they are, under the customer \"{customer}\" in the MSP \"{msp}\": rename those to your own company afterwards. Nobody's access changes.",
   'acc.tb_grow_ok': "Continue",

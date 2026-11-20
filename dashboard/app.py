@@ -1322,8 +1322,11 @@ def api_clusters_create():
     target_folder = (body.get('folder_id') or '').strip() or None
     if target_folder and not cluster_registry.is_uuid(target_folder):
         return jsonify({'error': 'invalid folder id'}), 400
-    if not _access().can('cluster.manage', node_id=target_folder):
+    acc = _access()
+    if not acc.can('cluster.manage', node_id=target_folder):
         return jsonify({'error': 'Access denied'}), 403
+    if target_folder and acc.tree.level.get(target_folder) != 'folder':
+        return jsonify({'error': 'a cluster belongs in a folder'}), 400
     f = _cluster_form(body)
     if not (f['name'] and f['host'] and f['username'] and f['password']):
         return jsonify({'error': 'name, host, username and password are required'}), 400
@@ -1340,22 +1343,25 @@ def api_clusters_create():
             # a cluster whose uuid we never learned (registered with force) still lists its nodes
             owner = cluster_registry.node_owner([n.get('node_uuid') for n in probe_nodes])
             dup = cluster_registry.get(owner['cluster_id']) if owner else None
-        if dup and not body.get('force'):
+        # a second entry for the same HyperCore cluster: only an administrator of the whole installation may
+        # force one, and only someone who may see the first entry learns its name
+        if dup and not (body.get('force') and acc.is_root_admin()):
+            if dup.cluster_id not in set(acc.visible_clusters([dup.cluster_id])):
+                return jsonify({'error': 'this cluster is already registered in HyperCore Manager; ask an administrator'}), 409
             mine = next((n for n in probe_nodes if n.get('lan_ip') and n['lan_ip'] == f['host']), None)
             which = f" (node {mine['peer_id']} of it)" if mine and mine.get('peer_id') is not None else ''
-            return jsonify({'error': f"this cluster is already registered as '{dup.name}'{which}", 'duplicate_of': dup.cluster_id}), 409
+            return jsonify({'error': f"this cluster is already registered as '{dup.name}'{which}", 'duplicate_of': dup.cluster_id,
+                            'may_force': acc.is_root_admin()}), 409
     try:
         cid = cluster_registry.create(f['name'], f['host'], f['username'], f['password'],
                                       verify_tls=f['verify_tls'], colour=f['colour'], hc_cluster_uuid=hc_uuid,
                                       api_version=f['api_version'], api_v2_available=probe.get('api_v2') if probe.get('ok') else None,
-                                      hc_version=probe.get('version') or None)
+                                      hc_version=probe.get('version') or None, folder_id=target_folder)
     except Exception as e:
         msg = str(e)
-        if 'ux_clusters_name' in msg or 'duplicate key' in msg:
-            return jsonify({'error': 'a cluster with that name already exists'}), 409
+        if 'ux_clusters_folder_name' in msg or 'duplicate key' in msg:
+            return jsonify({'error': 'this folder already has a cluster with that name'}), 409
         return jsonify({'error': msg}), 500
-    if target_folder:
-        cluster_registry.update(cid, folder_id=target_folder)
     if probe_nodes:
         cluster_registry.upsert_nodes(cid, probe_nodes, seed_host=f['host'])
     if probe.get('timezone'):
@@ -1391,8 +1397,8 @@ def api_clusters_update(cluster_id):
         return jsonify({'error': str(e)}), 400
     except Exception as e:
         msg = str(e)
-        if 'ux_clusters_name' in msg or 'duplicate key' in msg:
-            return jsonify({'error': 'a cluster with that name already exists'}), 409
+        if 'ux_clusters_folder_name' in msg or 'duplicate key' in msg:
+            return jsonify({'error': 'that folder already has a cluster with that name'}), 409
         return jsonify({'error': msg}), 500
     _invalidate_registry_cache()
     return jsonify({'ok': True, 'cluster': _cluster_payload(cluster_registry.get(cluster_id))})

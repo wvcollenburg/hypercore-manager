@@ -92,3 +92,9 @@
 /* the guest request a mail link pointed at */
 tr.gc-focus td { background: color-mix(in srgb, var(--accent-cyan) 12%, transparent); }
 tr.gc-focus td:first-child { box-shadow: inset 3px 0 0 var(--accent-cyan); }
+
+/* a cluster's registration in the tenant pane */
+.hcm-tb-cluster { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; display: flex; flex-direction: column; gap: 4px; }
+.hcm-tb-cluster-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hcm-tb-cluster .cl-nodes { margin-top: 4px; }
+.hcm-tb-off { opacity: .5; text-decoration: line-through; }

@@ -322,7 +322,7 @@ function renderAccessPanel() {
     ['users', t('acc.tab_users'), can('users.manage')],
     ['groups', t('acc.tab_groups'), can('groups.manage') || can('users.manage')],
     ['roles', t('acc.tab_roles'), true],
-    ['tree', t('acc.tab_tree'), can('tree.manage') || can('users.manage')],
+    ['tree', t('acc.tab_tree'), can('tree.manage') || can('users.manage') || can('cluster.manage')],
     ['guest', t('acc.tab_guest') + (_ac.guestPending ? ` (${_ac.guestPending})` : ''), canAnyVmPerm('guest_console.request')],
     ['audit', t('acc.tab_audit'), can('audit.view')],
   ].filter(x => x[2]);
@@ -891,6 +891,7 @@ const _acMembers = n => n === 1 ? t('acc.tb_member_one') : t('acc.tb_members', {
 const _acIcon = k => `<span class="hcm-tb-icon hcm-tb-icon-${k}">${_AC_ICON[k] || ''}</span>`;
 _ac.tb = _ac.tb || { path: [], cluster: null };
 
+const _AC_UNFILED = '__unfiled__';        // installation admins: clusters in no folder, as a pseudo-folder
 /** The columns' starting parent: a single-company install hides its default MSP and customer. */
 function _acTbStart() {
   const nodes = _ac.data.nodes || [];
@@ -912,24 +913,35 @@ function _acRenderTree() {
   // drop selections that no longer exist (after a delete or a reload)
   const valid = [];
   let parent = start;
+  const unfiled = window.HCM_ACCESS.root_admin ? clusters.filter(c => !c.folder_id) : [];
   for (const id of tb.path) {
+    if (id === _AC_UNFILED && !valid.length && unfiled.length) { valid.push(id); break; }
     const n = nodes.find(x => x.id === id && (x.parent_id || null) === (parent || null));
     if (!n) break;
     valid.push(id); parent = id;
   }
   tb.path = valid;
-  const last = nodes.find(n => n.id === tb.path[tb.path.length - 1]);
-  if (tb.cluster && !(last && last.level === 'folder' && clusters.some(c => c.cluster_id === tb.cluster && c.folder_id === last.id))) tb.cluster = null;
+  const lastId = tb.path[tb.path.length - 1];
+  const last = nodes.find(n => n.id === lastId);
+  const inFolder = cid => lastId === _AC_UNFILED ? unfiled.some(c => c.cluster_id === cid)
+                                                 : !!(last && last.level === 'folder' && clusters.some(c => c.cluster_id === cid && c.folder_id === last.id));
+  if (tb.cluster && !inFolder(tb.cluster)) tb.cluster = null;
 
   // columns: the start's children, then the children of every selected node; a folder's column lists its clusters
   let roots = kids(start);
   if (!start) roots = nodes.filter(n => !n.parent_id || !nodes.some(x => x.id === n.parent_id)).sort((a, b) => a.name.localeCompare(b.name));
-  const cols = [{ items: roots.map(n => ({ kind: n.level, id: n.id, name: n.name, count: n.level === 'folder' ? clusters.filter(c => c.folder_id === n.id).length : kids(n.id).length })),
+  const cols = [{ items: roots.map(n => ({ kind: n.level, id: n.id, name: n.name, count: n.level === 'folder' ? clusters.filter(c => c.folder_id === n.id).length : kids(n.id).length }))
+                    .concat(unfiled.length ? [{ kind: 'folder', id: _AC_UNFILED, name: t('folders.unfiled'), count: unfiled.length, unfiled: true }] : []),
                   sel: tb.path[0], parent: start }];
   tb.path.forEach((id, i) => {
+    if (id === _AC_UNFILED) {
+      cols.push({ items: unfiled.sort((a, b) => a.name.localeCompare(b.name)).map(c => ({ kind: 'cluster', id: c.cluster_id, name: c.name, off: c.enabled === false })),
+                  sel: tb.cluster, parent: _AC_UNFILED, clusters: true, unfiled: true });
+      return;
+    }
     const n = nodes.find(x => x.id === id);
     if (n.level === 'folder') {
-      cols.push({ items: clusters.filter(c => c.folder_id === id).sort((a, b) => a.name.localeCompare(b.name)).map(c => ({ kind: 'cluster', id: c.cluster_id, name: c.name })),
+      cols.push({ items: clusters.filter(c => c.folder_id === id).sort((a, b) => a.name.localeCompare(b.name)).map(c => ({ kind: 'cluster', id: c.cluster_id, name: c.name, off: c.enabled === false })),
                   sel: tb.cluster, parent: id, clusters: true });
     } else {
       cols.push({ items: kids(id).map(k => ({ kind: k.level, id: k.id, name: k.name, count: k.level === 'folder' ? clusters.filter(c => c.folder_id === k.id).length : kids(k.id).length })),
@@ -943,10 +955,11 @@ function _acRenderTree() {
     const mayAdd = addLevel && (pn ? canNode('tree.manage', pn.id) : (start ? canNode('tree.manage', start) : window.HCM_ACCESS.root_admin));
     return `<div class="hcm-tb-col">
       ${c.items.map(it => `<div class="hcm-tb-item${it.id === c.sel ? ' sel' : ''}" onclick="acTbPick(${i}, '${it.kind}', '${it.id}')" title="${_esc(it.name)}">
-          ${_acIcon(it.kind)}<span class="hcm-tb-name">${_esc(it.name)}</span>
+          ${_acIcon(it.kind)}<span class="hcm-tb-name${it.off ? ' hcm-tb-off' : ''}">${_esc(it.name)}</span>
           ${it.kind !== 'cluster' ? `<span class="hcm-tb-count">${it.count || ''}</span><span class="hcm-tb-chev">›</span>` : ''}</div>`).join('')
         || `<div class="hcm-tb-empty">${_esc(t(c.clusters ? 'acc.tb_no_clusters' : 'acc.tb_empty'))}</div>`}
       ${mayAdd ? `<button class="hcm-tb-add" onclick="acNewNode('${addLevel}', ${c.parent ? `'${c.parent}'` : 'null'})">+ ${_esc(_acLevelLabel(addLevel))}</button>` : ''}
+      ${c.clusters && !c.unfiled && canNode('cluster.manage', c.parent) ? `<button class="hcm-tb-add" onclick="acClusterForm(null, '${c.parent}')">+ ${_esc(t('acc.scope_cluster'))}</button>` : ''}
     </div>`;
   };
   // a single-company install hides its default MSP and customer: the way to serve more companies starts here
@@ -979,12 +992,17 @@ async function _acTbPane() {
   const nodeId = tb.path[tb.path.length - 1];
   const n = nodes.find(x => x.id === nodeId);
   const c = tb.cluster && (_ac.data.clusters || []).find(x => x.cluster_id === tb.cluster);
+  if (!c && nodeId === _AC_UNFILED) { pane.innerHTML = `<div class="hcm-tb-hint">${_esc(t('acc.tb_unfiled_hint'))}</div>`; return; }
   if (!n && !c) { pane.innerHTML = `<div class="hcm-tb-hint">${_esc(t('acc.tb_pick'))}</div>`; return; }
   const kind = c ? 'cluster' : n.level;
   const name = c ? c.name : n.name;
-  const crumbs = c ? `${_acNodePath(c.folder_id)} / ${c.name}` : _acNodePath(n.id);
+  const crumbs = c ? (c.folder_id ? `${_acNodePath(c.folder_id)} / ${c.name}` : `${t('folders.unfiled')} / ${c.name}`) : _acNodePath(n.id);
   const childLevel = { msp: 'customer', customer: 'folder' };
-  const actions = c ? '' : [
+  const mayCluster = c && (window.HCM_ACCESS.root_admin || canNode('cluster.manage', c.folder_id));
+  const actions = c ? (mayCluster ? [
+    `<button class="um-action-btn" onclick="acClusterForm('${c.cluster_id}')">${_esc(t('clusters.edit'))}</button>`,
+    `<button class="um-action-btn danger" onclick="acClusterRemove('${c.cluster_id}')">${_esc(t('clusters.remove'))}</button>`,
+  ].join('') : '') : [
     canNode('tree.manage', n.id) ? `<button class="um-action-btn" onclick="acRenameNode('${n.id}')">${_esc(t('folders.rename'))}</button>` : '',
     canNode('tree.manage', n.parent_id) && (n.parent_id || window.HCM_ACCESS.root_admin) ? `<button class="um-action-btn danger" onclick="acDeleteNode('${n.id}')">${_esc(t('users.delete'))}</button>` : '',
   ].join('');
@@ -994,6 +1012,7 @@ async function _acTbPane() {
         <div class="hcm-tb-title">${_esc(name)}</div>
         <div class="hcm-tb-crumbs"><span class="hcm-tree-level">${_esc(kind === 'cluster' ? t('acc.scope_cluster') : _acLevelLabel(kind))}</span> ${_esc(crumbs)}</div></div>
       <div class="hcm-tb-actions">${actions}</div></div>
+    ${c ? _acClusterInfo(c.cluster_id, mayCluster) : ''}
     ${mayAssign ? `<div style="display:flex;gap:6px"><button class="um-primary-btn" onclick="acTbAssign()">+ ${_esc(t('acc.tb_assign'))}</button>
       <button class="um-action-btn" onclick="acTbInvite()">+ ${_esc(t('acc.invite'))}</button></div>` : ''}
     <div id="acTbList">${mayAssign ? `<div class="loading"><div class="spinner"></div></div>` : `<div class="hcm-tb-hint">${_esc(t('acc.tb_no_manage'))}</div>`}</div>`;
@@ -1272,6 +1291,114 @@ async function acGrowTenants(level) {
   _ac.tb = { path: [], cluster: null };            // the columns start at the top once the levels show
   await acNewNode(level, level === 'customer' ? (msp ? msp.id : null) : null);
 }
+// ── clusters: registered where they belong, by whoever holds cluster.manage there ─────────────
+/** Status and maintenance of one cluster in the tenant pane (details from the rail's cluster list). */
+function _acClusterInfo(cid, mayCluster) {
+  const c = (typeof CLUSTERS !== 'undefined' ? CLUSTERS : []).find(x => x.cluster_id === cid);
+  if (!c) return '';
+  const dup = (typeof _clusterDupGroups !== 'undefined' ? _clusterDupGroups : []).find(g => g.includes(cid));
+  const dupNames = dup ? dup.map(id => ((CLUSTERS.find(x => x.cluster_id === id) || {}).name || '?')) : [];
+  return `<div class="hcm-tb-cluster">
+    <div class="hcm-tb-cluster-row">
+      <span class="cl-status-dot" style="background:${c.last_error ? 'var(--accent-red)' : (c.enabled ? 'var(--accent-green)' : 'var(--text-muted)')}"></span>
+      <strong>${_esc(c.enabled ? t('clusters.enabled') : t('clusters.disabled'))}</strong>
+      <span class="um-hint">${c.last_error ? _esc(c.last_error) : _esc(_clAgo(c.last_seen_at))}</span></div>
+    ${mayCluster ? `<div class="um-hint">${_esc(c.host)} · ${_esc(c.username)}</div>` : ''}
+    <div class="um-hint">${_clApiLabel(c)}</div>
+    ${_clNodesHtml(c, mayCluster)}
+    ${dup ? `<div class="hcm-banner">${_esc(t('clusters.dup_warning', { names: dupNames.join(', '), keeper: dupNames[0] }))}</div>` : ''}
+    ${mayCluster ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+      <button class="um-action-btn" onclick="acClusterTest('${cid}')">${_esc(t('clusters.test'))}</button>
+      <button class="um-action-btn" onclick="acClusterToggle('${cid}', ${c.enabled ? 'false' : 'true'})">${_esc(c.enabled ? t('clusters.disable') : t('clusters.enable'))}</button></div>
+      <div class="cl-msg" id="cl-${cid}-msg"></div>` : ''}
+  </div>`;
+}
+
+/** The folders a cluster may be moved to by this user: anywhere for installation admins, else within
+ *  its customer and only where they hold cluster.manage (plans/PLAN-roles.md, decision 3). */
+function _acClusterFolders(c) {
+  const nodes = _ac.data.nodes || [];
+  const folders = nodes.filter(n => n.level === 'folder');
+  if (window.HCM_ACCESS.root_admin) return folders;
+  const cust = id => _accAncestors(id).find(a => (nodes.find(n => n.id === a) || {}).level === 'customer');
+  const mine = cust(c.folder_id);
+  return folders.filter(f => cust(f.id) === mine && canNode('cluster.manage', f.id));
+}
+
+/** Register a cluster in a folder (clusterId null) or edit one, in a dialog. */
+async function acClusterForm(clusterId, folderId) {
+  const c = clusterId ? (CLUSTERS || []).find(x => x.cluster_id === clusterId) : { folder_id: folderId };
+  if (!c) return;
+  const P = 'acl';
+  const folders = clusterId ? _acClusterFolders(c) : [];
+  const m = hcmModal({
+    title: _esc(clusterId ? `${t('clusters.edit')}: ${c.name}` : `+ ${t('acc.scope_cluster')} · ${_acNodePath(folderId)}`),
+    width: 'min(760px, 96vw)',
+    body: _clusterFormHtml(P, c),
+    buttons: [
+      { label: t('clusters.test'), onClick: () => clTest(P) },
+      { label: t('console.cancel'), onClick: h => h.close() },
+      { label: clusterId ? t('clusters.save') : t('clusters.add'), kind: 'primary', onClick: h => _acClusterSave(h, P, clusterId, folderId) },
+    ],
+  });
+  m.el.querySelector('.cl-actions')?.remove();               // the dialog has its own buttons
+  const sel = document.getElementById(`${P}-folder`);
+  if (sel) {
+    const field = sel.closest('div');
+    if (!clusterId || !folders.length) field.remove();       // a new cluster goes where it was added
+    else sel.innerHTML = (c.folder_id ? '' : `<option value="">${_esc(t('folders.unfiled'))}</option>`)
+      + folders.sort((a, b) => _acNodePath(a.id).localeCompare(_acNodePath(b.id)))
+               .map(f => `<option value="${f.id}" ${f.id === c.folder_id ? 'selected' : ''}>${_esc(_acNodePath(f.id))}</option>`).join('');
+  }
+}
+
+async function _acClusterSave(h, P, clusterId, folderId, force) {
+  const body = _clRead(P);
+  if (!body.password) delete body.password;
+  if (clusterId) { if (body.folder_id === undefined || body.folder_id === (CLUSTERS.find(x => x.cluster_id === clusterId) || {}).folder_id) delete body.folder_id; }
+  else body.folder_id = folderId;
+  if (force) body.force = true;
+  _clMsg(P, t('clusters.testing'), '');
+  const r = await fetch(`${API_BASE}/api/clusters${clusterId ? '/' + clusterId : ''}`,
+                        { method: clusterId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    if (r.status === 409 && d.may_force && !force
+        && await hcmConfirm(t('clusters.force_duplicate', { error: d.error }), { danger: true, confirmLabel: t('clusters.add') }))
+      return _acClusterSave(h, P, clusterId, folderId, true);
+    _clMsg(P, d.error || `HTTP ${r.status}`, 'err');
+    return;
+  }
+  h.close();
+  if (!clusterId && d.cluster) _ac.tb.cluster = d.cluster.cluster_id;
+  await _acClustersChanged();
+}
+
+async function _acClustersChanged() {
+  await loadClusters();
+  await _acLoad();
+  renderAccessPanel();
+  if (typeof refreshAll === 'function') refreshAll();
+}
+
+async function acClusterTest(cid) { await clTestExisting(cid); }
+async function acClusterToggle(cid, enabled) {
+  const r = await fetch(`${API_BASE}/api/clusters/${cid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); hcmAlert(d.error || `HTTP ${r.status}`); return; }
+  await _acClustersChanged();
+}
+async function acClusterRemove(cid) {
+  const c = (CLUSTERS || []).find(x => x.cluster_id === cid);
+  if (!c) return;
+  if (!await hcmConfirm(t('clusters.confirm_remove', { name: c.name }), { danger: true, typeToConfirm: c.name, confirmLabel: t('clusters.remove') })) return;
+  const purge = await hcmConfirm(t('clusters.confirm_purge', { name: c.name }), { danger: true });
+  const r = await fetch(`${API_BASE}/api/clusters/${cid}?purge=${purge ? 1 : 0}`, { method: 'DELETE' });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); hcmAlert(d.error || `HTTP ${r.status}`); return; }
+  if (currentCluster === cid) { currentCluster = null; try { localStorage.removeItem(CLUSTER_LS_KEY); } catch (_) {} }
+  _ac.tb.cluster = null;
+  await _acClustersChanged();
+}
+
 async function acRenameNode(id) {
   const n = (_ac.data.nodes || []).find(x => x.id === id);
   const name = await hcmPrompt(t('folders.rename_prompt'), { value: n ? n.name : '' });

@@ -165,9 +165,12 @@ def register(app, requires, access, clusters, vm_index_rows):
         # a person's groups elsewhere are not this reader's to know
         seen_groups = {x['group_id'] for x in groups}
         users = [dict(u, groups=[gid for gid in u['groups'] if top(acc) or gid in seen_groups]) for u in users]
-        visible_cids = set(acc.visible_clusters([c.cluster_id for c in clusters()]))
-        cl = [{'cluster_id': c.cluster_id, 'name': c.name, 'folder_id': tree.cluster_folder.get(c.cluster_id)}
-              for c in clusters() if c.cluster_id in visible_cids]
+        import cluster_registry
+        every = cluster_registry.list_all()                 # disabled ones too: the tree is where they are enabled again
+        visible_cids = set(acc.visible_clusters([c.cluster_id for c in every]))
+        cl = [{'cluster_id': c.cluster_id, 'name': c.name, 'folder_id': c.folder_id or tree.cluster_folder.get(c.cluster_id),
+               'enabled': c.enabled}
+              for c in every if c.cluster_id in visible_cids]
         return jsonify({
             'nodes': node_payload(acc),
             'clusters': cl,
