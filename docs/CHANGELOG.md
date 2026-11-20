@@ -24,7 +24,11 @@ All notable changes to this project are documented here. The format follows
   locked out after five wrong codes. Colleagues who may only ask send a request for approval.
   Granters watch read-only, end the session or revoke the access. Everything a guest needs is under
   `/guest/`, so a reverse proxy can publish that path alone (`HCM_GUEST_BASE_URL` sets the public
-  address for the links).
+  address for the links). A request mails the approvers nearest the VM (the VM's, else its
+  folder's, customer's, MSP's, and only then the installation's), with a link that opens it in
+  HCM; approving is done there, never by mail. One outside person per console: giving or approving
+  access while another guest holds that VM's console warns, then revokes the other access and ends
+  its session.
 - Tags that give access are guarded: adding or removing one in a VM edit, clone or new VM needs the
   right to manage users on the cluster; the VM edit window marks them.
 

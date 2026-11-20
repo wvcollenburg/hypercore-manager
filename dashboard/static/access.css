@@ -88,3 +88,7 @@
 .hcm-tb-dim .hcm-tb-who-name > a { color: var(--text-secondary); }
 .hcm-tb-src { color: var(--accent-cyan); text-decoration: none; } .hcm-tb-src:hover { text-decoration: underline; }
 .hcm-tb-who .um-action-btn { flex: 0 0 auto; }
+
+/* the guest request a mail link pointed at */
+tr.gc-focus td { background: color-mix(in srgb, var(--accent-cyan) 12%, transparent); }
+tr.gc-focus td:first-child { box-shadow: inset 3px 0 0 var(--accent-cyan); }

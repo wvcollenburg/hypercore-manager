@@ -132,6 +132,8 @@ def _login_problem():
     if not session.get('user_id'):
         if request.path.startswith('/api/'):
             return jsonify({'error': 'Authentication required'}), 401
+        if request.method == 'GET' and _after_login(request.path) != url_for('index'):
+            session['next'] = request.path        # a link from a mail (a guest request): continue there after login
         return redirect(url_for('login_page'))
     try:
         state = access_db.user_state(session.get('user_id'))
@@ -3180,8 +3182,10 @@ def login_page():
 
 
 def _after_login(dest):
-    """Where a login continues: back to an invitation link that sent the person here, else the dashboard."""
-    return dest if isinstance(dest, str) and re.fullmatch(r'/invite/[A-Za-z0-9_-]{20,200}', dest) else url_for('index')
+    """Where a login continues: back to an invitation or guest-request link that sent the person here, else
+    the dashboard. Only these exact shapes: never an open redirect."""
+    ok = isinstance(dest, str) and (re.fullmatch(r'/invite/[A-Za-z0-9_-]{20,200}', dest) or re.fullmatch(r'/guest-requests/\d{1,12}', dest))
+    return dest if ok else url_for('index')
 
 
 @app.route('/logout')

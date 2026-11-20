@@ -47,7 +47,9 @@ Who may do what, and where. The tabs:
   through them; the pane on the right shows who is assigned on what you selected, and what it
   inherits from above. Assign or remove people there.
 - **Guest console**: one-time console access for someone outside: a link plus a code, one VM, a
-  time window. Requests from colleagues who may only ask wait here for approval.
+  time window. Requests from colleagues who may only ask wait here for approval; the approvers
+  nearest the VM also get a mail with a link straight to the request. A console has one outside
+  person at a time: giving access to a new one revokes the previous one, after a warning.
 - **Audit**: every change to access, and every guest console event.
 
 You only see, and only hand out, what lies within your own reach: nobody gives away rights they do
