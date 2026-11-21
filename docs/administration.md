@@ -468,6 +468,13 @@ HyperCore refuses to start a VM whose MAC address is in use by a running VM), wh
 connect the network interfaces, and whether to start the VM. A restore whose start was refused
 is still complete: the VM exists and the entry under **Runs** says why it was not started.
 
+**Restore onto another cluster of the folder.** When the folder has more clusters, **Restore onto**
+picks where the VM is created: its own cluster (the default) or any other cluster of the folder that
+has a backup proxy and on which you may restore on the whole cluster. The point stays where it is, on
+the folder's share; the target cluster's proxy reads it from there and stages the disks on that
+cluster. While the source VM still runs on its own cluster, the copy's network interfaces stay
+disconnected unless you connect them, and it gets new MAC addresses unless you ask for the originals.
+
 **Verify the chain before restoring** is on by default: the proxy re-reads every file of the
 chain up to the chosen point and compares it with the checksums written at backup time, before
 anything is created on the cluster. A mismatch stops the restore with the failing files named

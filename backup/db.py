@@ -769,10 +769,13 @@ def save_os_template(machine_type: str, os_profile: str, template: str, source: 
 
 
 # ------------------------------------------------------------------- restores
-def add_restore(point: dict, chain: dict, target_name: str, params: dict, requested_by: str | None = None) -> int:
+def add_restore(point: dict, chain: dict, target_name: str, params: dict, requested_by: str | None = None,
+                cluster_id: str | None = None) -> int:
+    """A VM restore; cluster_id is where the VM is created (default: the chain's own cluster)."""
     return _one('''INSERT INTO backup.restores (kind, point_id, chain_id, cluster_id, vm_name, target_name, params, requested_by)
                    VALUES ('vm',%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
-                (point['id'], chain['id'], chain['cluster_id'], chain['vm_name'], target_name, _json(params), requested_by))['id']
+                (point['id'], chain['id'], cluster_id or chain['cluster_id'], chain['vm_name'], target_name, _json(params),
+                 requested_by))['id']
 
 
 def get_restore(restore_id: int) -> Optional[dict]:

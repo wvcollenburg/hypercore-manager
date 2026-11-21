@@ -65,6 +65,7 @@ class _FakeHC:
         self.vms = [{'uuid': 'proxy-vm', 'name': 'proxy'}] + ([{'uuid': 'src-vm', 'name': 'exptest'}] if source_exists else [])
         self.new_vm = None
     def list_vms_full(self): return list(self.vms)
+    def list_vms(self): return list(self.vms)
     def task_status(self, tag): return {'state': 'COMPLETE'}
     def update_status(self): return {}
     def list_nodes(self): return [{'networkStatus': 'ONLINE'}]
@@ -284,3 +285,28 @@ def test_restore_can_skip_the_verify_and_says_so(world):
     r = world.db.restore
     assert r['status'] == 'COMPLETE' and [k for k, _ in world.pc.jobs] == ['flatten', 'stage', 'sweep']
     assert 'chain not verified (skipped)' in r['message']
+
+
+def test_restore_onto_another_cluster_of_the_folder(world, monkeypatch):
+    """The restore row names the target cluster: its client imports and clones, its proxy stages from the
+    folder's share, and a source VM still running on its own cluster is noticed (the copy's NIC stays off)."""
+    target_hc, source_hc = world.hc, _FakeHC(source_exists=True)
+    asked = []
+
+    def client_for(cid):
+        asked.append(cid)
+        return target_hc if cid == 'c2' else source_hc
+    monkeypatch.setattr(rs.jobs, 'client_for', client_for)
+    proxies = []
+    monkeypatch.setattr(world.db, 'get_proxies', lambda cid, enabled_only=False: proxies.append(cid) or [{'id': 7, 'vm_uuid': 'proxy-vm', 'last_seen_at': None}])
+    world.db.restore['cluster_id'] = 'c2'
+    world.db.restore['params'] = {'mac_policy': 'new', 'start': False}       # NIC state left to the default
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'COMPLETE', r
+    assert asked[0] == 'c2' and 'c1' in asked, 'the target cluster does the work; the source cluster is only asked about its VM'
+    assert proxies == ['c2'], "the target cluster's proxy stages the disks"
+    assert any(c[0] == 'import' for c in target_hc.calls) and not any(c[0] == 'import' for c in source_hc.calls)
+    nic = [c for c in target_hc.calls if c[0] == 'patch_nic'][0]
+    assert nic[2]['connected'] is False and 'macAddress' not in nic[2], \
+        'the source VM still runs on its own cluster: by default the copy comes up disconnected, with a new MAC'

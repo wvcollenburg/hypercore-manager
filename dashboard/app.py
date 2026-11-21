@@ -2018,6 +2018,20 @@ def backup_proxy(sub):
     scope, problem = _backup_check(request.method, sub, cid, payload)
     if problem is not None:
         return problem
+    if request.method == 'POST' and sub == 'restores' and payload.get('target_cluster_id'):
+        # onto another cluster: one of the folder of the point's cluster (the backup service checks the
+        # point's folder too), with the right to restore there on the whole cluster
+        tgt = str(payload['target_cluster_id'])
+        acc = _access()
+        try:
+            owner = _backup_owner('point', payload.get('point_id')) or {}
+        except Exception:                                    # noqa: BLE001 — unreachable: refuse, never guess
+            owner = {}
+        src = str(owner.get('cluster_id') or '')
+        if not (src and cluster_registry.is_uuid(tgt) and acc.can('backup.restore.full', tgt)
+                and acc.tree.cluster_folder.get(tgt) is not None
+                and acc.tree.cluster_folder.get(tgt) == acc.tree.cluster_folder.get(src)):
+            return jsonify({'error': 'you may not restore onto that cluster'}), 403
     # the validated cluster only: the backup service reads the first `cluster` it gets, so one sent by
     # the browser would otherwise win over the check above and reach a cluster the user may not see
     extra = [('cluster', cid)]

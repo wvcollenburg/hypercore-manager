@@ -6924,6 +6924,7 @@ async function exLoadPoints() {
   el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
   let chains;
   try { chains = await _exCall('GET', '/api/backup/chains'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  _exChains = Object.fromEntries(chains.map(c => [c.id, c]));
   if (!chains.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_points')}</div>`; return; }
   const admin = _exIsAdmin();
   el.innerHTML = `<div class="settings-group"><div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span class="settings-group-title">${t('ex.points_title')}</span></div>
@@ -6966,11 +6967,24 @@ async function exPointsOpen(id, vm) {
       <tr id="rs-form-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);">${_exRestoreFormHtml(p, id)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty-state">${t('ex.no_points')}</div>`;
   } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
 }
+let _exChains = {};
+/** Clusters a point may be restored onto: its own, and the other clusters of its folder where the user
+ *  holds the full-restore right on the whole cluster (and the cluster is enabled). */
+function _exRestoreTargets(chainId) {
+  const src = (_exChains[chainId] || {}).cluster_id;
+  const me = (CLUSTERS || []).find(c => c.cluster_id === src);
+  const others = me && me.folder_id ? CLUSTERS.filter(c => c.folder_id === me.folder_id && c.cluster_id !== src && c.enabled && can('backup.restore.full', c.cluster_id)) : [];
+  return { src, list: (me ? [me] : []).concat(others.sort((a, b) => a.name.localeCompare(b.name))) };
+}
 function _exRestoreFormHtml(p, chainId) {
   const vm = (p.definition && p.definition.name) || '';
+  const tg = _exRestoreTargets(chainId);
   return `
     <div class="ex-form">
       <div><label>${t('ex.r_name')}</label><input type="text" id="rs-${p.id}-name" value="${_exEsc(vm)}-restored"></div>
+      ${tg.list.length > 1 ? `<div><label>${t('ex.r_cluster')}</label><select id="rs-${p.id}-cluster" data-src="${tg.src}">
+        ${tg.list.map(c => `<option value="${c.cluster_id}" ${c.cluster_id === tg.src ? 'selected' : ''}>${_exEsc(c.name)}${c.cluster_id === tg.src ? ' · ' + _exEsc(t('ex.r_cluster_own')) : ''}</option>`).join('')}</select>
+        <div class="ex-hint">${t('ex.r_cluster_hint')}</div></div>` : ''}
       <div><label>${t('ex.r_mac')}</label><select id="rs-${p.id}-mac">
         <option value="new">${t('ex.r_mac_new')}</option><option value="original">${t('ex.r_mac_original')}</option></select>
         <div class="ex-hint">${t('ex.r_mac_hint')}</div></div>
@@ -6987,6 +7001,8 @@ function exRestoreForm(chainId, pointId) { const r = document.getElementById(`rs
 async function exRestoreStart(pointId) {
   const g = id => document.getElementById(`rs-${pointId}-${id}`);
   const body = { point_id: pointId, target_name: g('name').value.trim(), mac_policy: g('mac').value, nic_connected: g('nic').checked, start: g('start').checked, verify: g('verify').checked };
+  const sel = g('cluster');
+  if (sel && sel.value && sel.value !== sel.dataset.src) body.target_cluster_id = sel.value;
   if (!await hcmConfirm(t('ex.r_confirm', {name: body.target_name}))) return;
   _shMsg(`rs-${pointId}-msg`, t('ex.i_starting'), '');
   try { await _exCall('POST', '/api/backup/restores', body); showToast(t('ex.r_started'), 'ok'); switchExportsPanel('runs'); }
