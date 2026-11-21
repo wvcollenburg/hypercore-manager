@@ -1796,4 +1796,21 @@ window.LANG = {
   'tr.chain_failed': "fehlgeschlagen {when}",
   'notice.test_failed': "Test-Wiederherstellung von {vm} fehlgeschlagen: {detail}. Das Backup ist für eine echte Wiederherstellung möglicherweise nicht brauchbar.",
   'notice.test_overdue': "{vm} wird nicht testweise wiederhergestellt: {detail}.",
+
+  // progress bars of running work
+  'pb.copy': "Kopieren",
+  'pb.check': "Prüfen: Image wird geprüft",
+  'pb.checksum': "Prüfen: Prüfsumme",
+  'pb.disk_of': "Disk {n} von {total}",
+  'pb.verify_chain': "Kette prüfen",
+  'pb.prepare': "VM-Definition vorbereiten",
+  'pb.import': "VM importieren",
+  'pb.write': "Disks schreiben",
+  'pb.attach': "Disks anhängen",
+  'pb.working': "In Arbeit",
+  'pb.restore': "Wiederherstellen",
+  'pb.boot': "Start: warten auf ein Lebenszeichen",
+  'pb.network': "Netzwerkprüfungen im Test-VLAN",
+  'pb.cleanup': "Test-VM wird entfernt",
+  'pb.step': "Schritt {n}/{total}",
 };

@@ -93,10 +93,10 @@ def run_restore(restore_id: int) -> None:
     try:
         _run(r)
     except (IncrementalError, HyperCoreError, ProxyError, ValueError, vm_definition.UnknownMachineType) as e:
-        db.update_restore(restore_id, status='ERROR', message=str(e), finished_at=_now())
+        db.update_restore(restore_id, status='ERROR', message=str(e), finished_at=_now(), progress=None)
         log.error('[restore %s] %s', restore_id, e)
     except Exception as e:                                  # noqa: BLE001
-        db.update_restore(restore_id, status='ERROR', message=f'Unexpected error: {e}', finished_at=_now())
+        db.update_restore(restore_id, status='ERROR', message=f'Unexpected error: {e}', finished_at=_now(), progress=None)
         log.exception('[restore %s] unexpected error', restore_id)
 
 
@@ -138,15 +138,17 @@ def _run(r: dict) -> None:
     #    verify may be days old; a delta damaged since then would restore silently corrupt.
     verify = bool(params.get('verify', True))
     if verify:
-        db.update_restore(rid, message='verifying chain')
+        db.update_restore(rid, message='verifying chain', progress={'phase': 'verify', 'done': 0, 'total': 0})
         res_v = incremental.verify_chain(chain, share, pc, upto_seq=point['seq'],
-                                         on_progress=lambda p: db.update_restore(rid, message=incremental.verify_progress_text(p)))
+                                         on_progress=lambda p: db.update_restore(rid, message=incremental.verify_progress_text(p),
+                                                                                 progress={'phase': 'verify', 'done': int(p.get('bytes_done') or 0) >> 20,
+                                                                                           'total': int(p.get('bytes_total') or 0) >> 20}))
         if not res_v['ok']:
             detail = '; '.join(f'{d}: {m}' for d, m in res_v['failed'].items()) or 'the proxy reported a mismatch'
             raise IncrementalError(f'chain integrity check failed, nothing restored: {detail}')
 
     # 1. diskless import directory: NVRAM/vTPM with fresh file names + generated XML
-    db.update_restore(rid, message='preparing definition')
+    db.update_restore(rid, message='preparing definition', progress={'phase': 'prepare'})
     new_uuid = str(uuidlib.uuid4())
     utility_files = {u['uuid']: str(uuidlib.uuid4()) for u in utils}
     xml = render_definition(definition, new_uuid, utility_files)
@@ -158,7 +160,7 @@ def _run(r: dict) -> None:
                                   'definition_xml': xml, 'definition_name': f'{dirname}.xml'}), timeout=3600)
 
     # 2. import the diskless VM
-    db.update_restore(rid, message='importing definition')
+    db.update_restore(rid, message='importing definition', progress={'phase': 'import'})
     source_uri = jobs.build_path_uri(f"{share['uri_base'].rstrip('/')}/{out_dir}", share.get('username') or None, share.get('password') or None)
     tags = ','.join(t for t in [*(definition.get('tags') or '').split(','), *(params.get('extra_tags') or [])] if t.strip())
     tag, created = hc.import_vm(source_uri, name=name, description=params.get('description') or definition.get('description') or '',
@@ -182,12 +184,14 @@ def _run(r: dict) -> None:
                 stag, su = jobs.retry_transient(lambda: hc.create_block_device(proxy['vm_uuid'], cap, tiering=0), 'create staging disk')
                 wait_task(hc, stag, 'create staging disk', 600)
                 staging.append((d, su))
-            db.update_restore(rid, message=f'writing {len(disks)} disk(s) to the proxy')
+            db.update_restore(rid, message=f'writing {len(disks)} disk(s) to the proxy', progress={'phase': 'write', 'done': 0, 'total': 0})
             res = pc.wait(pc.submit('stage', {'target': target, 'chain_dir': chain['chain_dir'], 'seq': point['seq'],
                                               'devices': [{'uuid': d['uuid'], 'staging_clone_uuid': su} for d, su in staging]}),
-                          on_progress=lambda p: db.update_restore(rid, message=f"writing disks: {p.get('blocks_done', 0)}/{p.get('blocks_total', 0)} MiB"),
+                          on_progress=lambda p: db.update_restore(rid, message=f"writing disks: {p.get('blocks_done', 0)}/{p.get('blocks_total', 0)} MiB",
+                                                                  progress={'phase': 'write', 'done': int(p.get('blocks_done') or 0),
+                                                                            'total': int(p.get('blocks_total') or 0)}),
                           timeout=8 * 3600)['result']
-            db.update_restore(rid, message='attaching disks to the restored VM')
+            db.update_restore(rid, message='attaching disks to the restored VM', progress={'phase': 'attach'})
             snap_uuid = take_snapshot(hc, proxy['vm_uuid'], f'hcm-restore-{rid}', quiesce=False, retain_days=1)['uuid']
             for d, su in staging:
                 # the disk goes back on the bus it had (IDE as IDE, SCSI as SCSI): the VM is off, so even
@@ -247,7 +251,7 @@ def _run(r: dict) -> None:
     except ProxyError as e:
         log.warning('[restore %s] restore directory cleanup failed: %s', rid, e)
     bytes_written = res.get('bytes_written', 0)
-    db.update_restore(rid, status='COMPLETE', finished_at=_now(),
+    db.update_restore(rid, status='COMPLETE', finished_at=_now(), progress=None,
                       message=f"restored as '{name}'" + (f' on {_cluster_name(cid)}' if cid != chain['cluster_id'] else '')
                               + f" ({len(disks)} disk(s), {bytes_written >> 20} MiB written); chain "
                               f"{'verified' if verify else 'not verified (skipped)'}; MAC "

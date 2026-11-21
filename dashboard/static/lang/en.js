@@ -1797,4 +1797,21 @@ window.LANG = {
   'tr.chain_failed': "failed {when}",
   'notice.test_failed': "Test restore of {vm} failed: {detail}. The backup may not be usable for a real restore.",
   'notice.test_overdue': "{vm} is not being test-restored: {detail}.",
+
+  // progress bars of running work
+  'pb.copy': "Copying",
+  'pb.check': "Verifying: checking the image",
+  'pb.checksum': "Verifying: checksum",
+  'pb.disk_of': "disk {n} of {total}",
+  'pb.verify_chain': "Verifying the chain",
+  'pb.prepare': "Preparing the VM definition",
+  'pb.import': "Importing the VM",
+  'pb.write': "Writing disks",
+  'pb.attach': "Attaching disks",
+  'pb.working': "Working",
+  'pb.restore': "Restoring",
+  'pb.boot': "Booting: waiting for a sign of life",
+  'pb.network': "Network checks on the test VLAN",
+  'pb.cleanup': "Removing the test VM",
+  'pb.step': "step {n}/{total}",
 };

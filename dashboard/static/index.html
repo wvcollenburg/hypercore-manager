@@ -712,6 +712,15 @@
   .ex-slots { display: inline-flex; gap: 2px; vertical-align: middle; margin-right: 6px; }
   .ex-slots i { width: 6px; height: 14px; border-radius: 2px; background: var(--accent-cyan); display: block; opacity: 0.85; }
   .ex-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-family: 'JetBrains Mono', monospace; }
+  /* progress of running work: green while copying or writing, purple while verifying (like balenaEtcher) */
+  .hcm-pbar { position: relative; height: 8px; min-width: 180px; max-width: 360px; border-radius: 4px; background: var(--bg-nested, rgba(127,127,127,0.15)); overflow: hidden; margin-top: 4px; }
+  .hcm-pbar-fill { height: 100%; border-radius: 4px; transition: width .6s ease; background: var(--accent-green); }
+  .hcm-pbar.verify .hcm-pbar-fill { background: var(--accent-purple); }
+  .hcm-pbar.indet .hcm-pbar-fill { width: 35% !important; position: absolute; animation: hcm-pbar-slide 1.4s ease-in-out infinite; }
+  @keyframes hcm-pbar-slide { 0% { left: -35%; } 100% { left: 100%; } }
+  .hcm-pbar-label { font-size: 10px; font-family: 'JetBrains Mono', monospace; color: var(--text-muted); margin-top: 3px; }
+  .hcm-pbar-label b { color: var(--text-secondary); font-weight: 600; }
+  @media (prefers-reduced-motion: reduce) { .hcm-pbar.indet .hcm-pbar-fill { animation: none; left: 0; width: 100% !important; opacity: .5; } }
   .ex-badge.ok { background: rgba(16,185,129,0.15); color: var(--accent-green); }
   .ex-badge.err { background: rgba(239,68,68,0.15); color: var(--accent-red); }
   .ex-badge.run { background: rgba(6,182,212,0.15); color: var(--accent-cyan); }
@@ -6920,7 +6929,9 @@ async function exLoadRuns() {
         <tbody>${rows.map(r => `<tr>
           <td class="um-username">${_exEsc(kind === 'imp' ? r.source_uri : r.vm_name)}${(kind === 'imp' || kind === 'rst') && r.target_name ? ` → ${_exEsc(r.target_name)}` : ''}${_exClusterHint(r)}${kind === 'run' && r.export_path ? `<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(r.export_path)}</div>` : ''}</td>
           <td style="font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap;">${_exFmt(r.started_at)}</td>
-          <td>${_exStatusBadge(r.status, r.message)}${kind === 'run' && r.notice ? ' ' + _exNoticeBadge(r.notice) : ''}</td>
+          <td>${r.status === 'RUNNING' && kind === 'run' && r.progress ? _pbBackup(r.progress)
+               : r.status === 'RUNNING' && kind === 'rst' && r.progress ? _pbRestore(r.progress)
+               : _exStatusBadge(r.status, r.message)}${kind === 'run' && r.notice ? ' ' + _exNoticeBadge(r.notice) : ''}</td>
           <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${kind === 'run' && r.mode ? `<span class="ex-badge ${r.mode === 'incremental' ? 'run' : 'off'}">${r.mode === 'incremental' ? t(r.point_kind === 'full' ? 'ex.point_full' : 'ex.point_delta') : t('ex.mode_export')}</span> ` : ''}${kind === 'rst' && r.kind === 'files' ? `<span class="ex-badge off">${t('ex.files')}</span> ` : ''}${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${kind === 'rst' && r.kind === 'files' && r.created_uuid && r.status === 'COMPLETE' ? ` <button class="um-action-btn" onclick="exEjectIso(${r.id})">${t('ex.flr_eject')}</button>` : ''}${r.task_tag ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
         </tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.no_runs')}</div>`}
     </div>`;
@@ -6928,7 +6939,7 @@ async function exLoadRuns() {
   if (!_exRunsFilter) { try { tests = await _exCall('GET', '/api/backup/test-runs?limit=100'); } catch (e) { tests = []; } }
   el.innerHTML = table(t('ex.runs_title'), runs, 'run') + (_exRunsFilter ? '' : _trHistory(tests) + table(t('ex.restores_title'), restores, 'rst') + table(t('ex.imports_title'), imports, 'imp') + _vfHistory(d.verifications || []));
   clearTimeout(_exPollTimer);
-  if ([...runs, ...imports, ...restores].some(r => r.status === 'RUNNING')) {
+  if ([...runs, ...imports, ...restores].some(r => r.status === 'RUNNING') || tests.some(r => r.status === 'running' || r.status === 'queued')) {
     // poll while anything runs, but only while this panel is on screen and the cluster unchanged
     const cid = currentCluster;
     _exPollTimer = setTimeout(() => { if (currentCluster === cid && document.getElementById('expanel-runs')?.classList.contains('active')) exLoadRuns(); }, 5000);
@@ -7011,6 +7022,46 @@ function _vfHistory(rows) {
         <td>${badge(r.status)}</td>
         <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${t('vf.on_proxy', {proxy: _exEsc(r.proxy_name || '?')})}${r.proxy_role === 'dr' ? ' (DR)' : ''}${r.bytes != null ? ` · ${_exMiB(Math.round(r.bytes / 1048576))}` : ''}${r.duration_s ? ` · ${_polDur(r.duration_s)}` : ''}${r.message ? `<div>${_exEsc(r.message)}</div>` : ''}</td></tr>`).join('')}</tbody></table>`
       : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('vf.history_none')}</div>`}</div>`;
+}
+
+// ── progress bars of running work ──────────────────────────────────────────────────────────────────
+const _pbGiB = mib => (mib / 1024).toFixed(1);
+/** A bar plus a label. pr: {phase, done, total} (MiB); green for copy/write, purple for verify/check/checksum,
+ *  sliding (indeterminate) when the total is unknown. */
+function _pbar(pr, label) {
+  const verify = ['verify', 'check', 'checksum', 'boot', 'network'].includes(pr.phase);
+  const pct = pr.total ? Math.max(0, Math.min(100, Math.round(pr.done * 100 / pr.total))) : null;
+  return `<div class="hcm-pbar ${verify ? 'verify' : 'copy'}${pct === null ? ' indet' : ''}" role="progressbar" ${pct === null ? '' : `aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"`}>
+      <div class="hcm-pbar-fill" style="width:${pct === null ? 35 : pct}%"></div></div>
+    <div class="hcm-pbar-label">${label}${pct === null ? '' : ` · ${pct}%`}</div>`;
+}
+function _pbAmount(pr) { return pr.total ? `${_pbGiB(pr.done)} / ${_pbGiB(pr.total)} GiB` : ''; }
+/** A running backup: copying (green), then per disk checking and checksum read-back (purple). */
+function _pbBackup(pr) {
+  if (!pr || !pr.phase) return '';
+  const disk = pr.devices > 1 ? ` · ${t('pb.disk_of', {n: pr.device, total: pr.devices})}` : '';
+  if (pr.phase === 'check') return _pbar(pr, `<b>${t('pb.check')}</b>${disk}`);
+  if (pr.phase === 'checksum') return _pbar(pr, `<b>${t('pb.checksum')}</b> ${_pbAmount(pr)}${disk}`);
+  return _pbar(pr, `<b>${t('pb.copy')}</b> ${_pbAmount(pr)}${disk}`);
+}
+/** A running restore: verifying the chain (purple), preparing and importing (green, sliding), writing disks (green). */
+function _pbRestore(pr) {
+  if (!pr || !pr.phase) return '';
+  const key = {verify: 'pb.verify_chain', prepare: 'pb.prepare', import: 'pb.import', write: 'pb.write', attach: 'pb.attach'}[pr.phase] || 'pb.working';
+  return _pbar(pr, `<b>${t(key)}</b> ${_pbAmount(pr)}`);
+}
+const _pbClock = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+/** A running test restore: restore (the restore's own bar), boot (elapsed against the timeout), network checks, clean-up. */
+function _pbTest(r) {
+  const step = n => `<span class="hcm-pbar-label" style="margin-right:6px;">${t('pb.step', {n, total: r.level === 'network' ? 3 : 2})}</span>`;
+  if (r.phase === 'restore') return step(1) + (_pbRestore(r.restore_progress) || _pbar({phase: 'prepare'}, `<b>${t('pb.restore')}</b>`));
+  if (r.phase === 'boot' && r.progress) {
+    const el = Math.max(0, (Date.now() - new Date(r.progress.started).getTime()) / 1000), to = r.progress.timeout_s || 600;
+    return step(2) + _pbar({phase: 'boot', done: Math.min(el, to), total: to}, `<b>${t('pb.boot')}</b> ${_pbClock(el)} / ${_pbClock(to)}`);
+  }
+  if (r.phase === 'network') return step(3) + _pbar({phase: 'network'}, `<b>${t('pb.network')}</b>`);
+  if (r.phase === 'cleanup') return _pbar({phase: 'prepare'}, `<b>${t('pb.cleanup')}</b>`);
+  return '';
 }
 
 // ── test restores (per folder): plans on the Schedules tab, results on the Runs tab, a column on the
@@ -7150,7 +7201,7 @@ function _trHistory(rows) {
       <tbody>${rows.map(r => `<tr>
         <td class="um-username">${_exEsc(r.vm_name || '?')}${_exClusterHint(r)}<div style="font-size:10px;color:var(--text-muted);">${_exEsc(r.plan_name || '')}${r.picked === 'random' ? ' · ' + t('tr.picked_random') : ''}</div></td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap;">${_exFmt(r.started_at || r.queued_at)}</td>
-        <td>${_trStatusBadge(r)}${r.verdict === 'agent' ? ` <span class="ex-badge ok">${t('tr.v_agent')}</span>` : r.verdict === 'screen' ? ` <span class="ex-badge off">${t('tr.v_screen')}</span>` : ''}
+        <td>${_trStatusBadge(r)}${r.status === 'running' ? _pbTest(r) : ''}${r.verdict === 'agent' ? ` <span class="ex-badge ok">${t('tr.v_agent')}</span>` : r.verdict === 'screen' ? ` <span class="ex-badge off">${t('tr.v_screen')}</span>` : ''}
           ${r.agent === 'unavailable' ? `<div><span class="ex-badge warn" title="${_exEsc(t('tr.agentless_hint'))}">${t('tr.agentless')}</span></div>` : r.agent === 'unknown' ? `<div><span class="ex-badge off">${t('tr.agent_unknown')}</span></div>` : ''}</td>
         <td style="font-size:11px;color:var(--text-muted);max-width:460px;">
           ${r.target_cluster_name ? t('tr.on_cluster', {cluster: _exEsc(r.target_cluster_name)}) : ''}${r.point_created_at ? ` · ${t('tr.point_age', {h: ago(r.point_created_at)})}` : ''}${r.bytes ? ` · ${_exMiB(Math.round(r.bytes / 1048576))}` : ''}${r.restored_at ? ` · ${t('tr.restore_took', {d: dur(r.started_at, r.restored_at)})}` : ''}${r.booted_at ? ` · ${t('tr.boot_took', {d: dur(r.restored_at, r.booted_at)})}` : ''}

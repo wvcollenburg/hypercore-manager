@@ -1796,4 +1796,21 @@ window.LANG = {
   'tr.chain_failed': "échoué {when}",
   'notice.test_failed': "Restauration de test de {vm} échouée : {detail}. La sauvegarde n'est peut-être pas utilisable pour une vraie restauration.",
   'notice.test_overdue': "{vm} n'est pas testée par restauration : {detail}.",
+
+  // progress bars of running work
+  'pb.copy': "Copie",
+  'pb.check': "Vérification : contrôle de l'image",
+  'pb.checksum': "Vérification : somme de contrôle",
+  'pb.disk_of': "disque {n} sur {total}",
+  'pb.verify_chain': "Vérification de la chaîne",
+  'pb.prepare': "Préparation de la définition de la VM",
+  'pb.import': "Import de la VM",
+  'pb.write': "Écriture des disques",
+  'pb.attach': "Attachement des disques",
+  'pb.working': "En cours",
+  'pb.restore': "Restauration",
+  'pb.boot': "Démarrage : attente d'un signe de vie",
+  'pb.network': "Contrôles réseau sur le VLAN de test",
+  'pb.cleanup': "Suppression de la VM de test",
+  'pb.step': "étape {n}/{total}",
 };

@@ -797,3 +797,11 @@ def test_backup_progress_says_what_happens_after_the_copy():
     assert inc.backup_progress_text('full', dict(p, phase='check')).endswith(': checking the image')
     assert inc.backup_progress_text('full', dict(p, phase='checksum', checksum_done=12 << 30, checksum_total=27 << 30)).endswith(
         ': checksum 12288/27648 MiB')
+
+
+def test_backup_progress_feeds_the_two_colour_bar():
+    p = {'blocks_done': 1200, 'blocks_total': 28141, 'devices_done': 0, 'devices_total': 3}
+    assert inc.backup_progress(p) == {'phase': 'copy', 'device': 1, 'devices': 3, 'done': 1200, 'total': 28141}
+    assert inc.backup_progress(dict(p, phase='check'))['total'] == 0, 'qemu-img check: no amount, a sliding bar'
+    c = inc.backup_progress(dict(p, phase='checksum', checksum_done=5 << 30, checksum_total=27 << 30))
+    assert (c['phase'], c['done'], c['total']) == ('checksum', 5120, 27648)

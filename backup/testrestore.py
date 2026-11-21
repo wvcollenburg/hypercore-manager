@@ -256,6 +256,7 @@ def run_test(run: dict, plan: dict, target: str, point: dict, sleep=time.sleep, 
         probe_proxy = None
         if net:
             probe_proxy = network_ready(hc, target, plan)   # raises Fail with what is missing
+        db.update_test_run(rid, phase='restore')
         restored = restore(run, plan, target, point, net, state)
         timeout_s = int(plan['timeout_minutes']) * 60
         if net:
@@ -264,9 +265,11 @@ def run_test(run: dict, plan: dict, target: str, point: dict, sleep=time.sleep, 
             t = hc.vm_action(restored, 'START')
             if t:
                 incremental.wait_task(hc, t, 'start test VM', 600)
+        db.update_test_run(rid, phase='boot', progress={'started': _now().isoformat(), 'timeout_s': timeout_s})
         verdict, detail = watch_boot(hc, target, restored, timeout_s, state, sleep=sleep, clock=clock)
         db.update_test_run(rid, booted_at=_now())
         if net:
+            db.update_test_run(rid, phase='network', progress={'started': _now().isoformat()})
             checks = finish_network_checks(state.pop('netjob'), timeout_s + 600)
             ok, why = judge_checks(checks)
             if not ok:
@@ -292,9 +295,11 @@ def run_test(run: dict, plan: dict, target: str, point: dict, sleep=time.sleep, 
         if status == 'failed' and plan.get('keep_failed_hours') and state['restored']:
             keep = _now() + timedelta(hours=int(plan['keep_failed_hours']))
         db.update_test_run(rid, status=status, verdict=verdict, detail=detail, checks=checks, finished_at=_now(),
-                           screenshot=state['png'], keep_until=keep)
+                           screenshot=state['png'], keep_until=keep, phase='cleanup' if state['restored'] and not keep else None,
+                           progress=None)
         if state['restored'] and not keep:
             cleanup(target, state['restored'], rid)
+            db.update_test_run(rid, phase=None)
         _alerts(run, plan, status, verdict, detail)
         with _guard:
             _running.pop(target, None)

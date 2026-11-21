@@ -57,6 +57,12 @@ All notable changes to this project are documented here. The format follows
   badge on the cluster card, and mailed to the closest administrator of the folder (the folder's admins, else the
   customer's, else the MSP's, else the installation's). A chain with a point not verified for twice the interval
   raises a warning badge and a mail of its own. One mail per folder gathers what failed within two minutes.
+- **Progress bars for running work** (like balenaEtcher): a running backup shows a green bar while copying
+  (GiB and disk n of m), then a purple one while the proxy checks the image and reads it back for its checksum; a
+  running restore shows verifying (purple), preparing and importing, writing disks (green); a running test
+  restore shows its step: restoring (the restore's bar), booting (time waited against the timeout), network checks,
+  removing the test VM. Migration 054 stores the structured progress next to the text.
+
 - Restore points show a **Verified** column per chain; Runs lists the verifications (proxy, size, duration).
 
 ### Changed

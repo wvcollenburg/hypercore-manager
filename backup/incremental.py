@@ -449,7 +449,7 @@ def run_incremental(plan_id: int, policy_id: int | None = None, occurrence=None,
             db.update_run(run_id, work_started_at=work_started)
             _run(plan, run_id, hc, work_started, full)
     except (IncrementalError, HyperCoreError, ProxyError) as e:
-        db.update_run(run_id, status='ERROR', message=str(e), finished_at=_now())
+        db.update_run(run_id, status='ERROR', message=str(e), finished_at=_now(), progress=None)
         log.error('[run %s] %s', run_id, e)
         discard_empty_chain(run_id)
     except Exception as e:                              # noqa: BLE001 — never kill the scheduler thread
@@ -467,6 +467,20 @@ def backup_progress_text(kind: str, p: dict) -> str:
     elif p.get('phase') == 'checksum':
         text += f': checksum {int(p.get("checksum_done") or 0) >> 20}/{int(p.get("checksum_total") or 0) >> 20} MiB'
     return text
+
+
+def backup_progress(p: dict) -> dict:
+    """The bar of a running backup: green while copying (MiB of all devices), purple while the proxy checks a
+    copied disk and reads it back for its checksum (bytes of that disk)."""
+    total_dev = p.get('devices_total', 1)
+    out = {'phase': p.get('phase') or 'copy', 'device': min(p.get('devices_done', 0) + 1, total_dev), 'devices': total_dev,
+           'done': int(p.get('blocks_done') or 0), 'total': int(p.get('blocks_total') or 0)}
+    if out['phase'] == 'checksum':
+        out['done'] = int(p.get('checksum_done') or 0) >> 20
+        out['total'] = int(p.get('checksum_total') or 0) >> 20
+    elif out['phase'] == 'check':
+        out['done'], out['total'] = 0, 0                 # qemu-img check reports nothing: an indeterminate bar
+    return out
 
 
 def discard_empty_chain(run_id: int) -> bool:
@@ -599,7 +613,7 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_starte
             if p.get('blocks_total'):
                 total_dev = p.get('devices_total', 1)
                 try:                                    # progress text is cosmetic: a db hiccup must not abort the copy
-                    db.update_run(run_id, message=backup_progress_text(kind, p))
+                    db.update_run(run_id, message=backup_progress_text(kind, p), progress=backup_progress(p))
                 except Exception as e:                  # noqa: BLE001
                     log.warning('[run %s] progress update failed: %s', run_id, e)
         result = pc.wait(job_id, on_progress, timeout=CFG.task_timeout_hours * 3600)['result']

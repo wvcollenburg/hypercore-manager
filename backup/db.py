@@ -190,8 +190,8 @@ def start_run(schedule_id: int, policy_id: Optional[int] = None, occurrence=None
 def update_run(run_id: int, **fields) -> None:
     allowed = {'finished_at', 'status', 'task_tag', 'export_path', 'message', 'mode', 'point_kind', 'chain_id', 'point_id',
                'proxy_id', 'blocks_changed', 'bytes_written', 'work_started_at', 'lock_wait_seconds', 'copy_seconds',
-               'overhead_seconds', 'notice', 'synth_seconds', 'planned_start', 'predicted_finish'}
-    items = [(k, v) for k, v in fields.items() if k in allowed]
+               'overhead_seconds', 'notice', 'synth_seconds', 'planned_start', 'predicted_finish', 'progress'}
+    items = [(k, _json(v) if k == 'progress' else v) for k, v in fields.items() if k in allowed]
     if not items:
         return
     _exec(f'UPDATE backup.runs SET {", ".join(f"{k} = %s" for k, _ in items)} WHERE id = %s',
@@ -809,8 +809,8 @@ def get_restores(cluster_id: Optional[str] = None, limit: int = 50) -> list[dict
 
 
 def update_restore(restore_id: int, **fields) -> None:
-    allowed = {'status', 'message', 'created_uuid', 'finished_at'}
-    items = [(k, v) for k, v in fields.items() if k in allowed]
+    allowed = {'status', 'message', 'created_uuid', 'finished_at', 'progress'}
+    items = [(k, _json(v) if k == 'progress' else v) for k, v in fields.items() if k in allowed]
     if not items:
         return
     _exec(f'UPDATE backup.restores SET {", ".join(f"{k} = %s" for k, _ in items)} WHERE id = %s', [v for _, v in items] + [restore_id])
@@ -1183,13 +1183,13 @@ def queue_test_runs(plan: dict, round_at: datetime, vms: list[dict]) -> int:
     return n
 
 
-_TEST_RUN_COLS = ('status', 'verdict', 'agent', 'point_id', 'point_created_at', 'target_cluster_id', 'proxy_id', 'restore_id',
+_TEST_RUN_COLS = ('phase', 'progress', 'status', 'verdict', 'agent', 'point_id', 'point_created_at', 'target_cluster_id', 'proxy_id', 'restore_id',
                   'restored_vm_uuid', 'bytes', 'checks', 'screenshot', 'detail', 'started_at', 'restored_at', 'booted_at',
                   'finished_at', 'keep_until', 'cleaned_at')
 
 
 def update_test_run(run_id: int, **f) -> None:
-    items = [(k, _json(v) if k == 'checks' else (psycopg2.Binary(v) if k == 'screenshot' and v is not None else v))
+    items = [(k, _json(v) if k in ('checks', 'progress') else (psycopg2.Binary(v) if k == 'screenshot' and v is not None else v))
              for k, v in f.items() if k in _TEST_RUN_COLS]
     if items:
         _exec(f'UPDATE backup.test_runs SET {", ".join(f"{k} = %s" for k, _ in items)} WHERE id = %s', [v for _, v in items] + [run_id])
@@ -1199,9 +1199,11 @@ _TEST_RUN_SELECT = '''SELECT t.id, t.plan_id, t.folder_id::text AS folder_id, t.
                              t.vm_name, t.picked, t.level, t.status, t.verdict, t.agent, t.point_id, t.point_created_at,
                              t.target_cluster_id::text AS target_cluster_id, t.proxy_id, t.restore_id, t.restored_vm_uuid, t.bytes,
                              t.checks, t.detail, t.queued_at, t.started_at, t.restored_at, t.booted_at, t.finished_at,
-                             t.keep_until, t.cleaned_at, (t.screenshot IS NOT NULL) AS has_screenshot,
+                             t.keep_until, t.cleaned_at, (t.screenshot IS NOT NULL) AS has_screenshot, t.phase, t.progress,
+                             rs.progress AS restore_progress, rs.message AS restore_message,
                              c.cluster_name, tc.cluster_name AS target_cluster_name, pl.name AS plan_name
                         FROM backup.test_runs t LEFT JOIN config.clusters c ON c.cluster_id = t.cluster_id
+                        LEFT JOIN backup.restores rs ON rs.id = t.restore_id
                         LEFT JOIN config.clusters tc ON tc.cluster_id = t.target_cluster_id
                         LEFT JOIN backup.test_plans pl ON pl.id = t.plan_id'''
 

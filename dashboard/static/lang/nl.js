@@ -1796,4 +1796,21 @@ window.LANG = {
   'tr.chain_failed': "mislukt {when}",
   'notice.test_failed': "Testherstel van {vm} mislukt: {detail}. De back-up is mogelijk niet bruikbaar voor een echt herstel.",
   'notice.test_overdue': "{vm} wordt niet testhersteld: {detail}.",
+
+  // progress bars of running work
+  'pb.copy': "Kopiëren",
+  'pb.check': "Controleren: image nakijken",
+  'pb.checksum': "Controleren: controlesom",
+  'pb.disk_of': "schijf {n} van {total}",
+  'pb.verify_chain': "Keten controleren",
+  'pb.prepare': "VM-definitie voorbereiden",
+  'pb.import': "VM importeren",
+  'pb.write': "Schijven schrijven",
+  'pb.attach': "Schijven koppelen",
+  'pb.working': "Bezig",
+  'pb.restore': "Herstellen",
+  'pb.boot': "Opstarten: wachten op een teken van leven",
+  'pb.network': "Netwerkcontroles op het test-VLAN",
+  'pb.cleanup': "Test-VM verwijderen",
+  'pb.step': "stap {n}/{total}",
 };
