@@ -1452,6 +1452,8 @@ window.LANG = {
   'acct.email_now': "Sie melden sich mit {email} an.",
   'acct.new_email': "Neue E-Mail-Adresse",
   'acct.current_password': "Aktuelles Passwort",
+  'update.blocked': "Update verfügbar, kann hier aber nicht angewendet werden: {reason}",
+  'update.blocked_short': "Update verfügbar, kann hier aber nicht angewendet werden",
   'acct.title': "Mein Konto",
   'acct.sign_out': "Abmelden",
   'acct.loading': "Wird geladen…",

@@ -7237,6 +7237,13 @@ function _applyUpdateState(d) {
     applyBtn.style.display = ''; applyBtn.disabled = true;
     badgeBtn.classList.add('has-update');
     _startApplyPoll();
+  } else if (d.update_available && d.apply_blocked) {
+    // the release exists, but applying it here would be refused: say why before Apply is pressed
+    statusTxt.textContent = '⚠ ' + t('update.blocked', { reason: d.apply_blocked });
+    statusTxt.className = 'update-status-text error';
+    applyBtn.style.display = ''; applyBtn.disabled = true;
+    badgeBtn.classList.add('has-update');
+    badgeBtn.title = t('update.blocked_short');
   } else if (d.update_available) {
     statusTxt.textContent = '● Update available';
     statusTxt.className = 'update-status-text available';

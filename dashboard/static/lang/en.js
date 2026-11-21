@@ -1453,6 +1453,8 @@ window.LANG = {
   'acct.email_now': "You sign in with {email}.",
   'acct.new_email': "New email address",
   'acct.current_password': "Current password",
+  'update.blocked': "Update available, but it cannot be applied here: {reason}",
+  'update.blocked_short': "Update available, but it cannot be applied here",
   'acct.title': "My account",
   'acct.sign_out': "Sign out",
   'acct.loading': "Loading…",
