@@ -914,6 +914,9 @@ window.LANG = {
 
   'ex.restore': "Wiederherstellen",
   'ex.r_name': "Name der wiederhergestellten VM",
+  'ex.r_cluster': "Wiederherstellen auf",
+  'ex.r_cluster_own': "dem eigenen Cluster",
+  'ex.r_cluster_hint': "Jeder Cluster dieses Ordners mit einem Backup-Proxy: dessen Proxy liest den Wiederherstellungspunkt von der Freigabe des Ordners.",
   'ex.r_mac': "MAC-Adressen",
   'ex.r_mac_original': "Originaladressen behalten (die Quell-VM muss aus oder weg sein, um die Kopie zu starten)",
   'ex.r_mac_new': "neue Adressen (Standard)",

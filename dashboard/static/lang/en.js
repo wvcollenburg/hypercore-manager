@@ -915,6 +915,9 @@ window.LANG = {
 
   'ex.restore': "Restore",
   'ex.r_name': "Name of the restored VM",
+  'ex.r_cluster': "Restore onto",
+  'ex.r_cluster_own': "its own cluster",
+  'ex.r_cluster_hint': "Any cluster of this folder with a backup proxy: its proxy reads the point from the folder's share.",
   'ex.r_mac': "MAC addresses",
   'ex.r_mac_original': "keep the original addresses (the source VM must be off or gone to start the copy)",
   'ex.r_mac_new': "new addresses (default)",

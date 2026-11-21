@@ -914,6 +914,9 @@ window.LANG = {
 
   'ex.restore': "Restaurer",
   'ex.r_name': "Nom de la VM restaurée",
+  'ex.r_cluster': "Restaurer sur",
+  'ex.r_cluster_own': "son propre cluster",
+  'ex.r_cluster_hint': "Tout cluster de ce dossier doté d'un proxy de sauvegarde : son proxy lit le point sur le partage du dossier.",
   'ex.r_mac': "Adresses MAC",
   'ex.r_mac_original': "conserver les adresses d'origine (la VM source doit être arrêtée ou absente pour démarrer la copie)",
   'ex.r_mac_new': "nouvelles adresses (par défaut)",

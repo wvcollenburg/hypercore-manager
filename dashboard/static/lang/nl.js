@@ -914,6 +914,9 @@ window.LANG = {
 
   'ex.restore': "Herstellen",
   'ex.r_name': "Naam van de herstelde VM",
+  'ex.r_cluster': "Terugzetten op",
+  'ex.r_cluster_own': "het eigen cluster",
+  'ex.r_cluster_hint': "Elk cluster van deze map met een back-upproxy: die proxy leest het herstelpunt van de share van de map.",
   'ex.r_mac': "MAC-adressen",
   'ex.r_mac_original': "originele adressen behouden (de bron-VM moet uit of weg zijn om de kopie te starten)",
   'ex.r_mac_new': "nieuwe adressen (standaard)",

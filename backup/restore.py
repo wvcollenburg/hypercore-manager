@@ -23,6 +23,7 @@ import time
 import uuid as uuidlib
 from datetime import datetime, timezone
 
+import cluster_registry
 import db
 import incremental
 import jobs
@@ -75,6 +76,15 @@ def boot_order(definition: dict, disk_map: dict[str, str], new_vm: dict) -> list
     return order
 
 
+def _cluster_name(cid: str) -> str:
+    """The target cluster's name for the result message; never fails a finished restore."""
+    try:
+        c = cluster_registry.get(cid)
+        return c.name if c else cid
+    except Exception:                                       # noqa: BLE001
+        return cid
+
+
 def run_restore(restore_id: int) -> None:
     r = db.get_restore(restore_id)
     if r is None:
@@ -102,11 +112,14 @@ def _run(r: dict) -> None:
     disks, utils = plan_devices(definition)
     if not disks:
         raise IncrementalError('the point has no data disk')
-    hc = jobs.client_for(chain['cluster_id'])
+    # where the VM is created: the chain's own cluster, or another cluster of its folder. The chain lives on
+    # the folder's share, so the target cluster's own proxy reads it and stages the disks there.
+    cid = r.get('cluster_id') or chain['cluster_id']
+    hc = jobs.client_for(cid)
     pf = jobs.preflight(hc)
     if not pf['ok']:
         raise IncrementalError(f"{pf['detail']}. {jobs.DEFERRED_HINT.get(pf['kind'], '')}".strip())
-    proxy = pick_proxy(chain['cluster_id'])
+    proxy = pick_proxy(cid)
     pc = proxy_client_for(proxy)
     target = {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')}
     name = (r.get('target_name') or f"{chain['vm_name']}-restored").strip()
@@ -114,6 +127,11 @@ def _run(r: dict) -> None:
     if name.lower() in existing:
         raise IncrementalError(f"a VM named '{name}' already exists on the cluster; choose another name")
     source_exists = any(v.get('uuid') == definition.get('uuid') for v in existing.values())
+    if not source_exists and cid != chain['cluster_id']:
+        try:                                       # the source VM may still run on its own cluster
+            source_exists = any(v.get('uuid') == definition.get('uuid') for v in jobs.client_for(chain['cluster_id']).list_vms())
+        except HyperCoreError:
+            source_exists = True                   # unknown: assume it runs, so its MAC address is not reused by default
 
     # 0. integrity of the backing chain, before anything is created on the cluster. The weekly
     #    verify may be days old; a delta damaged since then would restore silently corrupt.
@@ -151,7 +169,7 @@ def _run(r: dict) -> None:
 
     # 3.–4. staging disks on the proxy, filled from the point, cloned onto the restored VM
     disk_map: dict[str, str] = {}
-    with vm_lock(chain['cluster_id'], proxy['vm_uuid']), proxy_lock(proxy['id']):
+    with vm_lock(cid, proxy['vm_uuid']), proxy_lock(proxy['id']):
         staging: list[tuple[dict, str]] = []
         snap_uuid = None
         try:
@@ -225,7 +243,8 @@ def _run(r: dict) -> None:
         log.warning('[restore %s] restore directory cleanup failed: %s', rid, e)
     bytes_written = res.get('bytes_written', 0)
     db.update_restore(rid, status='COMPLETE', finished_at=_now(),
-                      message=f"restored as '{name}' ({len(disks)} disk(s), {bytes_written >> 20} MiB written); chain "
+                      message=f"restored as '{name}'" + (f' on {_cluster_name(cid)}' if cid != chain['cluster_id'] else '')
+                              + f" ({len(disks)} disk(s), {bytes_written >> 20} MiB written); chain "
                               f"{'verified' if verify else 'not verified (skipped)'}; MAC "
                               f"{'original' if use_original_mac else 'new'}, NICs {'connected' if connected else 'disconnected'}"
                               + (f'. Not started: {not_started} Give it a new MAC address or stop the source VM, then start it.' if not_started

@@ -1268,8 +1268,9 @@ def restores_list():
 @app.post('/api/v1/restores')
 @_require_token
 def restores_start():
-    """Restore a point as a new VM on its cluster. body: {point_id, target_name, mac_policy: auto|original|new,
-    nic_connected: bool, start: bool, verify: bool (default true: re-hash the backing chain first)}"""
+    """Restore a point as a new VM, on its own cluster or on another cluster of the same folder (the folder's
+    share holds the chain; that cluster's proxy reads it). body: {point_id, target_name, target_cluster_id,
+    mac_policy: original|new, nic_connected: bool, start: bool, verify: bool (default true: re-hash the chain first)}"""
     b = request.get_json(silent=True) or {}
     point = db.get_point(int(b.get('point_id') or 0)) if str(b.get('point_id') or '').isdigit() else None
     chain = db.get_chain(point['chain_id']) if point else None
@@ -1283,15 +1284,26 @@ def restores_start():
     if policy not in ('original', 'new'):
         return _err('mac_policy must be new or original')
     name = (b.get('target_name') or f"{chain['vm_name']}-restored").strip()
+    target_cid = (b.get('target_cluster_id') or chain['cluster_id']).strip()
+    if target_cid != chain['cluster_id']:
+        known, folder = db.folder_of_cluster(target_cid)
+        same = known and folder is not None and folder == db.folder_of_cluster(chain['cluster_id'])[1]
+        if not same:
+            return _err('a point restores to a cluster of its own folder only')
+        tc = cluster_registry.get(target_cid)
+        if not tc or not tc.enabled:
+            return _err('the target cluster is not enabled')
+        if not any(p.get('vm_uuid') for p in db.get_proxies(target_cid, enabled_only=True)):
+            return _err('the target cluster has no backup proxy: deploy one there first')
     try:
-        existing = {(v['name'] or '').lower() for v in jobs.client_for(chain['cluster_id']).list_vms()}
+        existing = {(v['name'] or '').lower() for v in jobs.client_for(target_cid).list_vms()}
     except HyperCoreError as e:
         return _err(f'could not verify VM names on the cluster ({e}); restore not started', 502)
     if name.lower() in existing:
         return _err(f"a VM named '{name}' already exists on the cluster; choose another name", 409)
     params = {'mac_policy': policy, 'nic_connected': bool(b.get('nic_connected', False)), 'start': bool(b.get('start', False)),
               'verify': bool(b.get('verify', True))}
-    rid = db.add_restore(point, chain, name, params, b.get('requested_by'))
+    rid = db.add_restore(point, chain, name, params, b.get('requested_by'), cluster_id=target_cid)
     scheduler.run_restore(rid)
     return jsonify({'ok': True, 'id': rid}), 201
 
