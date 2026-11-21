@@ -111,7 +111,10 @@ class ClusterSession:
         at once when the credentials are refused, ClusterUnreachable when nobody answers."""
         with self.lock:
             previous = self.host
-            hosts = [h for h in self.candidates(self.host) if h != exclude] or self.candidates(self.host)
+            # the failing node goes last, not away: with TLS verification the registered name is often the only
+            # address whose certificate matches (nodes are known by IP), and its failure may have been a blip
+            every = self.candidates(self.host)
+            hosts = [h for h in every if h != exclude] + [h for h in every if h == exclude]
             attempts: list[tuple[str, str]] = []
             for h in hosts:
                 self.session.cookies.clear()
@@ -179,7 +182,13 @@ class ClusterSession:
         self.ensure()
         host = self.host
         try:
-            resp = self.session.request(method, f'{self.base_url}{path}', **kw)
+            try:
+                resp = self.session.request(method, f'{self.base_url}{path}', **kw)
+            except TRANSPORT_ERRORS as e:
+                # a pooled keep-alive connection the node already closed ("Remote end closed connection
+                # without response") is no dead node: once more on the same node, on a fresh connection
+                self._log(f'{self.service}: {host} dropped the connection ({_short(e)}); retrying there once')
+                resp = self.session.request(method, f'{self.base_url}{path}', **kw)
         except TRANSPORT_ERRORS as e:
             self._log(f'{self.service}: {host} not answering ({_short(e)}); trying another node')
             with self.lock:

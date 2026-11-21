@@ -131,7 +131,8 @@ def test_all_nodes_down_raises_cluster_unreachable():
     http.down.update(NODES)
     with pytest.raises(hs.ClusterUnreachable) as exc:
         s.get_json('/Node')
-    assert [h for h, _ in exc.value.attempts] == ['10.0.0.2', '10.0.0.3'], 'the node that just failed is not retried'
+    # the node that just failed (twice: once more on a fresh connection) is tried again only after the others
+    assert [h for h, _ in exc.value.attempts] == ['10.0.0.2', '10.0.0.3', '10.0.0.1'], 'the failed node goes last'
     assert not s.logged_in
     http.down.clear()                                  # the next call recovers on its own
     assert s.get_json('/Node')['node'] in NODES
@@ -161,3 +162,31 @@ def test_seed_is_the_fallback_when_nothing_is_known():
                           on_switch=lambda h: None, http_factory=lambda: http,
                           base_url_of=lambda h: f'https://{h}/rest/v1', logger=lambda m: None)
     assert s.get_json('/Node') == {'node': '10.0.0.3'}
+
+
+def test_a_dropped_connection_is_retried_on_the_same_node_first():
+    """A keep-alive connection the node closed is no dead node (seen on Lab 241: 'Remote end closed connection
+    without response' sent a session onto node IPs its TLS check could never accept)."""
+    http = FakeHttp(); s = _session(http)
+    s.get_json('/Node')
+    real = http.request
+    dropped = []
+
+    def once(method, url, **kw):
+        if not dropped:
+            dropped.append(url)
+            raise requests.exceptions.ConnectionError('Remote end closed connection without response')
+        return real(method, url, **kw)
+    http.request = once
+    assert s.get_json('/Node') == {'node': '10.0.0.1'}
+    assert http.logins == ['10.0.0.1'] and s.switches == ['10.0.0.1'], 'no failover, no new login'
+
+
+def test_the_failing_node_is_tried_last_not_dropped():
+    """Every other node refuses (e.g. their IPs fail TLS verification): the node that failed is the last resort."""
+    http = FakeHttp(); s = _session(http)
+    s.get_json('/Node')
+    http.down.update({'10.0.0.2', '10.0.0.3'})
+    s.logged_in_at = 0.0
+    assert s.login(exclude='10.0.0.1') == '10.0.0.1'
+    assert http.logins[-1] == '10.0.0.1'
