@@ -70,6 +70,15 @@ def vm_lock(cluster_id: str, vm_uuid: str) -> threading.Lock:
         return _VM_LOCKS.setdefault((str(cluster_id), vm_uuid), threading.Lock())
 
 
+def make_way(proxy_id: int, what: str) -> None:
+    """Backups and restores go before planned verification: stop a verification running on the proxy."""
+    try:
+        import verifier
+        verifier.make_way(proxy_id, what)
+    except Exception:                                   # noqa: BLE001 — never block the backup over this
+        log.warning('could not stop the verification on proxy %s', proxy_id, exc_info=True)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -501,6 +510,7 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_starte
     clones: list[str] = []
     lock = proxy_lock(proxy['id'])
     wait_t0 = time.monotonic()
+    make_way(proxy['id'], 'a backup')
     lock.acquire()
     lock_wait = time.monotonic() - wait_t0
     try:
@@ -784,21 +794,39 @@ def remove_cloud_init_disk(hc: HyperCoreClient, vm_uuid: str) -> str | None:
 def record_verify_result(chain_id: int, res: dict) -> tuple[bool, dict]:
     """Apply a proxy verify result to the chain's points: a checked point that passed gets
     verified_at and loses any earlier error, a failing one gets the mismatch text in
-    verify_error. Returns (ok, {point dir: error text})."""
+    verify_error. Both record the attempt (verify_checked_at). A point that newly fails opens an alert
+    (the dashboard mails the closest admin and shows it on the cluster card); a pass closes it.
+    Returns (ok, {point dir: error text})."""
     results = res.get('points') or {}
     now = _now()
     failed: dict[str, str] = {}
+    chain = None
     for pt in db.get_points(chain_id):
         r = results.get(pt['dir'])
         if r is None:
             continue
         if r.get('ok'):
-            db.update_point(pt['id'], verified_at=now, verify_error=None)
+            had_error = pt.get('verify_error')
+            db.update_point(pt['id'], verified_at=now, verify_error=None, verify_checked_at=now)
+            if had_error:
+                _safe_alert('resolve_verify_alerts', point_id=pt['id'], kind='failed')
         else:
             text = '; '.join(r.get('mismatches') or ['checksum differs'])[:500]
-            db.update_point(pt['id'], verify_error=text)
+            db.update_point(pt['id'], verify_error=text, verify_checked_at=now)
             failed[pt['dir']] = text
+            chain = chain or db.get_chain(chain_id)
+            if chain:
+                _safe_alert('raise_verify_alert', 'failed', chain, pt, text)
     return bool(res.get('ok')) and not failed, failed
+
+
+def _safe_alert(name: str, *a, **kw):
+    """Alerts never break the verification that raised them (e.g. a database still before migration 052)."""
+    try:
+        return getattr(db, name)(*a, **kw)
+    except Exception:                                   # noqa: BLE001
+        log.warning('verify alert bookkeeping failed', exc_info=True)
+        return None
 
 
 def verify_chain(chain: dict, share: dict, pc: ProxyClient, upto_seq: int | None = None, on_progress=None,
@@ -863,32 +891,3 @@ def start_verify(chain_id: int) -> dict:
 
     threading.Thread(target=run, name=f'verify-{chain_id}', daemon=True).start()
     return entry
-
-
-def verify_active_chains(cluster_id: str) -> dict:
-    """Weekly: re-hash every active chain of a cluster through its proxy; records the outcome per
-    point (verified_at, verify_error)."""
-    out = {'verified': 0, 'failed': 0}
-    try:
-        proxy = pick_proxy(cluster_id)
-    except IncrementalError:
-        return out
-    pc = proxy_client_for(proxy)
-    for ch in db.get_chains(cluster_id):
-        if ch['status'] != 'active' or not ch.get('target_id'):
-            continue
-        share = db.get_share(ch['target_id'], with_secret=True)
-        if not share:
-            continue
-        try:
-            res = verify_chain(ch, share, pc)
-        except ProxyError as e:
-            log.warning('verify of chain %s failed: %s', ch['id'], e)
-            out['failed'] += 1
-            continue
-        if res['ok']:
-            out['verified'] += 1
-        else:
-            log.error('chain %s (%s) has corrupt points: %s', ch['id'], ch.get('vm_name'), res['failed'] or res.get('points'))
-            out['failed'] += 1
-    return out

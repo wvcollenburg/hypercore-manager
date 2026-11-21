@@ -29,7 +29,7 @@ import incremental
 import jobs
 import vm_definition
 from hypercore import HyperCoreClient, HyperCoreError
-from incremental import (IncrementalError, _delete_clones, _safe_delete_snapshot, clone_onto, pick_proxy, proxy_client_for, proxy_lock,
+from incremental import (IncrementalError, _delete_clones, _safe_delete_snapshot, clone_onto, make_way, pick_proxy, proxy_client_for, proxy_lock,
                          take_snapshot, vm_lock, wait_task)
 from proxy_client import ProxyError
 
@@ -169,6 +169,7 @@ def _run(r: dict) -> None:
 
     # 3.–4. staging disks on the proxy, filled from the point, cloned onto the restored VM
     disk_map: dict[str, str] = {}
+    make_way(proxy['id'], 'a restore')
     with vm_lock(cid, proxy['vm_uuid']), proxy_lock(proxy['id']):
         staging: list[tuple[dict, str]] = []
         snap_uuid = None

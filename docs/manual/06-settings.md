@@ -12,7 +12,8 @@ grey no longer listed), the HyperCore account in use, the API version in use and
 version found, the cluster's time zone, and when it was last seen. **Test connection** logs in on
 every known node and refreshes what the cluster reports, including nodes, version and time zone.
 **Edit** changes the name, address, account, TLS verification, colour, API version, time zone
-override and folder. **Disable** pauses collection and balancing while keeping the history;
+override, folder and role. The role **DR (normally passive)** marks a folder's standby cluster: its
+backup proxies verify the folder's restore points around the clock (see Backup → Verification). **Disable** pauses collection and balancing while keeping the history;
 **Remove** forgets the cluster. Registering the same cluster twice is detected and the duplicate's
 balancer is suspended.
 

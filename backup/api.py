@@ -24,6 +24,7 @@ import policies
 import proxy_image
 import recurrence
 import scheduler
+import verifier
 import vmedit
 from hypercore import HyperCoreError
 from proxy_client import ProxyError, certificate_fingerprint, normalise_fingerprint
@@ -348,17 +349,34 @@ def notices():
     cid = _cluster_arg()
     if not cid:
         return _err('cluster required')
+    out = _verify_notices(cid)
     try:
         pf = jobs.preflight(jobs.client_for(cid), cid, max_age=60)
     except HyperCoreError as e:
-        return jsonify({'notices': [], 'unavailable': str(e)})
-    out = []
+        return jsonify({'notices': out, 'unavailable': str(e)})
     w = pf.get('warning')
     if w:
         mute = db.get_notice_mute(cid, w['key'])
         out.append(dict(w, muted_until=mute['muted_until'].isoformat() if mute else None,
                         muted_by=mute['muted_by'] if mute else None))
     return jsonify({'notices': out})
+
+
+def _verify_notices(cid: str) -> list:
+    """Open verification alerts of the cluster's chains: a failed point is critical (that backup cannot be
+    trusted), a chain not verified for twice its interval a warning."""
+    try:
+        alerts = db.open_verify_alerts(cid)
+    except Exception:                                   # noqa: BLE001 — before migration 052
+        return []
+    out = []
+    for a in alerts:
+        failed = a['kind'] == 'failed'
+        out.append({'key': f"verify_{a['kind']}:{a['point_id'] if failed else a['chain_id']}",
+                    'kind': f"verify_{a['kind']}", 'severity': 'critical' if failed else 'warning',
+                    'vm': a.get('vm_name'), 'seq': a.get('seq'), 'chain_id': a.get('chain_id'),
+                    'detail': a.get('detail') or '', 'since': a['created_at'].isoformat() if a.get('created_at') else None})
+    return out
 
 
 @app.post('/api/v1/notices/mute')
@@ -819,7 +837,18 @@ def runs():
         'runs':     [_ser(r) for r in db.get_runs(_clusters_arg(), sid, limit)],
         'imports':  [] if sid else [_ser(i) for i in db.get_imports(_clusters_arg(), limit)],
         'restores': [] if sid else [_ser(r) for r in db.get_restores(_clusters_arg(), limit)],
+        'verifications': [] if sid else _verify_history(limit),
     })
+
+
+def _verify_history(limit: int) -> list:
+    cids = _clusters_arg()
+    if cids is None:
+        return []
+    try:
+        return [_ser(v) for v in db.verify_runs(cids if isinstance(cids, list) else [cids], limit)]
+    except Exception:                                   # noqa: BLE001 — before migration 052
+        return []
 
 
 @app.get('/api/v1/runs/status')
@@ -1186,11 +1215,67 @@ def proxies_bench_status(pid):
 @_require_token
 def chains_list():
     rows = []
+    intervals: dict = {}
     for ch in db.get_chains(_clusters_arg(), vm_uuid=request.args.get('vm_uuid') or None):
         d = _ser(ch)
         d.pop('active_clones', None)
+        f = ch.get('folder_id')
+        if f not in intervals:
+            try:
+                intervals[f] = int(db.verify_settings(f)['interval_days'] or 0)
+            except Exception:                           # noqa: BLE001 — before migration 052
+                intervals[f] = 0
+        d['verify_interval_days'] = intervals[f]
         rows.append(d)
     return jsonify(rows)
+
+
+# ----------------------------------------------------------- planned verification
+def _verify_fields(b: dict) -> dict:
+    f = {}
+    if 'interval_days' in b:
+        try:
+            n = int(b['interval_days'])
+        except (TypeError, ValueError):
+            raise ValueError('the interval must be a whole number of days') from None
+        if not 0 <= n <= 90:
+            raise ValueError('the interval must be between 0 (off) and 90 days')
+        f['interval_days'] = n
+    for k in ('hours_from', 'hours_until'):
+        if k in b:
+            t = recurrence.parse_hhmm(b[k])
+            f[k] = f'{t.hour:02d}:{t.minute:02d}'
+    if 'dr_during_backups' in b:
+        f['dr_during_backups'] = bool(b['dr_during_backups'])
+    return f
+
+
+@app.get('/api/v1/verification')
+@_require_token
+def verification_get():
+    """The selected cluster's folder: verification settings, counts, the proxies that take part."""
+    folder, err = _scope()
+    if err:
+        return err
+    out = verifier.status(folder)
+    out['folder_id'] = folder
+    out['folder_name'] = db.folder_name(folder) if folder else None
+    return jsonify(_plain(out))
+
+
+@app.put('/api/v1/verification')
+@_require_token
+def verification_put():
+    folder, err = _scope()
+    if err:
+        return err
+    b = request.get_json(silent=True) or {}
+    try:
+        f = _verify_fields(b)
+    except (ValueError, recurrence.RecurrenceError) as e:
+        return _err(str(e))
+    db.save_verify_settings(folder, (str(b.get('updated_by') or '').strip() or None), **f)
+    return verification_get()
 
 
 @app.get('/api/v1/chains/<int:chain_id>/points')

@@ -661,7 +661,15 @@ def get_chains(cluster_id: Optional[str] = None, vm_uuid: Optional[str] = None, 
                include_deleted: bool = False) -> list[dict]:
     sql = '''SELECT ch.*, t.name AS target_name, p.enabled AS plan_enabled, c.cluster_name,
                     (SELECT COUNT(*) FROM backup.points pt WHERE pt.chain_id = ch.id AND pt.status = 'ok') AS point_count,
-                    (SELECT MAX(pt.created_at) FROM backup.points pt WHERE pt.chain_id = ch.id AND pt.status = 'ok') AS last_point_at
+                    (SELECT MAX(pt.created_at) FROM backup.points pt WHERE pt.chain_id = ch.id AND pt.status = 'ok') AS last_point_at,
+                    (SELECT COUNT(*) FROM backup.points pt WHERE pt.chain_id = ch.id AND pt.status = 'ok'
+                                                            AND pt.verify_error IS NOT NULL) AS verify_failed,
+                    (SELECT COUNT(*) FROM backup.points pt WHERE pt.chain_id = ch.id AND pt.status = 'ok'
+                                                            AND pt.verify_checked_at IS NULL) AS verify_never,
+                    (SELECT MIN(pt.verify_checked_at) FROM backup.points pt WHERE pt.chain_id = ch.id AND pt.status = 'ok') AS verify_oldest,
+                    (SELECT MIN(pt.created_at) FROM backup.points pt WHERE pt.chain_id = ch.id AND pt.status = 'ok'
+                                                            AND pt.verify_checked_at IS NULL) AS verify_never_since,
+                    c.folder_id::text AS folder_id
                FROM backup.chains ch LEFT JOIN backup.targets t ON t.id = ch.target_id
                LEFT JOIN backup.plans p ON p.id = ch.plan_id
                LEFT JOIN config.clusters c ON c.cluster_id = ch.cluster_id'''
@@ -742,7 +750,7 @@ def last_point(chain_id: int) -> Optional[dict]:
 
 
 def update_point(point_id: int, **fields) -> None:
-    allowed = {'status', 'verified_at', 'verify_error', 'files'}
+    allowed = {'status', 'verified_at', 'verify_error', 'files', 'verify_checked_at'}
     items = [(k, _json(v) if k == 'files' else v) for k, v in fields.items() if k in allowed]
     if not items:
         return
@@ -863,3 +871,210 @@ def update_deployment(dep_id: int, **fields) -> None:
     if not items:
         return
     _exec(f'UPDATE backup.deployments SET {", ".join(f"{k} = %s" for k, _ in items)} WHERE id = %s', [v for _, v in items] + [dep_id])
+
+
+# ------------------------------------------------------- planned verification (052)
+VERIFY_DEFAULTS = {'interval_days': 7, 'hours_from': '01:00', 'hours_until': '06:00', 'dr_during_backups': False}
+_NO_FOLDER = '00000000-0000-0000-0000-000000000000'
+
+
+def verify_settings(folder_id: Optional[str]) -> dict:
+    """A folder's verification settings (None = the unfiled clusters); the defaults when none were saved."""
+    r = _one('''SELECT interval_days, hours_from, hours_until, dr_during_backups, updated_at, updated_by
+                  FROM backup.verify_settings WHERE COALESCE(folder_id, %s::uuid) = COALESCE(%s::uuid, %s::uuid)''',
+             (_NO_FOLDER, folder_id, _NO_FOLDER))
+    out = dict(VERIFY_DEFAULTS, updated_at=None, updated_by=None)
+    if r:
+        out.update(r)
+    return out
+
+
+def save_verify_settings(folder_id: Optional[str], actor: Optional[str], **fields) -> None:
+    f = {k: fields[k] for k in VERIFY_DEFAULTS if k in fields}
+    cur = verify_settings(folder_id)
+    vals = {k: f.get(k, cur[k]) for k in VERIFY_DEFAULTS}
+    with connect() as conn:
+        with conn.cursor() as c:
+            c.execute('''UPDATE backup.verify_settings SET interval_days = %(interval_days)s, hours_from = %(hours_from)s,
+                                hours_until = %(hours_until)s, dr_during_backups = %(dr_during_backups)s,
+                                updated_at = NOW(), updated_by = %(actor)s
+                         WHERE COALESCE(folder_id, %(none)s::uuid) = COALESCE(%(folder)s::uuid, %(none)s::uuid)''',
+                      dict(vals, actor=actor, folder=folder_id, none=_NO_FOLDER))
+            if c.rowcount == 0:
+                c.execute('''INSERT INTO backup.verify_settings (folder_id, interval_days, hours_from, hours_until, dr_during_backups, updated_by)
+                             VALUES (%(folder)s, %(interval_days)s, %(hours_from)s, %(hours_until)s, %(dr_during_backups)s, %(actor)s)''',
+                          dict(vals, actor=actor, folder=folder_id))
+
+
+def verify_folders() -> list[Optional[str]]:
+    """Every folder (None = unfiled) that has an enabled cluster."""
+    return [r['folder_id'] for r in _all('''SELECT DISTINCT folder_id::text AS folder_id FROM config.clusters
+                                              WHERE enabled AND cluster_id <> %s::uuid''', ('00000000-0000-0000-0000-000000000001',))]
+
+
+def folder_clusters(folder_id: Optional[str]) -> list[dict]:
+    """Enabled clusters of a folder with their role and time zone."""
+    return [dict(r, cluster_id=str(r['cluster_id'])) for r in _all(
+        '''SELECT cluster_id, cluster_name, COALESCE(role, 'production') AS role, timezone
+             FROM config.clusters WHERE enabled AND COALESCE(folder_id, %s::uuid) = COALESCE(%s::uuid, %s::uuid)
+               AND cluster_id <> %s::uuid ORDER BY cluster_name''',
+        (_NO_FOLDER, folder_id, _NO_FOLDER, '00000000-0000-0000-0000-000000000001'))]
+
+
+def cluster_role(cluster_id: str) -> str:
+    r = _one("SELECT COALESCE(role, 'production') AS role FROM config.clusters WHERE cluster_id = %s", (cluster_id,))
+    return r['role'] if r else 'production'
+
+
+def verify_candidates(folder_id: Optional[str], older_than: datetime, limit: int = 60, per_chain: int = 2) -> list[dict]:
+    """Restore points of a folder's chains (active and retired: both can be restored) not checked since
+    `older_than`, never-checked first, then the longest unchecked; points with an open failure come last
+    (they are retried, but never block the rest). At most `per_chain` per chain, so one chain with many
+    unchecked points cannot fill the list while only one point per chain is verified at a time."""
+    return _all('''SELECT * FROM (
+                    SELECT pt.id AS point_id, pt.seq, pt.dir, pt.kind, pt.created_at, pt.verify_checked_at, pt.verify_error,
+                           COALESCE(pt.bytes_written, 0) AS bytes_written, ch.id AS chain_id, ch.plan_id, ch.vm_name,
+                           ch.cluster_id::text AS cluster_id, ch.target_id, ch.chain_dir,
+                           ROW_NUMBER() OVER (PARTITION BY ch.id ORDER BY pt.verify_error IS NOT NULL,
+                                              pt.verify_checked_at NULLS FIRST, pt.created_at) AS nth
+                      FROM backup.points pt JOIN backup.chains ch ON ch.id = pt.chain_id
+                      JOIN config.clusters c ON c.cluster_id = ch.cluster_id
+                     WHERE pt.status = 'ok' AND ch.status IN ('active', 'retired') AND ch.target_id IS NOT NULL
+                       AND COALESCE(c.folder_id, %s::uuid) = COALESCE(%s::uuid, %s::uuid)
+                       AND (pt.verify_checked_at IS NULL OR pt.verify_checked_at < %s)) x
+                   WHERE nth <= %s
+                   ORDER BY verify_error IS NOT NULL, verify_checked_at NULLS FIRST, created_at
+                   LIMIT %s''', (_NO_FOLDER, folder_id, _NO_FOLDER, older_than, int(per_chain), int(limit)))
+
+
+def plan_run_active(plan_id: Optional[int]) -> bool:
+    if not plan_id:
+        return False
+    r = _one("SELECT 1 AS x FROM backup.runs WHERE schedule_id = %s AND status = 'RUNNING' LIMIT 1", (plan_id,))
+    return r is not None
+
+
+def active_runs_on(cluster_ids: list[str]) -> int:
+    if not cluster_ids:
+        return 0
+    r = _one('''SELECT COUNT(*) AS n FROM backup.runs r JOIN backup.plans s ON s.id = r.schedule_id
+                  WHERE r.status = 'RUNNING' AND s.cluster_id = ANY(%s::uuid[])''', (list(cluster_ids),))
+    return int(r['n']) if r else 0
+
+
+def standalone_plans_on(cluster_ids: list[str]) -> list[dict]:
+    """Enabled plans with their own daily time (not in a schedule) on these clusters."""
+    if not cluster_ids:
+        return []
+    return _all(_SCHED_SELECT + ''' WHERE s.cluster_id = ANY(%s::uuid[]) AND s.enabled AND s.policy_id IS NULL''',
+                (list(cluster_ids),))
+
+
+def add_verify_run(**f) -> int:
+    cols = [k for k in ('folder_id', 'cluster_id', 'proxy_id', 'proxy_name', 'proxy_role', 'chain_id', 'point_id', 'vm_name', 'seq') if k in f]
+    return _one(f'''INSERT INTO backup.verify_runs ({", ".join(cols)}) VALUES ({", ".join(["%s"] * len(cols))}) RETURNING id''',
+                [f[k] for k in cols])['id']
+
+
+def finish_verify_run(run_id: int, status: str, bytes_: Optional[int] = None, duration_s: Optional[float] = None,
+                      message: Optional[str] = None) -> None:
+    _exec('''UPDATE backup.verify_runs SET status = %s, finished_at = NOW(), bytes = %s, duration_s = %s, message = %s
+              WHERE id = %s''', (status, bytes_, duration_s, (message or None) and message[:1000], run_id))
+
+
+def interrupted_verify_runs() -> int:
+    return _exec("""UPDATE backup.verify_runs SET status = 'stopped', finished_at = NOW(),
+                       message = 'Interrupted by a restart; the point is verified again later.' WHERE status = 'running'""")
+
+
+def verify_runs(cluster_ids: list[str], limit: int = 100) -> list[dict]:
+    """Recent point verifications of chains on these clusters, newest first."""
+    return _all('''SELECT v.*, v.cluster_id::text AS cluster_id, v.folder_id::text AS folder_id, c.cluster_name, ch.vm_uuid
+                     FROM backup.verify_runs v LEFT JOIN config.clusters c ON c.cluster_id = v.cluster_id
+                     LEFT JOIN backup.chains ch ON ch.id = v.chain_id
+                    WHERE v.cluster_id = ANY(%s::uuid[]) ORDER BY v.id DESC LIMIT %s''', (list(cluster_ids), int(limit)))
+
+
+def proxy_read_rate(proxy_id: int) -> Optional[float]:
+    """Median bytes/second of this proxy's recent verifications of at least 256 MiB, or None."""
+    r = _one('''SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY bytes / NULLIF(duration_s, 0)) AS rate FROM (
+                    SELECT bytes, duration_s FROM backup.verify_runs
+                     WHERE proxy_id = %s AND status IN ('ok', 'failed') AND bytes >= 268435456 AND duration_s > 0
+                     ORDER BY id DESC LIMIT 20) x''', (proxy_id,))
+    return float(r['rate']) if r and r['rate'] else None
+
+
+def raise_verify_alert(kind: str, chain: dict, point: Optional[dict], detail: str) -> bool:
+    """Open an alert unless one is open already for that point (failed) or chain (overdue). True when new."""
+    known, folder = folder_of_cluster(chain['cluster_id'])
+    r = _one('''INSERT INTO backup.verify_alerts (kind, folder_id, cluster_id, chain_id, point_id, vm_name, seq, detail)
+                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING RETURNING id''',
+             (kind, folder, chain['cluster_id'], chain['id'], point['id'] if point else None, chain.get('vm_name'),
+              point['seq'] if point else None, (detail or '')[:1000]))
+    return r is not None
+
+
+def resolve_verify_alerts(point_id: Optional[int] = None, chain_id: Optional[int] = None, kind: Optional[str] = None) -> int:
+    where, params = ['resolved_at IS NULL'], []
+    if point_id is not None:
+        where.append('point_id = %s'); params.append(point_id)
+    if chain_id is not None:
+        where.append('chain_id = %s'); params.append(chain_id)
+    if kind:
+        where.append('kind = %s'); params.append(kind)
+    return _exec(f'UPDATE backup.verify_alerts SET resolved_at = NOW() WHERE {" AND ".join(where)}', params)
+
+
+def resolve_alerts_of_gone_points() -> int:
+    """Alerts of points that were pruned or whose chain was deleted are no longer actionable."""
+    return _exec('''UPDATE backup.verify_alerts a SET resolved_at = NOW()
+                     WHERE a.resolved_at IS NULL AND (
+                        (a.point_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM backup.points p WHERE p.id = a.point_id AND p.status = 'ok'))
+                        OR NOT EXISTS (SELECT 1 FROM backup.chains c WHERE c.id = a.chain_id AND c.status IN ('active', 'retired')))''')
+
+
+def open_verify_alerts(cluster_id: str) -> list[dict]:
+    return _all('''SELECT id, kind, chain_id, point_id, vm_name, seq, detail, created_at FROM backup.verify_alerts
+                    WHERE cluster_id = %s AND resolved_at IS NULL ORDER BY created_at''', (cluster_id,))
+
+
+def overdue_chains(folder_id: Optional[str], older_than: datetime) -> list[dict]:
+    """Chains of a folder with a point not checked since `older_than` (never-checked points count from
+    their creation), with how many such points and the oldest moment."""
+    return _all('''SELECT ch.id, ch.vm_name, ch.cluster_id::text AS cluster_id, COUNT(*) AS points,
+                         MIN(COALESCE(pt.verify_checked_at, pt.created_at)) AS since
+                    FROM backup.points pt JOIN backup.chains ch ON ch.id = pt.chain_id
+                    JOIN config.clusters c ON c.cluster_id = ch.cluster_id
+                   WHERE pt.status = 'ok' AND ch.status IN ('active', 'retired') AND ch.target_id IS NOT NULL
+                     AND COALESCE(c.folder_id, %s::uuid) = COALESCE(%s::uuid, %s::uuid)
+                     AND COALESCE(pt.verify_checked_at, pt.created_at) < %s
+                   GROUP BY ch.id, ch.vm_name, ch.cluster_id''', (_NO_FOLDER, folder_id, _NO_FOLDER, older_than))
+
+
+def open_overdue_chain_ids(folder_id: Optional[str]) -> set:
+    return {r['chain_id'] for r in _all('''SELECT chain_id FROM backup.verify_alerts
+                                              WHERE kind = 'overdue' AND resolved_at IS NULL
+                                                AND COALESCE(folder_id, %s::uuid) = COALESCE(%s::uuid, %s::uuid)''',
+                                           (_NO_FOLDER, folder_id, _NO_FOLDER))}
+
+
+def verify_summary(folder_id: Optional[str], interval_days: int) -> dict:
+    """Counts over a folder's restorable points for the Schedules tab."""
+    r = _one('''SELECT COUNT(*) AS points,
+                         COUNT(*) FILTER (WHERE pt.verify_error IS NOT NULL) AS failed,
+                         COUNT(*) FILTER (WHERE pt.verify_checked_at IS NULL) AS never,
+                         COUNT(*) FILTER (WHERE pt.verify_error IS NULL AND pt.verify_checked_at >= NOW() - make_interval(days => %s)) AS current,
+                         COUNT(*) FILTER (WHERE COALESCE(pt.verify_checked_at, pt.created_at) < NOW() - make_interval(days => %s)) AS overdue,
+                         MIN(pt.verify_checked_at) AS oldest
+                    FROM backup.points pt JOIN backup.chains ch ON ch.id = pt.chain_id
+                    JOIN config.clusters c ON c.cluster_id = ch.cluster_id
+                   WHERE pt.status = 'ok' AND ch.status IN ('active', 'retired') AND ch.target_id IS NOT NULL
+                     AND COALESCE(c.folder_id, %s::uuid) = COALESCE(%s::uuid, %s::uuid)''',
+             (max(1, interval_days), max(1, interval_days) * 2, _NO_FOLDER, folder_id, _NO_FOLDER))
+    return dict(r) if r else {}
+
+
+def prune_verify_history(days: int = 90) -> int:
+    n = _exec('DELETE FROM backup.verify_runs WHERE status <> %s AND started_at < NOW() - make_interval(days => %s)', ('running', int(days)))
+    n += _exec('DELETE FROM backup.verify_alerts WHERE resolved_at < NOW() - make_interval(days => %s)', (int(days),))
+    return n

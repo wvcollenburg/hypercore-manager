@@ -52,7 +52,8 @@ def narrow(sub: str, data, scopes: dict, cid: str, vm_index_rows):
         return rows(data)
     if sub in ('runs', 'runs/status'):
         return dict(data, runs=rows(data.get('runs')), restores=rows(data.get('restores')),
-                    imports=rows(data.get('imports'), cluster_level=True))
+                    imports=rows(data.get('imports'), cluster_level=True),
+                    verifications=rows(data.get('verifications')))
     if sub == 'policies':
         whole = scopes.get(cid) == 'all'
         pols = []

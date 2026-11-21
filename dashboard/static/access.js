@@ -1305,6 +1305,7 @@ function _acClusterInfo(cid, mayCluster) {
       <span class="um-hint">${c.last_error ? _esc(c.last_error) : _esc(_clAgo(c.last_seen_at))}</span></div>
     ${mayCluster ? `<div class="um-hint">${_esc(c.host)} · ${_esc(c.username)}</div>` : ''}
     <div class="um-hint">${_clApiLabel(c)}</div>
+    ${c.role === 'dr' ? `<div class="um-hint"><span class="ex-badge ok">${_esc(t('clusters.role_badge'))}</span> ${_esc(t('clusters.role_dr_hint'))}</div>` : ''}
     ${_clNodesHtml(c, mayCluster)}
     ${dup ? `<div class="hcm-banner">${_esc(t('clusters.dup_warning', { names: dupNames.join(', '), keeper: dupNames[0] }))}</div>` : ''}
     ${mayCluster ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">

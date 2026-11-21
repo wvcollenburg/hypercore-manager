@@ -417,7 +417,7 @@ def test_verify_results_stamp_passing_points_and_flag_corrupt_ones(world):
     assert inc.verify_progress_text({}) == 'verifying chain'
 
 
-def test_manual_verify_runs_in_the_background_and_the_weekly_counts(world):
+def test_manual_verify_runs_in_the_background_and_a_failure_raises_an_alert(world):
     import time as _t
     db = world.db
     cid = db.add_chain(db.plan, 9, 'Amsterdam', 'Amsterdam/exptest_vm-1.chain')
@@ -431,9 +431,19 @@ def test_manual_verify_runs_in_the_background_and_the_weekly_counts(world):
     assert db.points[0]['verified_at']
     with pytest.raises(inc.IncrementalError):
         inc.start_verify(999)
+    # a failing point opens one alert (for the mail and the cluster card); failing again opens no second one;
+    # passing again closes it
+    alerts = []
+    db.raise_verify_alert = lambda kind, chain, pt, detail: alerts.append((kind, chain['id'], pt['id'], detail)) or True
+    db.resolve_verify_alerts = lambda **kw: alerts.append(('resolved', kw)) or 1
     world.pc.verify_result = {'ok': False, 'points': {'base': {'ok': False, 'mismatches': ['disk.qcow2: checksum differs']}}}
-    assert inc.verify_active_chains('c1') == {'verified': 0, 'failed': 1}
-    assert db.points[0]['verify_error'] == 'disk.qcow2: checksum differs'
+    res = inc.verify_chain(db.get_chain(cid), db.get_share(9), world.pc)
+    assert not res['ok'] and db.points[0]['verify_error'] == 'disk.qcow2: checksum differs'
+    assert db.points[0]['verify_checked_at'], 'a failed attempt is recorded too'
+    assert alerts == [('failed', cid, db.points[0]['id'], 'disk.qcow2: checksum differs')]
+    world.pc.verify_result = {'ok': True, 'points': {'base': {'ok': True, 'mismatches': []}}}
+    inc.verify_chain(db.get_chain(cid), db.get_share(9), world.pc)
+    assert alerts[-1] == ('resolved', {'point_id': db.points[0]['id'], 'kind': 'failed'})
 
 
 class _CdHC:

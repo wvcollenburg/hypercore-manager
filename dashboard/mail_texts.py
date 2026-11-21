@@ -40,6 +40,21 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                           "Approve or reject it in HyperCore Manager:\n\n{link}\n\n"
                           "Nothing is granted until someone approves it there. Anyone who may give this access can decide; "
                           "if a colleague already did, the link shows it.\n"),
+        'verify_failed': ("HyperCore Manager: backup verification failed in {folder}",
+                          "{n} restore point(s) in {folder} no longer match the checksums written when they were made. "
+                          "A restore from these points, or from later points of the same chain, cannot be trusted.\n\n"
+                          "{items}\n\n"
+                          "Check the storage share, then make a new full backup "
+                          "of these VMs (a new chain) as soon as you can.\n\n"
+                          "HyperCore Manager: {link}\n\n"
+                          "You receive this as the closest administrator of this folder.\n"),
+        'verify_overdue': ("HyperCore Manager: backups in {folder} are not being verified",
+                           "{n} backup chain(s) in {folder} have restore points that were not verified for twice the folder's interval.\n\n"
+                           "{items}\n\n"
+                           "Usually the proxies get too little time: widen the folder's verification hours, mark a passive cluster as "
+                           "DR so its proxies verify around the clock, or check that the proxies are up.\n\n"
+                           "HyperCore Manager: {link}\n\n"
+                           "You receive this as the closest administrator of this folder.\n"),
         'test': ("HyperCore Manager: test mail",
                  "This is a test mail from HyperCore Manager, sent by {actor}.\n\n"
                  "If you can read this, mail from HyperCore Manager reaches you.\n"),
@@ -74,6 +89,21 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                           "Keur de aanvraag goed of af in HyperCore Manager:\n\n{link}\n\n"
                           "Er wordt niets gegeven tot iemand de aanvraag daar goedkeurt. Iedereen die deze toegang mag geven kan beslissen; "
                           "heeft een collega dat al gedaan, dan toont de link het.\n"),
+        'verify_failed': ("HyperCore Manager: controle van back-ups mislukt in {folder}",
+                          "{n} herstelpunt(en) in {folder} komen niet meer overeen met de controlesommen van toen ze gemaakt werden. "
+                          "Een herstel van deze punten, of van latere punten van dezelfde keten, is niet betrouwbaar.\n\n"
+                          "{items}\n\n"
+                          "Controleer de opslagshare en maak zo snel mogelijk "
+                          "een nieuwe volledige back-up van deze VM's (een nieuwe keten).\n\n"
+                          "HyperCore Manager: {link}\n\n"
+                          "Je ontvangt dit als dichtstbijzijnde beheerder van deze map.\n"),
+        'verify_overdue': ("HyperCore Manager: back-ups in {folder} worden niet gecontroleerd",
+                           "{n} back-upketen(s) in {folder} hebben herstelpunten die twee keer de interval van de map niet gecontroleerd zijn.\n\n"
+                           "{items}\n\n"
+                           "Meestal krijgen de proxy's te weinig tijd: verruim de controle-uren van de map, markeer een passief cluster "
+                           "als DR zodat de proxy's daar de klok rond controleren, of kijk of de proxy's draaien.\n\n"
+                           "HyperCore Manager: {link}\n\n"
+                           "Je ontvangt dit als dichtstbijzijnde beheerder van deze map.\n"),
         'test': ("HyperCore Manager: testmail",
                  "Dit is een testmail van HyperCore Manager, verstuurd door {actor}.\n\n"
                  "Als je dit kunt lezen, komt mail van HyperCore Manager bij je aan.\n"),
@@ -108,6 +138,21 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                           "Genehmigen oder ablehnen in HyperCore Manager:\n\n{link}\n\n"
                           "Es wird nichts vergeben, bis jemand den Antrag dort genehmigt. Jeder, der diesen Zugang vergeben darf, kann entscheiden; "
                           "hat ein Kollege das schon getan, zeigt der Link es an.\n"),
+        'verify_failed': ("HyperCore Manager: Prüfung von Backups in {folder} fehlgeschlagen",
+                          "{n} Wiederherstellungspunkt(e) in {folder} stimmen nicht mehr mit den beim Erstellen geschriebenen Prüfsummen überein. "
+                          "Einer Wiederherstellung aus diesen Punkten oder aus späteren Punkten derselben Kette ist nicht zu trauen.\n\n"
+                          "{items}\n\n"
+                          "Prüfen Sie die Speicherfreigabe und erstellen Sie so bald "
+                          "wie möglich ein neues Vollbackup dieser VMs (eine neue Kette).\n\n"
+                          "HyperCore Manager: {link}\n\n"
+                          "Sie erhalten dies als nächstgelegener Administrator dieses Ordners.\n"),
+        'verify_overdue': ("HyperCore Manager: Backups in {folder} werden nicht geprüft",
+                           "{n} Backup-Kette(n) in {folder} haben Wiederherstellungspunkte, die seit dem doppelten Intervall des Ordners nicht geprüft wurden.\n\n"
+                           "{items}\n\n"
+                           "Meist bekommen die Proxys zu wenig Zeit: erweitern Sie die Prüfzeiten des Ordners, markieren Sie einen passiven "
+                           "Cluster als DR, damit seine Proxys rund um die Uhr prüfen, oder prüfen Sie, ob die Proxys laufen.\n\n"
+                           "HyperCore Manager: {link}\n\n"
+                           "Sie erhalten dies als nächstgelegener Administrator dieses Ordners.\n"),
         'test': ("HyperCore Manager: Testmail",
                  "Dies ist eine Testmail von HyperCore Manager, gesendet von {actor}.\n\n"
                  "Wenn Sie dies lesen können, erreicht Sie Mail von HyperCore Manager.\n"),
@@ -142,6 +187,21 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                           "Approuvez ou refusez la demande dans HyperCore Manager :\n\n{link}\n\n"
                           "Rien n'est accordé tant que personne ne l'a approuvée là-bas. Toute personne autorisée à donner cet accès peut décider ; "
                           "si un collègue l'a déjà fait, le lien l'indique.\n"),
+        'verify_failed': ("HyperCore Manager : échec de la vérification des sauvegardes dans {folder}",
+                          "{n} point(s) de restauration dans {folder} ne correspondent plus aux sommes de contrôle écrites lors de leur création. "
+                          "Une restauration depuis ces points, ou depuis des points ultérieurs de la même chaîne, n'est pas fiable.\n\n"
+                          "{items}\n\n"
+                          "Contrôlez le partage de stockage, puis faites dès que "
+                          "possible une nouvelle sauvegarde complète de ces VM (une nouvelle chaîne).\n\n"
+                          "HyperCore Manager : {link}\n\n"
+                          "Vous recevez ce message en tant qu'administrateur le plus proche de ce dossier.\n"),
+        'verify_overdue': ("HyperCore Manager : les sauvegardes de {folder} ne sont pas vérifiées",
+                           "{n} chaîne(s) de sauvegarde dans {folder} ont des points de restauration non vérifiés depuis deux fois l'intervalle du dossier.\n\n"
+                           "{items}\n\n"
+                           "En général les proxys ont trop peu de temps : élargissez les heures de vérification du dossier, marquez un cluster "
+                           "passif comme PRA pour que ses proxys vérifient en continu, ou vérifiez que les proxys tournent.\n\n"
+                           "HyperCore Manager : {link}\n\n"
+                           "Vous recevez ce message en tant qu'administrateur le plus proche de ce dossier.\n"),
         'test': ("HyperCore Manager : e-mail de test",
                  "Ceci est un e-mail de test de HyperCore Manager, envoyé par {actor}.\n\n"
                  "Si vous pouvez lire ceci, les e-mails de HyperCore Manager vous parviennent.\n"),

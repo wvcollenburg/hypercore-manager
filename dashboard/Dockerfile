@@ -20,6 +20,7 @@ COPY dashboard/app.py .
 COPY dashboard/config_db.py .
 COPY dashboard/user_db.py .
 COPY dashboard/versioning.py .
+COPY dashboard/verify_mail.py .
 COPY dashboard/forwarding.py .
 COPY dashboard/alerts.py .
 COPY dashboard/storage_summary.py .
