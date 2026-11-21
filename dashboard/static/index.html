@@ -6939,11 +6939,11 @@ async function exLoadRuns() {
   if (!_exRunsFilter) { try { tests = await _exCall('GET', '/api/backup/test-runs?limit=100'); } catch (e) { tests = []; } }
   el.innerHTML = table(t('ex.runs_title'), runs, 'run') + (_exRunsFilter ? '' : _trHistory(tests) + table(t('ex.restores_title'), restores, 'rst') + table(t('ex.imports_title'), imports, 'imp') + _vfHistory(d.verifications || []));
   clearTimeout(_exPollTimer);
-  if ([...runs, ...imports, ...restores].some(r => r.status === 'RUNNING') || tests.some(r => r.status === 'running' || r.status === 'queued')) {
-    // poll while anything runs, but only while this panel is on screen and the cluster unchanged
-    const cid = currentCluster;
-    _exPollTimer = setTimeout(() => { if (currentCluster === cid && document.getElementById('expanel-runs')?.classList.contains('active')) exLoadRuns(); }, 5000);
-  }
+  // poll every 5 s while anything runs, every 20 s otherwise (a run started by a schedule or another user shows up
+  // with its progress bar), but only while this panel is on screen and the cluster unchanged
+  const busy = [...runs, ...imports, ...restores].some(r => r.status === 'RUNNING') || tests.some(r => r.status === 'running' || r.status === 'queued');
+  const cid = currentCluster;
+  _exPollTimer = setTimeout(() => { if (currentCluster === cid && document.getElementById('expanel-runs')?.classList.contains('active')) exLoadRuns(); }, busy ? 5000 : 20000);
 }
 
 // ── planned verification (per folder): settings and state on the Schedules tab, a column on the restore
