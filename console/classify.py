@@ -211,19 +211,35 @@ BOOT_FAIL_PHRASES = (
 )
 
 
-def boot_verdict(img: Image.Image, use_ocr: bool = True, ocr=None) -> tuple[str, str]:
-    """('pass' | 'fail' | 'wait', detail) for the console of a test-restored VM. Pass: a login prompt, a lock or
-    sign-in screen, or a shell (auto-login). Fail: a screen that shows the VM is stuck (stop screen, recovery key,
-    nothing to boot). Anything else (blank, boot logo, log output): wait and look again."""
-    ocr = ocr or ocr_lines
-    if is_blank(img):
-        return 'wait', 'screen is blank'
-    if not use_ocr:
-        return 'wait', 'no OCR available'
+_CLOCK = re.compile(r'^\s*\d{1,2}[:.]\d{2}\s*$')
+_WEEKDAYS = ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+             'maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag',
+             'montag', 'dienstag', 'mittwoch', 'donnerstag', 'freitag', 'samstag', 'sonntag',
+             'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche')
+
+
+def ocr_bright(img: Image.Image, timeout: float = 60, threshold: int = 225) -> list[str]:
+    """Only the near-white pixels, as dark text on white, read as sparse text: white text on a coloured or
+    photographic background (the Windows lock screen's clock, a stop screen, the BitLocker recovery screen),
+    which the normal pass cannot separate from the background (measured on a Windows 11 lock screen: the
+    normal pass read '-', this one '23:36' and 'Saturday, 21 November')."""
+    g = img.convert('L').point(lambda v: 0 if v > threshold else 255)
+    buf = io.BytesIO()
+    g.save(buf, 'PNG')
+    env = dict(os.environ, OMP_THREAD_LIMIT='1')
     try:
-        lines = ocr(img)
-    except OCRFailed as e:
-        return 'wait', str(e)
+        r = subprocess.run(['tesseract', 'stdin', 'stdout', '--psm', '11'], input=buf.getvalue(),
+                           capture_output=True, timeout=timeout, env=env)
+    except subprocess.TimeoutExpired:
+        raise OCRFailed(f'text recognition took longer than {timeout:g} s') from None
+    except OSError as e:
+        raise OCRFailed(f'text recognition unavailable: {e}') from None
+    if r.returncode != 0:
+        raise OCRFailed('text recognition failed: ' + r.stderr.decode('utf-8', 'replace').strip()[:120])
+    return [ln.strip() for ln in r.stdout.decode('utf-8', 'replace').splitlines() if ln.strip()]
+
+
+def _judge_boot(lines: list[str]) -> tuple[str, str] | None:
     flat = _letters(' '.join(lines))
     for phrase, what in BOOT_FAIL_PHRASES:
         if phrase in flat:
@@ -233,4 +249,30 @@ def boot_verdict(img: Image.Image, use_ocr: bool = True, ocr=None) -> tuple[str,
         return 'pass', 'shell prompt (logged in automatically)'
     if found:
         return 'pass', found
+    if any(_CLOCK.match(ln) for ln in lines) and any(d in flat for d in _WEEKDAYS):
+        return 'pass', 'lock screen (clock and date)'
+    return None
+
+
+def boot_verdict(img: Image.Image, use_ocr: bool = True, ocr=None, ocr2=None) -> tuple[str, str]:
+    """('pass' | 'fail' | 'wait', detail) for the console of a test-restored VM. Pass: a login prompt, a lock or
+    sign-in screen (also a Windows lock screen showing only its clock and date), or a shell (auto-login). Fail: a
+    screen that shows the VM is stuck (stop screen, recovery key, nothing to boot). Anything else (blank, boot
+    logo, log output): wait and look again. A second OCR pass for white text runs only when the first decides
+    nothing."""
+    ocr = ocr or ocr_lines
+    ocr2 = ocr2 or ocr_bright
+    if is_blank(img):
+        return 'wait', 'screen is blank'
+    if not use_ocr:
+        return 'wait', 'no OCR available'
+    try:
+        found = _judge_boot(ocr(img))
+        if found:
+            return found
+        found = _judge_boot(ocr2(img))
+        if found:
+            return found
+    except OCRFailed as e:
+        return 'wait', str(e)
     return 'wait', 'no login screen yet'

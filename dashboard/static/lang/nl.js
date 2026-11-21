@@ -1776,7 +1776,7 @@ window.LANG = {
   'tr.v_screen': "via scherm",
   'tr.agentless': "zonder agent: alleen schermcontrole",
   'tr.agentless_hint': "De VM heeft in productie geen guest agent, dus een geslaagde test rust alleen op het consolescherm (een zwakkere controle).",
-  'tr.agent_unknown': "agent onbekend (VM staat uit)",
+  'tr.agent_unknown': "guest agent onbekend (bron-VM staat uit)",
   'tr.on_cluster': "op {cluster}",
   'tr.point_age': "punt {h} u oud",
   'tr.restore_took': "herstel {d}",

@@ -789,3 +789,11 @@ def test_a_failed_full_removes_its_partial_data_but_never_a_chain_with_points(wo
     assert updated[empty] == {'status': 'deleted'}
     n = len(world.pc.jobs)
     assert inc.discard_empty_chain(2) is False and len(world.pc.jobs) == n and good not in updated
+
+
+def test_backup_progress_says_what_happens_after_the_copy():
+    p = {'blocks_done': 28139, 'blocks_total': 28141, 'devices_done': 0, 'devices_total': 3}
+    assert inc.backup_progress_text('full', p) == 'full: 28139/28141 MiB, device 1/3'
+    assert inc.backup_progress_text('full', dict(p, phase='check')).endswith(': checking the image')
+    assert inc.backup_progress_text('full', dict(p, phase='checksum', checksum_done=12 << 30, checksum_total=27 << 30)).endswith(
+        ': checksum 12288/27648 MiB')

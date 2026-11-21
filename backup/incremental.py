@@ -458,6 +458,17 @@ def run_incremental(plan_id: int, policy_id: int | None = None, occurrence=None,
         discard_empty_chain(run_id)
 
 
+def backup_progress_text(kind: str, p: dict) -> str:
+    """'full: 1200/28141 MiB, device 1/3', and after a disk's copy what the proxy does with it (proxy 0.6.2+)."""
+    total_dev = p.get('devices_total', 1)
+    text = f'{kind}: {p.get("blocks_done", 0)}/{p["blocks_total"]} MiB, device {min(p.get("devices_done", 0) + 1, total_dev)}/{total_dev}'
+    if p.get('phase') == 'check':
+        text += ': checking the image'
+    elif p.get('phase') == 'checksum':
+        text += f': checksum {int(p.get("checksum_done") or 0) >> 20}/{int(p.get("checksum_total") or 0) >> 20} MiB'
+    return text
+
+
 def discard_empty_chain(run_id: int) -> bool:
     """A failed run that had started a new chain (a full) leaves partial files on the share and a chain without
     points: remove both, or every failed full eats share space until the share is full (live 2026-11-21: two
@@ -588,7 +599,7 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_starte
             if p.get('blocks_total'):
                 total_dev = p.get('devices_total', 1)
                 try:                                    # progress text is cosmetic: a db hiccup must not abort the copy
-                    db.update_run(run_id, message=f'{kind}: {p.get("blocks_done", 0)}/{p["blocks_total"]} MiB, device {min(p.get("devices_done", 0) + 1, total_dev)}/{total_dev}')
+                    db.update_run(run_id, message=backup_progress_text(kind, p))
                 except Exception as e:                  # noqa: BLE001
                     log.warning('[run %s] progress update failed: %s', run_id, e)
         result = pc.wait(job_id, on_progress, timeout=CFG.task_timeout_hours * 3600)['result']

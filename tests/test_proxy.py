@@ -1254,7 +1254,7 @@ def test_support_bundle_route_needs_the_token(tmp_path):
     r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
     assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
     assert r.data[:2] == b'PK'
-    assert P.identity.VERSION == '0.6.1'
+    assert P.identity.VERSION == '0.6.2'
 
 
 def test_the_proxy_keeps_a_rotating_log_file(tmp_path):

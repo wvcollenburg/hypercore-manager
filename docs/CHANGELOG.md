@@ -26,11 +26,14 @@ All notable changes to this project are documented here. The format follows
   - Results under Runs → **Test restores** (verdict, target, point age, restore and boot time, checks,
     screenshot) and a **Tested** column on the restore points. A failed test and a fixed VM without a passed test
     for twice the interval raise a badge on the cluster card and a mail to the closest administrator.
-- **Proxy deploy: Test VLAN** adds a second NIC for the network checks. Proxy **0.6.1**: job `netcheck`,
+- **Proxy deploy: Test VLAN** adds a second NIC for the network checks. Proxy **0.6.2**: job `netcheck`,
   `iproute2`, `iputils-ping` and `dnsmasq-base` in the image; proxies deployed from now on run with host networking
   (older ones show *network tests: redeploy*).
 
 ### Fixed
+- **A big full looked stuck at its last MiB.** After a disk is copied the proxy checks the image and reads it back
+  for its checksum, minutes on a large disk, without reporting anything. The run now says so
+  (`device 1/3: checksum 12000/27000 MiB`).
 - **A backup that started within two minutes of a restart lost its disk clones.** The clean-up of clones left by
   interrupted runs runs shortly after every (re)start of the backup service and also deleted the clones of a run
   that had just begun (`No such file or directory: /dev/disk/by-id/virtio-…`). It now skips chains whose backup

@@ -1776,7 +1776,7 @@ window.LANG = {
   'tr.v_screen': "per Bildschirm",
   'tr.agentless': "ohne Agent: nur Bildschirmprüfung",
   'tr.agentless_hint': "Die VM hat in Produktion keinen Guest-Agent, ein Erfolg beruht also nur auf dem Konsolenbild (eine schwächere Prüfung).",
-  'tr.agent_unknown': "Agent unbekannt (VM aus)",
+  'tr.agent_unknown': "Guest-Agent unbekannt (Quell-VM aus)",
   'tr.on_cluster': "auf {cluster}",
   'tr.point_age': "Punkt {h} h alt",
   'tr.restore_took': "Wiederherstellung {d}",

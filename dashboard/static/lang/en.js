@@ -1777,7 +1777,7 @@ window.LANG = {
   'tr.v_screen': "by screen",
   'tr.agentless': "agentless: screen check only",
   'tr.agentless_hint': "The VM has no guest agent in production, so a pass rests on the console screen alone (a weaker check).",
-  'tr.agent_unknown': "agent unknown (VM is off)",
+  'tr.agent_unknown': "guest agent unknown (source VM is off)",
   'tr.on_cluster': "on {cluster}",
   'tr.point_age': "point {h} h old",
   'tr.restore_took': "restore {d}",

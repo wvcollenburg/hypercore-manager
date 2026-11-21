@@ -1776,7 +1776,7 @@ window.LANG = {
   'tr.v_screen': "par l'écran",
   'tr.agentless': "sans agent : contrôle d'écran seul",
   'tr.agentless_hint': "La VM n'a pas d'agent invité en production : une réussite repose sur le seul écran de console (contrôle plus faible).",
-  'tr.agent_unknown': "agent inconnu (VM éteinte)",
+  'tr.agent_unknown': "agent invité inconnu (VM source éteinte)",
   'tr.on_cluster': "sur {cluster}",
   'tr.point_age': "point de {h} h",
   'tr.restore_took': "restauration {d}",
