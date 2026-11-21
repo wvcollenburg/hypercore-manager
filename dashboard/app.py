@@ -1240,6 +1240,13 @@ def _cluster_payload(c, extras=None):
     return d
 
 
+def _set_cluster_role(cluster_id: str, role: str) -> None:
+    """A DR cluster is normally passive: its backup proxies verify restore points around the clock."""
+    with _pg() as conn, conn.cursor() as cur:
+        cur.execute('UPDATE config.clusters SET role = %s, updated_at = NOW() WHERE cluster_id = %s', (role, cluster_id))
+        access_db.audit(cur, session.get('username') or 'system', 'cluster.role', cluster_id, detail={'role': role})
+
+
 def _cluster_extras(clusters):
     """Per-cluster facts for the rail: balancer mode and latest Foresight health score."""
     ids = [c.cluster_id for c in clusters]
@@ -1263,6 +1270,13 @@ def _cluster_extras(clusters):
                     out[r['cluster_id']]['health_severity'] = r['severity']
     except Exception as exc:
         app.logger.warning('cluster extras unavailable: %s', exc)
+    try:
+        with _pg() as conn, conn.cursor() as cur:
+            cur.execute("SELECT cluster_id::text AS cluster_id, role FROM config.clusters WHERE cluster_id = ANY(%s::uuid[])", (ids,))
+            for r in cur.fetchall():
+                out.setdefault(r['cluster_id'], {})['role'] = r['role'] or 'production'
+    except Exception as exc:                             # noqa: BLE001 — before migration 052
+        app.logger.debug('cluster roles unavailable: %s', exc)
     try:
         for cid, nodes in cluster_registry.nodes_for(ids).items():
             out.setdefault(cid, {})['nodes'] = nodes
@@ -1392,8 +1406,13 @@ def api_clusters_update(cluster_id):
             fields[k] = bool(body[k])
     if 'folder_id' in body:
         fields['folder_id'] = body['folder_id'] or None   # null unfiles the cluster
+    role = body.get('role')
+    if role is not None and role not in ('production', 'dr'):
+        return jsonify({'error': "role must be 'production' or 'dr'"}), 400
     try:
         cluster_registry.update(cluster_id, **fields)
+        if role is not None:
+            _set_cluster_role(cluster_id, role)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
@@ -1774,6 +1793,8 @@ _BACKUP_ROUTES = [
     ('DELETE', r'proxies/(\d+)',                          'backup.proxies.manage', ('owner', 'proxy')),
     ('POST',   r'proxies/(\d+)/(update|test|bench)',      'backup.proxies.manage', ('owner', 'proxy')),
     ('GET',    r'proxies/(\d+)/(logs|bench)',             'backup.proxies.manage', ('owner', 'proxy')),
+    ('GET',    r'verification',                           'backup.view',           'folder'),
+    ('PUT',    r'verification',                           'backup.schedule',       'folder'),
     ('GET',    r'chains',                                 'backup.view',           'folder_some'),
     ('GET',    r'chains/(\d+)/points',                    'backup.view',           ('owner', 'chain')),
     ('DELETE', r'chains/(\d+)',                           'backup.delete',         ('owner', 'chain')),
@@ -1968,7 +1989,8 @@ def _narrow_backup(sub: str, data, scope, cid: str):
         return dict(data, changes=rows(data.get('changes')))
     if sub in ('runs', 'runs/status'):
         # imports are cluster-level (backup.import): a VM-scoped user does not see them
-        return dict(data, runs=rows(data.get('runs')), restores=rows(data.get('restores')), imports=[])
+        return dict(data, runs=rows(data.get('runs')), restores=rows(data.get('restores')), imports=[],
+                    verifications=rows(data.get('verifications')))
     if sub == 'policies':
         pols = []
         for p in data.get('policies') or []:
@@ -2057,6 +2079,8 @@ def backup_proxy(sub):
             payload['created_by'] = user
         if sub in ('restores', 'flr/mounts') or sub.endswith('/iso'):
             payload['requested_by'] = user
+        if sub == 'verification':
+            payload['updated_by'] = user
         body = json.dumps(payload).encode()
         headers['Content-Type'] = 'application/json'
     if request.method == 'GET' and (sub.startswith('flr/mounts/') and sub.rsplit('/', 1)[-1] in ('file', 'zip')
@@ -2163,8 +2187,10 @@ def _backup_notices(cid: str) -> list[dict]:
             data = json.loads(resp.read().decode() or '{}')
     except Exception:  # noqa: BLE001 — the backup module is optional
         return []
-    return [{'key': n.get('key'), 'kind': 'notice', 'notice_kind': n.get('kind'), 'severity': 'warning',
-             'description': n.get('detail') or '', 'node_ip': n.get('node') or '', 'since': None}
+    return [{'key': n.get('key'), 'kind': 'notice', 'notice_kind': n.get('kind'),
+             'severity': n.get('severity') if n.get('severity') in ALERT_LEVELS else 'warning',
+             'description': n.get('detail') or '', 'node_ip': n.get('node') or '', 'since': n.get('since'),
+             'vm_name': n.get('vm'), 'seq': n.get('seq')}
             for n in data.get('notices') or [] if n.get('key')]
 
 
@@ -3520,6 +3546,11 @@ def _update_check_daemon():
 
 
 threading.Thread(target=_update_check_daemon, daemon=True, name='hcm-update-checker').start()
+
+# mails about failed / overdue backup verifications to the closest admin (verify_mail.py); every worker runs
+# one, a row is claimed atomically so it is mailed once
+import verify_mail  # noqa: E402
+verify_mail.start()
 
 
 def _apply_migrations_on_startup():

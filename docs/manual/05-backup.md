@@ -100,6 +100,34 @@ A **notice** (blue) is more than information and less than a warning: the run su
 into a blackout period, ended inside the buffer or past the preferred finish, or could not build
 its synthetic full.
 
+### Verification
+
+Below the backup schedules, **Verification** says how the folder's restore points are checked. A proxy
+re-reads every file of a point and compares it with the checksums written when the point was made: that
+proves the backup is still what was written, without restoring anything. Every restore point (also of
+retired chains, which can still be restored) is checked once per interval, one point at a time:
+
+- **Verify every point every** sets the interval in days (default 7; 0 switches it off). New points are
+  checked first, usually within a day.
+- **Hours for production proxies** (default 01:00–06:00, in each cluster's own time zone): a proxy on a
+  production cluster verifies only then, only when its cluster has no backups running or due, and only a
+  point that it can finish before the hours end and before the next backups start. A check that is still
+  busy at the end of the hours stops and continues the next night. A verification takes the proxy, like a
+  backup or a restore, so the two never share a proxy.
+- A cluster marked **DR** (normally passive, see *Edit* on the cluster in the tenant tree) has proxies that
+  verify **around the clock**: first what is due, then anything not checked for a day. While backups of the
+  folder write to the share they pause between points, so the share's bandwidth goes to the backups;
+  **DR proxies keep verifying while backups run** turns that pause off.
+
+The section shows how many points were verified within the interval, how many are not verified yet, overdue
+or failed, and per proxy whether it works now and its measured read speed.
+
+A point that fails is checked a second time first (a hiccup on the share, or retention removing the point
+while it is read, must not raise an alarm). A point that still fails is marked **corrupt**, shown as a red
+(critical) badge on the cluster card, and mailed to the **closest administrator** of the folder: the folder's
+own administrators, else the customer's, else the MSP's, else the installation's. A chain with a point not
+verified for twice the interval gets an amber badge and a mail of its own. Mail needs Settings → Mail.
+
 ## Plans
 
 ![Plans](img/backup-schedules.png)
@@ -129,9 +157,10 @@ them in a window of fixed size, where **Restore** and **Files** work on each poi
 when it was taken, how much changed and was written, whether the guest was **quiesced** (the
 guest flushed its state) or the point is **crash-consistent**, and when its files were last
 verified. **Verify** re-reads every file of the chain against the checksums written at backup
-time, in the background; a point whose files do not match is marked **corrupt**. The same check
-runs weekly. **Delete data** removes a chain from the target and is the only action here that
-deletes backups.
+time, in the background; a point whose files do not match is marked **corrupt**. The **Verified**
+column says per chain whether points failed, are overdue or still to check, or since when all of
+them were verified; the planned verification (see *Verification* under Schedules) keeps it current.
+**Delete data** removes a chain from the target and is the only action here that deletes backups.
 
 ### Restoring a VM
 
@@ -192,8 +221,9 @@ runs on the cluster and is followed under Runs.
 
 ![Runs](img/backup-runs.png)
 
-The history of runs, restores and imports for the cluster with their state and detail: what
-kind of point a run produced, how much it copied, why a run was skipped or deferred. A run is
+The history of runs, restores, imports and verifications for the cluster with their state and detail:
+what kind of point a run produced, how much it copied, why a run was skipped or deferred, which proxy
+verified a point, how much it read and how long it took. A run is
 **deferred** when the cluster is updating itself or a node is missing; HyperCore cannot snapshot
 then, and the next scheduled run tries again. A banner at the top of the tab says so while it
 lasts.

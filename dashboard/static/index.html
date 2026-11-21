@@ -5923,6 +5923,10 @@ function _clusterFormHtml(prefix, c) {
         <option value="">${t('folders.unfiled')}</option>
         ${FOLDERS.map(f => `<option value="${f.folder_id}" ${c.folder_id === f.folder_id ? 'selected' : ''}>${_clEsc(f.name)}</option>`).join('')}
       </select></div>
+      ${c.cluster_id ? `<div><label>${t('clusters.role')}</label><select id="${prefix}-role" style="width:100%;padding:7px 9px;border-radius:6px;font-size:12px;background:var(--bg-input, var(--bg-primary));border:1px solid var(--border);color:var(--text-primary);">
+        <option value="production" ${(c.role || 'production') === 'production' ? 'selected' : ''}>${t('clusters.role_production')}</option>
+        <option value="dr" ${c.role === 'dr' ? 'selected' : ''}>${t('clusters.role_dr')}</option></select>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${t('clusters.role_hint')}</div></div>` : ''}
     </div>
     <div class="cl-actions">
       <button class="refresh-btn" onclick="clTest('${prefix}')">${t('clusters.test')}</button>
@@ -5963,7 +5967,8 @@ function _clRead(prefix) {
            password: g('password').value, verify_tls: g('verify').checked, colour: g('colour').value,
            api_version: g('api') ? g('api').value : undefined,
            timezone: g('timezone') ? g('timezone').value.trim() : undefined,
-           folder_id: g('folder') ? (g('folder').value || null) : undefined };
+           folder_id: g('folder') ? (g('folder').value || null) : undefined,
+           role: g('role') ? g('role').value : undefined };
 }
 function _clMsg(prefix, text, cls) { const el = document.getElementById(`${prefix}-msg`); if (el) { el.textContent = text; el.className = 'cl-msg ' + (cls || ''); } }
 
@@ -6182,6 +6187,10 @@ function _fillNodeAlerts() {
 
 function _alertText(it) {
   if (it.kind === 'console') return t('alerts.console_open', {vm: _exEsc(it.vm_name || '')});
+  if (it.kind === 'notice' && it.notice_kind === 'verify_failed')
+    return t('notice.verify_failed', {vm: _exEsc(it.vm_name || '?'), seq: it.seq ?? '?', detail: _exEsc(it.description || '')});
+  if (it.kind === 'notice' && it.notice_kind === 'verify_overdue')
+    return t('notice.verify_overdue', {vm: _exEsc(it.vm_name || '?'), detail: _exEsc(it.description || '')});
   if (it.kind === 'notice' && it.notice_kind === 'update_terminated') {
     const detail = (it.description || '').charAt(0).toUpperCase() + (it.description || '').slice(1);
     return t('notice.update_terminated', {detail: _exEsc(detail)});
@@ -6475,7 +6484,8 @@ async function exLoadPolicies() {
       ${rows.length ? rows.map(_polCard).join('') : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.pol_none')}</div>`}
     </div>`;
   };
-  el.innerHTML = `${_exLocationLine(null)}<div class="ex-hint" style="margin-bottom:10px;">${scope} ${t('ex.pol_intro')}</div>` + section('incremental') + section('export');
+  await _vfLoad();
+  el.innerHTML = `${_exLocationLine(null)}<div class="ex-hint" style="margin-bottom:10px;">${scope} ${t('ex.pol_intro')}</div>` + section('incremental') + _vfSection() + section('export');
   if (_polEditing) _polFormInit(_polEditing);
   if (_polMembersOpen) exPolicyMembers(_polMembersOpen, true);
   if (_polNightOpen) exPolicyNight(_polNightOpen[0], _polNightOpen[1], true);
@@ -6908,13 +6918,91 @@ async function exLoadRuns() {
           <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${kind === 'run' && r.mode ? `<span class="ex-badge ${r.mode === 'incremental' ? 'run' : 'off'}">${r.mode === 'incremental' ? t(r.point_kind === 'full' ? 'ex.point_full' : 'ex.point_delta') : t('ex.mode_export')}</span> ` : ''}${kind === 'rst' && r.kind === 'files' ? `<span class="ex-badge off">${t('ex.files')}</span> ` : ''}${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${kind === 'rst' && r.kind === 'files' && r.created_uuid && r.status === 'COMPLETE' ? ` <button class="um-action-btn" onclick="exEjectIso(${r.id})">${t('ex.flr_eject')}</button>` : ''}${r.task_tag ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
         </tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.no_runs')}</div>`}
     </div>`;
-  el.innerHTML = table(t('ex.runs_title'), runs, 'run') + (_exRunsFilter ? '' : table(t('ex.restores_title'), restores, 'rst') + table(t('ex.imports_title'), imports, 'imp'));
+  el.innerHTML = table(t('ex.runs_title'), runs, 'run') + (_exRunsFilter ? '' : table(t('ex.restores_title'), restores, 'rst') + table(t('ex.imports_title'), imports, 'imp') + _vfHistory(d.verifications || []));
   clearTimeout(_exPollTimer);
   if ([...runs, ...imports, ...restores].some(r => r.status === 'RUNNING')) {
     // poll while anything runs, but only while this panel is on screen and the cluster unchanged
     const cid = currentCluster;
     _exPollTimer = setTimeout(() => { if (currentCluster === cid && document.getElementById('expanel-runs')?.classList.contains('active')) exLoadRuns(); }, 5000);
   }
+}
+
+// ── planned verification (per folder): settings and state on the Schedules tab, a column on the restore
+// points, a history table on the Runs tab ─────────────────────────────────────────────────────────────
+let _vfData = null, _vfEditing = false;
+async function _vfLoad() {
+  try { _vfData = await _exCall('GET', '/api/backup/verification'); } catch (e) { _vfData = null; }   // no right on the folder: no section
+}
+const _vfRate = r => r ? `${Math.round(r / 1048576)} MiB/s` : '';
+function _vfSection() {
+  const d = _vfData;
+  if (!d || !d.settings) return '';
+  const st = d.settings, sm = d.summary || {}, iv = st.interval_days;
+  const dr = (d.clusters || []).filter(c => c.role === 'dr');
+  const head = `<div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-green)"></div>
+      <span class="settings-group-title">${t('vf.title')}</span>
+      ${_vfEditing ? '' : `<button class="um-action-btn" onclick="_vfEditing = true; exLoadPolicies()">${t('vf.edit')}</button>`}</div>`;
+  if (_vfEditing) return `<div class="settings-group">${head}
+      <div class="cl-form" style="max-width:720px;">
+        <div><label>${t('vf.interval')}</label><input class="um-input" type="number" min="0" max="90" id="vf-interval" value="${iv}" style="width:100px;">
+          <div class="ex-hint">${t('vf.interval_hint')}</div></div>
+        <div><label>${t('vf.hours')}</label><div style="display:flex;gap:6px;align-items:center;"><input class="um-input" type="time" id="vf-from" value="${_exEsc(st.hours_from)}" style="width:130px;"> – <input class="um-input" type="time" id="vf-until" value="${_exEsc(st.hours_until)}" style="width:130px;"></div>
+          <div class="ex-hint">${t('vf.hours_hint')}</div></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;align-items:flex-start;"><input type="checkbox" id="vf-dr-backups" ${st.dr_during_backups ? 'checked' : ''}>
+          <label for="vf-dr-backups" style="margin:0;">${t('vf.dr_during_backups')}<div class="ex-hint">${t('vf.dr_during_backups_hint')}</div></label></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;"><button class="um-primary-btn" onclick="vfSave()">${t('clusters.save')}</button>
+        <button class="um-action-btn" onclick="_vfEditing = false; exLoadPolicies()">${t('console.cancel')}</button></div>
+      <div class="cl-msg" id="vf-msg"></div></div>`;
+  const rule = iv ? t('vf.rule', {n: iv, from: _exEsc(st.hours_from), until: _exEsc(st.hours_until)}) : t('vf.off');
+  const badges = !sm.points ? `<span class="ex-hint">${t('vf.no_points')}</span>` : [
+    sm.failed ? `<span class="ex-badge err">${t('vf.n_failed', {n: sm.failed})}</span>` : '',
+    sm.overdue ? `<span class="ex-badge warn">${t('vf.n_overdue', {n: sm.overdue})}</span>` : '',
+    `<span class="ex-badge ok">${t('vf.n_current', {n: sm.current || 0, total: sm.points})}</span>`,
+    sm.never ? `<span class="ex-badge off">${t('vf.n_never', {n: sm.never})}</span>` : '',
+  ].join(' ');
+  const proxies = (d.proxies || []).map(p => `<div style="font-size:11px;padding:2px 0;">
+      <strong>${_exEsc(p.name || '#' + p.id)}</strong> · ${_exEsc(p.cluster_name)}
+      ${p.role === 'dr' ? `<span class="ex-badge ok">${t('vf.proxy_dr')}</span>` : `<span class="ex-badge ${p.state === 'in_hours' ? 'run' : 'off'}">${t(p.state === 'in_hours' ? 'vf.proxy_in_hours' : 'vf.proxy_waiting')}</span>`}
+      ${p.busy ? `<span class="ex-badge run">${t('vf.proxy_busy')}</span>` : ''} <span style="color:var(--text-muted)">${_vfRate(p.rate)}</span></div>`).join('')
+    || `<div class="ex-hint">${t('vf.no_proxies')}</div>`;
+  return `<div class="settings-group">${head}
+    <div class="ex-hint" style="margin-bottom:6px;">${rule}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${badges}</div>
+    <div style="margin-bottom:6px;">${proxies}</div>
+    <div class="ex-hint">${dr.length ? t('vf.dr_present', {names: dr.map(c => _exEsc(c.cluster_name)).join(', ')}) : t('vf.dr_none')}</div></div>`;
+}
+async function vfSave() {
+  const body = {interval_days: parseInt(document.getElementById('vf-interval').value, 10),
+                hours_from: document.getElementById('vf-from').value, hours_until: document.getElementById('vf-until').value,
+                dr_during_backups: document.getElementById('vf-dr-backups').checked};
+  if (!(body.interval_days >= 0 && body.interval_days <= 90)) { _shMsg('vf-msg', t('vf.interval_range'), 'err'); return; }
+  try { _vfData = await _exCall('PUT', '/api/backup/verification', body); _vfEditing = false; exLoadPolicies(); }
+  catch (e) { _shMsg('vf-msg', e.message, 'err'); }
+}
+/** The Verified cell of a chain: failed points, overdue, points still to check, or the oldest check. */
+function _vfChainCell(c) {
+  if (c.verify_failed) return `<span class="ex-badge err">${t('vf.chain_failed', {n: c.verify_failed})}</span>`;
+  const iv = c.verify_interval_days || 0;
+  const oldest = c.verify_never ? c.verify_never_since : c.verify_oldest;
+  if (iv && oldest && (Date.now() - new Date(oldest).getTime()) > 2 * iv * 86400000)
+    return `<span class="ex-badge warn" title="${_exEsc(t('vf.chain_overdue_hint', {n: iv}))}">${t('vf.chain_overdue')}</span>`;
+  if (c.verify_never) return `<span class="ex-badge off">${t('vf.chain_pending', {n: c.verify_never})}</span>`;
+  return c.verify_oldest ? `<span style="color:var(--text-muted)" title="${_exEsc(t('vf.chain_all_hint'))}">${t('vf.chain_all', {when: _exFmt(c.verify_oldest)})}</span>` : '—';
+}
+function _vfHistory(rows) {
+  const badge = s => s === 'ok' ? `<span class="ex-badge ok">${t('ex.status_ok')}</span>` : s === 'failed' ? `<span class="ex-badge err">${t('vf.status_failed')}</span>`
+    : s === 'running' ? `<span class="ex-badge run">${t('ex.status_running')}</span>` : s === 'stopped' ? `<span class="ex-badge off">${t('vf.status_stopped')}</span>`
+    : `<span class="ex-badge warn">${t('vf.status_error')}</span>`;
+  return `<div class="settings-group">
+    <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-green)"></div><span class="settings-group-title">${t('vf.history_title')}</span></div>
+    ${rows.length ? `<table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td class="um-username">${_exEsc(r.vm_name || '?')} <span style="color:var(--text-muted)">#${r.seq ?? '?'}</span>${_exClusterHint(r)}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap;">${_exFmt(r.started_at)}</td>
+        <td>${badge(r.status)}</td>
+        <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${t('vf.on_proxy', {proxy: _exEsc(r.proxy_name || '?')})}${r.proxy_role === 'dr' ? ' (DR)' : ''}${r.bytes != null ? ` · ${_exMiB(Math.round(r.bytes / 1048576))}` : ''}${r.duration_s ? ` · ${_polDur(r.duration_s)}` : ''}${r.message ? `<div>${_exEsc(r.message)}</div>` : ''}</td></tr>`).join('')}</tbody></table>`
+      : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('vf.history_none')}</div>`}</div>`;
 }
 
 // ── restore points ──────────────────────────────────────────────────────────
@@ -6928,7 +7016,7 @@ async function exLoadPoints() {
   if (!chains.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_points')}</div>`; return; }
   const admin = _exIsAdmin();
   el.innerHTML = `<div class="settings-group"><div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span class="settings-group-title">${t('ex.points_title')}</span></div>
-    <table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_points')}</th><th>${t('ex.col_last_point')}</th><th></th></tr></thead>
+    <table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_points')}</th><th>${t('ex.col_last_point')}</th><th>${t('ex.col_verified')}</th><th></th></tr></thead>
     <tbody>${chains.map(c => `
       <tr>
         <td class="um-username">${_exEsc(c.vm_name)}${_exClusterHint(c)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(c.vm_uuid.slice(0, 8))}</div></td>
@@ -6936,6 +7024,7 @@ async function exLoadPoints() {
         <td style="font-size:11px;">${_exEsc(c.target_name || '—')} / ${_exEsc(c.folder_slug)}</td>
         <td>${c.point_count}</td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted)">${_exFmt(c.last_point_at)}</td>
+        <td style="font-size:11px;">${_vfChainCell(c)}</td>
         <td style="white-space:nowrap;">
           <button class="um-action-btn" onclick="exPointsOpen(${c.id}, '${_exEsc(c.vm_name)}')">${t('ex.show_points')}</button>
           ${admin ? `<button class="um-action-btn" onclick="exVerifyChain(${c.id})">${t('ex.verify')}</button>

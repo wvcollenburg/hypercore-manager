@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.6.0]
+
+### Added
+- **Planned verification per folder.** Replaces the fixed Sunday 05:00 re-read of every chain. Every restore
+  point of the folder (also of retired chains) is re-hashed against its checksums once per interval, one point
+  at a time, as a proxy job that takes the proxy (never beside a backup or restore on it). Backup → Schedules →
+  **Verification** sets the interval (default 7 days, 0 = off) and the hours for production proxies (default
+  01:00–06:00, local to each cluster); a production proxy only starts a point it can finish before those hours
+  end and before its cluster's next backups, and a check cut off at the end continues the next night. New points
+  go first, so a point is verified within a day instead of up to six. The section shows the counts (verified
+  within the interval, not yet, overdue, failed) and per proxy whether it works now and its read speed.
+- **DR clusters.** A cluster can be marked **DR (normally passive)** in its Edit dialog. Its proxies verify the
+  folder's points around the clock: first what is due, then anything not checked for a day. They pause between
+  points while backups of the folder write to the share, unless the folder allows otherwise.
+- **Verification alerts and mail.** A point that fails twice in a row is marked corrupt, shown as a critical
+  badge on the cluster card, and mailed to the closest administrator of the folder (the folder's admins, else the
+  customer's, else the MSP's, else the installation's). A chain with a point not verified for twice the interval
+  raises a warning badge and a mail of its own. One mail per folder gathers what failed within two minutes.
+- Restore points show a **Verified** column per chain; Runs lists the verifications (proxy, size, duration).
+
+### Changed
+- The manual **Verify** button and the check before a restore also record when a point was last checked and open
+  (or close) its alert.
+
 ## [1.5.1]
 
 ### Fixed

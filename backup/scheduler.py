@@ -178,6 +178,12 @@ def sweep_all() -> None:
     except Exception:            # noqa: BLE001
         log.exception('pruning old schedule night plans failed')
     try:
+        n = db.prune_verify_history(90)
+        if n:
+            log.info('verification history: %s rows older than 90 days removed', n)
+    except Exception:            # noqa: BLE001
+        log.exception('verification history pruning failed')
+    try:
         n = db.prune_deployments(30)
         if n:
             log.info('deployment log: %s finished rows older than 30 days removed', n)
@@ -185,17 +191,33 @@ def sweep_all() -> None:
         log.exception('deployment log pruning failed')
 
 
-def verify_all() -> None:
-    """Weekly: checksum verification of every active chain."""
-    import cluster_registry
-    import incremental
-    for c in cluster_registry.list_enabled():
-        try:
-            out = incremental.verify_active_chains(c.cluster_id)
-            if out['verified'] or out['failed']:
-                log.info('verify %s: %s', c.name, out)
-        except Exception:        # noqa: BLE001
-            log.exception('verify failed for %s', c.name)
+def verify_tick() -> None:
+    """Every minute: hand idle proxies their next restore point to verify (verifier.py)."""
+    import verifier
+    try:
+        verifier.tick()
+    except Exception:                                   # noqa: BLE001 — database not migrated yet, or down
+        log.debug('verify tick failed', exc_info=True)
+
+
+def verify_overdue() -> None:
+    """Every 10 minutes: alerts for chains not verified for twice their folder's interval."""
+    import verifier
+    try:
+        out = verifier.check_overdue()
+        if out['raised'] or out['resolved']:
+            log.info('verification alerts: %s', out)
+    except Exception:                                   # noqa: BLE001
+        log.debug('overdue check failed', exc_info=True)
+
+
+def _verify_reconcile() -> None:
+    try:
+        n = db.interrupted_verify_runs()
+        if n:
+            log.info('%d verification(s) were interrupted by a restart; those points are verified again later', n)
+    except Exception:                                   # noqa: BLE001
+        log.debug('verify reconcile skipped (database not ready)', exc_info=True)
 
 
 def enqueue_vm_change(change_id: int) -> None:
@@ -231,7 +253,13 @@ def start(sync_interval_seconds: int = 60) -> None:
     _scheduler.add_job(sync_jobs, trigger='interval', seconds=sync_interval_seconds, id='sync', replace_existing=True)
     _scheduler.add_job(policy_tick, trigger='cron', second=5, id='policy-tick', replace_existing=True)
     _scheduler.add_job(sweep_all, trigger='cron', hour=4, minute=30, id='sweep', replace_existing=True)
-    _scheduler.add_job(verify_all, trigger='cron', day_of_week='sun', hour=5, minute=0, id='verify', replace_existing=True)
+    # planned verification (per folder, point by point); replaces the Sunday 05:00 re-read of every chain
+    _scheduler.add_job(_verify_reconcile, trigger='date', run_date=_dt.now() + _td(seconds=10), id='verify-reconcile',
+                       replace_existing=True)
+    _scheduler.add_job(verify_tick, trigger='interval', seconds=60, id='verify-tick', replace_existing=True,
+                       next_run_time=_dt.now() + _td(seconds=90))
+    _scheduler.add_job(verify_overdue, trigger='interval', minutes=10, id='verify-overdue', replace_existing=True,
+                       next_run_time=_dt.now() + _td(seconds=150))
     # first sweep a little after start: the dashboard applies new migrations at the same moment
     from datetime import datetime, timedelta
     _scheduler.add_job(sweep_all, trigger='date', run_date=datetime.now() + timedelta(seconds=120), id='sweep-start', replace_existing=True)

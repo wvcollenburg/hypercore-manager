@@ -453,9 +453,11 @@ shared schedule.
 
 **Restore points** (Backup tab) lists every chain of the folder's VMs with its points. **Verify**
 re-reads every file of a chain against the checksums written at backup time; it runs in the
-background and the row shows how far it is. The same check runs every Sunday at 05:00 for every
-active chain. A point whose files do not match is marked **corrupt** in the points list, with the
-failing files in the tooltip, until a later check passes. **Delete data** removes a chain from
+background and the row shows how far it is. The planned verification checks every restore point of the
+folder once per interval (Backup → Schedules → **Verification**: interval, hours for production proxies,
+DR proxies around the clock; see the user manual's Backup chapter). A point whose files do not match is
+marked **corrupt** in the points list, with the failing files in the tooltip, until a later check passes;
+it shows as a critical badge on the cluster card and is mailed to the closest administrator of the folder. **Delete data** removes a chain from
 the target; this is the only action that deletes backups. Deleting a plan *retires* its chain:
 no new points, retention keeps applying, restores stay possible.
 
@@ -481,7 +483,7 @@ anything is created on the cluster. A mismatch stops the restore with the failin
 and marks the point corrupt; no VM is created. The check reads the chain once at the share's
 read speed (a 50 GB chain takes about 15–20 minutes on a gigabit share), which is why it can be
 skipped: the form shows when the point was last verified, and skipping is reasonable right after
-a clean weekly check when time matters. The entry under **Runs** records whether the chain was
+a recent clean verification when time matters. The entry under **Runs** records whether the chain was
 verified or the check was skipped.
 
 The vTPM travels with the backup: its state is captured with every point and imported with the
