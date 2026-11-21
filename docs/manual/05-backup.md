@@ -128,6 +128,45 @@ while it is read, must not raise an alarm). A point that still fails is marked *
 own administrators, else the customer's, else the MSP's, else the installation's. A chain with a point not
 verified for twice the interval gets an amber badge and a mail of its own. Mail needs Settings → Mail.
 
+### Test restores
+
+Verification proves the backup's bytes are what was written; a **test restore** proves the VM boots from them.
+It restores the VM's newest point as a temporary VM (`<vm>-hcmtest-<n>`, tagged `hcm-testrestore`, new MAC
+addresses), starts it, waits for a sign of life, keeps a screenshot of its console, and deletes it again.
+
+A **test plan** (Backup → Schedules → **Test restores**) belongs to the folder:
+
+- **A round every** N days: the plan's fixed VMs (**always test**) plus **Random VMs per round** picked from the
+  folder's backed-up VMs, longest untested first. A tested VM rests a number of weeks before it can be picked
+  again; **never test** keeps a VM out of the random pick.
+- **Where**: on the folder's **DR cluster** when it has one with a proxy, at any hour (paused while the folder's
+  backups run). Without a DR cluster, on each VM's own cluster, only within **Hours on a production cluster**,
+  outside backups, and only when the test is expected to finish before the next backups start. One test per
+  target cluster at a time; a test needs a node with room for the VM's memory under the balancer's RAM ceiling,
+  otherwise it is skipped with that reason.
+- **Boot test (no network)**: the NICs stay disconnected. A pass is the **guest agent** answering (works without
+  network) or, without an agent, the **console screen** showing a login, lock or sign-in screen. A stop screen,
+  a BitLocker recovery screen (the vTPM did not unseal), "no bootable device", a crash, or nothing within
+  **Sign of life within** minutes is a fail. A VM without a guest agent in production is marked *agentless:
+  screen check only*, so a weaker pass is never mistaken for an agent pass.
+- **Network test (test VLAN)**: the NICs go onto an isolated **test VLAN**, and after the boot check a proxy
+  pings the VM and tries its ports (per VM, or the plan's default; without ports only ping counts, and Windows
+  answers no ping by default). The checks run from a **proxy NIC on the test VLAN**, with the plan's **probe
+  address** (a free address in the VMs' subnet, with prefix): HCM itself never touches the test VLAN. Restored
+  VMs keep their addresses and names, so HCM refuses a VLAN that any other VM on the target cluster uses; whether
+  the VLAN is routed elsewhere it cannot see, so keep it isolated on the switches too. The proxy needs to be
+  deployed with 1.7.0 or later (it runs with host networking) and with a **Test VLAN** NIC (Settings → Backup →
+  Deploy a proxy VM); the plan card warns when no proxy can run the checks.
+- Options, off by default: **Keep a failed test VM for inspection** (hours), and a **Byte budget per round** (a
+  test writes the whole VM: tests that would pass the budget are skipped in that round).
+
+**Run now** queues a round at once (it still waits for a moment the target may take it). Results appear under
+**Runs → Test restores** (how it passed or failed, the target, the age of the point used, restore and boot time,
+network checks, the screenshot) and as a **Tested** column on the restore points. A failed test is a red badge on
+the cluster card and a mail to the closest administrator; a fixed VM without a passed test for twice the plan's
+interval gets an amber badge and a mail. Test VMs are deleted after each test; a sweep every 15 minutes removes any
+left behind (it only ever deletes VMs that carry both the tag and the name mark).
+
 ## Plans
 
 ![Plans](img/backup-schedules.png)
@@ -221,7 +260,7 @@ runs on the cluster and is followed under Runs.
 
 ![Runs](img/backup-runs.png)
 
-The history of runs, restores, imports and verifications for the cluster with their state and detail:
+The history of runs, test restores, restores, imports and verifications for the cluster with their state and detail:
 what kind of point a run produced, how much it copied, why a run was skipped or deferred, which proxy
 verified a point, how much it read and how long it took. A run is
 **deferred** when the cluster is updating itself or a node is missing; HyperCore cannot snapshot

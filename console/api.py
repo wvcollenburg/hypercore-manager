@@ -156,6 +156,20 @@ def build(token: str, http: aiohttp.ClientSession) -> web.Application:
                                            wake=settings.get('wake') or 'none')
         return web.Response(body=await asyncio.to_thread(classify.png, img), content_type='image/png')
 
+    async def bootcheck(request):
+        """Test restores: has this restored VM booted? {verdict: pass|fail|wait, detail, png (base64)}. Wakes the
+        screen with a Shift tap (harmless on a login screen; a Windows lock screen shows its sign-in prompt)."""
+        import base64
+        b = await _body(request)
+        cid, vm = _cluster(request, b), _vm(request, b)
+        try:
+            img, _ = await consoles.screenshot(http, cid, vm, username='test restore', source='system', wake='shift')
+        except hc.ConsoleError as e:
+            return _json({'verdict': 'wait', 'detail': str(e), 'png': None})
+        verdict, detail = await asyncio.to_thread(classify.boot_verdict, img, classify.ocr_available())
+        data = await asyncio.to_thread(classify.png, img)
+        return _json({'verdict': verdict, 'detail': detail, 'png': base64.b64encode(data).decode()})
+
     # --------------------------------------------------- open-session check
     async def check_get(request):
         cid = _cluster(request)
@@ -238,6 +252,7 @@ def build(token: str, http: aiohttp.ClientSession) -> web.Application:
     r.add_post(r'/api/v1/grants/{gid:\d+}/end', end_grant)
     r.add_post('/api/v1/check/verdict', verdict)
     r.add_post('/api/v1/screenshot', screenshot)
+    r.add_post('/api/v1/bootcheck', bootcheck)
     r.add_get('/api/v1/check', check_get)
     r.add_put('/api/v1/check/settings', check_settings)
     r.add_post('/api/v1/check/run', check_run)

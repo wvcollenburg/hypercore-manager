@@ -9,8 +9,16 @@ import shutil
 import socket
 import subprocess
 
-VERSION = '0.5.7'
+VERSION = '0.6.0'
 _SKIP_PREFIXES = ('lo', 'docker', 'veth', 'br-', 'virbr', 'cni', 'flannel', 'tun', 'tap', 'wg')
+
+
+def _host_network() -> bool:
+    try:
+        import netcheck
+        return netcheck.host_network()
+    except Exception:                                   # noqa: BLE001
+        return False
 
 
 def host_macs(host_net_dir: str) -> list[dict]:
@@ -57,7 +65,9 @@ def identity(cfg, backend_name: str, nbd_free: int | None) -> dict:
             'qemu_img': _tool_version(['qemu-img', '--version']),
             'mount_cifs': shutil.which('mount.cifs') is not None,
             'mount_nfs': shutil.which('mount.nfs') is not None or shutil.which('mount.nfs4') is not None,
-            'jobs': ['backup', 'flatten', 'synthesize', 'verify', 'sweep', 'prune', 'delete_chain', 'stage', 'bench'],
+            'jobs': ['backup', 'flatten', 'synthesize', 'verify', 'sweep', 'prune', 'delete_chain', 'stage', 'bench', 'netcheck'],
+            # network tests of test restores need the VM's own NICs: true when the container runs with --network host
+            'host_network': _host_network(),
             # a resized disk arrives with `full: true` and is written without a backing file
             'full_flag': True,
             # verify accepts upto_seq and reports progress (points, bytes)

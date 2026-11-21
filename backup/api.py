@@ -154,6 +154,9 @@ def owner_of(kind: str, ident: str) -> dict | None:
     if kind == 'proxy':
         p = db.get_proxy(num)
         return {'cluster_id': str(p['cluster_id']), 'vm_uuid': None} if p else None
+    if kind == 'test_run':
+        t = db.get_test_run(num)
+        return {'cluster_id': t['cluster_id'], 'vm_uuid': t['vm_uuid']} if t else None
     if kind == 'change':
         c = vmedit.get(num)
         return {'cluster_id': str(c['cluster_id']), 'vm_uuid': c.get('vm_uuid') or None, 'kind': c.get('kind')} if c else None
@@ -371,6 +374,11 @@ def _verify_notices(cid: str) -> list:
         return []
     out = []
     for a in alerts:
+        if a['kind'] in ('test_failed', 'test_overdue'):
+            out.append({'key': f"{a['kind']}:{a.get('vm_uuid')}", 'kind': a['kind'],
+                        'severity': 'critical' if a['kind'] == 'test_failed' else 'warning', 'vm': a.get('vm_name'),
+                        'detail': a.get('detail') or '', 'since': a['created_at'].isoformat() if a.get('created_at') else None})
+            continue
         failed = a['kind'] == 'failed'
         out.append({'key': f"verify_{a['kind']}:{a['point_id'] if failed else a['chain_id']}",
                     'kind': f"verify_{a['kind']}", 'severity': 'critical' if failed else 'warning',
@@ -1230,6 +1238,238 @@ def chains_list():
     return jsonify(rows)
 
 
+# ----------------------------------------------------------- test restores
+def _test_plan_fields(b: dict, creating: bool) -> dict:
+    f = {}
+    if creating or 'name' in b:
+        name = str(b.get('name') or '').strip()
+        if not name or len(name) > 100:
+            raise ValueError('a name is required (at most 100 characters)')
+        f['name'] = name
+    ints = {'interval_days': (1, 90), 'random_count': (0, 50), 'rest_weeks': (1, 52), 'timeout_minutes': (2, 120)}
+    for k, (lo, hi) in ints.items():
+        if k in b:
+            try:
+                v = int(b[k])
+            except (TypeError, ValueError):
+                raise ValueError(f'{k} must be a whole number') from None
+            if not lo <= v <= hi:
+                raise ValueError(f'{k} must be between {lo} and {hi}')
+            f[k] = v
+    for k, (lo, hi) in {'keep_failed_hours': (1, 168), 'byte_budget_gb': (1, 1000000)}.items():
+        if k in b:                                       # empty / null: the option is off
+            if b[k] in (None, '', 0, '0', False):
+                f[k] = None
+            else:
+                try:
+                    v = int(b[k])
+                except (TypeError, ValueError):
+                    raise ValueError(f'{k} must be a whole number') from None
+                if not lo <= v <= hi:
+                    raise ValueError(f'{k} must be between {lo} and {hi}')
+                f[k] = v
+    if 'enabled' in b:
+        f['enabled'] = bool(b['enabled'])
+    for k in ('hours_from', 'hours_until'):
+        if k in b:
+            t = recurrence.parse_hhmm(b[k])
+            f[k] = f'{t.hour:02d}:{t.minute:02d}'
+    if 'level' in b:
+        if b['level'] not in ('boot', 'network'):
+            raise ValueError("level must be 'boot' or 'network'")
+        f['level'] = b['level']
+    if 'test_vlan' in b:
+        if b['test_vlan'] in (None, ''):
+            f['test_vlan'] = None
+        else:
+            v = int(b['test_vlan'])
+            if not 0 <= v <= 4094:
+                raise ValueError('the test VLAN must be between 0 and 4094')
+            f['test_vlan'] = v
+    if 'probe_address' in b:
+        pa = str(b.get('probe_address') or '').strip() or None
+        if pa:
+            import ipaddress
+            try:
+                iface = ipaddress.IPv4Interface(pa)
+            except ValueError:
+                raise ValueError('the probe address must be an IPv4 address with its prefix, e.g. 172.16.0.250/25') from None
+            if iface.network.prefixlen == 32 or '/' not in pa:
+                raise ValueError("the probe address needs the test subnet's prefix, e.g. /24")
+        f['probe_address'] = pa
+    if 'default_ports' in b:
+        f['default_ports'] = _ports(b['default_ports'])
+    return f
+
+
+def _ports(v) -> list:
+    items = v if isinstance(v, list) else [x for x in str(v or '').replace(';', ',').replace(' ', ',').split(',') if x]
+    out = []
+    for x in items:
+        try:
+            p = int(x)
+        except (TypeError, ValueError):
+            raise ValueError(f'{x!r} is not a port number') from None
+        if not 1 <= p <= 65535:
+            raise ValueError(f'{p} is not a port number (1-65535)')
+        if p not in out:
+            out.append(p)
+    return out[:20]
+
+
+def _check_network_plan(plan: dict) -> None:
+    if plan.get('level') == 'network' and (plan.get('test_vlan') is None or not plan.get('probe_address')):
+        raise ValueError('a network test needs a test VLAN and the proxy\'s probe address on it')
+
+
+def _test_plan_in_scope(pid: int):
+    folder, err = _scope()
+    if err:
+        return None, err
+    plan = db.get_test_plan(pid)
+    if not plan or plan['folder_id'] != folder:
+        return None, _err('test plan not found', 404)
+    return plan, None
+
+
+@app.get('/api/v1/test-plans')
+@_require_token
+def test_plans_list():
+    """The folder's test plans with their members, where tests run, which proxies can run network checks,
+    and the backed-up VMs to pick from."""
+    folder, err = _scope()
+    if err:
+        return err
+    import testrestore
+    clusters = db.folder_clusters(folder)
+    proxies = []
+    for c in clusters:
+        for p in db.get_proxies(c['cluster_id'], enabled_only=True):
+            caps = p.get('capabilities') or {}
+            proxies.append({'id': p['id'], 'name': p.get('name'), 'cluster_id': c['cluster_id'], 'cluster_name': c['cluster_name'],
+                            'role': c['role'], 'version': p.get('version'),
+                            'host_network': bool(caps.get('host_network')) and 'netcheck' in (caps.get('jobs') or [])})
+    plans = []
+    for pl in db.get_test_plans(folder):
+        d = dict(pl, members=db.test_plan_vms(pl['id']))
+        plans.append(d)
+    return jsonify(_plain({'folder_id': folder, 'folder_name': db.folder_name(folder) if folder else None,
+                           'clusters': clusters, 'proxies': proxies, 'plans': plans, 'vms': db.backed_up_vms(folder),
+                           'running': list(testrestore.running().values())}))
+
+
+@app.post('/api/v1/test-plans')
+@_require_token
+def test_plans_create():
+    folder, err = _scope()
+    if err:
+        return err
+    b = request.get_json(silent=True) or {}
+    try:
+        f = _test_plan_fields(b, True)
+        _check_network_plan(f)
+    except (ValueError, recurrence.RecurrenceError) as e:
+        return _err(str(e))
+    pid = db.add_test_plan(folder, (str(b.get('updated_by') or '').strip() or None), **f)
+    return jsonify({'ok': True, 'id': pid}), 201
+
+
+@app.put('/api/v1/test-plans/<int:pid>')
+@_require_token
+def test_plans_update(pid):
+    plan, err = _test_plan_in_scope(pid)
+    if err:
+        return err
+    b = request.get_json(silent=True) or {}
+    try:
+        f = _test_plan_fields(b, False)
+        _check_network_plan(dict(plan, **f))
+    except (ValueError, recurrence.RecurrenceError) as e:
+        return _err(str(e))
+    db.update_test_plan(pid, (str(b.get('updated_by') or '').strip() or None), **f)
+    return jsonify({'ok': True})
+
+
+@app.delete('/api/v1/test-plans/<int:pid>')
+@_require_token
+def test_plans_delete(pid):
+    plan, err = _test_plan_in_scope(pid)
+    if err:
+        return err
+    db.delete_test_plan(pid)
+    return jsonify({'ok': True})
+
+
+@app.post('/api/v1/test-plans/<int:pid>/run')
+@_require_token
+def test_plans_run(pid):
+    """Queue a round now (it runs when the target may take it, like a scheduled one)."""
+    plan, err = _test_plan_in_scope(pid)
+    if err:
+        return err
+    import testrestore
+    n = testrestore.queue_round(plan, datetime.now(timezone.utc))
+    return jsonify({'ok': True, 'queued': n})
+
+
+@app.post('/api/v1/test-plans/<int:pid>/vms')
+@_require_token
+def test_plans_vm_set(pid):
+    """{cluster_id, vm_uuid, vm_name, mode: fixed | exclude, ports?}"""
+    plan, err = _test_plan_in_scope(pid)
+    if err:
+        return err
+    b = request.get_json(silent=True) or {}
+    cid, vm = str(b.get('cluster_id') or ''), str(b.get('vm_uuid') or '').strip()
+    if not cluster_registry.is_uuid(cid) or not vm:
+        return _err('cluster_id and vm_uuid required')
+    known, folder = db.folder_of_cluster(cid)
+    if not known or folder != plan['folder_id']:
+        return _err('that VM is not in this folder')
+    mode = b.get('mode') or 'fixed'
+    if mode not in ('fixed', 'exclude'):
+        return _err("mode must be 'fixed' or 'exclude'")
+    try:
+        ports = None if b.get('ports') in (None, '') else _ports(b['ports'])
+    except ValueError as e:
+        return _err(str(e))
+    db.set_test_plan_vm(pid, cid, vm, (str(b.get('vm_name') or '').strip() or None), mode, ports)
+    return jsonify({'ok': True})
+
+
+@app.delete('/api/v1/test-plans/<int:pid>/vms')
+@_require_token
+def test_plans_vm_remove(pid):
+    plan, err = _test_plan_in_scope(pid)
+    if err:
+        return err
+    b = request.get_json(silent=True) or {}
+    cid = str(b.get('cluster_id') or request.args.get('cluster_id') or '')
+    vm = str(b.get('vm_uuid') or request.args.get('vm_uuid') or '')
+    return jsonify({'ok': True, 'removed': db.remove_test_plan_vm(pid, cid, vm)})
+
+
+@app.get('/api/v1/test-runs')
+@_require_token
+def test_runs_list():
+    limit = max(1, min(request.args.get('limit', 100, type=int), 500))
+    try:
+        rows = db.test_runs(_clusters_arg(), limit)
+    except Exception:                                   # noqa: BLE001 — before migration 053
+        rows = []
+    return jsonify([_ser(r) for r in rows])
+
+
+@app.get('/api/v1/test-runs/<int:run_id>/screenshot')
+@_require_token
+def test_run_screenshot(run_id):
+    from flask import Response
+    data = db.test_run_screenshot(run_id)
+    if data is None:
+        return _err('no screenshot', 404)
+    return Response(data, mimetype='image/png')
+
+
 # ----------------------------------------------------------- planned verification
 def _verify_fields(b: dict) -> dict:
     f = {}
@@ -1490,7 +1730,7 @@ def deployments_clear():
 @_require_token
 def deployments_start():
     """Create a proxy VM on a cluster from a cloud image. body: {cluster_id, name, vcpu, mem_gb, disk_gb, vlan,
-    ip:{mode, address, prefix, gateway, dns}, image_url, image_name, authorized_key, tz}"""
+    ip:{mode, address, prefix, gateway, dns}, image_url, image_name, authorized_key, tz, test_vlan?}"""
     import deploy
     b = request.get_json(silent=True) or {}
     cid = (b.get('cluster_id') or '').strip()
@@ -1506,9 +1746,14 @@ def deployments_start():
         params = {'name': name, 'vcpu': max(1, int(b.get('vcpu') or 2)), 'mem_gb': max(1, int(b.get('mem_gb') or 2)),
                   'disk_gb': max(10, int(b.get('disk_gb') or 20)), 'vlan': int(b.get('vlan') or 0), 'ip': ip,
                   'image_url': (b.get('image_url') or deploy.DEFAULT_IMAGE_URL).strip(), 'image_name': (b.get('image_name') or deploy.DEFAULT_IMAGE_NAME).strip(),
-                  'authorized_key': (b.get('authorized_key') or '').strip(), 'tz': (b.get('tz') or os.environ.get('TZ') or 'UTC')}
+                  'authorized_key': (b.get('authorized_key') or '').strip(), 'tz': (b.get('tz') or os.environ.get('TZ') or 'UTC'),
+                  'test_vlan': None if b.get('test_vlan') in (None, '') else int(b['test_vlan'])}
     except (TypeError, ValueError):
         return _err('sizes and vlan must be numbers')
+    if params['test_vlan'] is not None and not 0 <= params['test_vlan'] <= 4094:
+        return _err('the test VLAN must be between 0 and 4094')
+    if params['test_vlan'] is not None and params['test_vlan'] == params['vlan']:
+        return _err('the test VLAN must differ from the proxy\'s own VLAN')
     info = proxy_image.stack_image(max_age=0)
     if not info.get('available'):
         return _err(f"this installation has no proxy image to push: {info.get('detail') or 'the dashboard did not report one'}", 502)

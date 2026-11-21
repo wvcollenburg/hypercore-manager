@@ -5,6 +5,7 @@ backup   write one point (full or delta) of a chain from hot-added devices onto 
 flatten  materialise one point as flat qcow2 files + the supplied definition (restore directory)
 synthesize  a point, read through its chain, as the base of a new chain (a synthetic full)
 verify   re-hash the points of a chain (one, all, or everything up to a seq) against their manifests
+netcheck ping / TCP checks of a test-restored VM on the test VLAN, through the proxy's test NIC
 sweep    remove stale restore directories under a folder on the target
 bench    measure write/read throughput onto a target through the paths a backup and a restore use
 
@@ -78,7 +79,7 @@ class Engine:
     # ---------------------------------------------------------------- registry
     def submit(self, kind: str, request: dict) -> Job:
         runner = {'backup': self.run_backup, 'flatten': self.run_flatten, 'synthesize': self.run_synthesize, 'verify': self.run_verify, 'sweep': self.run_sweep,
-                  'prune': self.run_prune, 'delete_chain': self.run_delete_chain, 'stage': self.run_stage, 'bench': self.run_bench}[kind]
+                  'prune': self.run_prune, 'delete_chain': self.run_delete_chain, 'stage': self.run_stage, 'bench': self.run_bench, 'netcheck': self.run_netcheck}[kind]
         job = Job(kind, request)
         with self._lock:
             self.jobs[job.id] = job
@@ -304,6 +305,18 @@ class Engine:
                     'bytes': done, 'duration_s': round(time.time() - t0, 1)}
         finally:
             self._release_target(req)
+
+    # ---------------------------------------------------------------- netcheck
+    def run_netcheck(self, job: Job) -> dict:
+        """request: {mac: the test NIC's MAC, probe: '172.16.0.250/25', targets: [{ip, ports: [int]}]}.
+        Ping and TCP checks of a test-restored VM on the test VLAN, through the test NIC only (netcheck.py)."""
+        import netcheck
+        req = job.request
+        job.progress = {'targets': len(req.get('targets') or [])}
+        try:
+            return netcheck.run(req['mac'], req['probe'], req.get('targets') or [])
+        except netcheck.NetcheckError as e:
+            raise RuntimeError(str(e)) from None
 
     # ---------------------------------------------------------------- sweep
     def run_sweep(self, job: Job) -> dict:

@@ -1,8 +1,9 @@
 """
 verify_mail.py — mails about failed and overdue backup verifications (plans/PLAN-chain-verify.md).
 
-The backup service records each new failure (and each chain not verified for twice its folder's interval)
-as a row in backup.verify_alerts. It has no idea who the people are: that is the dashboard's tenant tree.
+The backup service records each new failure (and each chain not verified for twice its folder's interval,
+each failed test restore, each tested VM without a passed test for twice its plan's interval) as a row in
+backup.verify_alerts. It has no idea who the people are: that is the dashboard's tenant tree.
 So a thread here (one per gunicorn worker; a row is claimed atomically, so it is mailed once) collects the
 new rows every minute, waits two minutes so a burst becomes one mail, and mails them per folder to the
 **closest admin**: whoever holds the Admin role nearest the folder, so the folder's own admins, else the
@@ -99,7 +100,8 @@ def line(a: dict, clusters: dict) -> str:
 def compose(rows: list[dict], folder_name: str, clusters: dict, link: str, lang: str = 'en') -> list[tuple[str, dict]]:
     """[(mail kind, values)] for one folder's alerts: one mail for failures, one for overdue chains."""
     out = []
-    for kind, mail_kind in (('failed', 'verify_failed'), ('overdue', 'verify_overdue')):
+    for kind, mail_kind in (('failed', 'verify_failed'), ('overdue', 'verify_overdue'),
+                            ('test_failed', 'test_failed'), ('test_overdue', 'test_overdue')):
         mine = [a for a in rows if a['kind'] == kind]
         if not mine:
             continue

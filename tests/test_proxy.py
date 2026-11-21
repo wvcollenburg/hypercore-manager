@@ -1254,7 +1254,7 @@ def test_support_bundle_route_needs_the_token(tmp_path):
     r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
     assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
     assert r.data[:2] == b'PK'
-    assert P.identity.VERSION == '0.5.7'
+    assert P.identity.VERSION == '0.6.0'
 
 
 def test_the_proxy_keeps_a_rotating_log_file(tmp_path):
@@ -1385,3 +1385,58 @@ def test_proxy_vm_keeps_kernel_errors_off_its_console(tmp_path):
     assert f.read_text() == '7 4 1 7'
     f.write_text('2 4 1 7')
     assert hostcfg.quiet_kernel_console(str(f), tls='auto') == ('2 4 1 7', '2 4 1 7'), 'an already quieter console is left alone'
+
+
+# ------------------------------------------------------------------ netcheck (test restores, T2)
+def _netcheck():
+    saved = sys.modules.pop('netcheck', None)
+    sys.path.insert(0, _PROXY)
+    try:
+        return importlib.import_module('netcheck')
+    finally:
+        sys.path.remove(_PROXY)
+        sys.modules.pop('netcheck', None)
+        if saved:
+            sys.modules['netcheck'] = saved
+
+
+def _sysnet(tmp_path, ifaces):
+    d = tmp_path / 'net'
+    for name, mac in ifaces.items():
+        (d / name).mkdir(parents=True)
+        (d / name / 'address').write_text(mac + '\n')
+    return str(d)
+
+
+def test_netcheck_binds_everything_to_the_test_nic_and_cleans_up(tmp_path):
+    nc = _netcheck()
+    sysnet = _sysnet(tmp_path, {'lo': '00:00:00:00:00:00', 'ens3': '7c:4c:58:00:00:01', 'ens4': '7c:4c:58:00:00:99'})
+    calls, probes = [], []
+    res = nc.run('7C:4C:58:00:00:99', '172.16.0.250/25', [{'ip': '172.16.0.12', 'ports': [3389, 445]}], settle_s=0,
+                 ping_fn=lambda ip, dev: probes.append(('ping', ip, dev)) or False,
+                 tcp_fn=lambda ip, port, dev: probes.append(('tcp', ip, port, dev)) or port == 3389,
+                 ip_fn=lambda *a: calls.append(a), sys_net=sysnet)
+    assert res['interface'] == 'ens4' and res['results'] == {'172.16.0.12': {'ping': False, 'ports': {3389: True, 445: False}}}
+    assert all(p[-1] == 'ens4' for p in probes), 'never through the management NIC (a restored VM keeps its production IP)'
+    assert calls[:3] == [('link', 'set', 'ens4', 'up'), ('addr', 'add', '172.16.0.250/32', 'dev', 'ens4'),
+                         ('route', 'replace', '172.16.0.12/32', 'dev', 'ens4', 'src', '172.16.0.250')]
+    assert calls[-3:] == [('route', 'del', '172.16.0.12/32', 'dev', 'ens4'), ('addr', 'del', '172.16.0.250/32', 'dev', 'ens4'),
+                          ('link', 'set', 'ens4', 'down')], 'the probe address and routes go again'
+
+
+def test_netcheck_refuses_without_the_nic_or_with_a_bad_probe(tmp_path):
+    nc = _netcheck()
+    sysnet = _sysnet(tmp_path, {'eth0': '02:42:ac:11:00:02'})        # bridge network: only the container's veth
+    with pytest.raises(nc.NetcheckError, match='host networking'):
+        nc.run('7c:4c:58:00:00:99', '172.16.0.250/25', [], ip_fn=lambda *a: None, sys_net=sysnet)
+    with pytest.raises(nc.NetcheckError, match='prefix'):
+        nc.parse_probe('172.16.0.250/32')
+    with pytest.raises(nc.NetcheckError):
+        nc.parse_probe('not-an-ip')
+
+
+def test_host_network_is_detected_from_the_host_interfaces(tmp_path):
+    nc = _netcheck()
+    host = _sysnet(tmp_path / 'h', {'ens3': 'aa', 'docker0': 'bb', 'lo': 'cc'})
+    assert nc.host_network(_sysnet(tmp_path / 'c1', {'ens3': 'aa', 'lo': 'cc'}), host) is True
+    assert nc.host_network(_sysnet(tmp_path / 'c2', {'eth0': 'dd', 'lo': 'cc'}), host) is False

@@ -3,7 +3,7 @@ api.py — REST API of the backup proxy (port 8083), driven by the backup servic
 
   GET  /health                liveness
   GET  /identity              hostname, MAC addresses, capabilities (token required)
-  POST /jobs/<kind>           kind in backup | flatten | synthesize | verify | sweep | prune | delete_chain | stage | bench -> {id}
+  POST /jobs/<kind>           kind in backup | flatten | synthesize | verify | sweep | prune | delete_chain | stage | bench | netcheck -> {id}
   GET  /jobs                  recent jobs
   GET  /jobs/<id>             state, progress, result or error
   DELETE /jobs/<id>           request cancellation
@@ -45,6 +45,7 @@ _REQUIRED = {
     'delete_chain': ('target', 'chain_dir'),
     'stage': ('target', 'chain_dir', 'seq', 'devices'),
     'bench': ('target',),
+    'netcheck': ('mac', 'probe', 'targets'),
 }
 
 

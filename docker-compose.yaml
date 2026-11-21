@@ -306,6 +306,8 @@ services:
       - BACKUP_API_PORT=8082
       # the dashboard exports the stack's proxy image for proxy VMs (deploy and update); same token as BACKUP_API_TOKEN
       - DASHBOARD_URL=http://dashboard:5000
+      # test restores ask the console service whether a restored VM booted (its token is derived from HCM_SECRET_KEY)
+      - CONSOLE_API_URL=http://console:8084
       # self-proxy inside this stack (optional; remote proxies are registered in the dashboard)
       - PROXY_API_URL=${PROXY_API_URL:-http://proxy:8083}
       - PROXY_API_TOKEN=${PROXY_API_TOKEN:-}

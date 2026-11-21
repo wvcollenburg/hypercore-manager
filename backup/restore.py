@@ -11,6 +11,7 @@ Fast path (verified as E9b):
   4. the proxy VM is snapshotted (no clones may be attached at that moment) and the staging
      disks are cloned onto the restored VM; staging disks and snapshot are removed
   5. boot order, MAC/VLAN policy, optional start
+Test restores (testrestore.py) pass extra_tags, a description, and on the network level a VLAN for every NIC.
 Step 0, on by default: the backing chain of the point is re-hashed on the proxy first.
 
 Only one restore or backup runs per proxy at a time (the proxy VM cannot be snapshotted while
@@ -159,8 +160,9 @@ def _run(r: dict) -> None:
     # 2. import the diskless VM
     db.update_restore(rid, message='importing definition')
     source_uri = jobs.build_path_uri(f"{share['uri_base'].rstrip('/')}/{out_dir}", share.get('username') or None, share.get('password') or None)
-    tag, created = hc.import_vm(source_uri, name=name, description=definition.get('description') or '', tags=definition.get('tags') or '',
-                                definition_file=f'{dirname}.xml')
+    tags = ','.join(t for t in [*(definition.get('tags') or '').split(','), *(params.get('extra_tags') or [])] if t.strip())
+    tag, created = hc.import_vm(source_uri, name=name, description=params.get('description') or definition.get('description') or '',
+                                tags=tags, definition_file=f'{dirname}.xml')
     wait_task(hc, tag, 'import', 3600)
     new_vm = hc.get_vm(created) if created else next((v for v in hc.list_vms_full() if (v.get('name') or '').lower() == name.lower()), None)
     if not new_vm:
@@ -220,7 +222,9 @@ def _run(r: dict) -> None:
     connected = bool(params.get('nic_connected', not source_exists))
     for new_nic, old_nic in zip(new_vm.get('netDevs', []), definition.get('netDevs', [])):
         fields = {'connected': connected}
-        if old_nic.get('vlan') is not None:
+        if params.get('vlan') is not None:
+            fields['vlan'] = int(params['vlan'])         # a test restore on the network level: the isolated test VLAN
+        elif old_nic.get('vlan') is not None:
             fields['vlan'] = old_nic['vlan']
         if use_original_mac and old_nic.get('macAddress'):
             fields['macAddress'] = old_nic['macAddress']

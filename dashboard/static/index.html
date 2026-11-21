@@ -4822,7 +4822,7 @@ async function _loadProxiesPanel() {
       <td class="um-username">${_clEsc(p.name)}<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(p.url)}</div></td>
       <td>${_clEsc(p.cluster_name)}</td>
       <td><span class="ex-badge ${p.status === 'ok' ? 'ok' : (p.status === 'updating' ? 'off' : 'err')}">${_clEsc(p.status === 'updating' ? t('proxies.updating') : (p.status || '—'))}</span>${p.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}<div style="font-size:10px;color:var(--text-muted);">${p.vm_uuid ? t('proxies.vm_detected') : t('proxies.vm_missing')}${p.status_detail ? ' · ' + _clEsc(p.status_detail) : ''}</div></td>
-      <td style="font-size:11px;">${_clEsc(p.version || '—')}${_pxUpdateCell(p, stackImage)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(p.last_seen_at)}</div></td>
+      <td style="font-size:11px;">${_clEsc(p.version || '—')}${_pxUpdateCell(p, stackImage)}${p.kind !== 'local' && p.capabilities ? `<div class="ex-hint" style="margin-top:2px;">${t(p.capabilities.host_network ? 'proxies.net_tests_ready' : 'proxies.net_tests_redeploy')}</div>` : ''}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(p.last_seen_at)}</div></td>
       <td style="white-space:nowrap;">
         <button class="um-action-btn" onclick="pxTest(${p.id})">${t('clusters.test')}</button>
         <button class="um-action-btn" onclick="pxToggle(${p.id}, ${p.enabled ? 'false' : 'true'})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
@@ -4853,6 +4853,7 @@ async function _loadProxiesPanel() {
           <div><label>${t('proxies.cluster')}</label><select id="pxd-cluster">${clusterOpts}</select></div>
           <div><label>${t('proxies.d_name')}</label><input type="text" id="pxd-name" placeholder="hcm-proxy-01"></div>
           <div><label>VLAN</label><input type="number" id="pxd-vlan" value="0" min="0" max="4094"></div>
+          <div><label>${t('proxies.d_test_vlan')}</label><input type="number" id="pxd-testvlan" min="0" max="4094" placeholder="—"><div class="ex-hint">${t('proxies.d_test_vlan_hint')}</div></div>
           <div><label>vCPU / GiB RAM / GiB disk</label><div style="display:flex;gap:6px;"><input type="number" id="pxd-vcpu" value="2" min="1" style="width:60px"><input type="number" id="pxd-mem" value="2" min="1" style="width:60px"><input type="number" id="pxd-disk" value="20" min="10" style="width:70px"></div></div>
           <div><label>${t('proxies.d_ip')}</label><select id="pxd-ipmode" onchange="document.getElementById('pxd-static').style.display=this.value==='static'?'':'none'"><option value="dhcp">DHCP</option><option value="static">${t('proxies.d_static')}</option></select></div>
           <div id="pxd-static" style="display:none;"><label>${t('proxies.d_static_fields')}</label><div style="display:flex;gap:6px;flex-wrap:wrap;"><input type="text" id="pxd-ip" placeholder="10.0.0.5" style="width:120px"><input type="number" id="pxd-prefix" placeholder="24" value="24" style="width:60px"><input type="text" id="pxd-gw" placeholder="10.0.0.1" style="width:120px"><input type="text" id="pxd-dns" placeholder="10.0.0.2, 1.1.1.1" style="width:160px"></div></div>
@@ -4885,6 +4886,7 @@ async function pxDeploy() {
                  mem_gb: parseInt(g('mem').value || '2', 10), disk_gb: parseInt(g('disk').value || '20', 10),
                  ip: g('ipmode').value === 'static' ? {mode: 'static', address: g('ip').value.trim(), prefix: parseInt(g('prefix').value || '24', 10), gateway: g('gw').value.trim(), dns: g('dns').value.trim()} : {mode: 'dhcp'},
                  image_url: g('image-url').value.trim(), authorized_key: g('key').value.trim() };
+  if (g('testvlan') && g('testvlan').value !== '') body.test_vlan = parseInt(g('testvlan').value, 10);
   if (!body.name) { _shMsg('pxd-msg', t('proxies.d_name_required'), 'err'); return; }
   if (!await hcmConfirm(t('proxies.deploy_confirm', {name: body.name}))) return;
   _shMsg('pxd-msg', t('ex.i_starting'), '');
@@ -6189,6 +6191,10 @@ function _alertText(it) {
   if (it.kind === 'console') return t('alerts.console_open', {vm: _exEsc(it.vm_name || '')});
   if (it.kind === 'notice' && it.notice_kind === 'verify_failed')
     return t('notice.verify_failed', {vm: _exEsc(it.vm_name || '?'), seq: it.seq ?? '?', detail: _exEsc(it.description || '')});
+  if (it.kind === 'notice' && it.notice_kind === 'test_failed')
+    return t('notice.test_failed', {vm: _exEsc(it.vm_name || '?'), detail: _exEsc(it.description || '')});
+  if (it.kind === 'notice' && it.notice_kind === 'test_overdue')
+    return t('notice.test_overdue', {vm: _exEsc(it.vm_name || '?'), detail: _exEsc(it.description || '')});
   if (it.kind === 'notice' && it.notice_kind === 'verify_overdue')
     return t('notice.verify_overdue', {vm: _exEsc(it.vm_name || '?'), detail: _exEsc(it.description || '')});
   if (it.kind === 'notice' && it.notice_kind === 'update_terminated') {
@@ -6484,8 +6490,8 @@ async function exLoadPolicies() {
       ${rows.length ? rows.map(_polCard).join('') : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.pol_none')}</div>`}
     </div>`;
   };
-  await _vfLoad();
-  el.innerHTML = `${_exLocationLine(null)}<div class="ex-hint" style="margin-bottom:10px;">${scope} ${t('ex.pol_intro')}</div>` + section('incremental') + _vfSection() + section('export');
+  await Promise.all([_vfLoad(), _trLoad()]);
+  el.innerHTML = `${_exLocationLine(null)}<div class="ex-hint" style="margin-bottom:10px;">${scope} ${t('ex.pol_intro')}</div>` + section('incremental') + _vfSection() + _trSection() + section('export');
   if (_polEditing) _polFormInit(_polEditing);
   if (_polMembersOpen) exPolicyMembers(_polMembersOpen, true);
   if (_polNightOpen) exPolicyNight(_polNightOpen[0], _polNightOpen[1], true);
@@ -6918,7 +6924,9 @@ async function exLoadRuns() {
           <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${kind === 'run' && r.mode ? `<span class="ex-badge ${r.mode === 'incremental' ? 'run' : 'off'}">${r.mode === 'incremental' ? t(r.point_kind === 'full' ? 'ex.point_full' : 'ex.point_delta') : t('ex.mode_export')}</span> ` : ''}${kind === 'rst' && r.kind === 'files' ? `<span class="ex-badge off">${t('ex.files')}</span> ` : ''}${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${kind === 'rst' && r.kind === 'files' && r.created_uuid && r.status === 'COMPLETE' ? ` <button class="um-action-btn" onclick="exEjectIso(${r.id})">${t('ex.flr_eject')}</button>` : ''}${r.task_tag ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
         </tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.no_runs')}</div>`}
     </div>`;
-  el.innerHTML = table(t('ex.runs_title'), runs, 'run') + (_exRunsFilter ? '' : table(t('ex.restores_title'), restores, 'rst') + table(t('ex.imports_title'), imports, 'imp') + _vfHistory(d.verifications || []));
+  let tests = [];
+  if (!_exRunsFilter) { try { tests = await _exCall('GET', '/api/backup/test-runs?limit=100'); } catch (e) { tests = []; } }
+  el.innerHTML = table(t('ex.runs_title'), runs, 'run') + (_exRunsFilter ? '' : _trHistory(tests) + table(t('ex.restores_title'), restores, 'rst') + table(t('ex.imports_title'), imports, 'imp') + _vfHistory(d.verifications || []));
   clearTimeout(_exPollTimer);
   if ([...runs, ...imports, ...restores].some(r => r.status === 'RUNNING')) {
     // poll while anything runs, but only while this panel is on screen and the cluster unchanged
@@ -7005,6 +7013,165 @@ function _vfHistory(rows) {
       : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('vf.history_none')}</div>`}</div>`;
 }
 
+// ── test restores (per folder): plans on the Schedules tab, results on the Runs tab, a column on the
+// restore points ─────────────────────────────────────────────────────────────────────────────────────
+let _trData = null, _trEditing = null;     // _trEditing: null | 'new' | plan id
+async function _trLoad() {
+  try { _trData = await _exCall('GET', '/api/backup/test-plans'); } catch (e) { _trData = null; }
+}
+const _trDr = () => ((_trData && _trData.proxies) || []).filter(p => p.role === 'dr');
+function _trTargetLine(p) {
+  const dr = [...new Set(_trDr().map(x => x.cluster_name))];
+  return dr.length ? t('tr.target_dr', {names: dr.map(_exEsc).join(', ')}) : t('tr.target_own', {from: _exEsc(p.hours_from), until: _exEsc(p.hours_until)});
+}
+function _trSection() {
+  const d = _trData;
+  if (!d) return '';
+  const head = `<div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-amber)"></div>
+      <span class="settings-group-title">${t('tr.title')}</span>
+      ${_trEditing === 'new' ? '' : `<button class="um-action-btn" onclick="_trEditing = 'new'; exLoadPolicies()">${t('tr.new')}</button>`}</div>`;
+  const body = (d.plans || []).map(p => _trEditing === p.id ? _trForm(p) : _trCard(p)).join('');
+  return `<div class="settings-group">${head}
+    <div class="ex-hint" style="margin-bottom:8px;">${t('tr.intro')}</div>
+    ${_trEditing === 'new' ? _trForm(null) : ''}
+    ${body || (_trEditing === 'new' ? '' : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('tr.none')}</div>`)}</div>`;
+}
+function _trCard(p) {
+  const fixed = (p.members || []).filter(m => m.mode === 'fixed'), excl = (p.members || []).filter(m => m.mode === 'exclude');
+  const netReady = ((_trData.proxies || []).filter(x => (_trDr().length ? x.role === 'dr' : true) && x.host_network)).length > 0;
+  const opts = [
+    t('tr.timeout', {n: p.timeout_minutes}),
+    p.keep_failed_hours ? t('tr.keep_on', {n: p.keep_failed_hours}) : t('tr.keep_off'),
+    p.byte_budget_gb ? t('tr.budget_on', {n: p.byte_budget_gb}) : t('tr.budget_off'),
+  ];
+  if (p.level === 'network') opts.push(t('tr.net_line', {vlan: p.test_vlan, probe: _exEsc(p.probe_address || '?'), ports: (p.default_ports || []).join(', ') || t('tr.ports_ping')}));
+  const vms = (_trData.vms || []);
+  const member = m => `<span class="ex-badge ${m.mode === 'fixed' ? 'ok' : 'off'}" style="margin:2px;">${m.mode === 'exclude' ? '✕ ' : ''}${_exEsc(m.vm_name || m.vm_uuid.slice(0, 8))}${m.ports ? ` · ${m.ports.join(',')}` : ''}
+      <a href="#" title="${_exEsc(t('tr.remove_vm'))}" onclick="event.preventDefault(); trVmRemove(${p.id}, '${m.cluster_id}', '${_exEsc(m.vm_uuid)}')" style="margin-left:4px;color:inherit;">×</a></span>`;
+  return `<div class="pol-card" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <strong>${_exEsc(p.name)}</strong>
+      <span class="ex-badge ${p.enabled ? 'ok' : 'off'}">${t(p.enabled ? 'tr.enabled' : 'tr.disabled')}</span>
+      <span class="ex-badge run">${t(p.level === 'network' ? 'tr.level_network' : 'tr.level_boot')}</span>
+      ${p.level === 'network' && !netReady ? `<span class="ex-badge warn" title="${_exEsc(t('tr.net_not_ready_hint'))}">${t('tr.net_not_ready')}</span>` : ''}
+      <span style="flex:1"></span>
+      <button class="um-action-btn" onclick="trRun(${p.id})">${t('tr.run_now')}</button>
+      <button class="um-action-btn" onclick="_trEditing = ${p.id}; exLoadPolicies()">${t('vf.edit')}</button>
+      <button class="um-action-btn danger" onclick="trDelete(${p.id}, '${_exEsc(p.name)}')">${t('users.delete')}</button></div>
+    <div class="ex-hint" style="margin-top:4px;">${t('tr.rule', {n: p.interval_days, fixed: fixed.length, random: p.random_count, weeks: p.rest_weeks})} ${_trTargetLine(p)}</div>
+    <div class="ex-hint">${opts.join(' · ')}${p.last_run_at ? ` · ${t('tr.last_round', {when: _exFmt(p.last_run_at)})}` : ''}</div>
+    <div style="margin-top:6px;">${fixed.map(member).join('')}${excl.map(member).join('')}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">
+      <select class="um-select" id="tr-${p.id}-vm" style="max-width:260px;">${vms.map(v => `<option value="${v.cluster_id}|${_exEsc(v.vm_uuid)}|${_exEsc(v.vm_name || '')}">${_exEsc(v.vm_name || v.vm_uuid)}</option>`).join('')}</select>
+      <select class="um-select" id="tr-${p.id}-mode"><option value="fixed">${t('tr.mode_fixed')}</option><option value="exclude">${t('tr.mode_exclude')}</option></select>
+      ${p.level === 'network' ? `<input class="um-input" id="tr-${p.id}-ports" placeholder="${_exEsc(t('tr.ports_vm_ph'))}" style="width:150px;">` : ''}
+      <button class="um-action-btn" onclick="trVmAdd(${p.id})" ${vms.length ? '' : 'disabled'}>${t('tr.add_vm')}</button>
+      <div class="cl-msg" id="tr-${p.id}-msg"></div></div>
+  </div>`;
+}
+function _trForm(p) {
+  const v = p || {name: '', enabled: true, interval_days: 7, random_count: 2, rest_weeks: 4, level: 'boot', test_vlan: null, probe_address: '',
+                  default_ports: [], timeout_minutes: 10, keep_failed_hours: null, byte_budget_gb: null, hours_from: '01:00', hours_until: '06:00'};
+  const id = p ? p.id : 'new';
+  return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+    <div class="cl-form" style="max-width:900px;">
+      <div><label>${t('tr.f_name')}</label><input class="um-input" id="trf-name" value="${_exEsc(v.name)}"></div>
+      <div><label>${t('tr.f_interval')}</label><input class="um-input" type="number" min="1" max="90" id="trf-interval" value="${v.interval_days}" style="width:100px;"></div>
+      <div><label>${t('tr.f_random')}</label><div style="display:flex;gap:6px;align-items:center;"><input class="um-input" type="number" min="0" max="50" id="trf-random" value="${v.random_count}" style="width:80px;">
+        <span class="ex-hint">${t('tr.f_rest')}</span><input class="um-input" type="number" min="1" max="52" id="trf-rest" value="${v.rest_weeks}" style="width:70px;"></div>
+        <div class="ex-hint">${t('tr.f_random_hint')}</div></div>
+      <div><label>${t('tr.f_level')}</label><select class="um-select" id="trf-level" onchange="document.getElementById('trf-net').style.display = this.value === 'network' ? '' : 'none'">
+        <option value="boot" ${v.level === 'boot' ? 'selected' : ''}>${t('tr.level_boot')}</option><option value="network" ${v.level === 'network' ? 'selected' : ''}>${t('tr.level_network')}</option></select>
+        <div class="ex-hint">${t('tr.f_level_hint')}</div></div>
+      <div id="trf-net" style="grid-column:1/-1;${v.level === 'network' ? '' : 'display:none;'}"><div class="cl-form">
+        <div><label>${t('tr.f_vlan')}</label><input class="um-input" type="number" min="0" max="4094" id="trf-vlan" value="${v.test_vlan ?? ''}" style="width:100px;"></div>
+        <div><label>${t('tr.f_probe')}</label><input class="um-input" id="trf-probe" value="${_exEsc(v.probe_address || '')}" placeholder="172.16.0.250/25"></div>
+        <div><label>${t('tr.f_ports')}</label><input class="um-input" id="trf-ports" value="${(v.default_ports || []).join(', ')}" placeholder="3389, 443"></div>
+        <div style="grid-column:1/-1;" class="ex-hint">${t('tr.f_net_hint')}</div></div></div>
+      <div><label>${t('tr.f_timeout')}</label><input class="um-input" type="number" min="2" max="120" id="trf-timeout" value="${v.timeout_minutes}" style="width:100px;"></div>
+      <div><label>${t('tr.f_hours')}</label><div style="display:flex;gap:6px;align-items:center;"><input class="um-input" type="time" id="trf-from" value="${_exEsc(v.hours_from)}" style="width:130px;"> – <input class="um-input" type="time" id="trf-until" value="${_exEsc(v.hours_until)}" style="width:130px;"></div>
+        <div class="ex-hint">${t('tr.f_hours_hint')}</div></div>
+      <div><label><input type="checkbox" id="trf-keep-on" ${v.keep_failed_hours ? 'checked' : ''}> ${t('tr.f_keep')}</label>
+        <div style="display:flex;gap:6px;align-items:center;"><input class="um-input" type="number" min="1" max="168" id="trf-keep" value="${v.keep_failed_hours || 24}" style="width:90px;"><span class="ex-hint">${t('tr.f_hours_unit')}</span></div></div>
+      <div><label><input type="checkbox" id="trf-budget-on" ${v.byte_budget_gb ? 'checked' : ''}> ${t('tr.f_budget')}</label>
+        <div style="display:flex;gap:6px;align-items:center;"><input class="um-input" type="number" min="1" id="trf-budget" value="${v.byte_budget_gb || 500}" style="width:110px;"><span class="ex-hint">GB</span></div>
+        <div class="ex-hint">${t('tr.f_budget_hint')}</div></div>
+      <div style="display:flex;gap:8px;align-items:center;"><input type="checkbox" id="trf-enabled" ${v.enabled ? 'checked' : ''}><label for="trf-enabled" style="margin:0;">${t('tr.enabled')}</label></div>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:8px;"><button class="um-primary-btn" onclick="trSave('${id}')">${t('clusters.save')}</button>
+      <button class="um-action-btn" onclick="_trEditing = null; exLoadPolicies()">${t('console.cancel')}</button></div>
+    <div class="cl-msg" id="trf-msg"></div></div>`;
+}
+async function trSave(id) {
+  const g = k => document.getElementById('trf-' + k);
+  const level = g('level').value;
+  const body = {name: g('name').value.trim(), enabled: g('enabled').checked, interval_days: parseInt(g('interval').value, 10),
+                random_count: parseInt(g('random').value || '0', 10), rest_weeks: parseInt(g('rest').value || '4', 10), level,
+                timeout_minutes: parseInt(g('timeout').value || '10', 10), hours_from: g('from').value, hours_until: g('until').value,
+                keep_failed_hours: g('keep-on').checked ? parseInt(g('keep').value, 10) : null,
+                byte_budget_gb: g('budget-on').checked ? parseInt(g('budget').value, 10) : null};
+  if (level === 'network') Object.assign(body, {test_vlan: g('vlan').value === '' ? null : parseInt(g('vlan').value, 10),
+                                                probe_address: g('probe').value.trim(), default_ports: g('ports').value});
+  try {
+    if (id === 'new') await _exCall('POST', '/api/backup/test-plans', body);
+    else await _exCall('PUT', `/api/backup/test-plans/${id}`, body);
+    _trEditing = null; exLoadPolicies();
+  } catch (e) { _shMsg('trf-msg', e.message, 'err'); }
+}
+async function trDelete(id, name) {
+  if (!await hcmConfirm(t('tr.confirm_delete', {name}), {danger: true})) return;
+  try { await _exCall('DELETE', `/api/backup/test-plans/${id}`); exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); }
+}
+async function trRun(id) {
+  try { const r = await _exCall('POST', `/api/backup/test-plans/${id}/run`); showToast(t('tr.queued', {n: r.queued}), 'ok'); }
+  catch (e) { showToast(e.message, 'err'); }
+}
+async function trVmAdd(id) {
+  const [cid, vm, name] = document.getElementById(`tr-${id}-vm`).value.split('|');
+  const body = {cluster_id: cid, vm_uuid: vm, vm_name: name, mode: document.getElementById(`tr-${id}-mode`).value};
+  const ports = document.getElementById(`tr-${id}-ports`);
+  if (ports && ports.value.trim()) body.ports = ports.value;
+  try { await _exCall('POST', `/api/backup/test-plans/${id}/vms`, body); exLoadPolicies(); } catch (e) { _shMsg(`tr-${id}-msg`, e.message, 'err'); }
+}
+async function trVmRemove(id, cid, vm) {
+  try { await _exCall('DELETE', `/api/backup/test-plans/${id}/vms?cluster_id=${encodeURIComponent(cid)}&vm_uuid=${encodeURIComponent(vm)}`); exLoadPolicies(); }
+  catch (e) { showToast(e.message, 'err'); }
+}
+function _trStatusBadge(r) {
+  const cls = {passed: 'ok', failed: 'err', running: 'run', queued: 'off', skipped: 'warn', error: 'warn'}[r.status] || 'off';
+  return `<span class="ex-badge ${cls}">${t('tr.status_' + r.status)}</span>`;
+}
+function _trHistory(rows) {
+  const ago = iso => iso ? Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 3600000)) : null;
+  const dur = (a, b) => a && b ? _polDur((new Date(b) - new Date(a)) / 1000) : '';
+  return `<div class="settings-group">
+    <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-amber)"></div><span class="settings-group-title">${t('tr.history_title')}</span></div>
+    ${rows.length ? `<table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td class="um-username">${_exEsc(r.vm_name || '?')}${_exClusterHint(r)}<div style="font-size:10px;color:var(--text-muted);">${_exEsc(r.plan_name || '')}${r.picked === 'random' ? ' · ' + t('tr.picked_random') : ''}</div></td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap;">${_exFmt(r.started_at || r.queued_at)}</td>
+        <td>${_trStatusBadge(r)}${r.verdict === 'agent' ? ` <span class="ex-badge ok">${t('tr.v_agent')}</span>` : r.verdict === 'screen' ? ` <span class="ex-badge off">${t('tr.v_screen')}</span>` : ''}
+          ${r.agent === 'unavailable' ? `<div><span class="ex-badge warn" title="${_exEsc(t('tr.agentless_hint'))}">${t('tr.agentless')}</span></div>` : r.agent === 'unknown' ? `<div><span class="ex-badge off">${t('tr.agent_unknown')}</span></div>` : ''}</td>
+        <td style="font-size:11px;color:var(--text-muted);max-width:460px;">
+          ${r.target_cluster_name ? t('tr.on_cluster', {cluster: _exEsc(r.target_cluster_name)}) : ''}${r.point_created_at ? ` · ${t('tr.point_age', {h: ago(r.point_created_at)})}` : ''}${r.bytes ? ` · ${_exMiB(Math.round(r.bytes / 1048576))}` : ''}${r.restored_at ? ` · ${t('tr.restore_took', {d: dur(r.started_at, r.restored_at)})}` : ''}${r.booted_at ? ` · ${t('tr.boot_took', {d: dur(r.restored_at, r.booted_at)})}` : ''}
+          ${r.detail ? `<div>${_exEsc(r.detail)}</div>` : ''}
+          ${(r.checks || []).length ? `<div>${r.checks.map(c => `${_exEsc(c.ip)}: ${t(c.ping ? 'tr.ping_ok' : 'tr.ping_no')}${Object.entries(c.ports || {}).map(([pt, ok]) => ` · ${pt} ${ok ? '✓' : '✕'}`).join('')}`).join('<br>')}</div>` : ''}
+          ${r.keep_until && !r.cleaned_at ? `<div>${t('tr.kept_until', {when: _exFmt(r.keep_until)})}</div>` : ''}
+          ${r.has_screenshot ? `<button class="um-action-btn" style="margin-top:4px;" onclick="trScreenshot(${r.id}, '${_exEsc(r.vm_name || '')}')">${t('tr.screenshot')}</button>` : ''}</td></tr>`).join('')}</tbody></table>`
+      : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('tr.history_none')}</div>`}</div>`;
+}
+function trScreenshot(id, vm) {
+  hcmModal({title: `${_exEsc(vm)} · ${_exEsc(t('tr.screenshot'))}`, width: 'min(1100px, 96vw)',
+            body: `<img src="${_withCluster(`/api/backup/test-runs/${id}/screenshot`)}" alt="" style="max-width:100%;border:1px solid var(--border);border-radius:6px;">`,
+            buttons: [{label: t('acc.close'), onClick: h => h.close()}]});
+}
+function _trChainCell(c) {
+  const lt = c.last_test;
+  if (!lt) return '—';
+  return lt.status === 'passed' ? `<span class="ex-badge ok" title="${_exEsc(_exFmt(lt.finished_at))}">${t('tr.chain_passed', {when: _exFmt(lt.finished_at)})}</span>`
+                                : `<span class="ex-badge err" title="${_exEsc(_exFmt(lt.finished_at))}">${t('tr.chain_failed', {when: _exFmt(lt.finished_at)})}</span>`;
+}
+
 // ── restore points ──────────────────────────────────────────────────────────
 const _exMiB = n => n == null ? '—' : (n >= 1024 ? (n / 1024).toFixed(1) + ' GiB' : n + ' MiB');
 async function exLoadPoints() {
@@ -7016,7 +7183,7 @@ async function exLoadPoints() {
   if (!chains.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_points')}</div>`; return; }
   const admin = _exIsAdmin();
   el.innerHTML = `<div class="settings-group"><div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span class="settings-group-title">${t('ex.points_title')}</span></div>
-    <table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_points')}</th><th>${t('ex.col_last_point')}</th><th>${t('ex.col_verified')}</th><th></th></tr></thead>
+    <table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_points')}</th><th>${t('ex.col_last_point')}</th><th>${t('ex.col_verified')}</th><th>${t('tr.col_tested')}</th><th></th></tr></thead>
     <tbody>${chains.map(c => `
       <tr>
         <td class="um-username">${_exEsc(c.vm_name)}${_exClusterHint(c)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(c.vm_uuid.slice(0, 8))}</div></td>
@@ -7025,6 +7192,7 @@ async function exLoadPoints() {
         <td>${c.point_count}</td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted)">${_exFmt(c.last_point_at)}</td>
         <td style="font-size:11px;">${_vfChainCell(c)}</td>
+        <td style="font-size:11px;">${_trChainCell(c)}</td>
         <td style="white-space:nowrap;">
           <button class="um-action-btn" onclick="exPointsOpen(${c.id}, '${_exEsc(c.vm_name)}')">${t('ex.show_points')}</button>
           ${admin ? `<button class="um-action-btn" onclick="exVerifyChain(${c.id})">${t('ex.verify')}</button>

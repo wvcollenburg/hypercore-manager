@@ -48,7 +48,7 @@ def narrow(sub: str, data, scopes: dict, cid: str, vm_index_rows):
     def rows(xs, key='vm_uuid', cluster_level=False):
         return [x for x in (xs or []) if isinstance(x, dict) and keep(x, key, cluster_level)]
 
-    if sub in ('plans', 'chains', 'restores', 'flr/mounts'):
+    if sub in ('plans', 'chains', 'restores', 'flr/mounts', 'test-runs'):
         return rows(data)
     if sub in ('runs', 'runs/status'):
         return dict(data, runs=rows(data.get('runs')), restores=rows(data.get('restores')),

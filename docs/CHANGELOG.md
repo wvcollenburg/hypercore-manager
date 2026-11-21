@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Test restores.** A test plan per folder (Backup → Schedules → **Test restores**) restores the newest backup of
+  its VMs as temporary VMs, starts them, checks that they come up and deletes them again. A round every N days:
+  fixed VMs plus N picked at random from the folder's backed-up VMs (longest untested first, a tested VM rests N
+  weeks). Tests run on the folder's DR cluster at any hour (paused during the folder's backups), else on the VM's
+  own cluster inside the plan's hours, outside backups, and only when they fit before the next backups; one test
+  per target cluster at a time, and only when a node has room for the VM under the balancer's RAM ceiling.
+  - **Boot test**: NICs disconnected; a pass is the guest agent answering or, without an agent, a login / lock /
+    sign-in screen on the console (the console service's classifier, now also recognising stop screens, BitLocker
+    recovery, "no bootable device", GRUB rescue and emergency mode as failures). The last screenshot is kept.
+    VMs without a guest agent are marked *agentless: screen check only*.
+  - **Network test**: NICs on an isolated test VLAN (refused when another VM on the target cluster uses it), then
+    ping and TCP port checks from a proxy NIC on that VLAN (proxy job `netcheck`, bound to that NIC so a restored
+    VM's production IP never reaches the production VM). HCM never touches the test VLAN.
+  - Options, off by default: keep a failed test VM for N hours; a byte budget per round.
+  - Results under Runs → **Test restores** (verdict, target, point age, restore and boot time, checks,
+    screenshot) and a **Tested** column on the restore points. A failed test and a fixed VM without a passed test
+    for twice the interval raise a badge on the cluster card and a mail to the closest administrator.
+- **Proxy deploy: Test VLAN** adds a second NIC for the network checks. Proxy **0.6.0**: job `netcheck`,
+  `iproute2` and `iputils-ping` in the image; proxies deployed from now on run with host networking (older ones
+  show *network tests: redeploy*).
+
 ## [1.6.0]
 
 ### Added

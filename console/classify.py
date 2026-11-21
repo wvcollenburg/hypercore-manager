@@ -187,3 +187,50 @@ def classify(img: Image.Image, refs: Iterable[str] = (), use_ocr: bool = True, o
             # a shell prompt in view: undecidable without pressing a key, so never a pass and never an alarm
             return Verdict('unknown', 'only log output on the console, no prompt in view', h)
     return Verdict('open', 'no lock or login screen recognised', h)
+
+
+# ------------------------------------------------------------------ boot test (test restores)
+# a restored VM that is stuck instead of booted (letters only, accents stripped, lower case)
+BOOT_FAIL_PHRASES = (
+    ('bitlockerrecovery', 'BitLocker recovery screen: the vTPM did not unseal the key'),
+    ('recoverykey', 'asks for a recovery key'),
+    ('ranintoaproblem', 'Windows stop screen'),
+    ('stopcode', 'Windows stop screen'),
+    ('automaticrepair', 'Windows automatic repair'),
+    ('startuprepair', 'Windows startup repair'),
+    ('nobootabledevice', 'no bootable device'),
+    ('bootdevicenotfound', 'boot device not found'),
+    ('operatingsystemnotfound', 'operating system not found'),
+    ('bootfailed', 'boot failed'),
+    ('kernelpanic', 'kernel panic'),
+    ('grubrescue', 'GRUB rescue prompt'),
+    ('emergencymode', 'Linux emergency mode'),
+    ('givingupwaitingforrootdevice', 'root device not found'),
+    ('initramfs', 'stuck in the initramfs'),
+    ('interactiveshell', 'UEFI shell: nothing to boot'),
+)
+
+
+def boot_verdict(img: Image.Image, use_ocr: bool = True, ocr=None) -> tuple[str, str]:
+    """('pass' | 'fail' | 'wait', detail) for the console of a test-restored VM. Pass: a login prompt, a lock or
+    sign-in screen, or a shell (auto-login). Fail: a screen that shows the VM is stuck (stop screen, recovery key,
+    nothing to boot). Anything else (blank, boot logo, log output): wait and look again."""
+    ocr = ocr or ocr_lines
+    if is_blank(img):
+        return 'wait', 'screen is blank'
+    if not use_ocr:
+        return 'wait', 'no OCR available'
+    try:
+        lines = ocr(img)
+    except OCRFailed as e:
+        return 'wait', str(e)
+    flat = _letters(' '.join(lines))
+    for phrase, what in BOOT_FAIL_PHRASES:
+        if phrase in flat:
+            return 'fail', what
+    found = text_verdict(lines)
+    if found == 'shell':
+        return 'pass', 'shell prompt (logged in automatically)'
+    if found:
+        return 'pass', found
+    return 'wait', 'no login screen yet'

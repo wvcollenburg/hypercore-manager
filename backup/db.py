@@ -669,7 +669,10 @@ def get_chains(cluster_id: Optional[str] = None, vm_uuid: Optional[str] = None, 
                     (SELECT MIN(pt.verify_checked_at) FROM backup.points pt WHERE pt.chain_id = ch.id AND pt.status = 'ok') AS verify_oldest,
                     (SELECT MIN(pt.created_at) FROM backup.points pt WHERE pt.chain_id = ch.id AND pt.status = 'ok'
                                                             AND pt.verify_checked_at IS NULL) AS verify_never_since,
-                    c.folder_id::text AS folder_id
+                    c.folder_id::text AS folder_id,
+                    (SELECT row_to_json(x) FROM (SELECT tr.id, tr.status, tr.verdict, tr.finished_at FROM backup.test_runs tr
+                       WHERE tr.cluster_id = ch.cluster_id AND tr.vm_uuid = ch.vm_uuid AND tr.status IN ('passed', 'failed')
+                       ORDER BY tr.id DESC LIMIT 1) x) AS last_test
                FROM backup.chains ch LEFT JOIN backup.targets t ON t.id = ch.target_id
                LEFT JOIN backup.plans p ON p.id = ch.plan_id
                LEFT JOIN config.clusters c ON c.cluster_id = ch.cluster_id'''
@@ -1028,13 +1031,13 @@ def resolve_verify_alerts(point_id: Optional[int] = None, chain_id: Optional[int
 def resolve_alerts_of_gone_points() -> int:
     """Alerts of points that were pruned or whose chain was deleted are no longer actionable."""
     return _exec('''UPDATE backup.verify_alerts a SET resolved_at = NOW()
-                     WHERE a.resolved_at IS NULL AND (
+                     WHERE a.resolved_at IS NULL AND a.kind IN ('failed', 'overdue') AND (
                         (a.point_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM backup.points p WHERE p.id = a.point_id AND p.status = 'ok'))
                         OR NOT EXISTS (SELECT 1 FROM backup.chains c WHERE c.id = a.chain_id AND c.status IN ('active', 'retired')))''')
 
 
 def open_verify_alerts(cluster_id: str) -> list[dict]:
-    return _all('''SELECT id, kind, chain_id, point_id, vm_name, seq, detail, created_at FROM backup.verify_alerts
+    return _all('''SELECT id, kind, chain_id, point_id, vm_uuid, vm_name, seq, detail, created_at FROM backup.verify_alerts
                     WHERE cluster_id = %s AND resolved_at IS NULL ORDER BY created_at''', (cluster_id,))
 
 
@@ -1078,3 +1081,210 @@ def prune_verify_history(days: int = 90) -> int:
     n = _exec('DELETE FROM backup.verify_runs WHERE status <> %s AND started_at < NOW() - make_interval(days => %s)', ('running', int(days)))
     n += _exec('DELETE FROM backup.verify_alerts WHERE resolved_at < NOW() - make_interval(days => %s)', (int(days),))
     return n
+
+
+# --------------------------------------------------------------- test restores (053)
+_TEST_PLAN_FIELDS = ('name', 'enabled', 'interval_days', 'hours_from', 'hours_until', 'random_count', 'rest_weeks', 'level',
+                     'test_vlan', 'probe_address', 'default_ports', 'timeout_minutes', 'keep_failed_hours', 'byte_budget_gb')
+
+
+def _test_plan_row(r):
+    if r is None:
+        return None
+    d = dict(r)
+    d['folder_id'] = str(d['folder_id']) if d.get('folder_id') else None
+    d['default_ports'] = list(d.get('default_ports') or [])
+    return d
+
+
+def get_test_plans(folder_id: Optional[str] = None, all_folders: bool = False) -> list[dict]:
+    if all_folders:
+        return [_test_plan_row(r) for r in _all('SELECT * FROM backup.test_plans ORDER BY id')]
+    return [_test_plan_row(r) for r in _all('''SELECT * FROM backup.test_plans
+                                                WHERE COALESCE(folder_id, %s::uuid) = COALESCE(%s::uuid, %s::uuid)
+                                                ORDER BY lower(name), id''', (_NO_FOLDER, folder_id, _NO_FOLDER))]
+
+
+def get_test_plan(plan_id: int) -> Optional[dict]:
+    return _test_plan_row(_one('SELECT * FROM backup.test_plans WHERE id = %s', (plan_id,)))
+
+
+def add_test_plan(folder_id: Optional[str], actor: Optional[str], **f) -> int:
+    cols = [k for k in _TEST_PLAN_FIELDS if k in f]
+    return _one(f'''INSERT INTO backup.test_plans (folder_id, updated_by, {", ".join(cols)})
+                    VALUES (%s, %s, {", ".join(["%s"] * len(cols))}) RETURNING id''', [folder_id, actor] + [f[k] for k in cols])['id']
+
+
+def update_test_plan(plan_id: int, actor: Optional[str] = None, **f) -> None:
+    items = [(k, v) for k, v in f.items() if k in _TEST_PLAN_FIELDS or k == 'last_run_at']
+    if not items:
+        return
+    _exec(f'''UPDATE backup.test_plans SET {", ".join(f"{k} = %s" for k, _ in items)}, updated_at = NOW(),
+                     updated_by = COALESCE(%s, updated_by) WHERE id = %s''', [v for _, v in items] + [actor, plan_id])
+
+
+def delete_test_plan(plan_id: int) -> None:
+    _exec('DELETE FROM backup.test_plans WHERE id = %s', (plan_id,))
+
+
+def test_plan_vms(plan_id: int) -> list[dict]:
+    return [dict(r, cluster_id=str(r['cluster_id']), ports=list(r['ports']) if r.get('ports') is not None else None)
+            for r in _all('SELECT * FROM backup.test_plan_vms WHERE plan_id = %s ORDER BY vm_name', (plan_id,))]
+
+
+def set_test_plan_vm(plan_id: int, cluster_id: str, vm_uuid: str, vm_name: Optional[str], mode: str, ports) -> None:
+    _exec('''INSERT INTO backup.test_plan_vms (plan_id, cluster_id, vm_uuid, vm_name, mode, ports) VALUES (%s,%s,%s,%s,%s,%s)
+             ON CONFLICT (plan_id, cluster_id, vm_uuid) DO UPDATE SET vm_name = EXCLUDED.vm_name, mode = EXCLUDED.mode,
+                                                                      ports = EXCLUDED.ports''',
+          (plan_id, cluster_id, vm_uuid, vm_name, mode, ports))
+
+
+def remove_test_plan_vm(plan_id: int, cluster_id: str, vm_uuid: str) -> int:
+    return _exec('DELETE FROM backup.test_plan_vms WHERE plan_id = %s AND cluster_id = %s AND vm_uuid = %s', (plan_id, cluster_id, vm_uuid))
+
+
+def backed_up_vms(folder_id: Optional[str]) -> list[dict]:
+    """VMs of a folder with at least one restorable point in an active chain, with their last test."""
+    return _all('''SELECT DISTINCT ON (ch.cluster_id, ch.vm_uuid) ch.cluster_id::text AS cluster_id, ch.vm_uuid, ch.vm_name,
+                          (SELECT MAX(t.finished_at) FROM backup.test_runs t WHERE t.cluster_id = ch.cluster_id
+                              AND t.vm_uuid = ch.vm_uuid AND t.status IN ('passed', 'failed')) AS last_tested
+                     FROM backup.chains ch JOIN config.clusters c ON c.cluster_id = ch.cluster_id
+                    WHERE ch.status = 'active' AND ch.target_id IS NOT NULL AND c.enabled
+                      AND COALESCE(c.folder_id, %s::uuid) = COALESCE(%s::uuid, %s::uuid)
+                      AND EXISTS (SELECT 1 FROM backup.points p WHERE p.chain_id = ch.id AND p.status = 'ok')
+                    ORDER BY ch.cluster_id, ch.vm_uuid, ch.id DESC''', (_NO_FOLDER, folder_id, _NO_FOLDER))
+
+
+def newest_point_for_vm(cluster_id: str, vm_uuid: str) -> Optional[dict]:
+    """The newest restorable point of the VM's active chain, with its chain and the bytes a restore writes
+    (the sum of what the chain's points up to it wrote: an upper bound)."""
+    return _one('''SELECT p.*, ch.id AS chain_id, ch.vm_name, ch.target_id, ch.chain_dir, ch.folder_slug,
+                          (SELECT COALESCE(SUM(q.bytes_written), 0) FROM backup.points q
+                            WHERE q.chain_id = ch.id AND q.status = 'ok' AND q.seq <= p.seq) AS restore_bytes
+                     FROM backup.points p JOIN backup.chains ch ON ch.id = p.chain_id
+                    WHERE ch.cluster_id = %s AND ch.vm_uuid = %s AND ch.status = 'active' AND p.status = 'ok'
+                    ORDER BY p.created_at DESC, p.seq DESC LIMIT 1''', (cluster_id, vm_uuid))
+
+
+def queue_test_runs(plan: dict, round_at: datetime, vms: list[dict]) -> int:
+    n = 0
+    with connect() as conn:
+        with conn.cursor() as c:
+            # what the previous round did not reach is not carried over: the new round picks again
+            c.execute('''UPDATE backup.test_runs SET status = 'skipped', finished_at = NOW(),
+                                detail = 'not reached before the next round of this plan'
+                          WHERE plan_id = %s AND status = 'queued' ''', (plan['id'],))
+            for v in vms:
+                c.execute('''INSERT INTO backup.test_runs (plan_id, folder_id, round_at, cluster_id, vm_uuid, vm_name, picked, level)
+                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+                          (plan['id'], plan['folder_id'], round_at, v['cluster_id'], v['vm_uuid'], v.get('vm_name'), v['picked'], plan['level']))
+                n += 1
+            c.execute('UPDATE backup.test_plans SET last_run_at = %s WHERE id = %s', (round_at, plan['id']))
+    return n
+
+
+_TEST_RUN_COLS = ('status', 'verdict', 'agent', 'point_id', 'point_created_at', 'target_cluster_id', 'proxy_id', 'restore_id',
+                  'restored_vm_uuid', 'bytes', 'checks', 'screenshot', 'detail', 'started_at', 'restored_at', 'booted_at',
+                  'finished_at', 'keep_until', 'cleaned_at')
+
+
+def update_test_run(run_id: int, **f) -> None:
+    items = [(k, _json(v) if k == 'checks' else (psycopg2.Binary(v) if k == 'screenshot' and v is not None else v))
+             for k, v in f.items() if k in _TEST_RUN_COLS]
+    if items:
+        _exec(f'UPDATE backup.test_runs SET {", ".join(f"{k} = %s" for k, _ in items)} WHERE id = %s', [v for _, v in items] + [run_id])
+
+
+_TEST_RUN_SELECT = '''SELECT t.id, t.plan_id, t.folder_id::text AS folder_id, t.round_at, t.cluster_id::text AS cluster_id, t.vm_uuid,
+                             t.vm_name, t.picked, t.level, t.status, t.verdict, t.agent, t.point_id, t.point_created_at,
+                             t.target_cluster_id::text AS target_cluster_id, t.proxy_id, t.restore_id, t.restored_vm_uuid, t.bytes,
+                             t.checks, t.detail, t.queued_at, t.started_at, t.restored_at, t.booted_at, t.finished_at,
+                             t.keep_until, t.cleaned_at, (t.screenshot IS NOT NULL) AS has_screenshot,
+                             c.cluster_name, tc.cluster_name AS target_cluster_name, pl.name AS plan_name
+                        FROM backup.test_runs t LEFT JOIN config.clusters c ON c.cluster_id = t.cluster_id
+                        LEFT JOIN config.clusters tc ON tc.cluster_id = t.target_cluster_id
+                        LEFT JOIN backup.test_plans pl ON pl.id = t.plan_id'''
+
+
+def get_test_run(run_id: int) -> Optional[dict]:
+    return _one(_TEST_RUN_SELECT + ' WHERE t.id = %s', (run_id,))
+
+
+def test_runs(cluster_ids, limit: int = 100) -> list[dict]:
+    if cluster_ids is None:
+        return _all(_TEST_RUN_SELECT + ' ORDER BY t.id DESC LIMIT %s', (int(limit),))
+    ids = cluster_ids if isinstance(cluster_ids, list) else [cluster_ids]
+    return _all(_TEST_RUN_SELECT + ' WHERE t.cluster_id = ANY(%s::uuid[]) ORDER BY t.id DESC LIMIT %s', (ids, int(limit)))
+
+
+def queued_test_runs() -> list[dict]:
+    return _all(_TEST_RUN_SELECT + " WHERE t.status = 'queued' ORDER BY t.queued_at, t.id")
+
+
+def test_run_screenshot(run_id: int) -> Optional[bytes]:
+    r = _one('SELECT screenshot FROM backup.test_runs WHERE id = %s', (run_id,))
+    return bytes(r['screenshot']) if r and r.get('screenshot') is not None else None
+
+
+def round_bytes(plan_id: int, round_at) -> int:
+    r = _one('''SELECT COALESCE(SUM(bytes), 0) AS n FROM backup.test_runs
+                 WHERE plan_id = %s AND round_at = %s AND status NOT IN ('queued', 'skipped')''', (plan_id, round_at))
+    return int(r['n']) if r else 0
+
+
+def interrupted_test_runs() -> int:
+    return _exec("""UPDATE backup.test_runs SET status = 'error', finished_at = NOW(),
+                       detail = 'Interrupted by a restart; the test VM is removed by the sweep.' WHERE status = 'running'""")
+
+
+def test_vms_to_clean(now: datetime) -> list[dict]:
+    """Test VMs that are done with: finished (or interrupted), not kept, not deleted yet."""
+    return _all('''SELECT id, target_cluster_id::text AS target_cluster_id, restored_vm_uuid FROM backup.test_runs
+                    WHERE restored_vm_uuid IS NOT NULL AND cleaned_at IS NULL AND status NOT IN ('running', 'queued')
+                      AND (keep_until IS NULL OR keep_until < %s)''', (now,))
+
+
+def test_vms_in_use(now: datetime) -> set:
+    """Restored test VMs that must stay: running tests, and failed ones kept for inspection."""
+    return {r['restored_vm_uuid'] for r in _all('''SELECT restored_vm_uuid FROM backup.test_runs
+                                                    WHERE restored_vm_uuid IS NOT NULL AND cleaned_at IS NULL
+                                                      AND (status = 'running' OR keep_until >= %s)''', (now,))}
+
+
+def last_test_passes(plan_id: int) -> dict:
+    """(cluster_id, vm_uuid) -> last passed finished_at, for a plan's fixed VMs."""
+    rows = _all('''SELECT v.cluster_id::text AS cluster_id, v.vm_uuid, v.vm_name,
+                          (SELECT MAX(t.finished_at) FROM backup.test_runs t WHERE t.cluster_id = v.cluster_id AND t.vm_uuid = v.vm_uuid
+                              AND t.status = 'passed') AS passed
+                     FROM backup.test_plan_vms v WHERE v.plan_id = %s AND v.mode = 'fixed' ''', (plan_id,))
+    return {(r['cluster_id'], r['vm_uuid']): r for r in rows}
+
+
+def raise_test_alert(kind: str, folder_id: Optional[str], cluster_id: str, vm_uuid: str, vm_name: Optional[str], detail: str) -> bool:
+    r = _one('''INSERT INTO backup.verify_alerts (kind, folder_id, cluster_id, vm_uuid, vm_name, detail)
+                VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING RETURNING id''',
+             (kind, folder_id, cluster_id, vm_uuid, vm_name, (detail or '')[:1000]))
+    return r is not None
+
+
+def resolve_test_alerts(cluster_id: str, vm_uuid: str, kind: Optional[str] = None) -> int:
+    sql = "UPDATE backup.verify_alerts SET resolved_at = NOW() WHERE resolved_at IS NULL AND cluster_id = %s AND vm_uuid = %s"
+    params: list = [cluster_id, vm_uuid]
+    if kind:
+        sql += ' AND kind = %s'; params.append(kind)
+    else:
+        sql += " AND kind IN ('test_failed', 'test_overdue')"
+    return _exec(sql, params)
+
+
+def ram_limit_percent(cluster_id: str) -> float:
+    """The balancer's hard RAM ceiling for the cluster (RAM_LIMIT_PERCENT; the balancer's default is 85)."""
+    try:
+        r = _one("SELECT value FROM config.tunables WHERE cluster_id = %s AND key = 'RAM_LIMIT_PERCENT'", (cluster_id,))
+        return float(r["value"]) if r else 85.0
+    except Exception:                                   # noqa: BLE001
+        return 85.0
+
+
+def running_test_ids() -> list[int]:
+    return [r['id'] for r in _all("SELECT id FROM backup.test_runs WHERE status = 'running'")]
