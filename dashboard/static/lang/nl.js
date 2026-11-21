@@ -1452,6 +1452,8 @@ window.LANG = {
   'acct.email_now': "Je logt in met {email}.",
   'acct.new_email': "Nieuw e-mailadres",
   'acct.current_password': "Huidig wachtwoord",
+  'update.blocked': "Update beschikbaar, maar hij kan hier niet worden toegepast: {reason}",
+  'update.blocked_short': "Update beschikbaar, maar hij kan hier niet worden toegepast",
   'acct.title': "Mijn account",
   'acct.sign_out': "Afmelden",
   'acct.loading': "Laden…",

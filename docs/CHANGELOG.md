@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Applying an update moves to exactly the advertised release.** The check offered the newest release
+  tag, but applying ran `git pull` of whatever branch was checked out: on a branch deleted after its merge
+  it failed with a git error, on `master` it also took commits made after the release, and a release tag
+  whose `VERSION` disagreed made installations offer the same update again after applying it. Now the
+  checkout moves only to the tag's commit, after checking that the installation is on `master` (or pinned
+  to an earlier release), has no commits of its own and that the release's `VERSION` matches its tag.
+  When one of these fails the dialog says why before **Apply** is pressed, and nothing is changed.
+- Right after an update was applied, the dialog showed the old version until the restart finished.
+
 ## [1.5.0]
 
 ### Added

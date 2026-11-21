@@ -67,7 +67,7 @@ import cluster_registry
 import hypercore_tasks
 import hcm_crypto
 import storage_summary
-from versioning import latest_semver_tag, is_newer, origin_to_web_url
+from versioning import latest_semver_tag, is_newer, origin_to_web_url, resolve_apply, move_to_tag
 from forwarding import body_cluster
 from alerts import ALERT_LEVELS, ALERT_SEVERITY, active_items, condition_episodes, ms_iso
 
@@ -3487,6 +3487,9 @@ def _check_for_update():
         update_available = is_newer(remote_version, current_version)
 
         changelog = _changelog_between(local_tag, remote_tag) if update_available else []
+        # applying moves the checkout to exactly that tag: say now if it would refuse (another branch,
+        # local commits, an inconsistent release) instead of after the administrator presses Apply
+        blocked = resolve_apply(_REPO_PATH, remote_tag)['error'] if update_available else None
 
         _write_update_patch({
             'update_available': update_available,
@@ -3496,6 +3499,7 @@ def _check_for_update():
             'current_label':    f'v{current_version}' if current_version else None,
             'remote_label':     f'v{remote_version}'  if remote_version  else None,
             'changelog':        changelog,
+            'apply_blocked':    blocked,
             'repo_url':         _origin_url() or None,
             'last_checked':     datetime.now(timezone.utc).isoformat(),
             'error':            None,
@@ -3566,6 +3570,23 @@ def _do_apply_update():
                 json.dump(state, f)
 
     try:
+        # exactly the advertised release: fetch the tags, decide before touching anything, then move the
+        # checkout to the tag's commit (never `git pull` of whatever the branch holds now)
+        log('Fetching releases...')
+        r = subprocess.run(['git', '-C', _REPO_PATH, 'fetch', '--tags', '--force', '--quiet'],
+                           capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            log(f'git fetch failed: {(r.stderr or r.stdout).strip() or "no detail"}; nothing was changed.')
+            _write_update_patch({'apply_in_progress': False})
+            return
+        plan = resolve_apply(_REPO_PATH, _latest_remote_tag())
+        if plan['error']:
+            log(f"Not applied: {plan['error']}")
+            _write_update_patch({'apply_in_progress': False, 'apply_blocked': plan['error']})
+            return
+        where = 'detached (pinned to a release)' if plan['branch'] == 'HEAD' else f"branch {plan['branch']}"
+        log(f"Release {plan['tag']} (VERSION {plan['tag_version']}); this installation is on {where}.")
+
         log('Stashing local changes...')
         stash = subprocess.run(
             ['git', '-C', _REPO_PATH, 'stash'],
@@ -3573,19 +3594,16 @@ def _do_apply_update():
         )
         had_stash = 'No local changes' not in stash.stdout
 
-        log('Pulling latest code...')
-        r = subprocess.run(
-            ['git', '-C', _REPO_PATH, 'pull'],
-            capture_output=True, text=True, timeout=60,
-        )
-        if r.returncode != 0:
+        log(f"Moving to {plan['tag']}...")
+        ok, out = move_to_tag(_REPO_PATH, plan)
+        if not ok:
             if had_stash:
                 subprocess.run(['git', '-C', _REPO_PATH, 'stash', 'pop'],
                                capture_output=True)
-            log(f'git pull failed: {(r.stderr or r.stdout).strip()}')
+            log(f'Moving to {plan["tag"]} failed: {out}; nothing was changed.')
             _write_update_patch({'apply_in_progress': False})
             return
-        log(r.stdout.strip() or 'Already up to date.')
+        log(out or f"Now at {plan['tag']}.")
 
         if had_stash:
             log('Restoring local settings...')
@@ -3598,6 +3616,10 @@ def _do_apply_update():
                 log('Run: git -C /path/to/repo stash pop')
 
         _restore_ownership(log)
+        # what is installed now: the dialog must not keep showing the old version until the restart
+        now = _read_version_file()
+        _write_update_patch({'current_version': now or None, 'current_label': f'v{now}' if now else None,
+                             'update_available': False, 'apply_blocked': None, 'changelog': []})
 
         log('Building new images (no downtime yet)...')
         r = subprocess.run(
@@ -3675,6 +3697,7 @@ def api_update_status():
         'error':             state.get('error'),
         'apply_in_progress': state.get('apply_in_progress', False),
         'apply_log':         state.get('apply_log', []),
+        'apply_blocked':     state.get('apply_blocked'),
     })
 
 

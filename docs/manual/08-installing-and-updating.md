@@ -393,8 +393,11 @@ docker compose up -d
 ## Updating
 
 **From the dashboard.** The header shows **Update** when a newer release is available. Apply it
-and the stack pulls the release from the checkout's own git origin, rebuilds and restarts the
-application services. InfluxDB and PostgreSQL keep running; expect a short outage of the
+and the checkout moves to exactly that release tag from its own git origin (never to commits made
+after it), then the stack rebuilds and restarts the application services. The update is applied
+only to an installation on the default branch (`master`) or pinned to an earlier release tag,
+without commits of its own, and only when the release's `VERSION` matches its tag; otherwise the
+dialog says why before you press **Apply**, and nothing is changed. InfluxDB and PostgreSQL keep running; expect a short outage of the
 dashboard and the other services. Files the update touched are handed back to the owner of the
 checkout, so a `git pull` by hand afterwards keeps working.
 
@@ -404,7 +407,8 @@ proxy image to every idle proxy (see *Proxy updates* above).
 **By hand.** The same thing from a shell on the host:
 
 ```
-git pull
+git fetch --tags
+git merge --ff-only v<version>      # the release tag, e.g. v1.5.1
 docker compose up --build -d
 ```
 
