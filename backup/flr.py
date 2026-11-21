@@ -99,8 +99,10 @@ def unmount(mount_id: str) -> None:
             log.warning('unmount %s failed: %s', mount_id, e)
 
 
-def list_mounts(cluster_id: str | None = None) -> list[dict]:
-    return [dict(m) for m in _MOUNTS.values() if cluster_id is None or m['cluster_id'] == cluster_id]
+def list_mounts(cluster_id=None) -> list[dict]:
+    """Open mounts of one cluster, of a list of clusters, or (None) of all."""
+    want = None if cluster_id is None else ({cluster_id} if isinstance(cluster_id, str) else set(cluster_id))
+    return [dict(m) for m in _MOUNTS.values() if want is None or m['cluster_id'] in want]
 
 
 # ------------------------------------------------------------------ ISO delivery

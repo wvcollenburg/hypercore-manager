@@ -29,6 +29,7 @@ COPY dashboard/hypercore_tasks.py .
 COPY dashboard/hcm_crypto.py .
 COPY dashboard/migrations.py .
 COPY dashboard/rbac.py .
+COPY dashboard/backup_scope.py .
 COPY dashboard/access_db.py .
 COPY dashboard/access_api.py .
 COPY dashboard/guest_api.py .

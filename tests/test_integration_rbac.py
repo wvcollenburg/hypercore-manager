@@ -704,6 +704,20 @@ def test_a_cluster_registered_elsewhere_is_not_named(admin, clusters):
     assert st == 409 and d.get('duplicate_of') == clusters['Fake'] and not d.get('may_force'), d
 
 
+def test_backup_lists_cover_the_folder_and_only_it(admin, clusters):
+    """Backups belong to the folder: ?only= narrows to one of its clusters, never to a cluster elsewhere."""
+    ca = as_user('contoso-admin')
+    fake, dr = clusters['Fake'], clusters['Contoso-DR']           # Production and DR: two folders of one customer
+    st, d = ca.call('GET', f'/api/backup/chains?cluster={fake}')
+    if st == 503:
+        pytest.skip('backup service not running')
+    assert st == 200, d
+    assert ca.call('GET', f'/api/backup/chains?cluster={fake}&only={fake}')[0] == 200
+    assert ca.call('GET', f'/api/backup/chains?cluster={fake}&only={dr}')[0] == 403, 'another folder'
+    assert ca.call('GET', f'/api/backup/runs?cluster={fake}&only={clusters["Fabrikam-Main"]}')[0] == 403
+    assert as_user('contoso-erp').call('GET', f'/api/backup/chains?cluster={fake}')[0] == 403, 'App Manager: no backup right'
+
+
 def test_guest_routes_are_public_but_bounded(admin):
     routes = {r['rule']: r for r in admin.call('GET', '/api/access/routes')[1]['routes']}
     for rule in ('/guest/<token>', '/guest/<token>/ticket', '/guest/ws', '/guest/vendor/novnc/<path:filename>', '/guest/lang/<filename>'):

@@ -60,6 +60,7 @@ import simple_websocket
 from influxdb_client import InfluxDBClient
 import config_db
 import user_db
+import backup_scope
 import rbac
 import access_db
 import cluster_registry
@@ -1738,14 +1739,14 @@ _BACKUP_ROUTES = [
     ('GET',    r'notices',                                'cluster.view',          'cluster'),
     ('POST',   r'notices/mute',                           'cluster.alerts.mute',   'cluster'),
     ('GET',    r'vms',                                    'backup.view',           'some'),
-    ('GET',    r'plans',                                  'backup.view',           'some'),
+    ('GET',    r'plans',                                  'backup.view',           'folder_some'),
     ('POST',   r'plans',                                  'backup.schedule',       'vm'),
     ('PUT',    r'plans/(\d+)',                            'backup.schedule',       ('owner', 'plan')),
     ('POST',   r'plans/(\d+)/toggle',                     'backup.schedule',       ('owner', 'plan')),
     ('DELETE', r'plans/(\d+)',                            'backup.schedule',       ('owner', 'plan')),
     ('POST',   r'plans/(\d+)/run',                        'backup.run',            ('owner', 'plan')),
-    ('GET',    r'policies',                               'backup.view',           'some'),
-    ('GET',    r'policies/(\d+)/night',                   'backup.view',           'some'),
+    ('GET',    r'policies',                               'backup.view',           'folder_some'),
+    ('GET',    r'policies/(\d+)/night',                   'backup.view',           'folder_some'),
     ('POST',   r'policies/preview',                       'backup.schedule',       'any'),
     ('POST',   r'policies',                               'backup.schedule',       'folder'),
     ('PUT',    r'policies/(\d+)',                         'backup.schedule',       'folder'),
@@ -1754,8 +1755,8 @@ _BACKUP_ROUTES = [
     ('DELETE', r'policies/(\d+)',                         'backup.schedule',       'folder'),
     ('POST',   r'policies/(\d+)/members',                 'backup.schedule',       'vm'),
     ('DELETE', r'policies/(\d+)/members/(\d+)',           'backup.schedule',       ('owner', 'plan', 2)),
-    ('GET',    r'runs',                                   'backup.view',           'some'),
-    ('GET',    r'runs/status',                            'backup.view',           'some'),
+    ('GET',    r'runs',                                   'backup.view',           'folder_some'),
+    ('GET',    r'runs/status',                            'backup.view',           'folder_some'),
     ('GET',    r'import/known',                           'backup.import',         'cluster'),
     ('POST',   r'import/browse',                          'backup.import',         'cluster'),
     ('POST',   r'import/start',                           'backup.import',         'cluster'),
@@ -1773,14 +1774,14 @@ _BACKUP_ROUTES = [
     ('DELETE', r'proxies/(\d+)',                          'backup.proxies.manage', ('owner', 'proxy')),
     ('POST',   r'proxies/(\d+)/(update|test|bench)',      'backup.proxies.manage', ('owner', 'proxy')),
     ('GET',    r'proxies/(\d+)/(logs|bench)',             'backup.proxies.manage', ('owner', 'proxy')),
-    ('GET',    r'chains',                                 'backup.view',           'some'),
+    ('GET',    r'chains',                                 'backup.view',           'folder_some'),
     ('GET',    r'chains/(\d+)/points',                    'backup.view',           ('owner', 'chain')),
     ('DELETE', r'chains/(\d+)',                           'backup.delete',         ('owner', 'chain')),
     ('POST',   r'chains/(\d+)/verify',                    'backup.verify',         ('owner', 'chain')),
     ('GET',    r'chains/(\d+)/verify',                    'backup.view',           ('owner', 'chain')),
-    ('GET',    r'restores',                               'backup.view',           'some'),
+    ('GET',    r'restores',                               'backup.view',           'folder_some'),
     ('POST',   r'restores',                               'backup.restore.full',   ('owner', 'point', 'point_id')),
-    ('GET',    r'flr/mounts',                             'backup.browse',         'some'),
+    ('GET',    r'flr/mounts',                             'backup.browse',         'folder_some'),
     ('POST',   r'flr/mounts',                             'backup.browse',         ('owner', 'point', 'point_id')),
     ('GET',    r'flr/mounts/([0-9A-Za-z_-]+)/ls',         'backup.browse',         ('owner', 'mount')),
     ('GET',    r'flr/mounts/([0-9A-Za-z_-]+)/(file|zip)', 'backup.download',       ('owner', 'mount')),
@@ -1901,6 +1902,14 @@ def _backup_check(method: str, sub: str, cid: str, payload: dict | None):
     if tgt == 'some':
         sc = acc.scope_for(perm, [cid]).get(cid)
         return sc, (None if sc else denied)
+    if tgt == 'folder_some':
+        # backups belong to the folder: a list covers every cluster of the selected cluster's folder on
+        # which the user holds the right (?only= narrows to one of them), each row judged by its own cluster
+        scopes = backup_scope.folder_scopes(acc, perm, cid)
+        only = (request.args.get('only') or '').strip()
+        if only:
+            scopes = {only: scopes[only]} if only in scopes else {}
+        return ({'multi': scopes} if scopes else None), (None if scopes else denied)
     if tgt == 'folder':
         return None, (None if acc.can(perm, node_id=acc.tree.cluster_folder.get(cid)) else denied)
     if tgt == 'vm':
@@ -1944,6 +1953,8 @@ def _backup_check(method: str, sub: str, cid: str, payload: dict | None):
 
 def _narrow_backup(sub: str, data, scope, cid: str):
     """A list answer narrowed to the VMs of a VM-scoped user ('all' passes untouched)."""
+    if isinstance(scope, dict) and 'multi' in scope:
+        return backup_scope.narrow(sub, data, scope['multi'], cid, _vm_index_rows)
     if scope == 'all' or data is None:
         return data
     tags = {v.get('uuid'): v.get('tags') or [] for v in _vm_index_rows(cid)} if scope.get('tags') else {}
@@ -2009,7 +2020,10 @@ def backup_proxy(sub):
         return problem
     # the validated cluster only: the backup service reads the first `cluster` it gets, so one sent by
     # the browser would otherwise win over the check above and reach a cluster the user may not see
-    qs = urllib.parse.urlencode([(k, v) for k, v in request.args.items(multi=True) if k != 'cluster'] + [('cluster', cid)])
+    extra = [('cluster', cid)]
+    if isinstance(scope, dict) and 'multi' in scope:          # the folder's clusters this user may see, checked above
+        extra.append(('clusters', ','.join(sorted(scope['multi']))))
+    qs = urllib.parse.urlencode([(k, v) for k, v in request.args.items(multi=True) if k not in ('cluster', 'clusters', 'only')] + extra)
     body = None
     headers = {'Authorization': f'Bearer {token}'} if token else {}
     if payload is not None:
