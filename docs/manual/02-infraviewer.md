@@ -10,7 +10,7 @@ say when it is.
 
 The strip above the panels shows the tasks the cluster itself is running: exports, imports,
 snapshots, migrations, with progress. It comes from HyperCore's task feed and needs the REST v2
-switch (Settings → Clusters, API version; HyperCore 9.7.8 or later). Moves made by anything
+switch (Settings → Access → Tenants, the cluster's Edit, API version; HyperCore 9.7.8 or later). Moves made by anything
 other than this tool show up here too, which is how you notice another balancer or an
 administrator working on the same cluster.
 

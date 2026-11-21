@@ -1530,6 +1530,8 @@ window.LANG = {
   'acc.new_perms': "Cette version apporte de nouvelles permissions : {list}. Les rôles intégrés les ont ; vérifiez vos propres rôles.",
   'acc.new_perms_ack': "Fait, masquer",
   'acc.tree_intro': "Les MSP contiennent des clients, les clients des dossiers, les dossiers des clusters. Les droits d'un niveau valent pour tout ce qui est en dessous.",
+  'acc.tb_unfiled_hint': "Clusters sans dossier : seuls les administrateurs de toute l'installation les voient. Sélectionnez-en un et utilisez Modifier pour le placer dans un dossier.",
+  'clusters.force_duplicate': "{error}. Enregistrer quand même une deuxième entrée pour le même cluster HyperCore ? Il sera interrogé deux fois ; seule la première entrée équilibre.",
   'acc.tb_single_intro': "Une seule entreprise : les dossiers contiennent les clusters, et les droits donnés sur un dossier valent pour tout ce qu'il contient. Vous servez plusieurs clients ? Ajoutez un client ou un MSP.",
   'acc.tb_grow_confirm': "Les niveaux MSP et client apparaissent alors partout (Accès, liste des clusters, chemins). Vos dossiers existants restent où ils sont, sous le client « {customer} » du MSP « {msp} » : renommez-les ensuite au nom de votre entreprise. L'accès de personne ne change.",
   'acc.tb_grow_ok': "Continuer",

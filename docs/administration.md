@@ -13,22 +13,34 @@ everyone may do everything.
 
 ## Clusters
 
-**Settings → Clusters** lists the clusters this installation manages, with their status (never
-contacted, seen *n* ago, error), whether they are enabled, and their folder.
+Clusters live in the tenant tree, in **Settings → Access → Tenants**. Select a cluster there to see
+its status (never contacted, seen *n* ago, error), whether it is enabled, its nodes, API and
+HyperCore version and time zone. Whoever holds **Manage clusters** (`cluster.manage`) on its folder
+or above, such as an Admin of the customer or of the MSP, gets **Edit**, **Remove**, **Test
+connection** and **Disable / Enable** there. Clusters in no folder show as **No folder**, for
+administrators of the whole installation only.
 
 ### Registering a cluster
 
-1. **Add cluster.** Give it a name, the management address (any node IP or hostname; `https://`
+Open the folder the cluster belongs in and use **+ Cluster** in its cluster column; it shows for
+whoever holds **Manage clusters** on that folder or above. An MSP registers clusters for itself or
+for any of its customers, a customer admin within their own customer.
+
+1. **+ Cluster.** Give it a name (unique within the folder; two customers may both have a
+   "Production"), the management address (any node IP or hostname; `https://`
    and `/rest/v1` are added for you), a HyperCore account and password, and whether to verify the
    TLS certificate. Pick a colour if you like; it is used in the rail.
 2. **Test connection** logs in and reports the cluster name, node count and HyperCore version
-   before anything is stored. Registering a cluster that is already registered under another
-   address is refused here (same HyperCore cluster identity).
+   before anything is stored. Registering a cluster that is already registered is refused (same
+   HyperCore cluster identity). The refusal names the existing entry only to someone who may see
+   it; only an administrator of the whole installation can register a second entry anyway.
 3. **Save.** Within a minute the collector writes metrics, Sentinel starts an analysis engine and
    the balancer evaluates the cluster **in dry-run**. The cluster's tunables are copied from the
    Defaults template.
 
-The first login on a fresh installation shows this form as an onboarding step.
+The first login on a fresh installation shows this form as an onboarding step. **Edit** moves a
+cluster to another folder: within its customer for customer and MSP admins, anywhere for
+administrators of the whole installation.
 
 **HyperCore API.** Every cluster has a switch: *auto* (default), *v1 only* or *v2*. The
 connection test and the collector's regular contact probe whether the cluster answers on REST v2
@@ -427,7 +439,7 @@ A plan has a **mode**:
   count, as in the first release. Required when no proxy exists; fine for small VMs.
 
 **Plan times are local to the cluster.** Every cluster reports its time zone (HyperCore's own
-setting) and HyperCore Manager reads it on each connection test; Settings → Clusters shows it
+setting) and HyperCore Manager reads it on each connection test; the cluster's pane in Settings → Access → Tenants shows it
 next to the API version, and an administrator can type another IANA name there to override it.
 A plan's *Daily at* is read in that zone, so 03:00 on a cluster in Indianapolis runs at 03:00
 US/Eastern. Wherever a plan time is shown, the dashboard adds what that is in your own time

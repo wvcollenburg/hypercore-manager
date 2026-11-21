@@ -103,7 +103,7 @@ a minute the collector writes metrics and the first charts appear; the balancer 
 **dry-run**, logging what it would do, and needs a few minutes of samples before it has an
 opinion. Switch dry-run off for that cluster in Clusterbalancer → settings once you have
 checked its tunables. Foresight's tab fills after its first analysis cycle, an hour after start
-by default. Further clusters are added under Settings → Clusters; no restart is needed.
+by default. Further clusters are added with **+ Cluster** in a folder under Settings → Access → Tenants; no restart is needed.
 
 ## Backups: what the installation needs
 

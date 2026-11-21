@@ -1530,6 +1530,8 @@ window.LANG = {
   'acc.new_perms': "Diese Version bringt neue Berechtigungen: {list}. Eingebaute Rollen haben sie; prüfen Sie Ihre eigenen Rollen.",
   'acc.new_perms_ack': "Erledigt, ausblenden",
   'acc.tree_intro': "MSPs enthalten Kunden, Kunden enthalten Ordner, Ordner enthalten Cluster. Rechte auf einer Ebene gelten für alles darunter.",
+  'acc.tb_unfiled_hint': "Cluster ohne Ordner: nur Administratoren der gesamten Installation sehen sie. Wählen Sie einen aus und verschieben Sie ihn mit Bearbeiten in einen Ordner.",
+  'clusters.force_duplicate': "{error}. Trotzdem einen zweiten Eintrag für denselben HyperCore-Cluster registrieren? Er wird dann doppelt abgefragt; nur der erste Eintrag balanciert.",
   'acc.tb_single_intro': "Ein Unternehmen: Ordner enthalten Cluster, und Rechte auf einem Ordner gelten für alles darin. Betreuen Sie mehrere Kunden? Fügen Sie einen Kunden oder einen MSP hinzu.",
   'acc.tb_grow_confirm': "Die Ebenen MSP und Kunde erscheinen dann überall (Zugriff, Clusterliste, Pfade). Ihre vorhandenen Ordner bleiben, wo sie sind, unter dem Kunden \"{customer}\" im MSP \"{msp}\": benennen Sie diese danach nach Ihrem eigenen Unternehmen um. Niemandes Zugriff ändert sich.",
   'acc.tb_grow_ok': "Weiter",

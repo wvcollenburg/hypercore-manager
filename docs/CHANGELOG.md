@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.0]
+
+### Changed
+- **Clusters are registered in the tenant tree.** **+ Cluster** in a folder's cluster column
+  (Settings → Access → Tenants) for whoever may manage clusters there: an MSP for itself or any of
+  its customers, a customer admin within their own customer. Selecting a cluster shows its status,
+  nodes and versions, with **Edit**, **Remove**, **Test connection** and **Disable / Enable**.
+  Clusters in no folder appear as **No folder** for administrators of the whole installation. The
+  Settings → Clusters tab is gone.
+- **Cluster names are unique per folder** (migration `051`), no longer across the installation.
+- Registering a HyperCore cluster that is already registered names the existing entry only to
+  someone who may see it, and only an administrator of the whole installation can force a second
+  entry.
+
 ## [1.3.2]
 
 ### Fixed

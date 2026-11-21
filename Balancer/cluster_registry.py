@@ -214,8 +214,10 @@ def credentials(cluster_id: str) -> tuple[str, str]:
 def create(name: str, host: str, username: str, password: str,
            verify_tls: bool = False, colour: Optional[str] = None,
            hc_cluster_uuid: Optional[str] = None, api_version: str = 'auto',
-           api_v2_available: Optional[bool] = None, hc_version: Optional[str] = None) -> str:
-    """Register a cluster. Copies the template's tunables. Returns the new cluster_id."""
+           api_v2_available: Optional[bool] = None, hc_version: Optional[str] = None,
+           folder_id: Optional[str] = None) -> str:
+    """Register a cluster (in a folder: names are unique per folder). Copies the template's tunables.
+    Returns the new cluster_id."""
     name = (name or '').strip()
     host = normalize_host(host)
     if not name or not host or not username:
@@ -227,11 +229,12 @@ def create(name: str, host: str, username: str, password: str,
             cur.execute(
                 '''INSERT INTO config.clusters
                        (cluster_name, hc_host, hc_username, hc_password_enc, verify_tls, colour,
-                        hc_cluster_uuid, enabled, is_template, is_active, api_version, api_v2_available, hc_version)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, FALSE, TRUE, %s, %s, %s)
+                        hc_cluster_uuid, enabled, is_template, is_active, api_version, api_v2_available, hc_version,
+                        folder_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, FALSE, TRUE, %s, %s, %s, %s)
                    RETURNING cluster_id::text AS cluster_id''',
                 (name, host, username, enc, bool(verify_tls), colour, hc_cluster_uuid,
-                 api_version if api_version in API_VERSIONS else 'auto', api_v2_available, hc_version),
+                 api_version if api_version in API_VERSIONS else 'auto', api_v2_available, hc_version, folder_id),
             )
             cid = cur.fetchone()['cluster_id']
             # per-cluster tunables start as a copy of the defaults template

@@ -25,7 +25,7 @@ The optional **Foresight** module extends the platform with long-range capacity 
 - **Affinity Enforcement** — Highest-priority engine that enforces VM placement rules via HyperCore tags:
   - `node_<suffix>` — Pin a VM to a specific node (e.g. `node_241` pins to the node whose IP ends in `.241`)
   - `anti_<vm_name>` — Prevent two VMs from sharing the same node (e.g. `anti_dc02` on `dc01`)
-- **Clusters configured in the tool** — Register one or more HyperCore clusters from the dashboard (Settings → Clusters). Credentials are stored encrypted in PostgreSQL; nothing cluster-specific lives in `.env`. Every view, setting and Foresight analysis is per cluster, and the same physical cluster registered twice is detected and only balanced once.
+- **Clusters configured in the tool** — Register one or more HyperCore clusters from the dashboard, in a folder of the tenant tree (Settings → Access → Tenants), by an installation, MSP or customer admin. Credentials are stored encrypted in PostgreSQL; nothing cluster-specific lives in `.env`. Every view, setting and Foresight analysis is per cluster, and the same physical cluster registered twice is detected and only balanced once.
 - **Folders and users** — Clusters live in folders in the sidebar rail (collapsible, colour-coded, searchable by folder, cluster name or address). Administrators see everything; other users see the folders they are members of. Settings, Modules and share management are admin-only; everyone has an Account page with password and two-factor settings.
 - **Live Configuration** — All tunable settings are stored in a shared PostgreSQL database. Change any parameter through the dashboard UI at runtime — no container restarts required.
 - **Built-in Dashboard** — Web-based UI (port 5000) showing node/VM performance, drive health, VSD I/O, migration event log, balancer settings, and the full Foresight interface. Fully offline-capable for dark-site deployments.
@@ -120,8 +120,8 @@ docker compose up --build -d
 
 The dashboard is available at **http://localhost:5000**. Log in, and the first screen asks for
 your cluster: management address plus a HyperCore account. Save it and the collector, balancer
-and Foresight start on that cluster within a minute. Add further clusters under
-Settings → Clusters.
+and Foresight start on that cluster within a minute. Add further clusters with
+**+ Cluster** in a folder under Settings → Access → Tenants.
 
 > **Note:** On first startup, the balancer needs ~2.5 minutes to fill its averaging buffers before it begins evaluating the cluster. The dashboard will show data after the first collector cycle (~30 seconds).
 
@@ -163,7 +163,7 @@ without a restart. Database connection strings and secrets remain environment-on
 
 ### Registering clusters
 
-Settings → Clusters (admin only): name, management address (any node IP or hostname), HyperCore
+**+ Cluster** in a folder under Settings → Access → Tenants (whoever may manage clusters there): name, management address (any node IP or hostname), HyperCore
 username and password, and whether to verify the TLS certificate. **Test connection** logs in
 and reads the cluster name, node count and HyperCore version before anything is saved. The
 balancer account needs rights to live-migrate VMs; read-only accounts work for monitoring and
@@ -173,8 +173,8 @@ dry-run. A cluster can be disabled (collection and balancing pause, history stay
 **Nodes.** The address you register is only the first contact. HyperCore has no primary node:
 every node serves the full REST API, so the collector discovers all nodes of the cluster
 (`GET /Node`) and every service keeps one login session on one of them. When that node stops
-answering, the service logs in on another node and carries on; the node in use is shown under
-the cluster in Settings → Clusters, and nothing moves back when the old node returns. Witness
+answering, the service logs in on another node and carries on; the node in use is shown in
+the cluster's pane under Settings → Access → Tenants, and nothing moves back when the old node returns. Witness
 nodes count as addresses. **Test connection** on a registered cluster logs in on every known
 node and reports how many answered. A node that leaves the cluster stays listed greyed out
 until an admin forgets it.
@@ -336,7 +336,7 @@ available as a plan mode.
   administrators manage targets and the folder assignment.
 - **Runs.** Backup and import history with live progress from HyperCore's task API. A run
   interrupted by a container restart is re-attached by its task tag.
-- **Rights.** The cluster account registered in Settings → Clusters needs the HyperCore rights
+- **Rights.** The HyperCore account a cluster is registered with needs the HyperCore rights
   Backup, Media Management, VM Create/Edit, VM Delete and VM Power Controls; a read-only account
   gives a clear 403 on the first run. Share usernames may be `user`, `DOMAIN\user` or `user@domain`.
 - **Share access from a laptop stack** works over SMB without any mount (userland client).

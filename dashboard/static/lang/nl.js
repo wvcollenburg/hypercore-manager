@@ -1530,6 +1530,8 @@ window.LANG = {
   'acc.new_perms': "Deze versie brengt nieuwe rechten: {list}. Ingebouwde rollen hebben ze; kijk of je eigen rollen ze ook moeten krijgen.",
   'acc.new_perms_ack': "Klaar, verbergen",
   'acc.tree_intro': "MSP's bevatten klanten, klanten bevatten mappen, mappen bevatten clusters. Rechten op een niveau gelden voor alles daaronder.",
+  'acc.tb_unfiled_hint': "Clusters zonder map: alleen beheerders van de hele installatie zien ze. Kies er een en gebruik Bewerken om hem in een map te zetten.",
+  'clusters.force_duplicate': "{error}. Toch een tweede item voor hetzelfde HyperCore-cluster registreren? Het wordt dan twee keer uitgelezen; alleen het eerste item balanceert.",
   'acc.tb_single_intro': "Eén bedrijf: de mappen bevatten clusters, en rechten op een map gelden voor alles erin. Bedien je meerdere klanten? Voeg een klant of een MSP toe.",
   'acc.tb_grow_confirm': "De niveaus MSP en klant verschijnen dan overal (Toegang, de clusterlijst, paden). Je bestaande mappen blijven waar ze zijn, onder de klant \"{customer}\" in de MSP \"{msp}\": geef die daarna de naam van je eigen bedrijf. Niemands toegang verandert.",
   'acc.tb_grow_ok': "Doorgaan",

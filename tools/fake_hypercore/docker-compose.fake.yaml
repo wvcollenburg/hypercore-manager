@@ -20,3 +20,7 @@ services:
     build: ./tools/fake_hypercore
     container_name: sc_fakehc4
     environment: [FAKE_SEED=4, FAKE_NAME=Tailspin-Ops, FAKE_VM_PREFIX=tsp-]
+  fakehc5:                                   # not registered by the demo: the cluster-registration tests add and remove it
+    build: ./tools/fake_hypercore
+    container_name: sc_fakehc5
+    environment: [FAKE_SEED=5, FAKE_NAME=Spare-Cluster, FAKE_VM_PREFIX=spr-]

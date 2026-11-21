@@ -5,9 +5,9 @@ Settings is for administrators. The four panels are described in full in the
 
 ## Clusters
 
-![Clusters](img/settings-clusters.png)
-
-Every registered cluster with its nodes (green reachable, amber present but offline or out,
+Clusters are registered and maintained in the tenant tree (**Access → Tenants**, below): **+ Cluster**
+in a folder's cluster column for whoever may manage clusters there, and the selected cluster's pane
+shows every registered cluster's nodes (green reachable, amber present but offline or out,
 grey no longer listed), the HyperCore account in use, the API version in use and the HyperCore
 version found, the cluster's time zone, and when it was last seen. **Test connection** logs in on
 every known node and refreshes what the cluster reports, including nodes, version and time zone.

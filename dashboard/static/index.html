@@ -1624,16 +1624,14 @@
   </div>
   <div class="tab-content" id="tab-settings">
     <div class="settings-sub-nav">
-      <div class="settings-sub-tab active" data-setpanel="clusters" data-i18n="settings.tab.clusters" onclick="switchSettingsPanel('clusters')">Clusters</div>
-      <div class="settings-sub-tab"        data-setpanel="tunables" data-i18n="settings.tab.tunables" onclick="switchSettingsPanel('tunables')">Tunables</div>
+      <div class="settings-sub-tab active" data-setpanel="tunables" data-i18n="settings.tab.tunables" onclick="switchSettingsPanel('tunables')">Tunables</div>
       <div class="settings-sub-tab"        data-setpanel="users"    data-i18n="settings.tab.users"    onclick="switchSettingsPanel('users')">Users</div>
       <div class="settings-sub-tab"        data-setpanel="shares"   data-i18n="settings.tab.shares"   onclick="switchSettingsPanel('shares')">Targets</div>
       <div class="settings-sub-tab"        data-setpanel="console"  data-i18n="settings.tab.console"  onclick="switchSettingsPanel('console')">Console</div>
       <div class="settings-sub-tab"        data-setpanel="mail"     data-i18n="settings.tab.mail"     onclick="switchSettingsPanel('mail')">Mail</div>
     </div>
     <div id="settingsContent">
-      <div class="settings-panel active" id="setpanel-clusters"><div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div></div>
-      <div class="settings-panel" id="setpanel-tunables"></div>
+      <div class="settings-panel active" id="setpanel-tunables"><div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div></div>
       <div class="settings-panel" id="setpanel-users"></div>
       <div class="settings-panel" id="setpanel-shares"></div>
       <div class="settings-panel" id="setpanel-console"></div>
@@ -4636,9 +4634,8 @@ async function loadSettings() {
   }
   // each sub-tab shows for whoever holds its permission somewhere
   const show = {
-    clusters: can('cluster.manage') || can('cluster.view'),
     tunables: can('cluster.view', currentCluster) || can('cluster.settings'),
-    users: can('users.manage') || can('groups.manage') || can('roles.manage') || can('audit.view') || canAnyVmPerm('guest_console.request'),
+    users: can('users.manage') || can('groups.manage') || can('roles.manage') || can('audit.view') || can('cluster.manage') || canAnyVmPerm('guest_console.request'),
     shares: can('backup.targets.manage') || can('backup.proxies.manage'),
     console: can('console_check.manage') || can('console.audit') || canAnyVmPerm('console.audit'),
     mail: can('install.manage'),
@@ -4648,9 +4645,8 @@ async function loadSettings() {
     if (tab) tab.style.display = v ? '' : 'none';
   }
   const activeTab = document.querySelector('.settings-sub-tab.active')?.dataset.setpanel;
-  if (activeTab && !show[activeTab]) { const first = Object.keys(show).find(k => show[k]); if (first) switchSettingsPanel(first); }
-  const cl = me ? await apiFetch('/api/clusters') : null;
-  document.getElementById('setpanel-clusters').innerHTML = show.clusters ? _renderClustersCard((cl && cl.clusters) || [], me || {}) : '';
+  // no tab active (a panel remembered from before, such as the former Clusters tab) or one not shown: the first shown
+  if (!activeTab || !show[activeTab]) { const first = Object.keys(show).find(k => show[k]); if (first) switchSettingsPanel(first); }
   document.getElementById('setpanel-tunables').innerHTML = show.tunables ? _settingsTargetBar(isAdmin) + _renderGroups(groups, vals, isAdmin) : '';
   if (show.users) await loadAccessPanel(); else document.getElementById('setpanel-users').innerHTML = '';
   if (show.shares) await _loadSharesPanel(); else document.getElementById('setpanel-shares').innerHTML = '';
@@ -5926,7 +5922,6 @@ function _clusterFormHtml(prefix, c) {
     <div class="cl-actions">
       <button class="refresh-btn" onclick="clTest('${prefix}')">${t('clusters.test')}</button>
       <button class="update-apply-btn" onclick="clSave('${prefix}', '${c.cluster_id || ''}')">${c.cluster_id ? t('clusters.save') : t('clusters.add')}</button>
-      ${c.cluster_id ? `<button class="refresh-btn" onclick="clCancelEdit('${c.cluster_id}')">${t('clusters.cancel')}</button>` : ''}
     </div>
     <div class="cl-msg" id="${prefix}-msg"></div>`;
 }
@@ -6004,20 +5999,6 @@ async function clTestExisting(id) {
   else _clMsg('cl-' + id, t('clusters.test_fail', {error: failed || d.error || r.status}) + perNode, 'err');
   loadClusters();
 }
-async function clToggle(id, enabled) {
-  await fetch(`${API_BASE}/api/clusters/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({enabled}) });
-  await loadClusters(); loadSettings();
-}
-async function clRemove(id, name) {
-  if (!await hcmConfirm(t('clusters.confirm_remove', {name}), {danger: true})) return;
-  const purge = await hcmConfirm(t('clusters.confirm_purge', {name}), {danger: true});
-  const r = await fetch(`${API_BASE}/api/clusters/${id}?purge=${purge ? 1 : 0}`, { method: 'DELETE' });
-  if (!r.ok) { const d = await r.json().catch(() => ({})); hcmAlert(d.error || `HTTP ${r.status}`); return; }
-  if (currentCluster === id) { currentCluster = null; try { localStorage.removeItem(CLUSTER_LS_KEY); } catch (_) {} }
-  await loadClusters(); loadSettings(); if (typeof refreshAll === 'function') refreshAll();
-}
-function clEdit(id) { const row = document.getElementById(`cl-edit-${id}`); if (row) row.hidden = !row.hidden; }
-function clCancelEdit(id) { const row = document.getElementById(`cl-edit-${id}`); if (row) row.hidden = true; }
 
 function _clAgoShort(iso) {
   if (!iso) return '?';
@@ -6046,41 +6027,7 @@ async function clForgetNode(id, uuid) {
   const r = await fetch(`${API_BASE}/api/clusters/${id}/nodes/${encodeURIComponent(uuid)}`, { method: 'DELETE' });
   if (!r.ok) { const d = await r.json().catch(() => ({})); _clMsg('cl-' + id, d.error || `HTTP ${r.status}`, 'err'); return; }
   loadClusters();
-}
-
-function _renderClustersCard(clusters, me) {
-  const isAdmin = can('cluster.manage');
-  const rows = clusters.map((c, i) => { const mine = canNode('cluster.manage', c.folder_id) || (window.HCM_ACCESS && window.HCM_ACCESS.root_admin); return `
-    <tr>
-      <td><span class="cl-status-dot" style="background:${c.last_error ? 'var(--accent-red)' : (c.enabled ? _clColour(c, i) : 'var(--text-muted)')}"></span><strong>${_clEsc(c.name)}</strong>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(c.host)}${c.hc_cluster_uuid ? ' · ' + _clEsc(c.hc_cluster_uuid.slice(0, 8)) : ''}</div>${_clNodesHtml(c, mine)}</td>
-      <td>${_clEsc(c.username)}<div style="font-size:10px;color:var(--text-muted);">${_clEsc((FOLDERS.find(f => f.folder_id === c.folder_id) || {}).name || t('folders.unfiled'))}</div></td>
-      <td><span class="um-badge ${c.enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${c.enabled ? t('clusters.enabled') : t('clusters.disabled')}</span>
-          <div style="font-size:10px;color:var(--text-muted);margin-top:4px;font-family:'JetBrains Mono',monospace;" title="${_clEsc(t('clusters.api_hint'))}">${_clApiLabel(c)}</div></td>
-      <td style="font-size:11px;color:${c.last_error ? 'var(--accent-red)' : 'var(--text-muted)'};">${c.last_error ? _clEsc(c.last_error) : _clAgo(c.last_seen_at)}</td>
-      <td style="white-space:nowrap;">${mine ? `
-        <button class="um-action-btn" onclick="clTestExisting('${c.cluster_id}')">${t('clusters.test')}</button>
-        <button class="um-action-btn" onclick="clEdit('${c.cluster_id}')">${t('clusters.edit')}</button>
-        <button class="um-action-btn" onclick="clToggle('${c.cluster_id}', ${c.enabled ? 'false' : 'true'})">${c.enabled ? t('clusters.disable') : t('clusters.enable')}</button>
-        <button class="um-action-btn danger" onclick="clRemove('${c.cluster_id}', '${_clEsc(c.name)}')">${t('clusters.remove')}</button>` : ''}
-        <div class="cl-msg" id="cl-${c.cluster_id}-msg"></div></td>
-    </tr>
-    ${mine ? `<tr id="cl-edit-${c.cluster_id}" hidden><td colspan="5" style="background:var(--bg-card);">${_clusterFormHtml('cl-' + c.cluster_id, c)}</td></tr>` : ''}`; }).join('');
-  return `
-    <div class="settings-group">
-      <div class="settings-group-header">
-        <div class="chart-title-dot" style="background:var(--accent-blue)"></div>
-        <span class="settings-group-title">${t('clusters.title')}</span>
-        <span style="font-size:12px;color:var(--text-muted);">${t('clusters.subtitle')}</span>
-      </div>
-      ${(_clusterDupGroups || []).map(g => {
-        const names = g.map(id => (clusters.find(c => c.cluster_id === id) || {}).name || id);
-        return `<div style="margin:8px 0;padding:8px 12px;border-radius:6px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.35);color:var(--accent-amber);font-size:12px;">⚠ ${_clEsc(t('clusters.dup_warning', {names: names.join(', '), keeper: names[0]}))}</div>`;
-      }).join('')}
-      ${clusters.length ? `<table class="cl-table"><tr><th>${t('clusters.name')}</th><th>${t('clusters.username')}</th><th></th><th>${t('clusters.status')}</th><th></th></tr>${rows}</table>`
-                        : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('clusters.none_yet')}</div>`}
-      ${isAdmin ? `<div class="um-section" style="margin-top:14px;"><div class="um-section-title">${t('clusters.add')}</div>${_clusterFormHtml('cl-new', null)}</div>` : ''}
-    </div>`;
+  if (typeof _ac !== 'undefined' && _ac.tab === 'tree' && document.getElementById('acTbPane')) _acClustersChanged();
 }
 
 function _settingsTargetBar(isAdmin) {
