@@ -445,7 +445,13 @@ A plan's *Daily at* is read in that zone, so 03:00 on a cluster in Indianapolis 
 US/Eastern. Wherever a plan time is shown, the dashboard adds what that is in your own time
 ("03:00 US/Eastern · 09:00 your time"), and the plan form says so while you type.
 
-**Restore points** (Backup tab) lists every chain of the cluster's VMs with its points. **Verify**
+**Backups belong to the folder.** Schedules span the clusters of the selected cluster's folder,
+and **Plans**, **Restore points** and **Runs** list every cluster of that folder, each VM marked
+with its cluster; **Show** narrows them to one cluster. Each row needs your backup right on its own
+cluster (or VM): a right on one cluster never shows another cluster's VMs, also not as members of a
+shared schedule.
+
+**Restore points** (Backup tab) lists every chain of the folder's VMs with its points. **Verify**
 re-reads every file of a chain against the checksums written at backup time; it runs in the
 background and the row shows how far it is. The same check runs every Sunday at 05:00 for every
 active chain. A point whose files do not match is marked **corrupt** in the points list, with the

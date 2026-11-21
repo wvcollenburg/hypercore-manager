@@ -744,6 +744,10 @@
   .pol-tl-mark.now { background: var(--text-secondary); opacity: 0.6; }
   .pol-tl-axis { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); }
   @media (max-width: 760px) { .pol-tl-row { grid-template-columns: 1fr; } }
+  .ex-scope { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 0 12px; font-size: 12px; color: var(--text-muted); }
+  .ex-scope:empty { display: none; }
+  .ex-scope-filter { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  .ex-scope-filter select { padding: 5px 8px; border-radius: 6px; font-size: 12px; background: var(--bg-input, var(--bg-primary)); border: 1px solid var(--border); color: var(--text-primary); }
   .ex-preflight { display: none; margin: 0 0 12px 0; padding: 12px 16px; border-radius: 8px; font-size: 13px; line-height: 1.5; border: 1px solid; }
   .ex-preflight.visible { display: block; }
   .ex-preflight.update { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.5); color: var(--text-primary); }
@@ -1611,6 +1615,7 @@
       <div class="exports-sub-tab"        data-expanel="runs"      data-i18n="ex.tab.runs"      onclick="switchExportsPanel('runs')">Runs</div>
     </div>
     <div class="ex-preflight" id="exPreflightBanner" role="alert"></div>
+    <div class="ex-scope" id="exScopeBar"></div>
     <div class="exports-panel active" id="expanel-policies"></div>
     <div class="exports-panel" id="expanel-schedules"></div>
     <div class="exports-panel" id="expanel-points"></div>
@@ -6284,7 +6289,38 @@ async function loadAlertsHistory() {
       <td>${_exFmt(r.started)}</td><td>${r.active ? `<strong style="color:var(--accent-amber)">${t('alerts.still_active')}</strong>` : _exFmt(r.ended)}</td><td>${dur(r.duration_s)}</td></tr>`).join('')}</tbody></table>`;
 }
 
+// Backups belong to the folder: schedules span its clusters, and plans, restore points and runs list
+// every cluster of the selected cluster's folder; the filter narrows those three to one cluster.
+let _exOnly = '';
+let _exPanel = 'policies';
+const _EX_FILTERED = ['schedules', 'points', 'runs'];
+function _exFolderClusters() {
+  const cur = (CLUSTERS || []).find(c => c.cluster_id === currentCluster);
+  if (!cur) return [];
+  return cur.folder_id ? CLUSTERS.filter(c => c.folder_id === cur.folder_id) : [cur];
+}
+const _exMulti = () => _exFolderClusters().length > 1;
+/** The cluster a row belongs to, shown under its VM when the folder has more than one. */
+const _exClusterHint = r => _exMulti() && (r.cluster_name || r.cluster_id)
+  ? `<div class="um-hint">${_exEsc(r.cluster_name || ((CLUSTERS.find(c => c.cluster_id === r.cluster_id) || {}).name) || '')}</div>` : '';
+function _exRenderScope() {
+  const el = document.getElementById('exScopeBar');
+  if (!el) return;
+  const list = _exFolderClusters();
+  if (_exOnly && !list.some(c => c.cluster_id === _exOnly)) _exOnly = '';
+  const cur = list.find(c => c.cluster_id === currentCluster);
+  const folder = cur && cur.folder_id ? ((FOLDERS || []).find(f => f.folder_id === cur.folder_id) || {}).name : null;
+  if (!cur || list.length < 2) { el.innerHTML = ''; return; }
+  el.innerHTML = `<span>${_exEsc(t('ex.scope_folder', { folder: folder || '—', n: list.length }))}</span>
+    ${_EX_FILTERED.includes(_exPanel) ? `<label class="ex-scope-filter">${_exEsc(t('ex.scope_show'))}
+      <select onchange="exSetOnly(this.value)"><option value="">${_exEsc(t('ex.scope_all'))}</option>
+        ${list.map(c => `<option value="${c.cluster_id}" ${c.cluster_id === _exOnly ? 'selected' : ''}>${_exEsc(c.name)}</option>`).join('')}</select></label>` : ''}`;
+}
+function exSetOnly(cid) { _exOnly = cid; switchExportsPanel(_exPanel); }
+
 async function _exCall(method, path, body) {
+  if (method === 'GET' && _exOnly && /^\/api\/backup\/(plans|chains|runs|restores)(\?|$)/.test(path))
+    path += (path.includes('?') ? '&' : '?') + 'only=' + encodeURIComponent(_exOnly);
   const r = await fetch(_withCluster(path), { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { const err = new Error(d.error || `HTTP ${r.status}`); err.status = r.status; err.data = d; throw err; }
@@ -6306,6 +6342,8 @@ function switchExportsPanel(p) {
   document.querySelectorAll('.exports-panel').forEach(e => e.classList.remove('active'));
   document.querySelector(`[data-expanel="${p}"]`)?.classList.add('active');
   document.getElementById(`expanel-${p}`)?.classList.add('active');
+  _exPanel = p;
+  _exRenderScope();
   if (p === 'policies')  exLoadPolicies();
   if (p === 'schedules') exLoadSchedules();
   if (p === 'vms')       exLoadVms();
@@ -6337,7 +6375,7 @@ async function exLoadSchedules() {
       <th>${t('ex.col_vm')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_retention')}</th><th>${t('ex.col_daily_at')}</th><th>${t('ex.col_last_run')}</th><th>${t('ex.col_next_run')}</th><th></th>
     </tr></thead><tbody>${rows.map(s => `
       <tr>
-        <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="qcow2 compression">zip</span>` : ''}<div><span class="ex-badge ${s.mode === 'incremental' ? 'run' : 'off'}" title="${_exEsc(t('ex.f_mode'))}">${t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')}</span></div></td>
+        <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="qcow2 compression">zip</span>` : ''}${_exClusterHint(s)}<div><span class="ex-badge ${s.mode === 'incremental' ? 'run' : 'off'}" title="${_exEsc(t('ex.f_mode'))}">${t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')}</span></div></td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_exLocation ? `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/` : _exEsc(s.effective_base || s.path_uri_base || '—')}</td>
         <td><span class="ex-slots">${'<i></i>'.repeat(Math.min(s.retention, 14))}</span><span style="font-size:11px;color:var(--text-muted)">×${s.retention}${s.retention_days ? ` / ${s.retention_days}d` : ''}${s.mode === 'incremental' ? ` · ${t('ex.full_every', {n: s.full_every_n})}` : ''}</span></td>
         <td style="font-family:'JetBrains Mono',monospace;">${s.policy_id ? `<span class="ex-badge run" title="${_exEsc(t('ex.pol_member_hint'))}">${t('ex.pol_member_of', {name: _exEsc(s.policy_name || '')})}</span>` : _exTimeLabel(s.run_time, s.timezone)}</td>
@@ -6864,7 +6902,7 @@ async function exLoadRuns() {
       ${rows.length ? `<table class="um-table"><thead><tr>
         <th>${kind === 'imp' ? t('ex.col_source') : t('ex.col_vm')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead>
         <tbody>${rows.map(r => `<tr>
-          <td class="um-username">${_exEsc(kind === 'imp' ? r.source_uri : r.vm_name)}${(kind === 'imp' || kind === 'rst') && r.target_name ? ` → ${_exEsc(r.target_name)}` : ''}${kind === 'run' && r.export_path ? `<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(r.export_path)}</div>` : ''}</td>
+          <td class="um-username">${_exEsc(kind === 'imp' ? r.source_uri : r.vm_name)}${(kind === 'imp' || kind === 'rst') && r.target_name ? ` → ${_exEsc(r.target_name)}` : ''}${_exClusterHint(r)}${kind === 'run' && r.export_path ? `<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(r.export_path)}</div>` : ''}</td>
           <td style="font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap;">${_exFmt(r.started_at)}</td>
           <td>${_exStatusBadge(r.status, r.message)}${kind === 'run' && r.notice ? ' ' + _exNoticeBadge(r.notice) : ''}</td>
           <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${kind === 'run' && r.mode ? `<span class="ex-badge ${r.mode === 'incremental' ? 'run' : 'off'}">${r.mode === 'incremental' ? t(r.point_kind === 'full' ? 'ex.point_full' : 'ex.point_delta') : t('ex.mode_export')}</span> ` : ''}${kind === 'rst' && r.kind === 'files' ? `<span class="ex-badge off">${t('ex.files')}</span> ` : ''}${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${kind === 'rst' && r.kind === 'files' && r.created_uuid && r.status === 'COMPLETE' ? ` <button class="um-action-btn" onclick="exEjectIso(${r.id})">${t('ex.flr_eject')}</button>` : ''}${r.task_tag ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
@@ -6892,7 +6930,7 @@ async function exLoadPoints() {
     <table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_points')}</th><th>${t('ex.col_last_point')}</th><th></th></tr></thead>
     <tbody>${chains.map(c => `
       <tr>
-        <td class="um-username">${_exEsc(c.vm_name)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(c.vm_uuid.slice(0, 8))}</div></td>
+        <td class="um-username">${_exEsc(c.vm_name)}${_exClusterHint(c)}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exEsc(c.vm_uuid.slice(0, 8))}</div></td>
         <td><span class="ex-badge ${c.status === 'active' ? 'ok' : 'off'}">${t(c.status === 'active' ? 'ex.chain_active' : 'ex.chain_retired')}</span></td>
         <td style="font-size:11px;">${_exEsc(c.target_name || '—')} / ${_exEsc(c.folder_slug)}</td>
         <td>${c.point_count}</td>

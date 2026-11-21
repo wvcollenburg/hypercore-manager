@@ -72,6 +72,16 @@ def _cluster_arg():
     return cid if cluster_registry.is_uuid(cid) else None
 
 
+def _clusters_arg():
+    """The clusters a list covers: ?clusters=a,b (the dashboard sends the folder's clusters the user may
+    see), else the one ?cluster, else None (all)."""
+    raw = (request.args.get('clusters') or '').strip()
+    if raw:
+        ids = [c for c in (x.strip() for x in raw.split(',')) if cluster_registry.is_uuid(c)]
+        return ids or ['00000000-0000-0000-0000-000000000000']     # asked for none valid: match nothing
+    return _cluster_arg()
+
+
 def _err(msg, code=400):
     return jsonify({'error': msg}), code
 
@@ -406,7 +416,7 @@ def vms():
 @_require_token
 def schedules():
     rows = []
-    for s in db.get_schedules(_cluster_arg()):
+    for s in db.get_schedules(_clusters_arg()):
         d = _ser(s)
         d['effective_base'] = jobs.effective_base(s)
         d['last_run'] = _ser(db.last_run_for(s['id']))
@@ -806,9 +816,9 @@ def runs():
     sid = request.args.get('schedule_id', type=int)
     limit = max(1, min(request.args.get('limit', 50, type=int), 500))
     return jsonify({
-        'runs':     [_ser(r) for r in db.get_runs(_cluster_arg(), sid, limit)],
-        'imports':  [] if sid else [_ser(i) for i in db.get_imports(_cluster_arg(), limit)],
-        'restores': [] if sid else [_ser(r) for r in db.get_restores(_cluster_arg(), limit)],
+        'runs':     [_ser(r) for r in db.get_runs(_clusters_arg(), sid, limit)],
+        'imports':  [] if sid else [_ser(i) for i in db.get_imports(_clusters_arg(), limit)],
+        'restores': [] if sid else [_ser(r) for r in db.get_restores(_clusters_arg(), limit)],
     })
 
 
@@ -817,11 +827,14 @@ def runs():
 def runs_status():
     """Light snapshot the dashboard polls while anything is running."""
     sid = request.args.get('schedule_id', type=int)
-    runs_ = [{'id': r['id'], 'status': r['status'], 'message': r['message'] or '', 'vm_uuid': r.get('vm_uuid')}
-             for r in db.get_runs(_cluster_arg(), sid, 50)]
-    imps = [] if sid else [{'id': i['id'], 'status': i['status'], 'message': i['message'] or ''} for i in db.get_imports(_cluster_arg(), 50)]
-    rsts = [] if sid else [{'id': i['id'], 'status': i['status'], 'message': i['message'] or '', 'vm_uuid': i.get('vm_uuid')}
-                           for i in db.get_restores(_cluster_arg(), 50)]
+    runs_ = [{'id': r['id'], 'status': r['status'], 'message': r['message'] or '', 'vm_uuid': r.get('vm_uuid'),
+              'cluster_id': r.get('cluster_id')}
+             for r in db.get_runs(_clusters_arg(), sid, 50)]
+    imps = [] if sid else [{'id': i['id'], 'status': i['status'], 'message': i['message'] or '', 'cluster_id': i.get('cluster_id')}
+                           for i in db.get_imports(_clusters_arg(), 50)]
+    rsts = [] if sid else [{'id': i['id'], 'status': i['status'], 'message': i['message'] or '', 'vm_uuid': i.get('vm_uuid'),
+                            'cluster_id': i.get('cluster_id')}
+                           for i in db.get_restores(_clusters_arg(), 50)]
     return jsonify({'runs': runs_, 'imports': imps, 'restores': rsts, 'active': any(x['status'] == 'RUNNING' for x in (*runs_, *imps, *rsts))})
 
 
@@ -1172,9 +1185,8 @@ def proxies_bench_status(pid):
 @app.get('/api/v1/chains')
 @_require_token
 def chains_list():
-    cid = _cluster_arg()
     rows = []
-    for ch in db.get_chains(cid, vm_uuid=request.args.get('vm_uuid') or None):
+    for ch in db.get_chains(_clusters_arg(), vm_uuid=request.args.get('vm_uuid') or None):
         d = _ser(ch)
         d.pop('active_clones', None)
         rows.append(d)
@@ -1250,7 +1262,7 @@ def chain_verify_status(chain_id):
 @_require_token
 def restores_list():
     limit = max(1, min(request.args.get('limit', 50, type=int), 500))
-    return jsonify([_ser(r) for r in db.get_restores(_cluster_arg(), limit)])
+    return jsonify([_ser(r) for r in db.get_restores(_clusters_arg(), limit)])
 
 
 @app.post('/api/v1/restores')
@@ -1288,7 +1300,7 @@ def restores_start():
 @app.get('/api/v1/flr/mounts')
 @_require_token
 def flr_mounts():
-    return jsonify(flr.list_mounts(_cluster_arg()))
+    return jsonify(flr.list_mounts(_clusters_arg()))
 
 
 @app.post('/api/v1/flr/mounts')

@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Restore points were missing for VMs on another cluster of the folder.** Schedules span a
+  folder's clusters, but restore points, plans and runs listed only the cluster selected in the
+  rail, so a schedule could report its backups as done while Restore points stayed empty. They now
+  list the whole folder, each VM marked with its cluster, with **Show** to narrow to one cluster.
+- **Schedule members on another cluster were visible with a right on one cluster.** Every backup row
+  is now judged by its own cluster (and VM), so a right on one cluster of a folder no longer shows
+  another cluster's VM names.
+
 ## [1.4.0]
 
 ### Changed

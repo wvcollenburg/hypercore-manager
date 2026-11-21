@@ -141,9 +141,18 @@ def update_schedule(schedule_id: int, **fields) -> None:
     _exec(f'UPDATE backup.plans SET {", ".join(sets)} WHERE id = %s', params)
 
 
-def get_schedules(cluster_id: Optional[str] = None) -> list[dict]:
+def _cluster_in(column: str, cluster_id) -> tuple[str, Any]:
+    """A WHERE clause for one cluster id or a list of them (a folder's clusters)."""
+    if isinstance(cluster_id, (list, tuple, set)):
+        return f'{column} = ANY(%s::uuid[])', list(cluster_id)
+    return f'{column} = %s', cluster_id
+
+
+def get_schedules(cluster_id=None) -> list[dict]:
+    """Per-VM plans of one cluster, of a list of clusters, or (None) of all."""
     if cluster_id:
-        return _all(_SCHED_SELECT + ' WHERE s.cluster_id = %s ORDER BY s.vm_name', (cluster_id,))
+        clause, param = _cluster_in('s.cluster_id', cluster_id)
+        return _all(_SCHED_SELECT + f' WHERE {clause} ORDER BY c.cluster_name, s.vm_name', (param,))
     return _all(_SCHED_SELECT + ' ORDER BY c.cluster_name, s.vm_name')
 
 
@@ -197,7 +206,8 @@ def get_runs(cluster_id: Optional[str] = None, schedule_id: Optional[int] = None
     if schedule_id:
         where.append('r.schedule_id = %s'); params.append(schedule_id)
     if cluster_id:
-        where.append('s.cluster_id = %s'); params.append(cluster_id)
+        clause, param = _cluster_in('s.cluster_id', cluster_id)
+        where.append(clause); params.append(param)
     if where:
         sql += ' WHERE ' + ' AND '.join(where)
     sql += ' ORDER BY r.id DESC LIMIT %s'; params.append(limit)
@@ -439,7 +449,8 @@ def get_imports(cluster_id: Optional[str] = None, limit: int = 50) -> list[dict]
              JOIN config.clusters c ON c.cluster_id = i.cluster_id'''
     params: list[Any] = []
     if cluster_id:
-        sql += ' WHERE i.cluster_id = %s'; params.append(cluster_id)
+        clause, param = _cluster_in('i.cluster_id', cluster_id)
+        sql += f' WHERE {clause}'; params.append(param)
     sql += ' ORDER BY i.id DESC LIMIT %s'; params.append(limit)
     return _all(sql, params)
 
@@ -648,14 +659,16 @@ def get_chain(chain_id: int) -> Optional[dict]:
 
 def get_chains(cluster_id: Optional[str] = None, vm_uuid: Optional[str] = None, plan_id: Optional[int] = None,
                include_deleted: bool = False) -> list[dict]:
-    sql = '''SELECT ch.*, t.name AS target_name, p.enabled AS plan_enabled,
+    sql = '''SELECT ch.*, t.name AS target_name, p.enabled AS plan_enabled, c.cluster_name,
                     (SELECT COUNT(*) FROM backup.points pt WHERE pt.chain_id = ch.id AND pt.status = 'ok') AS point_count,
                     (SELECT MAX(pt.created_at) FROM backup.points pt WHERE pt.chain_id = ch.id AND pt.status = 'ok') AS last_point_at
                FROM backup.chains ch LEFT JOIN backup.targets t ON t.id = ch.target_id
-               LEFT JOIN backup.plans p ON p.id = ch.plan_id'''
+               LEFT JOIN backup.plans p ON p.id = ch.plan_id
+               LEFT JOIN config.clusters c ON c.cluster_id = ch.cluster_id'''
     where, params = [], []
     if cluster_id:
-        where.append('ch.cluster_id = %s'); params.append(cluster_id)
+        clause, param = _cluster_in('ch.cluster_id', cluster_id)
+        where.append(clause); params.append(param)
     if vm_uuid:
         where.append('ch.vm_uuid = %s'); params.append(vm_uuid)
     if plan_id:
@@ -770,11 +783,13 @@ def get_restore(restore_id: int) -> Optional[dict]:
 
 
 def get_restores(cluster_id: Optional[str] = None, limit: int = 50) -> list[dict]:
-    sql = '''SELECT r.*, r.cluster_id::text AS cluster_id, ch.vm_uuid
-               FROM backup.restores r LEFT JOIN backup.chains ch ON ch.id = r.chain_id'''
+    sql = '''SELECT r.*, r.cluster_id::text AS cluster_id, ch.vm_uuid, c.cluster_name
+               FROM backup.restores r LEFT JOIN backup.chains ch ON ch.id = r.chain_id
+               LEFT JOIN config.clusters c ON c.cluster_id = r.cluster_id'''
     params: list[Any] = []
     if cluster_id:
-        sql += ' WHERE r.cluster_id = %s'; params.append(cluster_id)
+        clause, param = _cluster_in('r.cluster_id', cluster_id)
+        sql += f' WHERE {clause}'; params.append(param)
     sql += ' ORDER BY r.id DESC LIMIT %s'; params.append(limit)
     return _all(sql, params)
 

@@ -155,7 +155,9 @@ def test_backup_forwarding_sends_only_the_validated_cluster(repo):
     body = app[app.index('def backup_proxy(sub):'):]
     body = body[:body.index('\n@app.')] if '\n@app.' in body else body
     assert 'request.query_string' not in body
-    assert "if k != 'cluster'] + [('cluster', cid)]" in body
+    # the browser's cluster, clusters and only are dropped; the validated cluster (and the folder's
+    # clusters the check allowed) are added
+    assert "if k not in ('cluster', 'clusters', 'only')] + extra" in body and "extra = [('cluster', cid)]" in body
     assert "payload['muted_by'] = user" in body and "user = session.get('username')" in body, \
         'who muted a notice comes from the session'
 
