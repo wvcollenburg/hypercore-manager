@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.4.0]
 
 ### Changed
 - **Clusters are registered in the tenant tree.** **+ Cluster** in a folder's cluster column
