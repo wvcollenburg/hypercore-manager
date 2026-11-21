@@ -4,14 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.5.0]
 
 ### Added
 - **Restore onto another cluster of the folder.** The restore form's **Restore onto** picks any cluster
   of the folder that has a backup proxy (default: the VM's own cluster). That cluster's proxy reads the
   point from the folder's share and stages the disks there. The dashboard requires the full-restore
   right on the whole target cluster, and the backup service refuses a cluster outside the point's folder.
-  Verified live: a point of a VM on one cluster restored onto a second cluster in 1.5 minutes.
+  Verified live: a point of a VM on one cluster restored onto a second cluster in 1.5 minutes, and booted.
 
 ### Fixed
 - **A dropped connection could fail a cluster over to addresses its TLS check cannot accept.** A
