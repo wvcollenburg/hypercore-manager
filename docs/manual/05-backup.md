@@ -152,7 +152,10 @@ A **test plan** (Backup → Schedules → **Test restores**) belongs to the fold
 - **Network test (test VLAN)**: the NICs go onto an isolated **test VLAN**, and after the boot check a proxy
   pings the VM and tries its ports (per VM, or the plan's default; without ports only ping counts, and Windows
   answers no ping by default). The checks run from a **proxy NIC on the test VLAN**, with the plan's **probe
-  address** (a free address in the VMs' subnet, with prefix): HCM itself never touches the test VLAN. Restored
+  address** (a free address in the VMs' subnet, with prefix): HCM itself never touches the test VLAN. A test VLAN
+  usually has no DHCP, so during the check the proxy hands the test VM, by DHCP, the address its source VM has
+  (one static lease per test-VM MAC address, no pool: nothing else on the VLAN gets an address), and it keeps
+  probing until the VM answers or the time is up. Restored
   VMs keep their addresses and names, so HCM refuses a VLAN that any other VM on the target cluster uses; whether
   the VLAN is routed elsewhere it cannot see, so keep it isolated on the switches too. The proxy needs to be
   deployed with 1.7.0 or later (it runs with host networking) and with a **Test VLAN** NIC (Settings → Backup →

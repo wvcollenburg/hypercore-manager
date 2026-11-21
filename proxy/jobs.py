@@ -308,13 +308,15 @@ class Engine:
 
     # ---------------------------------------------------------------- netcheck
     def run_netcheck(self, job: Job) -> dict:
-        """request: {mac: the test NIC's MAC, probe: '172.16.0.250/25', targets: [{ip, ports: [int]}]}.
-        Ping and TCP checks of a test-restored VM on the test VLAN, through the test NIC only (netcheck.py)."""
+        """request: {mac: the test NIC's MAC, probe: '172.16.0.250/25', targets: [{ip, ports: [int]}],
+        dhcp?: [{mac, ip}], wait_s?}. Ping and TCP checks of a test-restored VM on the test VLAN, through the test
+        NIC only, repeated until it answers or wait_s is up, serving its static DHCP leases meanwhile (netcheck.py)."""
         import netcheck
         req = job.request
         job.progress = {'targets': len(req.get('targets') or [])}
         try:
-            return netcheck.run(req['mac'], req['probe'], req.get('targets') or [])
+            return netcheck.run(req['mac'], req['probe'], req.get('targets') or [], dhcp=req.get('dhcp') or None,
+                                wait_s=float(req.get('wait_s') or 0), cancelled=job.cancelled)
         except netcheck.NetcheckError as e:
             raise RuntimeError(str(e)) from None
 

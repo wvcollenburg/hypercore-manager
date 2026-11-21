@@ -19,14 +19,22 @@ All notable changes to this project are documented here. The format follows
     VMs without a guest agent are marked *agentless: screen check only*.
   - **Network test**: NICs on an isolated test VLAN (refused when another VM on the target cluster uses it), then
     ping and TCP port checks from a proxy NIC on that VLAN (proxy job `netcheck`, bound to that NIC so a restored
-    VM's production IP never reaches the production VM). HCM never touches the test VLAN.
+    VM's production IP never reaches the production VM). The proxy serves the test VM its source addresses by DHCP
+    on the test VLAN (static leases for the test VM's MACs only) and probes until it answers. HCM never touches
+    the test VLAN.
   - Options, off by default: keep a failed test VM for N hours; a byte budget per round.
   - Results under Runs → **Test restores** (verdict, target, point age, restore and boot time, checks,
     screenshot) and a **Tested** column on the restore points. A failed test and a fixed VM without a passed test
     for twice the interval raise a badge on the cluster card and a mail to the closest administrator.
-- **Proxy deploy: Test VLAN** adds a second NIC for the network checks. Proxy **0.6.0**: job `netcheck`,
-  `iproute2` and `iputils-ping` in the image; proxies deployed from now on run with host networking (older ones
-  show *network tests: redeploy*).
+- **Proxy deploy: Test VLAN** adds a second NIC for the network checks. Proxy **0.6.1**: job `netcheck`,
+  `iproute2`, `iputils-ping` and `dnsmasq-base` in the image; proxies deployed from now on run with host networking
+  (older ones show *network tests: redeploy*).
+
+### Fixed
+- **A backup that started within two minutes of a restart lost its disk clones.** The clean-up of clones left by
+  interrupted runs runs shortly after every (re)start of the backup service and also deleted the clones of a run
+  that had just begun (`No such file or directory: /dev/disk/by-id/virtio-…`). It now skips chains whose backup
+  is running.
 
 ## [1.6.0]
 

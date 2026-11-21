@@ -241,10 +241,16 @@ def test_a_network_test_restores_onto_the_test_vlan_and_checks_ports_through_the
         def wait(self, j, timeout=0):
             return {'result': {'results': {'10.0.0.5': {'ping': False, 'ports': {3389: True}}}}}
     monkeypatch.setattr(tr.incremental, 'proxy_client_for', lambda p: PC())
+    world.tgt.boot = [dict(b, netDevs=[{'vlan': 999, 'macAddress': '7C:4C:58:AA:BB:CC'}]) for b in world.tgt.boot]
     c = Clock()
     assert tr.run_test(RUN, NET, 'dr', POINT, sleep=c.sleep, clock=c) == 'passed'
-    assert world.db.restores[1]['params']['vlan'] == 999 and world.db.restores[1]['params']['nic_connected'] is True
-    assert sent == [('netcheck', {'mac': '7C:4C:58:00:00:99', 'probe': '10.0.0.250/24', 'targets': [{'ip': '10.0.0.5', 'ports': [3389]}]})]
+    params = world.db.restores[1]['params']
+    assert params['vlan'] == 999 and params['nic_connected'] is True and params['start'] is False, 'started after the DHCP leases'
+    assert ('START', 'restored') in world.tgt.actions
+    kind, body = sent[0]
+    assert kind == 'netcheck' and body['mac'] == '7C:4C:58:00:00:99' and body['probe'] == '10.0.0.250/24'
+    assert body['dhcp'] == [{'mac': '7C:4C:58:AA:BB:CC', 'ip': '10.0.0.5'}], 'the test VM gets its source address by DHCP'
+    assert body['targets'] == [{'ip': '10.0.0.5', 'ports': [3389]}] and body['wait_s'] == 900
     assert world.db.runs[1]['checks'] == [{'ip': '10.0.0.5', 'ping': False, 'ports': {3389: True}}]
 
 

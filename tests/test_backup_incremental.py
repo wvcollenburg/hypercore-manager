@@ -757,3 +757,35 @@ def test_work_goes_to_the_new_address_and_a_reachable_proxy_costs_no_lookup(monk
     assert inc.ensure_reachable({**_MOVED_PROXY, 'url': 'https://172.16.0.80:8083'})['url'] == 'https://172.16.0.80:8083'
     monkeypatch.setattr(inc, 'relocate_proxy', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('boom')))
     assert inc.ensure_reachable(dict(_MOVED_PROXY))['url'] == 'https://172.16.0.65:8083', 'a failed lookup never breaks the run'
+
+
+def test_the_sweep_leaves_the_clones_of_a_running_backup_alone(world, monkeypatch):
+    """Live 2026-11-21: the sweep two minutes after a restart deleted the clones of a backup that had just started."""
+    hc = _CdHC(running=True)
+    deleted = []
+    monkeypatch.setattr(inc.jobs, 'client_for', lambda cid: hc)
+    monkeypatch.setattr(inc, '_delete_clones', lambda h, uuids: deleted.extend(uuids))
+    monkeypatch.setattr(world.db, 'chains_with_clones', lambda: [
+        {'id': 1, 'cluster_id': 'c1', 'plan_id': 5, 'active_clones': ['busy-clone']},
+        {'id': 2, 'cluster_id': 'c1', 'plan_id': 6, 'active_clones': ['left-behind']}], raising=False)
+    monkeypatch.setattr(world.db, 'plan_run_active', lambda pid: pid == 5, raising=False)
+    monkeypatch.setattr(world.db, 'update_chain', lambda *a, **k: None, raising=False)
+    assert inc.sweep_cluster('c1')['clones'] == 1
+    assert deleted == ['left-behind']
+
+
+def test_a_failed_full_removes_its_partial_data_but_never_a_chain_with_points(world, monkeypatch):
+    """Live 2026-11-21: two failed fulls of a 28 GB VM left their partial files on the share until it was full."""
+    db = world.db
+    empty = db.add_chain(db.plan, 9, 'Lab', 'Lab/w11_1.chain')
+    good = db.add_chain(db.plan, 9, 'Lab', 'Lab/w11_0.chain')
+    db.add_point(good, 0, 'full', 'base', {}, 4, 4 << 20, 1.0, [], {}, 1)
+    runs = {1: {'id': 1, 'chain_id': empty}, 2: {'id': 2, 'chain_id': good}}
+    monkeypatch.setattr(db, 'get_run', lambda rid: runs.get(rid), raising=False)
+    updated = {}
+    monkeypatch.setattr(db, 'update_chain', lambda cid, **f: updated.setdefault(cid, {}).update(f), raising=False)
+    assert inc.discard_empty_chain(1) is True
+    assert world.pc.jobs[-1] == ('delete_chain', {'target': {'uri': 'smb://nas/share', 'username': 'u', 'password': 'p'}, 'chain_dir': 'Lab/w11_1.chain'})
+    assert updated[empty] == {'status': 'deleted'}
+    n = len(world.pc.jobs)
+    assert inc.discard_empty_chain(2) is False and len(world.pc.jobs) == n and good not in updated

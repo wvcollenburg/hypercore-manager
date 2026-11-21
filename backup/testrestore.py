@@ -237,7 +237,7 @@ class Fail(Exception):
 def run_test(run: dict, plan: dict, target: str, point: dict, sleep=time.sleep, clock=time.monotonic) -> str:
     """One test, start to clean-up. Returns the final status."""
     rid = run['id']
-    state = {'restored': None, 'png': None}
+    state = {'restored': None, 'png': None, 'netjob': None}
     status, verdict, detail, checks = 'error', None, None, None
     try:
         src = jobs.client_for(run['cluster_id'])
@@ -257,14 +257,21 @@ def run_test(run: dict, plan: dict, target: str, point: dict, sleep=time.sleep, 
         if net:
             probe_proxy = network_ready(hc, target, plan)   # raises Fail with what is missing
         restored = restore(run, plan, target, point, net, state)
-        verdict, detail = watch_boot(hc, target, restored, int(plan['timeout_minutes']) * 60, state, sleep=sleep, clock=clock)
+        timeout_s = int(plan['timeout_minutes']) * 60
+        if net:
+            # the proxy serves the VM's addresses by DHCP and keeps probing while the VM boots
+            state['netjob'] = start_network_checks(hc, run, plan, restored, source_vm, probe_proxy, point, timeout_s + 300)
+            t = hc.vm_action(restored, 'START')
+            if t:
+                incremental.wait_task(hc, t, 'start test VM', 600)
+        verdict, detail = watch_boot(hc, target, restored, timeout_s, state, sleep=sleep, clock=clock)
         db.update_test_run(rid, booted_at=_now())
         if net:
-            checks = network_checks(hc, run, plan, restored, source_vm, probe_proxy, point)
+            checks = finish_network_checks(state.pop('netjob'), timeout_s + 600)
             ok, why = judge_checks(checks)
             if not ok:
                 raise Fail('network', why)
-            detail = f'{detail}; network checks passed'
+            detail = f'{detail}; {why}'
         status = 'passed'
     except Skip as e:
         status, detail = 'skipped', str(e)
@@ -276,6 +283,11 @@ def run_test(run: dict, plan: dict, target: str, point: dict, sleep=time.sleep, 
         log.exception('test %s failed unexpectedly', rid)
         status, detail = 'error', f'unexpected error: {e}'[:1000]
     finally:
+        if state.get('netjob'):                             # the boot check failed: stop probing
+            try:
+                state['netjob'][0].cancel(state['netjob'][1])
+            except Exception:                               # noqa: BLE001
+                pass
         keep = None
         if status == 'failed' and plan.get('keep_failed_hours') and state['restored']:
             keep = _now() + timedelta(hours=int(plan['keep_failed_hours']))
@@ -296,7 +308,8 @@ def restore(run: dict, plan: dict, target: str, point: dict, net: bool, state: d
     import restore as restore_mod
     chain = db.get_chain(point['chain_id'])
     name = f"{(run.get('vm_name') or 'vm')[:40]}{NAME_MARK}{run['id']}"
-    params = {'mac_policy': 'new', 'start': True, 'verify': False, 'nic_connected': net, 'extra_tags': [TAG],
+    # a network test starts the VM itself, once the proxy serves its DHCP leases on the test VLAN
+    params = {'mac_policy': 'new', 'start': not net, 'verify': False, 'nic_connected': net, 'extra_tags': [TAG],
               'description': f"HCM test restore #{run['id']} of {run.get('vm_name')} (point {point['created_at']:%Y-%m-%d %H:%M} UTC); "
                              'deleted automatically'}
     if net:
@@ -413,20 +426,34 @@ def _is_proxy(vm: dict) -> bool:
     return 'hcm-proxy' in (vm.get('tags') or '').split(',')
 
 
-def network_checks(hc, run: dict, plan: dict, vm_uuid: str, source_vm: dict | None, proxy: dict, point: dict) -> list[dict]:
-    """Ping and port checks of the test VM's addresses through the proxy's test NIC."""
-    ips = _ips(hc.get_vm(vm_uuid)) or _ips(source_vm or {}) or _ips(point.get('definition') or {})
+def start_network_checks(hc, run: dict, plan: dict, vm_uuid: str, source_vm: dict | None, proxy: dict, point: dict,
+                         wait_s: float) -> tuple:
+    """Start the proxy's netcheck job: DHCP leases for the test VM's NICs (each gets the address its source NIC
+    has), then ping/port probes until the VM answers or wait_s is up. Returns (proxy client, job id)."""
+    new_nics = hc.get_vm(vm_uuid).get('netDevs') or []
+    src_nics = (source_vm or {}).get('netDevs') or (point.get('definition') or {}).get('netDevs') or []
     blocked = _infrastructure(proxy, point)
-    ips = [ip for ip in ips if ip not in blocked]
+    leases, ips = [], []
+    for new, old in zip(new_nics, src_nics):
+        addr = next((ip for ip in old.get('ipv4Addresses') or [] if ip and not ip.startswith(('127.', '169.254.'))), None)
+        if addr and addr not in blocked and new.get('macAddress'):
+            leases.append({'mac': new['macAddress'], 'ip': addr})
+            ips.append(addr)
     if not ips:
-        raise Fail('network', 'no IPv4 address known for the VM (no guest agent report, none recorded): nothing to check')
+        raise Fail('network', 'no IPv4 address known for the VM (its source reports none and none was recorded): nothing to check')
     member = next((m for m in db.test_plan_vms(plan['id']) if m['cluster_id'] == run['cluster_id'] and m['vm_uuid'] == run['vm_uuid']), None)
     ports = (member or {}).get('ports')
     ports = list(plan.get('default_ports') or []) if ports is None else ports
     full = db.get_proxy(proxy['id'], with_secret=True) or proxy
     pc = incremental.proxy_client_for(full)
-    job = pc.submit('netcheck', {'mac': proxy['test_mac'], 'probe': plan['probe_address'], 'targets': [{'ip': ip, 'ports': ports} for ip in ips]})
-    res = pc.wait(job, timeout=300)['result'] or {}
+    job = pc.submit('netcheck', {'mac': proxy['test_mac'], 'probe': plan['probe_address'], 'dhcp': leases, 'wait_s': wait_s,
+                                 'targets': [{'ip': ip, 'ports': ports} for ip in ips]})
+    return pc, job
+
+
+def finish_network_checks(netjob: tuple, timeout_s: float) -> list[dict]:
+    pc, job = netjob
+    res = pc.wait(job, timeout=timeout_s)['result'] or {}
     return [{'ip': ip, 'ping': r.get('ping'), 'ports': r.get('ports') or {}} for ip, r in (res.get('results') or {}).items()]
 
 

@@ -124,7 +124,7 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
         missing = [k for k in _REQUIRED[kind] if k not in body]
         if missing:
             return jsonify({'error': f'missing fields: {", ".join(missing)}'}), 400
-        if not isinstance(body.get('target'), dict) or 'uri' not in body['target']:
+        if 'target' in _REQUIRED[kind] and (not isinstance(body.get('target'), dict) or 'uri' not in body['target']):
             return jsonify({'error': 'target.uri is required'}), 400
         job = engine.submit(kind, body)
         log.info('job submitted', extra={'job': job.id, 'kind': kind})

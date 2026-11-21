@@ -1254,7 +1254,7 @@ def test_support_bundle_route_needs_the_token(tmp_path):
     r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
     assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
     assert r.data[:2] == b'PK'
-    assert P.identity.VERSION == '0.6.0'
+    assert P.identity.VERSION == '0.6.1'
 
 
 def test_the_proxy_keeps_a_rotating_log_file(tmp_path):
@@ -1418,10 +1418,37 @@ def test_netcheck_binds_everything_to_the_test_nic_and_cleans_up(tmp_path):
                  ip_fn=lambda *a: calls.append(a), sys_net=sysnet)
     assert res['interface'] == 'ens4' and res['results'] == {'172.16.0.12': {'ping': False, 'ports': {3389: True, 445: False}}}
     assert all(p[-1] == 'ens4' for p in probes), 'never through the management NIC (a restored VM keeps its production IP)'
-    assert calls[:3] == [('link', 'set', 'ens4', 'up'), ('addr', 'add', '172.16.0.250/32', 'dev', 'ens4'),
+    assert calls[:3] == [('link', 'set', 'ens4', 'up'), ('addr', 'add', '172.16.0.250/25', 'dev', 'ens4', 'noprefixroute'),
                          ('route', 'replace', '172.16.0.12/32', 'dev', 'ens4', 'src', '172.16.0.250')]
-    assert calls[-3:] == [('route', 'del', '172.16.0.12/32', 'dev', 'ens4'), ('addr', 'del', '172.16.0.250/32', 'dev', 'ens4'),
+    assert calls[-3:] == [('route', 'del', '172.16.0.12/32', 'dev', 'ens4'), ('addr', 'del', '172.16.0.250/25', 'dev', 'ens4'),
                           ('link', 'set', 'ens4', 'down')], 'the probe address and routes go again'
+
+
+def test_netcheck_serves_dhcp_and_waits_until_the_vm_answers(tmp_path):
+    nc = _netcheck()
+    sysnet = _sysnet(tmp_path, {'ens4': '7c:4c:58:00:00:99'})
+    answers = iter([False, False, True])
+    servers = []
+
+    class Srv:
+        def __init__(self, cmd, **kw): self.cmd = cmd; self.stopped = False; servers.append(self)
+        def terminate(self): self.stopped = True
+        def wait(self, timeout=None): return 0
+    t = [0.0]
+    res = nc.run('7c:4c:58:00:00:99', '172.16.0.126/25', [{'ip': '172.16.0.52', 'ports': [22]}], settle_s=0,
+                 ping_fn=lambda ip, dev: True, tcp_fn=lambda ip, port, dev: next(answers), ip_fn=lambda *a: None, sys_net=sysnet,
+                 dhcp=[{'mac': '7C:4C:58:AA:BB:CC', 'ip': '172.16.0.52'}], wait_s=600, interval_s=10, popen=Srv,
+                 sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0])
+    assert res['answered'] and res['after_s'] == 20 and res['results']['172.16.0.52']['ports'] == {22: True}
+    cmd = servers[0].cmd
+    assert '--dhcp-host=7c:4c:58:aa:bb:cc,172.16.0.52,infinite' in cmd and '--dhcp-range=172.16.0.0,static,255.255.255.128,1h' in cmd
+    assert '--interface=ens4' in cmd and '--port=0' in cmd and '--dhcp-option=3' in cmd, 'only the test NIC, no DNS, no router'
+    assert servers[0].stopped, 'the DHCP server stops with the check'
+    t[0] = 0.0
+    res = nc.run('7c:4c:58:00:00:99', '172.16.0.126/25', [{'ip': '172.16.0.52', 'ports': [22]}], settle_s=0,
+                 ping_fn=lambda ip, dev: True, tcp_fn=lambda ip, port, dev: False, ip_fn=lambda *a: None, sys_net=sysnet,
+                 wait_s=30, interval_s=10, sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0])
+    assert not res['answered'] and res['after_s'] == 30
 
 
 def test_netcheck_refuses_without_the_nic_or_with_a_bad_probe(tmp_path):
@@ -1440,3 +1467,16 @@ def test_host_network_is_detected_from_the_host_interfaces(tmp_path):
     host = _sysnet(tmp_path / 'h', {'ens3': 'aa', 'docker0': 'bb', 'lo': 'cc'})
     assert nc.host_network(_sysnet(tmp_path / 'c1', {'ens3': 'aa', 'lo': 'cc'}), host) is True
     assert nc.host_network(_sysnet(tmp_path / 'c2', {'eth0': 'dd', 'lo': 'cc'}), host) is False
+
+
+def test_a_netcheck_job_needs_no_backup_target(tmp_path):
+    """Live 2026-11-21: the API demanded target.uri for every job kind; netcheck has none."""
+    cfg = P.config.Config(api_token='t0k', data_dir=str(tmp_path / 'data'), backend='file')
+    submitted = []
+    engine = types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={},
+                                   submit=lambda kind, req: submitted.append(kind) or types.SimpleNamespace(id='j1', state='queued'))
+    c = P.api.create_app(cfg, engine).test_client()
+    h = {'Authorization': 'Bearer t0k'}
+    r = c.post('/jobs/netcheck', json={'mac': 'aa', 'probe': '10.0.0.9/24', 'targets': []}, headers=h)
+    assert r.status_code in (200, 201, 202) and submitted == ['netcheck']
+    assert c.post('/jobs/verify', json={'chain_dir': 'x', 'target': {}}, headers=h).status_code == 400
