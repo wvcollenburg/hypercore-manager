@@ -26,9 +26,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Documentation
 - Getting around describes the top bar, the cluster switcher and light/dark; Getting started, the manual and the
-  README follow the new navigation. Getting started's screenshots and 18 manual screenshots retaken in the new
-  look. (The Foresight screenshots, the Forecast log and the night plan still show the previous look: they need
-  Foresight and the balancer running with data.)
+  README follow the new navigation. Getting started's screenshots and 25 manual screenshots retaken in the new
+  look. (The Forecast log and the night plan still show the previous look: they need the balancer running and a
+  backup schedule with VMs.)
 
 ## [1.7.4]
 

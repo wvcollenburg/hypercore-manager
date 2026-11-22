@@ -1371,7 +1371,7 @@
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-blue)"></div>
           <span data-i18n="section.capacity_forecasts">Capacity Forecasts</span>
           <div style="margin-left:auto;display:flex;gap:8px;">
-            <select id="forecastDimFilter" onchange="loadSentinelForecasts()" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);padding:4px 8px;border-radius:4px;font-size:12px;">
+            <select id="forecastDimFilter" onchange="loadSentinelForecasts()" style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-secondary);padding:4px 8px;border-radius:4px;font-size:12px;">
               <option value="" data-i18n="forecast.all_dimensions">All dimensions</option>
               <option value="cpu" data-i18n="dim.cpu">CPU</option>
               <option value="ram" data-i18n="dim.ram">RAM</option>
@@ -1379,7 +1379,7 @@
               <option value="storage_latency" data-i18n="dim.latency">Latency</option>
               <option value="network" data-i18n="dim.network">Network</option>
             </select>
-            <select id="forecastHorizonFilter" onchange="loadSentinelForecasts()" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);padding:4px 8px;border-radius:4px;font-size:12px;">
+            <select id="forecastHorizonFilter" onchange="loadSentinelForecasts()" style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-secondary);padding:4px 8px;border-radius:4px;font-size:12px;">
               <option value="" data-i18n="forecast.all_horizons">All horizons</option>
               <option value="30" selected>30d</option>
               <option value="90">90d</option>
@@ -1424,7 +1424,7 @@
           <div style="display:flex;flex-direction:column;gap:6px;">
             <label for="brandingCompany" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);" data-i18n="reports.company_name">Company Name</label>
             <input id="brandingCompany" type="text" placeholder="e.g. Acme Corp"
-              style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:7px 10px;border-radius:6px;font-size:13px;" />
+              style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:7px 10px;border-radius:6px;font-size:13px;" />
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;">
             <label for="brandingColorHex" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);" data-i18n="reports.accent_colour">Accent Colour</label>
@@ -1432,7 +1432,7 @@
               <input id="brandingColorPicker" type="color" value="#3b82f6" data-note="token-ok: report accent default"
                 style="width:40px;height:36px;border:none;background:none;cursor:pointer;padding:0;" />
               <input id="brandingColorHex" type="text" value="#3b82f6" data-note="token-ok: report accent default" maxlength="7"
-                style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:7px 10px;border-radius:6px;font-size:13px;width:100px;font-family:var(--font-ui);"
+                style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:7px 10px;border-radius:6px;font-size:13px;width:100px;font-family:var(--font-ui);"
                 oninput="document.getElementById('brandingColorPicker').value=this.value" />
             </div>
           </div>
@@ -1495,7 +1495,7 @@
         <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:20px;">
           <div style="display:flex;flex-direction:column;gap:6px;">
             <label for="whatifScenario" data-i18n="whatif.scenario" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">Scenario</label>
-            <select id="whatifScenario" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;min-width:160px;">
+            <select id="whatifScenario" style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;min-width:160px;">
               <option value="add_nodes" data-i18n="whatif.add_nodes">Add Nodes</option>
               <option value="add_vms" data-i18n="whatif.add_vms">Add VMs</option>
               <option value="add_vms_like" data-i18n="whatif.add_vms_like">Add VMs Like...</option>
@@ -1504,29 +1504,29 @@
           <div style="display:flex;flex-direction:column;gap:6px;">
             <label for="whatifCount" data-i18n="whatif.count" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">Count</label>
             <input id="whatifCount" type="number" min="1" max="100" value="1"
-              style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:90px;" />
+              style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:90px;" />
           </div>
           <div id="whatifNodeOptions" style="display:flex;gap:12px;flex-wrap:wrap;">
             <div style="display:flex;flex-direction:column;gap:6px;">
               <label for="whatifStorageTB" data-i18n="whatif.storage_per_node" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">Storage / node (TB, optional)</label>
               <input id="whatifStorageTB" type="number" min="0" step="0.1" placeholder="cluster avg"
-                style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:160px;" />
+                style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:160px;" />
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;">
               <label for="whatifRamGB" data-i18n="whatif.ram_per_node" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">RAM / node (GB, optional)</label>
               <input id="whatifRamGB" type="number" min="0" step="1" placeholder="cluster avg"
-                style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:160px;" />
+                style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:160px;" />
             </div>
           </div>
           <div id="whatifVmLikeOptions" style="display:none;flex-direction:column;gap:6px;">
             <label for="whatifSourceVm" data-i18n="whatif.template_vm" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">Template VM</label>
             <input id="whatifSourceVm" type="text" placeholder="Type or select a VM name"
               list="whatifVmList"
-              style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:260px;" />
+              style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:260px;" />
             <datalist id="whatifVmList"></datalist>
             <div id="whatifVmHint" style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);"></div>
           </div>
-          <button onclick="runWhatIf()" data-i18n="whatif.run_simulation" style="padding:8px 20px;background:var(--accent-purple);border:none;border-radius:6px;color:var(--on-solid);font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;white-space:nowrap;">
+          <button onclick="runWhatIf()" data-i18n="whatif.run_simulation" style="padding:8px 20px;background:var(--accent);border:none;border-radius:6px;color:var(--on-accent);font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;white-space:nowrap;">
             ▶ Run Simulation
           </button>
         </div>
@@ -2720,7 +2720,7 @@ function _veRender() {
   document.getElementById('veBody').innerHTML = `
     ${pending ? `<div class="ve-sec" style="border-color:var(--accent-amber);font-size:12px;color:var(--accent-amber);">${t('ve.has_pending')}</div>` : ''}
     <div class="ve-power">
-      <span style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);text-transform:uppercase;letter-spacing:.05em;margin-right:6px;">${t('ve.power')}</span>
+      <span style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);margin-right:6px;">${t('ve.power')}</span>
       <button class="um-action-btn" ${on ? 'disabled' : ''} onclick="vePower('START')">${t('ve.p_start')}</button>
       <button class="um-action-btn" ${on ? '' : 'disabled'} onclick="vePower('SHUTDOWN')" title="${E(t('ve.p_shutdown_hint'))}">${t('ve.p_shutdown')}</button>
       <button class="um-action-btn" ${on ? '' : 'disabled'} onclick="vePower('REBOOT')">${t('ve.p_reboot')}</button>
@@ -3392,7 +3392,7 @@ async function loadActivity() {
     </div>`;
   document.getElementById('ivActivityBody').innerHTML =
     (active.map(x => row(x, true)).join('') || '') +
-    (done.length ? `<div style="font-size:12px;color:var(--text-muted);margin:8px 0 2px;text-transform:uppercase;letter-spacing:.04em;">${t('iv.activity_recent')}</div>` + done.map(x => row(x, false)).join('') : '') ||
+    (done.length ? `<div style="font-size:12px;color:var(--text-muted);margin:8px 0 2px;">${t('iv.activity_recent')}</div>` + done.map(x => row(x, false)).join('') : '') ||
     `<div style="font-size:12px;color:var(--text-muted);">${t('iv.activity_none')}</div>`;
 }
 
@@ -4072,7 +4072,7 @@ async function loadSentinelOverview() {
     ${breakdownDims.length ? `
     <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin:12px 0;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:12px;">
-        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);">${t('sentinel.health_breakdown')}</span>
+        <span style="font-size:12px;color:var(--text-muted);">${t('sentinel.health_breakdown')}</span>
         ${h.daily_aggregate ? `<span style="font-size:12px;color:var(--text-muted);">${t('sentinel.based_on')} <code style="background:var(--bg-primary);padding:2px 6px;border-radius:3px;color:var(--accent-cyan);font-family:monospace;">${h.daily_aggregate}</code></span>` : ''}
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;">
@@ -5432,7 +5432,7 @@ function _renderSentControl(meta, gid, readOnly = false) {
         ${labelRow}
         <select id="ssel_${meta.key}"${dis}
                 onchange="onSentSelect('${meta.key}','${gid}',this)"
-                style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:4px;font-size:12px;width:100%;">
+                style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:6px 10px;border-radius:4px;font-size:12px;width:100%;">
           ${opts}
         </select>
       </div>`;
