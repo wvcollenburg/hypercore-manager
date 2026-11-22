@@ -89,6 +89,45 @@ def test_pinned_client_reports_a_restarting_proxy_as_unreachable(monkeypatch):
         pcm.ProxyClient('https://10.0.0.5:8083', 't', tls_fingerprint='ab' * 32).identity()
 
 
+def _clocked_client(monkeypatch, answers):
+    """A ProxyClient whose job() polls play `answers` (dicts or ProxyErrors) on a fake clock (3 s per poll)."""
+    clock = [0.0]
+    monkeypatch.setattr(pcm.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(pcm.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s))
+    c = pcm.ProxyClient('http://px:8083', 't')
+    c.cancelled = []
+    seq = iter(answers)
+
+    def job(jid):
+        a = next(seq)
+        if isinstance(a, Exception):
+            clock[0] += 30                                  # a request that times out
+            raise a
+        return a
+    c.job = job
+    c.cancel = lambda jid: c.cancelled.append(jid)
+    return c
+
+
+def test_proxy_wait_rides_out_a_network_blip(monkeypatch):
+    """One failed poll threw away a multi-hour full and left the job running on the proxy."""
+    down = pcm.ProxyError('proxy unreachable at http://px:8083: timed out', kind='unreachable')
+    c = _clocked_client(monkeypatch, [{'state': 'running'}, down, down, down, {'state': 'done', 'result': {'ok': 1}}])
+    assert c.wait('j1')['result'] == {'ok': 1} and c.cancelled == []
+
+
+def test_proxy_wait_gives_up_after_a_long_outage_and_cancels_the_job(monkeypatch):
+    down = pcm.ProxyError('proxy unreachable at http://px:8083: refused', kind='unreachable')
+    c = _clocked_client(monkeypatch, [{'state': 'running'}] + [down] * 50)
+    with pytest.raises(pcm.ProxyError, match='job cancelled'):
+        c.wait('j1')
+    assert c.cancelled == ['j1']
+    # any other refusal is not waited out
+    c = _clocked_client(monkeypatch, [pcm.ProxyError('proxy returned 404: no such job')])
+    with pytest.raises(pcm.ProxyError, match='404'):
+        c.wait('j2')
+
+
 def test_proxy_client_fingerprint_and_mac_match():
     assert pcm.normalise_fingerprint('AB:CD ef') == 'abcdef' and pcm.normalise_fingerprint(None) is None
     vms = [{'uuid': '1', 'name': 'a', 'netDevs': [{'macAddress': '02:00:5e:4b:5c:5e'}]}, {'uuid': '2', 'name': 'b', 'netDevs': []}]
