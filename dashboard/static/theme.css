@@ -5,7 +5,7 @@
    below is the whole dark mode, and a new theme is a new block plus an entry in theme.js.
 
    The light theme is IBM Plex on graphite and teal; the dark theme is warm charcoal with amber
-   (design/mockups, chosen 2026-11-22). Usage bars use --meter and turn --meter-hi from 60%: in the dark theme
+   (chosen 2026-11-22). Usage bars use --meter and turn --meter-hi from 60%: in the dark theme
    amber is both the accent and the warning colour, so the accent never marks a value as high. */
 
 :root {
