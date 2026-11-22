@@ -82,6 +82,20 @@ def _previous_state(cur, event_type: str, cluster_id: str) -> dict:
     return prev
 
 
+def _usage_pct(f) -> float | None:
+    """A forecast's current usage as a percentage, for resource_exhaustion.current_usage_pct:
+    CPU is a percentage already; RAM and other byte dimensions are taken against the forecast's
+    capacity, or NULL when there is none. Storing the raw value put RAM bytes in a percent column
+    (the report printed '320000000000.0%')."""
+    if f.current_usage is None:
+        return None
+    if f.resource_dimension == 'cpu':
+        return f.current_usage
+    if f.current_capacity:
+        return round(f.current_usage / f.current_capacity * 100.0, 2)
+    return None
+
+
 def _dt(value) -> str | None:
     """Serialise date/datetime to ISO string for JSON payloads."""
     if value is None:
@@ -419,7 +433,7 @@ class Writer:
                                 f.resource_dimension,
                                 days,
                                 f.exhaustion_date,
-                                f.current_usage,
+                                _usage_pct(f),
                                 growth,
                                 f.severity,
                             ),

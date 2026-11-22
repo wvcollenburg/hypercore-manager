@@ -20,6 +20,7 @@ from __future__ import annotations
 import io
 import logging
 from datetime import datetime, timezone
+from xml.sax.saxutils import escape as _esc     # text that goes into Paragraph markup
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +67,13 @@ def _pct(val: float | None) -> str:
     if val is None:
         return '—'
     return f'{val:.1f}%'
+
+
+def _days_key(e: dict) -> int:
+    """Sort key: days until exhaustion, with an exhaustion already reached (0) first and an
+    unknown one last. `or 999` sorted the 0s last and dropped them from the top five."""
+    days = e.get('days_until_exhaustion')
+    return 999 if days is None else days
 
 
 def _light_table(story, rows, col_widths, accent_hex, severity_col=None,
@@ -230,7 +238,7 @@ def generate(data: dict) -> bytes:
         return HRFlowable(width=W, thickness=0.5,
                           color=colors.HexColor('#CBD5E1'), spaceAfter=6)
 
-    # ── unpack data ────────────────────────────────────────────────────────────
+    # ── unpack data ───────────────────────────────────────────────────────────
     health      = data.get('health') or {}
     forecasts   = data.get('forecasts') or []
     rightsizing = data.get('rightsizing') or []
@@ -246,12 +254,12 @@ def generate(data: dict) -> bytes:
     under_vms = [r for r in rightsizing if r.get('sizing_direction') == 'under_provisioned']
     total_reclaim = sum(float(r.get('capacity_reclaim_cpu_pct') or 0) for r in resize)
 
-    # group forecasts by node for overview
+    # group forecasts by node for overview; the cluster-wide rows (no node) form a 'Cluster' row
     node_data: dict[str, dict] = {}
     for f in forecasts:
         if f.get('forecast_horizon_days') != 30:
             continue
-        node = _short(f.get('node_uuid'))
+        node = _short(f.get('node_uuid')) if f.get('node_uuid') else 'Cluster'
         dim  = f.get('resource_dimension') or ''
         if dim not in ('cpu', 'storage_capacity'):
             continue
@@ -292,9 +300,9 @@ def generate(data: dict) -> bytes:
         fontName='Helvetica-Bold', spaceBefore=0, spaceAfter=10)))
 
     if company_name:
-        story.append(_body(f'Prepared for: <b>{company_name}</b>'))
+        story.append(_body(f'Prepared for: <b>{_esc(company_name)}</b>'))
 
-    story.append(_muted(f"Cluster: {data.get('cluster_id', '—')}"))
+    story.append(_muted(f"Cluster: {_esc(str(data.get('cluster_id', '—')))}"))
     story.append(_muted(f"Generated: {data.get('generated_at', '—')}"))
     story.append(Spacer(1, 10*mm))
 
@@ -339,7 +347,7 @@ def generate(data: dict) -> bytes:
 
     # ── KPI cards ─────────────────────────────────────────────────────────────
     vm_count   = len(set(r.get('vm_name') for r in rightsizing))
-    node_count = len(node_data) or '?'
+    node_count = len([n for n in node_data if n != 'Cluster']) or '?'   # the cluster-wide row is no node
 
     card_w = W / 5 - 8
     kpi_row = Table(
@@ -375,7 +383,7 @@ def generate(data: dict) -> bytes:
     story.append(_body(
         f'The HyperCore cluster is currently <b>{sev_desc}</b>, '
         f'scoring <b>{health_score:.0f} out of 100</b>. '
-        f'The primary bottleneck is <b>{bottleneck.replace("_", " ")}</b>. '
+        f'The primary bottleneck is <b>{_esc(bottleneck.replace("_", " "))}</b>. '
         f'Overall resource efficiency stands at <b>{efficiency:.0%}</b>, indicating that a '
         f'{"significant" if efficiency < 0.4 else "moderate"} portion of allocated compute '
         f'capacity is sitting idle.'
@@ -384,16 +392,17 @@ def generate(data: dict) -> bytes:
     # exhaustion findings
     if exhaustion:
         story.append(_h3('Capacity Risk'))
-        for e in sorted(exhaustion, key=lambda x: x.get('days_until_exhaustion') or 999)[:5]:
+        for e in sorted(exhaustion, key=_days_key)[:5]:
             dim  = (e.get('resource_dimension') or '—').replace('_', ' ')
             days = e.get('days_until_exhaustion')
             exd  = e.get('exhaustion_date') or '—'
             sev2 = e.get('severity') or 'INFO'
-            node = _short(e.get('node_uuid'))
-            urgency = 'is imminent' if (days or 999) <= 30 else 'is approaching'
+            where = f'on node {_short(e.get("node_uuid"))}' if e.get('node_uuid') else 'cluster-wide'
+            urgency = 'is imminent' if days is not None and days <= 30 else 'is approaching'
+            left = '—' if days is None else ('reached' if days <= 0 else f'{days} days')
             story.append(_bullet(
-                f'<b>{dim.title()}</b> exhaustion on node {node} {urgency} — '
-                f'projected <b>{exd}</b> ({days} days).  Severity: <b>{sev2}</b>.'
+                f'<b>{_esc(dim.title())}</b> exhaustion {where} {urgency} — '
+                f'projected <b>{_esc(str(exd))}</b> ({left}).  Severity: <b>{_esc(sev2)}</b>.'
             ))
     else:
         story.append(_body('No active resource exhaustion alerts. All dimensions have sufficient runway.'))
@@ -552,7 +561,7 @@ def generate(data: dict) -> bytes:
             cur   = _pct(e.get('current_usage_pct'))
             gr    = f'{float(e.get("growth_rate_per_day") or 0):.2f}/d'
             exd   = str(e.get('exhaustion_date') or '—')
-            days  = str(e.get('days_until_exhaustion') or '—')
+            days  = '—' if e.get('days_until_exhaustion') is None else str(e.get('days_until_exhaustion'))
             sev2  = e.get('severity') or 'INFO'
             ex_rows.append([dim, node, cur, gr, exd, days, sev2])
         _light_table(story, ex_rows,
@@ -604,7 +613,7 @@ def generate(data: dict) -> bytes:
     if company_name:
         footer_parts.append(f'Prepared for {company_name}')
     footer_parts.append(f'Generated {data.get("generated_at", "")}')
-    story.append(_muted('  ·  '.join(footer_parts)))
+    story.append(_muted(_esc('  ·  '.join(footer_parts))))
 
     doc.build(story)
     return buf.getvalue()

@@ -111,6 +111,19 @@ def test_info_forecasts_are_not_audited_and_others_only_on_change(w):
     assert types.count('resource_exhaustion') == 1
 
 
+def test_exhaustion_rows_store_a_percentage_not_bytes(w):
+    """current_usage_pct got the RAM forecast's current_usage in bytes: the report printed '320000000000.0%'."""
+    ram = _fc('WARNING')
+    ram.resource_dimension, ram.current_usage, ram.current_capacity = 'ram', 320e9, 400e9
+    cpu = _fc('CRITICAL')
+    cpu.resource_dimension, cpu.current_usage, cpu.current_capacity = 'cpu', 61.5, 200 / 3
+    storage = _fc('WARNING')
+    storage.current_usage, storage.current_capacity = 20e12, None   # storage: capacity unknown
+    w.write_forecasts([ram, cpu, storage])
+    pct = {r['resource_dimension']: r['current_usage_pct'] for r in w.fake.tables['recommendations.resource_exhaustion']}
+    assert pct == {'ram': 80.0, 'cpu': 61.5, 'storage': None}
+
+
 def test_cluster_health_is_audited_when_its_severity_changes(w):
     def health(sev):
         return ClusterHealthResult(cluster_id=CID, health_score=90.0, bottleneck_resource=None, severity=sev)
