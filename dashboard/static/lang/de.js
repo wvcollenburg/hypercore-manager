@@ -1040,6 +1040,8 @@ window.LANG = {
   'media.none_iso': "Keine ISOs, die Sie auf diesem Cluster sehen dürfen.",
   'media.none_disk': "Keine Disk-Images, die Sie auf diesem Cluster sehen dürfen.",
   'media.not_ready': "noch nicht bereit",
+  'media.converting': "wird auf dem Cluster konvertiert…",
+  'media.converting_toast': "{name} ist hochgeladen; der Cluster konvertiert es noch. Es erscheint in der Liste, sobald es fertig ist.",
   'media.bad_name_iso': "Ein ISO-Dateiname endet auf .iso.",
   'media.bad_name_disk': "Ein Disk-Image ist eine .qcow2-, .vmdk-, .vhd-, .vhdx-, .img- oder .raw-Datei.",
   'media.unavailable': "Die Medien dieses Clusters können gerade nicht gelesen werden.",

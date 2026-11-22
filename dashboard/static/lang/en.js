@@ -1041,6 +1041,8 @@ window.LANG = {
   'media.none_iso': "No ISOs you may see on this cluster.",
   'media.none_disk': "No disk images you may see on this cluster.",
   'media.not_ready': "not ready yet",
+  'media.converting': "converting on the cluster…",
+  'media.converting_toast': "{name} is uploaded; the cluster is still converting it. It appears in the list when done.",
   'media.bad_name_iso': "An ISO file name ends in .iso.",
   'media.bad_name_disk': "A disk image is a .qcow2, .vmdk, .vhd, .vhdx, .img or .raw file.",
   'media.unavailable': "The media of this cluster cannot be read right now.",

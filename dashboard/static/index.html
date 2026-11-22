@@ -3524,7 +3524,7 @@ async function loadMedia() {
         <th class="nosort">${t('media.col_owner')}</th><th class="nosort">${t('media.col_given')}</th>
         ${kind === 'iso' ? `<th class="nosort">${t('media.col_in_use')}</th>` : ''}<th class="nosort"></th></tr></thead><tbody>
       ${list.map(m => `<tr>
-        <td><div class="vm-name">${_clEsc(m.name)}</div>${m.kind === 'iso' && m.ready === false ? `<div class="vm-sub">${t('media.not_ready')}</div>` : ''}</td>
+        <td><div class="vm-name">${_clEsc(m.name)}</div>${m.kind === 'iso' && m.ready === false ? `<div class="vm-sub">${t('media.not_ready')}</div>` : ''}${m.converting ? `<div class="vm-sub">${t('media.converting')}</div>` : ''}</td>
         <td class="num mono">${m.size ? formatBytes(m.size) : '—'}</td>
         <td>${owner(m.owner)}</td><td>${given(m)}</td>
         ${kind === 'iso' ? `<td>${(m.in_use || []).map(_clEsc).join(', ') || '—'}</td>` : ''}
@@ -3589,6 +3589,7 @@ function _mediaUpload(kind, file) {
     if (xhr.status === 401) { location.href = '/login'; return; }
     let d = {};
     try { d = JSON.parse(xhr.responseText || '{}'); } catch (_) {}
+    if (xhr.status === 202) { delete _mediaUploads[id]; row.remove(); showToast(t('media.converting_toast', {name: file.name}), 'ok'); if (cid === currentCluster) loadMedia(); return; }
     done(xhr.status === 201, d.error || `HTTP ${xhr.status}`);
   };
   xhr.onerror = () => done(false, t('media.network_error'));
@@ -3610,7 +3611,7 @@ async function mediaGive(kind, uuid) {
   hcmModal({
     title: _esc(t('media.give_title', {name: m.name})), width: 'min(480px, 96vw)',
     body: `<div class="um-hint" style="margin-bottom:10px">${_esc(t('media.give_hint'))}</div><div class="media-give">
-      ${targets.map((x, i) => `<label><input type="checkbox" data-i="${i}" ${x.assigned ? 'checked' : ''}>${_esc(x.label || x.id)}</label>`).join('')}</div>`,
+      ${targets.map((x, i) => `<label><input type="checkbox" data-i="${i}" ${x.assigned ? 'checked' : ''}>${_esc(x.label || x.id)}${x.level ? ` <span class="um-hint">(${_esc(t('acc.level_' + x.level))})</span>` : ''}</label>`).join('')}</div>`,
     buttons: [
       {label: t('media.cancel'), onClick: h => h.close()},
       {label: t('acc.save'), kind: 'primary', onClick: async h => {

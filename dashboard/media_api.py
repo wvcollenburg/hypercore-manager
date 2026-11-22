@@ -34,9 +34,25 @@ def register(app, requires, h):
                 out[(r['kind'], r['hc_uuid'])] = r
             return out
 
+    PENDING = 'pending:'          # hc_uuid of a disk image HyperCore is still converting (it gets a new uuid then)
+
+    def adopt(cid: str, disks: list) -> None:
+        """A converted disk image takes over the row its upload left under its file name."""
+        known = rows(cid)
+        for d in disks:
+            if d.get('converting') or ('disk', d['uuid']) in known or ('disk', PENDING + d['name']) not in known:
+                continue
+            with h.pg() as conn, conn.cursor() as cur:
+                cur.execute('UPDATE config.media SET hc_uuid = %s WHERE cluster_id = %s AND kind = %s AND hc_uuid = %s',
+                            (d['uuid'], cid, 'disk', PENDING + d['name']))
+
     def prune(cid: str, present: set) -> None:
-        """Rows of media that are gone from the cluster (deleted in HyperCore's own UI) go too."""
-        gone = [(k, u) for (k, u) in rows(cid) if (k, u) not in present]
+        """Rows of media that are gone from the cluster (deleted in HyperCore's own UI) go too; a row still
+        waiting for its converted image stays a day."""
+        import datetime as _dt
+        now = _dt.datetime.now(_dt.timezone.utc)
+        gone = [(k, u) for (k, u), r in rows(cid).items() if (k, u) not in present
+                and not (u.startswith(PENDING) and r.get('uploaded_at') and now - r['uploaded_at'] < _dt.timedelta(days=1))]
         if gone:
             with h.pg() as conn, conn.cursor() as cur:
                 for k, u in gone:
@@ -77,7 +93,7 @@ def register(app, requires, h):
         out = dict(m, kind=kind, owner={'id': it['owner'], 'label': label(acc, it['owner'])},
                    assigned=[{'id': n, 'label': label(acc, n)} for n in it['assigned'] if n in acc.tree.parent],
                    can_manage=manage,
-                   assign_targets=[{'id': n, 'label': label(acc, n), 'assigned': n in it['assigned']}
+                   assign_targets=[{'id': n, 'label': label(acc, n), 'level': acc.tree.level.get(n), 'assigned': n in it['assigned']}
                                    for n in media.assign_targets(acc, it, cid)],
                    uploaded_by=(row or {}).get('uploaded_by') if manage else None,
                    uploaded_at=str((row or {}).get('uploaded_at') or '') or None)
@@ -96,13 +112,27 @@ def register(app, requires, h):
         st, data = listed(cid)
         if st != 200:
             return jsonify(data or {'error': 'backup service unavailable'}), st if st >= 400 else 502
+        adopt(cid, data.get('disks') or [])
         present = {('iso', m['uuid']) for m in data.get('isos') or []} | {('disk', m['uuid']) for m in data.get('disks') or []}
         prune(cid, present)
         known = rows(cid)
+
+        def row_of(kind, m):
+            if kind == 'disk' and m.get('converting'):
+                return known.get(('disk', PENDING + m['name']))        # its owner, from the upload
+            return known.get((kind, m['uuid']))
         out = {}
         for kind, key in (('iso', 'isos'), ('disk', 'disks')):
-            out[key] = [view(acc, cid, kind, m, known.get((kind, m['uuid']))) for m in data.get(key) or []
-                        if media.may_see(acc, item_of(known.get((kind, m['uuid']))), cid)]
+            items = []
+            for m in data.get(key) or []:
+                row = row_of(kind, m)
+                if not media.may_see(acc, item_of(row), cid):
+                    continue
+                v = view(acc, cid, kind, m, row)
+                if m.get('converting'):
+                    v['assign_targets'] = []        # given away once converted (it gets a new uuid); deletable meanwhile
+                items.append(v)
+            out[key] = items
         ok, owner = media.upload_owner(acc, cid)
         out['can_upload'] = ok
         out['upload_owner'] = {'id': owner, 'label': label(acc, owner)} if ok else None
@@ -132,9 +162,12 @@ def register(app, requires, h):
         st, data = backup('PUT', 'media/upload', {'cluster': cid, 'kind': kind, 'name': name}, data=request.stream,
                           headers={'Content-Length': str(size), 'Content-Type': 'application/octet-stream'},
                           timeout=4 * 3600)
-        if st != 201:
+        if st not in (201, 202):
             return jsonify(data or {'error': 'upload failed'}), st if st >= 400 else 502
         user = session.get('username')
+        if st == 202:
+            # still converting on the cluster: the owner is kept under the file name until the image shows up
+            data['uuid'] = PENDING + name
         with h.pg() as conn, conn.cursor() as cur:
             cur.execute('INSERT INTO config.media (cluster_id, kind, hc_uuid, name, owner_node, uploaded_by) '
                         'VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (cluster_id, kind, hc_uuid) DO UPDATE '
@@ -142,7 +175,8 @@ def register(app, requires, h):
                         'assigned_nodes = \'{}\', uploaded_at = NOW()',
                         (cid, kind, data['uuid'], name, owner, user))
         h.audit('media.upload', name, node_id=owner, detail={'cluster_id': cid, 'kind': kind, 'size': size})
-        return jsonify({'ok': True, 'uuid': data['uuid'], 'name': name, 'owner': {'id': owner, 'label': label(acc, owner)}}), 201
+        return jsonify({'ok': True, 'uuid': data['uuid'], 'name': name, 'converting': st == 202,
+                        'owner': {'id': owner, 'label': label(acc, owner)}}), st
 
     def find(cid: str, kind: str, uuid: str):
         """(listing entry, db row) of one item on the cluster, or (None, None)."""
@@ -150,7 +184,10 @@ def register(app, requires, h):
         if st != 200:
             return None, None
         m = next((x for x in data.get('isos' if kind == 'iso' else 'disks') or [] if x.get('uuid') == uuid), None)
-        return m, rows(cid).get((kind, uuid)) if m else None
+        if not m:
+            return None, None
+        key = ('disk', PENDING + m['name']) if kind == 'disk' and m.get('converting') else (kind, uuid)
+        return m, rows(cid).get(key)
 
     @app.route('/api/media/assign', methods=['POST'])
     @requires('media.manage', 'any')

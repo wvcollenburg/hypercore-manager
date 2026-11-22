@@ -26,7 +26,7 @@ import recurrence
 import scheduler
 import verifier
 import vmedit
-from hypercore import HyperCoreError
+from hypercore import HyperCoreError, LengthStream
 from proxy_client import ProxyError, certificate_fingerprint, normalise_fingerprint
 
 log = logging.getLogger('backup.api')
@@ -349,6 +349,8 @@ def vmedit_cancel(change_id):
 # ISOs and uploaded disk images (VirtualDisk) on a cluster. The dashboard decides who sees and manages which
 # (dashboard/media.py, config.media); this service only talks to HyperCore.
 _MEDIA_KINDS = ('iso', 'disk')
+_CONVERTING = __import__('re').compile(r'^uploading-')
+_CONVERT_WAIT_SECONDS = 15 * 60          # how long an upload waits for HyperCore's conversion before it answers 202
 
 
 def _media_list(hc) -> dict:
@@ -363,8 +365,11 @@ def _media_list(hc) -> dict:
     return {
         'isos': [{'uuid': i.get('uuid'), 'name': i.get('name'), 'size': i.get('size'), 'ready': i.get('readyForInsert'),
                   'in_use': sorted(used.get(str(i.get('path') or ''), []))} for i in isos],
-        'disks': [{'uuid': d.get('uuid'), 'name': d.get('name'), 'size': d.get('capacityBytes') or d.get('capacity')}
-                  for d in disks],
+        # a qcow2 / vmdk / vhd(x) upload is converted to HyperCore's own format first: until then it is listed as
+        # 'uploading-<name>' (and gets a new uuid when it is done)
+        'disks': [{'uuid': d.get('uuid'), 'name': _CONVERTING.sub('', d.get('name') or ''),
+                   'converting': bool(_CONVERTING.match(d.get('name') or '')),
+                   'size': d.get('capacityBytes') or d.get('capacity')} for d in disks],
     }
 
 
@@ -422,25 +427,44 @@ def media_upload():
                     log.warning('could not remove the half-uploaded ISO %s', iso_uuid)
                 raise
             return jsonify({'ok': True, 'uuid': iso_uuid, 'name': name, 'size': size}), 201
-        from hypercore import LengthStream
-        import requests
-        try:
-            r = hc.http().put(f'{hc.base}/VirtualDisk/upload', params={'filename': name, 'filesize': size},
-                              data=LengthStream(_body_chunks(size), size), timeout=(900, 7200),
-                              headers={'Content-Type': 'application/octet-stream'})
-        except requests.exceptions.RequestException as e:
-            raise HyperCoreError(f'disk image upload failed: {e}') from e
-        if not r.ok:
-            raise HyperCoreError(f'disk image upload failed ({r.status_code}): {r.text[:200]}')
-        tag = (r.json() or {}).get('taskTag') if r.content else None
-        if tag:
-            incremental.wait_task(hc, tag, 'disk image upload', 3600)
-        img = next((d for d in _media_list(hc)['disks'] if d.get('name') == name), None)
-        if not img:
-            return _err('the upload finished but the disk image is not listed on the cluster', 502)
-        return jsonify({'ok': True, 'uuid': img['uuid'], 'name': name, 'size': img.get('size') or size}), 201
+        return _disk_upload(hc, name, size)
     except (HyperCoreError, incremental.IncrementalError) as e:
         return _err(str(e), 502)
+
+
+def _disk_upload(hc, name: str, size: int):
+    """A disk image into the cluster. HyperCore converts a qcow2, vmdk or vhd(x) to its own format after receiving
+    it: while it does, the image is listed as 'uploading-<name>', and the upload request itself may end in a 502
+    from HyperCore's nginx or no answer at all although the image arrived (seen on 9.8, 2026-11-22). So after the
+    body is sent, a 502/504 or a read timeout is not a failure as long as the image is there; then wait for the
+    converted image, which has a new uuid. 201 with that uuid, or 202 {converting} when it takes longer."""
+    import time
+    import requests
+    try:
+        r = hc.http().put(f'{hc.base}/VirtualDisk/upload', params={'filename': name, 'filesize': size},
+                          data=LengthStream(_body_chunks(size), size), timeout=(900, 120),
+                          headers={'Content-Type': 'application/octet-stream'})
+        answered = r.status_code
+        if not r.ok and r.status_code not in (502, 504):
+            raise HyperCoreError(f'disk image upload failed ({r.status_code}): {r.text[:200]}')
+    except requests.exceptions.ReadTimeout:
+        answered = None                                  # the body went through; the answer did not come
+    except requests.exceptions.RequestException as e:
+        raise HyperCoreError(f'disk image upload failed: {e}') from e
+    deadline = time.monotonic() + _CONVERT_WAIT_SECONDS
+    seen_converting = False
+    while True:
+        mine = [d for d in _media_list(hc)['disks'] if d.get('name') == name]
+        done = next((d for d in mine if not d.get('converting')), None)
+        if done:
+            return jsonify({'ok': True, 'uuid': done['uuid'], 'name': name, 'size': done.get('size') or size}), 201
+        seen_converting = seen_converting or bool(mine)
+        if not seen_converting and answered not in (200, 201):
+            raise HyperCoreError(f'disk image upload failed: HyperCore answered {answered or "nothing"} and the image is not on the cluster')
+        if time.monotonic() > deadline:
+            return jsonify({'ok': True, 'converting': True, 'name': name,
+                            'message': 'the cluster is still converting the image; it appears in the list when done'}), 202
+        time.sleep(5)
 
 
 @app.delete('/api/v1/media')

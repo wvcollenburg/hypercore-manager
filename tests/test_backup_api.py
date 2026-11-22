@@ -271,3 +271,56 @@ def test_a_failed_upload_leaves_no_half_iso_behind(client, monkeypatch):
 def test_an_iso_in_a_cdrom_is_not_deleted(client, media_hc):
     r = client.delete(f'/api/v1/media?cluster={CID}&kind=iso&uuid=11111111-1111-4111-8111-111111111111')
     assert r.status_code == 409 and 'web01' in r.get_json()['error'] and media_hc.deleted == []
+
+
+class _ConvertingHC(_MediaHC):
+    """HyperCore converting a qcow2: the upload answers 502 (its nginx gives up) while the image is listed as
+    'uploading-<name>', then appears under its own name with a new uuid (seen on 9.8, 2026-11-22)."""
+    def __init__(self, polls_until_done=2, answer=502, arrives=True):
+        super().__init__()
+        self.polls, self.answer, self.arrives, self.disks = polls_until_done, answer, arrives, []
+    def _request(self, method, path, **kw):
+        if path == '/VirtualDisk':
+            if self.disks and self.disks[0]['name'].startswith('uploading-'):
+                self.polls -= 1
+                if self.polls <= 0:
+                    self.disks = [{'uuid': 'new-uuid-after-convert', 'name': self.disks[0]['name'][len('uploading-'):], 'capacityBytes': 64 << 20}]
+            return self.disks
+        return super()._request(method, path, **kw)
+    base = 'https://cluster/rest/v1'
+    def http(self):
+        hc = self
+        class _S:
+            def put(self, url, params=None, data=None, timeout=None, headers=None):
+                data.read(-1)
+                if hc.arrives:
+                    hc.disks = [{'uuid': 'temp-uuid', 'name': 'uploading-' + params['filename'], 'capacityBytes': 1}]
+                return types.SimpleNamespace(status_code=hc.answer, ok=hc.answer < 400, text='<html>502 Bad Gateway</html>', content=b'')
+        return _S()
+
+
+def test_a_disk_image_hypercore_converts_is_waited_for_and_gets_its_new_uuid(client, monkeypatch):
+    hc = _ConvertingHC()
+    monkeypatch.setattr(api.jobs, 'client_for', lambda cid: hc)
+    monkeypatch.setattr('time.sleep', lambda s: None)
+    r = client.put(f'/api/v1/media/upload?cluster={CID}&kind=disk&name=app.qcow2', data=b'q' * 100)
+    assert r.status_code == 201 and r.get_json()['uuid'] == 'new-uuid-after-convert', r.get_json()
+
+
+def test_a_502_with_no_image_on_the_cluster_is_a_failure(client, monkeypatch):
+    hc = _ConvertingHC(arrives=False)
+    monkeypatch.setattr(api.jobs, 'client_for', lambda cid: hc)
+    monkeypatch.setattr('time.sleep', lambda s: None)
+    r = client.put(f'/api/v1/media/upload?cluster={CID}&kind=disk&name=app.qcow2', data=b'q' * 100)
+    assert r.status_code == 502
+
+
+def test_a_long_conversion_answers_202(client, monkeypatch):
+    hc = _ConvertingHC(polls_until_done=10 ** 6)
+    monkeypatch.setattr(api.jobs, 'client_for', lambda cid: hc)
+    monkeypatch.setattr('time.sleep', lambda s: None)
+    monkeypatch.setattr(api, '_CONVERT_WAIT_SECONDS', -1)
+    r = client.put(f'/api/v1/media/upload?cluster={CID}&kind=disk&name=app.qcow2', data=b'q' * 100)
+    assert r.status_code == 202 and r.get_json()['converting'] is True
+    listed = client.get(f'/api/v1/media?cluster={CID}').get_json()['disks']
+    assert listed == [{'uuid': 'temp-uuid', 'name': 'app.qcow2', 'converting': True, 'size': 1}]

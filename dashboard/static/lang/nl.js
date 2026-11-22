@@ -1040,6 +1040,8 @@ window.LANG = {
   'media.none_iso': "Geen ISO's die je op dit cluster mag zien.",
   'media.none_disk': "Geen schijfimages die je op dit cluster mag zien.",
   'media.not_ready': "nog niet klaar",
+  'media.converting': "wordt op het cluster geconverteerd…",
+  'media.converting_toast': "{name} is geüpload; het cluster converteert het nog. Het verschijnt in de lijst als het klaar is.",
   'media.bad_name_iso': "Een ISO-bestandsnaam eindigt op .iso.",
   'media.bad_name_disk': "Een schijfimage is een .qcow2-, .vmdk-, .vhd-, .vhdx-, .img- of .raw-bestand.",
   'media.unavailable': "De media van dit cluster kunnen nu niet worden gelezen.",
