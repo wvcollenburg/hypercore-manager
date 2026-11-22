@@ -974,6 +974,8 @@ window.LANG = {
   'proxies.deploy_confirm': "Créer la VM proxy '{name}' sur le cluster ?",
   'proxies.deploy_started': "Déploiement démarré ; progression ci-dessous.",
   'proxies.deploy_go': "Déployer",
+  'proxies.deployments': "Déploiements",
+  'proxies.added_unreachable': "Proxy enregistré, mais il ne répond pas encore : voir son état dans la liste.",
   'proxies.deploy_clear': "Effacer les terminés",
   'proxies.deploy_clear_hint': "Supprime les lignes terminées de ce journal. Les lignes de plus de 30 jours disparaissent d'elles-mêmes, sauf la dernière réussie de chaque proxy enregistré.",
   'proxies.deploy_cleared': "{n} ligne(s) terminée(s) supprimée(s).",

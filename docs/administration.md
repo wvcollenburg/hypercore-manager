@@ -336,7 +336,7 @@ never see a URI or a credential.
 
 ### Defining a target
 
-**Settings → Targets → Add target**:
+**Settings → Targets → + Add target** (a dialog; a saved target's **Edit** opens the same one):
 
 | Field | Meaning |
 |---|---|
@@ -350,9 +350,9 @@ is stored in the same Scribe pool as the VMs being backed up: it is a copy, not 
 every MiB written to it is written twice more as that VM's replicas. Use a NAS, a file server
 on other hardware or a share on another site; a share on another HyperCore cluster is fine.
 
-**Probe** (in the add/edit form) connects with the values typed so far and lists the directories
-it finds, before anything is saved. **Test** (on a saved target) does the same with the stored
-credentials. Both run from the backup container, so they prove what the scheduler will see.
+**Test connection** in the dialog connects with the values typed so far and lists the directories
+it finds, before anything is saved. **Test connection** on a saved target's row does the same with the
+stored credentials. Both run from the backup container, so they prove what the scheduler will see.
 
 ### Assigning a target
 
@@ -387,21 +387,22 @@ attaches a read-only clone of the VM's snapshot to the proxy's VM; the proxy rea
 blocks and writes them as a qcow2 chain onto the target. The [installing chapter](manual/08-installing-and-updating.md#the-backup-proxy)
 says what the proxy container needs on its host.
 
-**Settings → Targets → Backup proxies → Register proxy**: pick the cluster, give the proxy a
+**Settings → Targets → Backup proxies → + Register proxy** (a dialog): pick the cluster, give the proxy a
 name, its URL (`http://proxy:8083` for the container in this stack, `https://<ip>:8083` for a
 proxy VM; a self-signed certificate is pinned on registration) and the token from
 `PROXY_API_TOKEN`. On registration the proxy is contacted and its VM on the cluster is detected
 from its MAC addresses; the status column says **VM detected** when that worked. **Test
-connection** repeats the probe. A paused proxy is not used for new runs.
+connection** on the row repeats the probe. The row's **⋯** menu holds **Pause** / **Resume**, **Measure
+throughput**, **Download logs** and **Remove**. A paused proxy is not used for new runs.
 
-**Deploy a proxy VM** (same panel) creates the proxy VM for you: pick the cluster, a name, VLAN,
+**+ Deploy a proxy VM** (same panel, a dialog) creates the proxy VM for you: pick the cluster, a name, VLAN,
 sizes, DHCP or a static address, and optionally a **Test VLAN** (a second NIC on an isolated VLAN, for the
 network checks of test restores; left unconfigured, the proxy brings it up only during a check). Proxies
 deployed from 1.7.0 on run their container with host networking so they can use that NIC; an older proxy
 shows *network tests: redeploy* in the proxies table. The backup service uploads an Ubuntu cloud image to the
 cluster once, creates the VM with a cloud-init document that installs Docker and the proxy
-container, waits for its address and registers it with a freshly generated token. The list below
-the form follows the deployment; a finished one shows up in the proxies table with its VM
+container, waits for its address and registers it with a freshly generated token. The **Deployments** list
+below the proxies follows the deployment; a finished one shows up in the proxies table with its VM
 detected. The installing chapter describes what the VM needs to reach and what to do when a deployment
 fails halfway.
 
@@ -412,7 +413,7 @@ sweep repeats this for every registered proxy VM, so proxies deployed by earlier
 cleaned up too. A proxy VM built by hand that was given its token through cloud-init should get
 the same treatment: eject the cloud-init CD-ROM once the container runs.
 
-**Measure throughput** (per proxy) writes 512 MiB onto the cluster's backup target through each
+**Measure throughput** (a proxy's **⋯** menu) writes 512 MiB onto the cluster's backup target through each
 path a backup can use and reports MiB/s per mode: `plain` (a flat file, the share's ceiling),
 `nbd` (a qcow2 image through qemu-nbd with the proxy's current settings, what a backup does),
 `nbd_writeback` (strict qcow2, every flush honoured), `nbd_lazy` (qcow2 lazy refcounts),
@@ -467,7 +468,7 @@ no new points, retention keeps applying, restores stay possible.
 ### Restoring a VM
 
 On the **Restore points** sub-tab, open a chain's points and press **Restore** on the point you
-want. The form asks for the name of the restored VM, whether to keep the original MAC addresses
+want. A dialog asks for the name of the restored VM, whether to keep the original MAC addresses
 (by default the copy gets new ones; the original addresses are set only on request, and
 HyperCore refuses to start a VM whose MAC address is in use by a running VM), whether to
 connect the network interfaces, and whether to start the VM. A restore whose start was refused
@@ -485,7 +486,7 @@ chain up to the chosen point and compares it with the checksums written at backu
 anything is created on the cluster. A mismatch stops the restore with the failing files named
 and marks the point corrupt; no VM is created. The check reads the chain once at the share's
 read speed (a 50 GB chain takes about 15–20 minutes on a gigabit share), which is why it can be
-skipped: the form shows when the point was last verified, and skipping is reasonable right after
+skipped: the dialog shows when the point was last verified, and skipping is reasonable right after
 a recent clean verification when time matters. The entry under **Runs** records whether the chain was
 verified or the check was skipped.
 
@@ -505,12 +506,14 @@ modified by a restore, and a restore never touches the original VM.
 **Files** on a restore point mounts that point read-only on the backup proxy and opens a file
 browser: the filesystems of the VM (EFI partition, boot, the root volume including LVM), then
 directories and files with size and date. **Download** fetches one file; tick several files or
-directories and **Download selection as zip** streams them as one archive. **Close** unmounts
-the point; an idle mount is closed after 30 minutes. The backup is never modified: journals,
+directories and **Download selection as zip** streams them as one archive. Closing the window
+unmounts the point; an idle mount is closed after 30 minutes. The backup is never modified: journals,
 NTFS logs and LVM metadata are replayed on a copy-on-write layer that is discarded on close.
 
 Supported filesystems: ext2/3/4, xfs, btrfs, FAT, exFAT, NTFS, and LVM volumes on any of them.
-Encrypted volumes (LUKS, BitLocker) and Windows dynamic disks are not browsable.
+Encrypted volumes (BitLocker, LUKS) open with a key typed in the browser (the BitLocker recovery
+password, or the LUKS passphrase) for that browse only; the key is never stored or logged. Windows
+dynamic disks are not browsable.
 
 Files reach the guest through the guest's own means (download, copy, or an ISO attached to the
 VM); HyperCore Manager never writes into a running VM through the hypervisor.
@@ -527,14 +530,18 @@ Runs → Restores; that empties the drive and deletes the image from the cluster
 
 On the **Backup** tab for a cluster they can reach:
 
-- **Plans.** Pick a VM, copies to keep, daily run time (in `TZ`) and optional compression. The
-  destination is shown as `Target/Folder/vm_timestamp` and follows from the folder; it cannot be
-  typed in. **Run now** starts a backup immediately.
-- **VMs.** Every VM on the cluster with its plan state.
+- **Schedules.** Backup and export schedules for many VMs at once, the folder's verification
+  settings and its test plans (see the user manual's Backup chapter).
+- **Plans.** One row per VM plan: copies to keep, daily run time (in the cluster's time zone) and
+  the last and next run. The destination is shown as `Target/Folder/vm_timestamp` and follows from
+  the folder; it cannot be typed in. **Run now** starts a backup immediately.
+- **VMs.** Every VM on the cluster with its plan state; **Add backup plan** gives one VM a plan of its own.
+- **Restore points.** Chains and their points: restore a VM (also onto another cluster of the
+  folder), browse files, verify.
 - **Import.** Browse the folder's directory on the target, pick a copy, optionally rename, and
   import into the selected cluster. A VM name that already exists is refused.
-- **Runs.** Backup and import history with live progress from HyperCore. A run interrupted by a
-  container restart is re-attached by its task tag.
+- **Runs.** Backups, test restores, restores, imports and verifications, with a progress bar while
+  they run. A run interrupted by a container restart is re-attached by its task tag.
 
 Retention runs after each successful backup: copies of that VM beyond the retention count are
 deleted, oldest first; other VMs' directories are never touched. Deleting a plan never deletes

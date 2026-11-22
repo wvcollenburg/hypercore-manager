@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.7.1]
+
+### Changed
+- **Edit forms open in dialogs.** A page shows state; adding or changing something opens a dialog over it:
+  backup targets (**+ Add target**, **Edit**), proxies (**+ Register proxy**, **+ Deploy a proxy VM**; Pause,
+  Measure throughput, Download logs and Remove moved into the row's **⋯** menu), a VM's **Add backup plan**,
+  **Restore** on a restore point (over the points window, which closes once the restore starts), the schedule
+  editor (with **Preview** in the dialog), the verification settings and the test plan editor. Escape, ✕ or
+  Cancel closes a dialog without saving. No change in behaviour.
+- Manual and README brought up to date with roles and tenants, VM management, verification, test restores and
+  the dialogs; new screenshots of Settings → Targets, the tenant tree and the restore dialog.
+
 ## [1.7.0]
 
 ### Added

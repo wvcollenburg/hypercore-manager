@@ -1,9 +1,13 @@
 # Settings
 
-Settings is for administrators. The four panels are described in full in the
+Settings has five panels: **Tunables**, **Access**, **Targets**, **Console** and **Mail**. Each shows for
+whoever holds a permission behind it (Mail only for administrators of the whole installation); clusters
+are registered in Access → Tenants. The panels are described in full in the
 [administration guide](../administration.md); this chapter is the map.
 
 ## Clusters
+
+![Tenants](img/settings-tenants.png)
 
 Clusters are registered and maintained in the tenant tree (**Access → Tenants**, below): **+ Cluster**
 in a folder's cluster column for whoever may manage clusters there, and the selected cluster's pane
@@ -97,24 +101,27 @@ gets the link to pass on themselves.
 
 ![Targets](img/settings-shares.png)
 
-Where backups go: SMB or NFS shares with their credentials, probed before they are saved. A
-target is assigned to a folder; every cluster in the folder backs up to it, each under its own
-tenant folder on the share. A target must live outside the cluster it protects: a share served
-by a VM on the same cluster is a copy, not a backup.
+Where backups go: SMB or NFS shares with their credentials. **+ Add target** and a target's **Edit**
+open a dialog; **Test connection** in the dialog tries the values typed so far before anything is
+saved, and on a saved target's row it tries the stored credentials. A target is assigned to a folder;
+every cluster in the folder backs up to it, each under its own tenant folder on the share. A target
+must live outside the cluster it protects: a share served by a VM on the same cluster is a copy, not
+a backup.
 
-Below the targets, **Backup proxies**: the proxies registered per cluster with their state and
-version, **Test connection**, **Measure throughput**, which writes a few hundred megabytes onto
-the cluster's target through each path a backup can use and reports the rates, and **Deploy a
-proxy VM**, which creates the proxy VM for you from a cloud image and pushes this installation's
-proxy image onto it. The version column compares each proxy with the installation; a proxy that
-lags shows **Update**, which pushes the current image and restarts the proxy on it (the backup
-service does this on its own after a stack update, for every idle proxy). The deployment log under
-the form keeps its finished rows for 30 days, except the last successful row of each registered
-proxy; **Clear finished** empties it right away. **Remove** takes the
-registration away and, for a proxy with a VM behind it, asks whether that VM goes too: the
-VM is then powered off and deleted from the cluster. Only a VM the dashboard deployed is
-deleted (it carries the `hcm-proxy` tag); a proxy container you put on a VM of your own is
-left for you to clean up.
+Below the targets, **Backup proxies**: the proxies registered per cluster with their state, version
+and whether they can run the network checks of test restores. **+ Register proxy** adds a proxy you
+run yourself; **+ Deploy a proxy VM** creates the proxy VM for you from a cloud image and pushes this
+installation's proxy image onto it (optionally with a **Test VLAN** NIC for network tests). Each row has
+**Test connection** and a **⋯** menu with **Pause** / **Resume**, **Measure throughput** (writes a few
+hundred megabytes onto the cluster's target through each path a backup can use and reports the rates),
+**Download logs** and **Remove**. The version column compares each proxy with the installation; a proxy
+that lags shows **Update**, which pushes the current image and restarts the proxy on it (the backup
+service does this on its own after a stack update, for every idle proxy). The **Deployments** list below
+the proxies follows each deployment and keeps its finished rows for 30 days, except the last successful
+row of each registered proxy; **Clear finished** empties it right away. **Remove** takes the registration
+away and, for a proxy with a VM behind it, asks whether that VM goes too: the VM is then powered off and
+deleted from the cluster. Only a VM the dashboard deployed is deleted (it carries the `hcm-proxy` tag); a
+proxy container you put on a VM of your own is left for you to clean up.
 
 **Download logs** fetches a zip from a proxy for troubleshooting, without a login on its VM: the
 proxy's own log, its recent jobs and open file-level mounts, and the state of the system it runs

@@ -8,11 +8,11 @@
 
 HyperCore Manager is a containerized stack that automatically distributes virtual machine workloads across Scale Computing HyperCore cluster nodes. It monitors resource usage in real time, enforces VM placement rules, and — optionally — uses machine learning to predict and prevent future overloads before they happen.
 
-One installation manages any number of HyperCore clusters. Clusters are registered in the dashboard, grouped into folders, and shown to each user according to the folders they belong to, so a service provider can run one stack for all its customers.
+One installation manages any number of HyperCore clusters. Clusters are registered in the dashboard in a tenant tree (MSP › customer › folder), and every user sees and does exactly what their roles allow where they were assigned, so a service provider can run one stack for all its customers.
 
 ![Infraviewer: nodes and drives of a cluster](docs/manual/img/infraviewer-nodes.png)
 
-The optional **Foresight** module extends the platform with long-range capacity intelligence: multi-horizon forecasting, VM right-sizing recommendations, cluster health scoring, scenario modelling. The optional **Backup** module schedules VM backups to SMB or NFS targets, with retention and import back into any registered cluster.
+The optional **Foresight** module extends the platform with long-range capacity intelligence: multi-horizon forecasting, VM right-sizing recommendations, cluster health scoring, scenario modelling. The **Backup** module makes incremental VM backups through a small proxy VM on each cluster onto SMB or NFS targets, verifies them on a schedule, proves they boot with automatic test restores, and restores whole VMs (also onto another cluster, such as a DR site) or single files.
 
 ---
 
@@ -26,13 +26,15 @@ The optional **Foresight** module extends the platform with long-range capacity 
   - `node_<suffix>` — Pin a VM to a specific node (e.g. `node_241` pins to the node whose IP ends in `.241`)
   - `anti_<vm_name>` — Prevent two VMs from sharing the same node (e.g. `anti_dc02` on `dc01`)
 - **Clusters configured in the tool** — Register one or more HyperCore clusters from the dashboard, in a folder of the tenant tree (Settings → Access → Tenants), by an installation, MSP or customer admin. Credentials are stored encrypted in PostgreSQL; nothing cluster-specific lives in `.env`. Every view, setting and Foresight analysis is per cluster, and the same physical cluster registered twice is detected and only balanced once.
-- **Folders and users** — Clusters live in folders in the sidebar rail (collapsible, colour-coded, searchable by folder, cluster name or address). Administrators see everything; other users see the folders they are members of. Settings, Modules and share management are admin-only; everyone has an Account page with password and two-factor settings.
+- **Tenants, roles and access** — Clusters live in folders under customers and MSPs, shown in the sidebar rail (collapsible, colour-coded, searchable by folder, cluster name or address). Access is a role on a place: the installation, an MSP, a customer, a folder, a cluster, the VMs with a tag, or one VM. Five built-in roles (Admin, Engineer, App Manager, Backup Manager, Viewer) can be copied into your own; groups, invitations by mail, an audit log, and one-time guest console access for someone outside. Nobody hands out rights they do not hold.
+- **VM management and console** — Edit a VM's settings and power state, create VMs (also from a cloud image with cloud-init), take snapshots and clones, now or at a scheduled time, with the change history kept. Open a VM's console in the browser through HCM (no HyperCore session handed out), with every session logged. An optional check takes console screenshots and warns when a console was left logged in.
+- **Cluster alerts** — HyperCore's own conditions (failed drive, node low on memory), terminated updates, open console sessions and backup problems as badges on the cluster card, with mute and history.
 - **Live Configuration** — All tunable settings are stored in a shared PostgreSQL database. Change any parameter through the dashboard UI at runtime — no container restarts required.
 - **Built-in Dashboard** — Web-based UI (port 5000) showing node/VM performance, drive health, VSD I/O, migration event log, balancer settings, and the full Foresight interface. Fully offline-capable for dark-site deployments.
 - **Multi-language UI** — English, Dutch, French, and German, selectable from the dashboard header.
-- **User Authentication** — Username/password login with optional per-user TOTP (one-time password) two-factor. Auth can be disabled for local/dev use by leaving the dashboard credentials blank.
+- **User Authentication** — Accounts are email addresses, invited by mail; password reset and address change by mail; optional per-user TOTP two-factor. Auth can be disabled for local/dev use by leaving the dashboard credentials blank.
 - **In-app Updater** — Detects new tagged releases on origin and applies them in place with one click; database migrations ship and apply automatically with the release that needs them.
-- **Backup** — Incremental VM backups through a backup proxy on the cluster: HyperCore's changed-block tracking tells the proxy which blocks changed, only those are read (no export rate limit) and written as qcow2 chains onto an SMB or NFS target, with a fresh full every N runs and retention by merge. Native HyperCore export remains available as a plan mode. Administrators define targets and proxies once and assign targets to folders; users create plans, browse restore points and run imports without ever seeing a path or a credential.
+- **Backup** — Incremental VM backups through a backup proxy on the cluster: HyperCore's changed-block tracking tells the proxy which blocks changed, only those are read (no export rate limit) and written as qcow2 chains onto an SMB or NFS target, with real or synthetic fulls and retention by merge. Schedules learn each VM's duration and plan the night to finish on time. Every restore point is re-verified against its checksums once per interval (around the clock on a DR cluster), and test restores boot the newest backups as temporary VMs, optionally with network checks on an isolated test VLAN. Restores bring back a whole VM (vTPM and NVRAM included, so BitLocker unseals) on its own or another cluster of the folder, or single files, also from BitLocker and LUKS volumes. Failures mail the closest administrator. Native HyperCore export remains available as a plan mode. Targets and proxies are defined once and assigned to folders; everyone else works with schedules and restore points without seeing a path or a credential.
 - **Metrics Collection** — Comprehensive HyperCore telemetry (node performance, VM stats, drive health, VSD I/O, replication, cluster conditions) stored in InfluxDB with automatic downsampling.
 
 ### Foresight
@@ -85,10 +87,11 @@ so clusters can be added, disabled or removed independently.
 | **Balancer**   | Decision engine — affinity, reactive, and predictive modes               |
 | **InfluxDB**   | Time-series metrics storage with 1-year detailed + 5-year long-term retention |
 | **PostgreSQL** | Config store and Foresight conclusions database                      |
-| **Dashboard**  | Web UI: cluster rail, monitoring, live configuration, users and folders, Foresight, Backup |
+| **Dashboard**  | Web UI: cluster rail, monitoring, live configuration, access and tenants, VM management, Foresight, Backup, mail |
 | **Sentinel**   | Foresight capacity analysis, forecasting, and REST API               |
-| **Backup**     | Backup scheduler and REST API: plans, restore points, restores, imports |
-| **Proxy**      | Backup proxy: reads snapshot clones, writes backup chains (privileged) |
+| **Backup**     | Backup scheduler and REST API: schedules, plans, restore points, restores, verification, test restores, imports, proxy deployment |
+| **Console**    | VM console relay for the browser, open-session check and boot checks (screen recognition) |
+| **Proxy**      | Backup proxy: reads snapshot clones, writes backup chains, verifies, mounts points for file recovery, runs network checks (privileged; one per cluster, usually a small VM) |
 
 ---
 
@@ -239,18 +242,18 @@ Affinity rules take priority over all other engines. A VM with a `node_` tag wil
 
 The dashboard is a single-page application served on port 5000. The UI is available in **English, Dutch, French, and German** — pick from the language selector in the header. The currently running version is shown in a small footer at the bottom-right of every page.
 
-The left-hand **cluster rail** lists folders and clusters (collapsible, colour-coded, with a search box that matches folder names, cluster names and addresses). The selected cluster drives every tab; breadcrumbs in the header show where you are. The rail footer holds Modules and Settings for administrators and the Account page for everyone.
+The left-hand **cluster rail** lists folders and clusters (collapsible, colour-coded, with a search box that matches folder names, cluster names and addresses). The selected cluster drives every tab; breadcrumbs in the header show where you are. Pages show state; adding or changing something opens a dialog. What a user sees depends on their roles: a panel or button they may not use is not shown, and the server checks every call anyway.
 
-| Area | Contents | Who |
-|------|----------|-----|
-| **Infraviewer** | Node CPU/RAM history, drive health and temperature, VM metrics, VSD read/write I/O | everyone (own folders) |
-| **Clusterbalancer** | Migration event log (last 7 days, including moves made outside the balancer when REST v2 is in use), reactive and predictive engine settings | everyone (own folders) |
-| **Foresight** | Capacity forecasts, right-sizing recommendations, cluster health, reports, what-if modelling, live Sentinel tunables | everyone (own folders) |
-| **Backup** | Backup plans, restore points, restores, file recovery and run history for the selected cluster | folder members |
-| **Modules** | Auto-discovered InfluxDB measurements for ad-hoc data exploration | admins |
-| **Settings** | Clusters, Tunables (per cluster / Defaults / all), Users, Targets | admins |
-| **Account** | Own password and TOTP two-factor | everyone |
-| **Manual** | This user manual, served by the dashboard at `/manual` (opens in a new tab; works offline) | everyone |
+| Area | Contents |
+|------|----------|
+| **Infraviewer** | VMs (details, performance, edit, power, snapshots, clones, New VM, console), nodes and drives, VM performance, cluster events |
+| **Clusterbalancer** | Migration event log (last 7 days, including moves made outside the balancer when REST v2 is in use), reactive and predictive engine settings |
+| **Foresight** | Capacity forecasts, right-sizing recommendations, cluster health, reports, what-if modelling, live Sentinel tunables |
+| **Backup** | Schedules, verification, test restores, plans, restore points, restores, file recovery, imports and runs with progress bars |
+| **Modules** | Auto-discovered InfluxDB measurements for ad-hoc data exploration |
+| **Settings** | Tunables (per cluster / Defaults / all), Access (users, groups, roles, tenants and clusters, guest console, audit), Targets and proxies, Console check and log, Mail |
+| **Account** | Own name, address, password and TOTP two-factor |
+| **Manual** | This user manual, served by the dashboard at `/manual` (opens in a new tab; works offline) |
 
 <table>
 <tr>
@@ -259,17 +262,17 @@ The left-hand **cluster rail** lists folders and clusters (collapsible, colour-c
 </tr>
 <tr>
 <td width="50%"><img src="docs/manual/img/backup-points.png" alt="Backup: restore points of a VM"></td>
-<td width="50%"><img src="docs/manual/img/settings-clusters.png" alt="Settings: registered clusters"></td>
+<td width="50%"><img src="docs/manual/img/settings-tenants.png" alt="Settings: the tenant tree with a cluster and who has access"></td>
 </tr>
 </table>
 
 Screenshots were taken on a three-node lab cluster; the [user manual](docs/manual/README.md) has one per panel.
 
-Users have one of two roles. **Administrators** see every cluster and manage clusters, folders,
-users and shares. **Users** see the clusters in the folders they are members of and can operate
-them (settings, backup plans, imports) but cannot manage the installation. Folder menus in the rail
-(the "…" button) move clusters between folders, edit members and assign a backup target. See
-[docs/administration.md](docs/administration.md) for the full walkthrough.
+Access is given as roles on places in the tenant tree (Settings → Access): an MSP admin manages
+their customers, a customer admin their folders, a Backup Manager restores without editing VMs, a
+Viewer only looks. Folder menus in the rail (the "⋯" button) move clusters between folders, open the
+folder's access and assign a backup target. See [docs/administration.md](docs/administration.md) for
+the full walkthrough.
 
 To run without authentication (local/dev), leave `SC_DASHBOARD_USER` blank in `.env`; everyone is then an administrator.
 
@@ -318,8 +321,11 @@ available as a plan mode.
   `nfs://nas.local/export/path`) and their credentials, stored encrypted. A target is assigned to a
   folder from the folder's menu in the rail: one target for everyone, or one per tenant, as you
   prefer. Users never see a path or a password; a location is shown as `Target / Folder / vm`.
-- **Plans.** Per VM: copies to keep, daily run time (in `TZ`), optional qcow2 compression. The
-  destination follows from the cluster's folder. Every run writes to
+- **Schedules.** Back up many VMs of a folder on one timetable: daily, weekly, monthly, hourly or any
+  RRULE, with blackout periods and real or synthetic fulls on chosen days. Each VM's duration is learned
+  and the night is planned to finish before the preferred finish time.
+- **Plans.** Per VM: copies to keep, daily run time (in the cluster's own time zone), optional qcow2
+  compression. The destination follows from the cluster's folder. Export runs write to
   `<target>/<folder name>/<vm-name>_YYYYMMDD-HHMMSS/`: the share mirrors your HyperCore Manager
   folders, so an MSP can set per-tenant permissions on the share and an import can only pick up
   copies from the cluster's own folder. The tenant folder is created over SMB when missing;
@@ -330,11 +336,20 @@ available as a plan mode.
   deleted, oldest first. SMB targets are pruned over the protocol with the stored credentials; for
   NFS, bind-mount the share into the `backup` container and set the prune path on the target.
   Other VMs' folders are never touched.
+- **Verification.** Every restore point is re-read against its checksums once per interval (default
+  weekly), on production proxies only in quiet hours and outside backups, on a DR cluster around the
+  clock. A corrupt point is a critical badge and a mail to the closest administrator.
+- **Test restores.** A test plan per folder restores the newest point of fixed and randomly picked VMs
+  as temporary VMs, checks that they boot (guest agent, or the console showing a login or lock screen)
+  and optionally answer on their ports on an isolated test VLAN, keeps a screenshot and deletes them.
+- **Restores.** A whole VM as a new VM, onto its own cluster or another cluster of the folder, with the
+  chain verified first; or single files from a point mounted read-only on the proxy (zip download or an
+  ISO into a running VM), BitLocker and LUKS volumes included with a key typed in for that browse.
 - **Imports.** Browse the folder's subtree on the target, pick a copy, optionally rename, and
   import into the selected cluster. A name that already exists on the target cluster is refused.
-- **Who may do what.** Members of a folder create plans and run imports for its clusters;
-  administrators manage targets and the folder assignment.
-- **Runs.** Backup and import history with live progress from HyperCore's task API. A run
+- **Who may do what.** Roles: who may back up, restore, restore files, manage schedules, targets or
+  proxies is a permission per place, like everything else.
+- **Runs.** Backups, test restores, restores, imports and verifications with progress bars. A run
   interrupted by a container restart is re-attached by its task tag.
 - **Rights.** The HyperCore account a cluster is registered with needs the HyperCore rights
   Backup, Media Management, VM Create/Edit, VM Delete and VM Power Controls; a read-only account
@@ -460,24 +475,30 @@ carries a `cluster_id` tag.
 │   └── predictive_engine.py         # The Oracle (Prophet forecasting)
 ├── dashboard/
 │   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── config_db.py
+│   ├── app.py                       # Flask API, Sentinel/backup proxying, in-app updater
+│   ├── rbac.py, access_*.py         # roles, tenants, assignments, audit
+│   ├── invite_api.py, account_api.py, guest_api.py, mail_*.py, mailer.py, verify_mail.py
+│   ├── alerts.py                    # cluster condition badges, mutes, history
 │   ├── migrations.py                # DB migration runner (idempotent)
 │   ├── versioning.py                # semver helpers for the updater
-│   ├── user_db.py                   # users, passwords, TOTP
-│   ├── app.py                       # Flask API, Sentinel proxy, in-app updater
 │   └── static/
 │       ├── index.html               # Single-page dashboard
+│       ├── access.js, mail.js       # dialogs, access panels, mail settings
 │       └── lang/                    # English, Dutch, French, German translations
 ├── backup/
 │   ├── Dockerfile
 │   ├── backup.py                    # Entry point — scheduler + REST API (port 8082)
-│   ├── jobs.py                      # Backup/import jobs, share layout, SMB pruning, restart recovery
-│   ├── scheduler.py                 # APScheduler wiring (daily cron per plan)
 │   ├── api.py                       # REST API proxied by the dashboard
-│   ├── hypercore.py                 # HyperCore export/import/task calls
-│   ├── vm_definition.py             # libvirt XML generated from the VM record (templates in vm_definitions/)
-│   └── db.py                        # PostgreSQL schema `backup` (plans, runs, imports, targets)
+│   ├── scheduler.py, policies.py, planner.py, predict.py, recurrence.py   # schedules and night planning
+│   ├── incremental.py               # incremental backups through the proxy, chains, retention
+│   ├── restore.py, flr.py           # VM restores, file-level recovery
+│   ├── verifier.py, testrestore.py  # planned verification, test restores
+│   ├── deploy.py, proxy_image.py    # proxy VM deployment and image updates
+│   ├── vmedit.py                    # VM edit, New VM, snapshots, clones, scheduled changes
+│   ├── jobs.py                      # export/import jobs, share layout, SMB pruning
+│   └── db.py                        # PostgreSQL schema `backup`
+├── console/                         # VM console relay (RFB), open-session check, boot checks (OCR)
+├── proxy/                           # backup proxy: copier, verify, mounts, netcheck, support bundle
 └── sentinel/
     ├── Dockerfile
     ├── requirements.txt
