@@ -3653,6 +3653,7 @@ def api_otp_disable():
 _REPO_PATH       = os.getenv('SC_REPO_PATH', '/repo')
 _UPDATE_FILE     = '/tmp/hcm_update.json'
 _UPDATE_FILE_LOCK = threading.Lock()
+_APPLY_MAX_SECONDS = 2 * 3600            # an apply still "in progress" after this was interrupted
 
 
 def _read_update_file():
@@ -3663,12 +3664,74 @@ def _read_update_file():
         return {}
 
 
-def _write_update_patch(patch):
+@contextmanager
+def _update_lock():
+    """The updater state is one file shared by four gunicorn workers: a thread lock within the worker and an
+    flock across them, so a read-modify-write (and Apply's check-and-set) is never interleaved."""
+    import fcntl
     with _UPDATE_FILE_LOCK:
+        with open(_UPDATE_FILE + '.lock', 'w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def _store_update_file(state: dict) -> None:
+    """Write through a temporary file and os.replace: a reader never sees a half-written file."""
+    tmp = f'{_UPDATE_FILE}.{os.getpid()}.{threading.get_ident()}.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(state, f)
+    os.replace(tmp, _UPDATE_FILE)
+
+
+def _write_update_patch(patch):
+    with _update_lock():
         state = _read_update_file()
         state.update(patch)
-        with open(_UPDATE_FILE, 'w') as f:
-            json.dump(state, f)
+        _store_update_file(state)
+
+
+def _container_marker() -> str:
+    """Something that changes when this container starts again: PID 1's start time (field 22 of /proc/1/stat)."""
+    try:
+        with open('/proc/1/stat') as f:
+            return f.read().rsplit(')', 1)[1].split()[19]
+    except (OSError, IndexError):
+        return ''
+
+
+def _apply_is_stale(state: dict) -> bool:
+    """An apply marked in progress whose thread cannot be running any more: started in an earlier life of this
+    container (a restart during the build), by a worker that is gone, or longer ago than any apply takes."""
+    if not state.get('apply_in_progress'):
+        return False
+    if state.get('apply_marker') != _container_marker():
+        return True
+    pid = state.get('apply_pid')
+    if pid:
+        try:
+            os.kill(int(pid), 0)
+        except (OSError, ValueError):
+            return True
+    return time.time() - float(state.get('apply_started') or 0) > _APPLY_MAX_SECONDS
+
+
+def _clear_stale_apply() -> None:
+    try:
+        with _update_lock():
+            state = _read_update_file()
+            if _apply_is_stale(state):
+                state['apply_in_progress'] = False
+                state.setdefault('apply_log', []).append('The previous apply was interrupted (the dashboard restarted); '
+                                                         'it can be applied again.')
+                _store_update_file(state)
+    except OSError as exc:
+        app.logger.warning('updater state not checked: %s', exc)
+
+
+_clear_stale_apply()
 
 
 def _git(*args, timeout=10):
@@ -3688,14 +3751,23 @@ _DB_SERVICES = ('influxdb', 'postgres')
 
 
 def restart_command(fallback=_APP_SERVICES) -> str:
-    """Shell command the restart container runs: recreate every service of the compose file that was
-    just pulled, except the databases. The list comes from that new file, not from this (old) code:
-    an updater from 1.1.x had a fixed list without `console` and never started 1.2.0's new service.
-    The fixed list is the fallback when the file cannot be read."""
+    """Shell command the restart container runs: recreate the services of the compose file that was just
+    pulled, except the databases. The list comes from that new file, not from this (old) code: an updater
+    from 1.1.x had a fixed list without `console` and never started 1.2.0's new service. The fixed list is
+    the fallback when the file cannot be read.
+
+    Of those, only the ones running now and the ones that have no container yet (new in this release): a
+    service the administrator stopped stays stopped (the manual says `docker compose stop balancer`; starting
+    it again with DRY_RUN false would resume migrating VMs)."""
     skip = '|'.join(_DB_SERVICES)
     return ("S=$(docker-compose config --services 2>/dev/null | grep -vxE '" + skip + "' | tr '\\n' ' '); "
             "[ -n \"$S\" ] || S='" + ' '.join(fallback) + "'; "
-            "exec docker-compose up -d --no-deps $S")
+            "R=\" $(docker-compose ps --services --filter status=running 2>/dev/null | tr '\\n' ' ') \"; "
+            "A=\" $(docker-compose ps -a --services 2>/dev/null | tr '\\n' ' ') \"; "
+            "U=''; for s in $S; do case \"$R\" in *\" $s \"*) U=\"$U $s\";; "
+            "*) case \"$A\" in *\" $s \"*) ;; *) U=\"$U $s\";; esac;; esac; done; "
+            "[ -n \"$U\" ] || exit 0; "
+            "exec docker-compose up -d --no-deps $U")
 
 
 # Services added after 1.1.x. A stack updated by a 1.1.x dashboard has their images (the update builds
@@ -3733,9 +3805,11 @@ def _self_heal_services(delay: float = 30) -> None:
         host_repo = os.getenv('SC_HOST_REPO_PATH', _REPO_PATH)
         # the same way as the updater: a helper container with the host's path of the checkout, which the
         # Docker daemon needs for build contexts and bind mounts
+        # no --env-file: docker run parses .env differently from Compose (quotes, $$); Compose in the helper
+        # reads /repo/.env itself
         r = subprocess.run(['docker', 'run', '-d', '--rm', '--name', 'hcm-self-heal',
                             '-v', '/var/run/docker.sock:/var/run/docker.sock', '-v', f'{host_repo}:/repo',
-                            '--env-file', f'{_REPO_PATH}/.env', '-w', '/repo', f'{project}-dashboard',
+                            '-w', '/repo', f'{project}-dashboard',
                             'docker-compose', 'up', '-d', '--no-deps', '--build', *missing],
                            capture_output=True, text=True, timeout=60)
         if r.returncode != 0:
@@ -3918,11 +3992,15 @@ threading.Thread(target=_apply_migrations_on_startup, daemon=True, name='hcm-mig
 def _do_apply_update():
     def log(msg):
         ts = datetime.now(timezone.utc).strftime('%H:%M:%S')
-        with _UPDATE_FILE_LOCK:
+        with _update_lock():
             state = _read_update_file()
             state.setdefault('apply_log', []).append(f'[{ts}] {msg}')
-            with open(_UPDATE_FILE, 'w') as f:
-                json.dump(state, f)
+            _store_update_file(state)
+
+    def failed(why: str):
+        # the old containers still run: keep the old version on show and Apply on offer
+        log(why)
+        _write_update_patch({'apply_in_progress': False, 'apply_failed': why[:500]})
 
     try:
         # exactly the advertised release: fetch the tags, decide before touching anything, then move the
@@ -3967,24 +4045,27 @@ def _do_apply_update():
                 capture_output=True, text=True, timeout=30,
             )
             if pop.returncode != 0:
-                log(f'Warning: stash pop had conflicts — manual resolve needed on server.')
-                log('Run: git -C /path/to/repo stash pop')
+                # building now would bake conflict markers into the images
+                _restore_ownership(log)
+                failed(f"Your local changes conflict with {plan['tag']}: nothing was built or restarted. On the server, "
+                       'resolve them (git status; the changes are kept in git stash list), then apply again.')
+                return
 
         _restore_ownership(log)
-        # what is installed now: the dialog must not keep showing the old version until the restart
         now = _read_version_file()
-        _write_update_patch({'current_version': now or None, 'current_label': f'v{now}' if now else None,
-                             'update_available': False, 'apply_blocked': None, 'changelog': []})
 
         log('Building new images (no downtime yet)...')
-        r = subprocess.run(
-            ['docker-compose', 'build'],
-            capture_output=True, text=True, timeout=600,
-            cwd=_REPO_PATH,
-        )
+        try:
+            r = subprocess.run(
+                ['docker-compose', 'build'],
+                capture_output=True, text=True, timeout=600,
+                cwd=_REPO_PATH,
+            )
+        except subprocess.TimeoutExpired:
+            failed('docker-compose build did not finish within 10 minutes; the running version is unchanged. Apply again.')
+            return
         if r.returncode != 0:
-            log(f'docker-compose build failed: {(r.stderr or r.stdout).strip()}')
-            _write_update_patch({'apply_in_progress': False})
+            failed(f'docker-compose build failed: {(r.stderr or r.stdout).strip()[-2000:]}')
             return
 
         log('Applying pending database migrations...')
@@ -3999,12 +4080,10 @@ def _do_apply_update():
                 log('Schema already up-to-date — no migrations to apply.')
         except Exception as exc:
             log(f'Migration step failed: {exc}')
-            log('Aborting recreate — fix the migration error and re-run Apply Update.')
-            _write_update_patch({'apply_in_progress': False})
+            failed('Aborting recreate — fix the migration error and re-run Apply Update.')
             return
 
         log('Build done. Spawning restart container...')
-        _write_update_patch({'update_available': False})
         project = os.getenv('COMPOSE_PROJECT_NAME', 'drsproject')
         # _REPO_PATH is /repo inside the container, but the Docker daemon needs
         # the real host-side path for volume mounts
@@ -4012,13 +4091,14 @@ def _do_apply_update():
         # remove stale updater container if a previous run left one behind
         subprocess.run(['docker', 'rm', '-f', 'hcm-auto-updater'],
                        capture_output=True)
+        # no --env-file: docker run parses .env differently from Compose (quotes, $$); Compose in the helper
+        # reads /repo/.env itself
         r = subprocess.run(
             [
                 'docker', 'run', '-d', '--rm',
                 '--name', 'hcm-auto-updater',
                 '-v', '/var/run/docker.sock:/var/run/docker.sock',
                 '-v', f'{host_repo}:/repo',
-                '--env-file', f'{_REPO_PATH}/.env',
                 '-w', '/repo',
                 f'{project}-dashboard',
                 'sh', '-c', restart_command(),
@@ -4026,14 +4106,15 @@ def _do_apply_update():
             capture_output=True, text=True, timeout=30,
         )
         if r.returncode != 0:
-            log(f'docker run failed: {(r.stderr or r.stdout).strip()}')
-            _write_update_patch({'apply_in_progress': False})
+            failed(f'docker run failed: {(r.stderr or r.stdout).strip()}')
             return
         log(f'Restart container spawned ({r.stdout.strip()[:12]}); the databases keep running. Page will reload shortly.')
-        _write_update_patch({'apply_in_progress': False})
+        # only now is the new version on its way in: say so (until the restart replaces this container)
+        _write_update_patch({'apply_in_progress': False, 'apply_failed': None, 'update_available': False,
+                             'current_version': now or None, 'current_label': f'v{now}' if now else None,
+                             'apply_blocked': None, 'changelog': []})
     except Exception as exc:
-        log(f'Error: {exc}')
-        _write_update_patch({'apply_in_progress': False})
+        failed(f'Error: {exc}')
 
 
 @app.route('/api/update/status')
@@ -4050,9 +4131,10 @@ def api_update_status():
         'repo_url':          state.get('repo_url'),
         'last_checked':      state.get('last_checked'),
         'error':             state.get('error'),
-        'apply_in_progress': state.get('apply_in_progress', False),
+        'apply_in_progress': bool(state.get('apply_in_progress')) and not _apply_is_stale(state),
         'apply_log':         state.get('apply_log', []),
         'apply_blocked':     state.get('apply_blocked'),
+        'apply_failed':      state.get('apply_failed'),
     })
 
 
@@ -4066,10 +4148,13 @@ def api_update_check():
 @app.route('/api/update/apply', methods=['POST'])
 @requires('install.manage', 'root')
 def api_update_apply():
-    state = _read_update_file()
-    if state.get('apply_in_progress'):
-        return jsonify({'error': 'Update already in progress'}), 409
-    _write_update_patch({'apply_in_progress': True, 'apply_log': []})
+    with _update_lock():                     # check-and-set: two clicks (or two workers) start one apply
+        state = _read_update_file()
+        if state.get('apply_in_progress') and not _apply_is_stale(state):
+            return jsonify({'error': 'Update already in progress'}), 409
+        state.update({'apply_in_progress': True, 'apply_log': [], 'apply_failed': None, 'apply_pid': os.getpid(),
+                      'apply_marker': _container_marker(), 'apply_started': time.time()})
+        _store_update_file(state)
     threading.Thread(target=_do_apply_update, daemon=True).start()
     return jsonify({'ok': True})
 
