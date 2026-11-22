@@ -33,6 +33,18 @@ def safe_name(name: str) -> str:
     return re.sub(r'[^A-Za-z0-9._-]+', '_', name or '').strip('_') or 'vm'
 
 
+def is_nfs(uri: str | None) -> bool:
+    return (uri or '').strip().lower().startswith('nfs://')
+
+
+def smb_only_error(what: str) -> str:
+    """HyperCore imports and exports over SMB only (never nfs://): VM restores, test restores,
+    export-mode plans and imports need an SMB target. Backups, verification and file-level
+    restore run on the proxy and work on NFS too."""
+    return (f'{what} needs an SMB target: HyperCore imports and exports over SMB only, and this target is NFS. '
+            'Backups, verification and file recovery work on NFS; VM restores, test restores, export mode and Import do not.')
+
+
 def build_path_uri(base: str, user: str | None, password: str | None) -> str:
     """Inject share credentials into a credential-free base URI.
 
@@ -317,6 +329,11 @@ def run_export(schedule_id: int, policy_id: int | None = None, occurrence=None) 
         log.error('[run %s] %s', run_id, e)
         return
     base, tenant = loc['base'], loc['tenant']
+    if is_nfs(base):
+        msg = smb_only_error('Export mode')
+        db.update_run(run_id, status='ERROR', message=msg, finished_at=_now())
+        log.error('[run %s] %s', run_id, msg)
+        return
     path_uri = build_path_uri(f"{base}/{folder}", loc['user'] or None, loc['password'] or None)
     db.update_run(run_id, export_path=f'{tenant}/{folder}')
     log.info('[run %s] Exporting %s to %s/%s', run_id, sched['vm_name'], tenant, folder)
@@ -502,6 +519,8 @@ def run_import(import_id: int) -> None:
         return
     log.info('[import %s] Importing from %s into %s', import_id, imp['source_uri'], imp['cluster_name'])
     try:
+        if is_nfs(imp['source_uri']):
+            raise HyperCoreError(smb_only_error('Import'))
         hc = client_for(imp['cluster_id'])
         if imp.get('smb_user') or imp.get('smb_pass_enc'):
             password = db.decrypt_password(imp['smb_pass_enc']) if imp['smb_pass_enc'] else None

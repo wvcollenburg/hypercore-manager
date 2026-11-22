@@ -109,6 +109,8 @@ def _run(r: dict) -> None:
     share = db.get_share(chain['target_id'], with_secret=True) if chain.get('target_id') else None
     if not share:
         raise IncrementalError('the backup target of this chain no longer exists')
+    if jobs.is_nfs(share['uri_base']):
+        raise IncrementalError(jobs.smb_only_error('A VM restore'))
     definition = point.get('definition') or {}
     disks, utils = plan_devices(definition)
     if not disks:

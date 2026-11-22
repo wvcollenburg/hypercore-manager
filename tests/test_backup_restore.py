@@ -201,6 +201,15 @@ def test_restore_refuses_while_a_node_is_missing(world):
     assert not world.pc.jobs and not [c for c in world.hc.calls if c[0] == 'import'], 'nothing was created'
 
 
+def test_restore_refuses_an_nfs_target(world, monkeypatch):
+    """HyperCore imports over SMB only, so a chain on an NFS target cannot be restored as a VM."""
+    monkeypatch.setattr(world.db, 'get_share', lambda sid, with_secret=False: {'id': 9, 'uri_base': 'nfs://nas/export', 'username': None, 'password': ''})
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'ERROR' and 'SMB only' in r['message']
+    assert not world.pc.jobs and not [c for c in world.hc.calls if c[0] == 'import'], 'nothing was created'
+
+
 def test_restore_keeps_new_mac_when_source_vm_still_exists(world, monkeypatch):
     world.hc.vms.append({'uuid': 'src-vm', 'name': 'exptest'})
     world.db.restore['params'] = {'mac_policy': 'auto', 'start': False, 'nic_connected': True}

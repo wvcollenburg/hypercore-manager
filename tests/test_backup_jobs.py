@@ -196,3 +196,24 @@ def test_run_timing_splits_active_time():
     assert t == {'lock_wait_seconds': 60, 'copy_seconds': 300, 'overhead_seconds': 60}
     # a clock that disagrees never produces negative overhead
     assert jobs.run_timing(t0, copy=500, end=t0 + timedelta(seconds=400))['overhead_seconds'] == 0
+
+
+def test_nfs_is_refused_for_hypercore_import_and_export(monkeypatch):
+    """HyperCore imports and exports over SMB only: an export-mode run and an import on an NFS target stop with
+    a clear message before HyperCore is asked."""
+    assert jobs.is_nfs(' NFS://nas/export') and not jobs.is_nfs('smb://nas/share') and not jobs.is_nfs(None)
+    runs, imports, asked = {}, {}, []
+    monkeypatch.setattr(jobs.db, 'get_schedule', lambda sid: {'id': sid, 'enabled': True, 'cluster_enabled': True, 'vm_name': 'dc01',
+                                                              'vm_uuid': 'v', 'cluster_id': 'x', 'compress': False})
+    monkeypatch.setattr(jobs.db, 'is_run_active', lambda sid: False)
+    monkeypatch.setattr(jobs.db, 'start_run', lambda *a: 5)
+    monkeypatch.setattr(jobs.db, 'update_run', lambda rid, **f: runs.update(f))
+    monkeypatch.setattr(jobs.db, 'share_for_cluster', lambda cid: {'name': 'NFS', 'uri_base': 'nfs://nas/export', 'username': None, 'password': '', 'prune_path': None})
+    monkeypatch.setattr(jobs.cluster_registry, 'get', lambda cid: _C('Lab'))
+    monkeypatch.setattr(jobs, 'client_for', lambda cid: asked.append(cid))
+    jobs.run_export(1)
+    assert runs['status'] == 'ERROR' and 'SMB only' in runs['message'] and not asked
+    monkeypatch.setattr(jobs.db, 'get_import', lambda iid: {'id': iid, 'source_uri': 'nfs://nas/export/Lab/dc01_x', 'cluster_id': 'x', 'cluster_name': 'c'})
+    monkeypatch.setattr(jobs.db, 'update_import', lambda iid, **f: imports.update(f))
+    jobs.run_import(3)
+    assert imports['status'] == 'ERROR' and 'SMB only' in imports['message'] and not asked

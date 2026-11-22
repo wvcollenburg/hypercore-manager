@@ -488,6 +488,8 @@ def schedules_add():
     mode = (b.get('mode') or '').strip() or ('incremental' if any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)) else 'export')
     if mode not in ('export', 'incremental'):
         return _err("mode must be 'export' or 'incremental'")
+    if mode == 'export' and _target_is_nfs(cid, b.get('path_uri_base')):
+        return _err(jobs.smb_only_error('Export mode'))
     if mode == 'incremental' and not any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)):
         return _err('incremental plans need a registered backup proxy for this cluster (Settings → Clusters → Proxies)')
     try:
@@ -530,6 +532,9 @@ def schedules_update(sid):
     if 'mode' in b:
         if b['mode'] not in ('export', 'incremental'):
             return _err("mode must be 'export' or 'incremental'")
+        cur = db.get_schedule(sid)
+        if b['mode'] == 'export' and _target_is_nfs(cur['cluster_id'], b.get('path_uri_base', cur.get('path_uri_base'))):
+            return _err(jobs.smb_only_error('Export mode'))
         fields['mode'] = b['mode']
     if 'full_every_n' in b:
         try:
@@ -580,6 +585,12 @@ def schedules_run(sid):
 # --------------------------------------------------------- backup schedules
 # A backup schedule ("policy") belongs to the folder of the selected cluster and lists members from
 # every cluster in that folder. Members are added from the cluster they live on.
+def _target_is_nfs(cluster_id: str | None, own_base: str | None = None) -> bool:
+    """True when the cluster's folder target (or, without one, a plan's own legacy destination) is NFS."""
+    loc = jobs.location_for_cluster(cluster_id) if cluster_id else None
+    return jobs.is_nfs(loc['base'] if loc else own_base)
+
+
 def _scope():
     """(folder_id, error response) for the selected cluster."""
     cid = _cluster_arg()
@@ -729,6 +740,8 @@ def policies_add():
         f = _policy_fields(b, True)
     except (ValueError, TypeError) as e:
         return _err(str(e))
+    if f.get('kind') == 'export' and _target_is_nfs(_cluster_arg()):
+        return _err(jobs.smb_only_error('An export schedule'))
     if 'timezone' not in f:
         c = cluster_registry.get(_cluster_arg())
         f['timezone'] = scheduler.plan_timezone({'cluster_timezone': c.effective_timezone if c else None})
@@ -926,8 +939,10 @@ def import_browse():
     base, user, password = _resolve_source(request.get_json(silent=True) or {}, cluster_registry.get(cid) if cid else None)
     if not base:
         return _err("no share is assigned to this cluster's folder")
+    if jobs.is_nfs(base):
+        return _err(jobs.smb_only_error('Import'))
     if not base.lower().startswith('smb://'):
-        return _err('Browsing is only available for smb:// shares; for NFS type the full source path.')
+        return _err('Browsing is only available for smb:// shares.')
     try:
         return jsonify({'folders': jobs.smb_list_dirs(base, user, password)})
     except HyperCoreError as e:
@@ -947,6 +962,8 @@ def import_start():
     folder = (b.get('source_folder') or '').strip().strip('/')
     if not base:
         return _err('a source path is required')
+    if jobs.is_nfs(base):
+        return _err(jobs.smb_only_error('Import'))
     source_uri = f'{base}/{folder}' if folder else base
     target_name = (b.get('target_name') or '').strip()
     effective = target_name or jobs.derive_name(folder)
@@ -1034,7 +1051,7 @@ def shares_test(sid):
     import os
     pp = share.get('prune_path')
     return jsonify({'ok': bool(pp and os.path.isdir(pp)),
-                    'error': None if pp and os.path.isdir(pp) else 'NFS shares need a mount path inside the backup container for pruning; exports still work without it.'})
+                    'error': None if pp and os.path.isdir(pp) else 'NFS shares need a mount path inside the backup container for pruning.'})
 
 
 @app.post('/api/v1/targets/probe')
@@ -1364,6 +1381,8 @@ def test_plans_create():
     folder, err = _scope()
     if err:
         return err
+    if _target_is_nfs(_cluster_arg()):
+        return _err(jobs.smb_only_error('A test restore'))
     b = request.get_json(silent=True) or {}
     try:
         f = _test_plan_fields(b, True)
@@ -1407,6 +1426,8 @@ def test_plans_run(pid):
     plan, err = _test_plan_in_scope(pid)
     if err:
         return err
+    if _target_is_nfs(_cluster_arg()):
+        return _err(jobs.smb_only_error('A test restore'))
     import testrestore
     n = testrestore.queue_round(plan, datetime.now(timezone.utc))
     return jsonify({'ok': True, 'queued': n})
@@ -1603,6 +1624,9 @@ def restores_start():
         return _err('restore point not found')
     if chain['status'] == 'deleted':
         return _err('this chain was deleted')
+    share = db.get_share(chain['target_id']) if chain.get('target_id') else None
+    if share and jobs.is_nfs(share['uri_base']):
+        return _err(jobs.smb_only_error('A VM restore'))
     policy = (b.get('mac_policy') or 'new')
     if policy == 'auto':                                   # former default; MAC addresses are kept on request only
         policy = 'new'

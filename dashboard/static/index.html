@@ -710,6 +710,8 @@
     width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 6px; font-size: 12px;
     background: var(--bg-input, var(--bg-primary)); border: 1px solid var(--border); color: var(--text-primary); }
   .ex-hint { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
+  .sh-nfs-warn { color: var(--accent-amber); }
+  .sh-nfs-warn[hidden] { display: none; }
   .ex-slots { display: inline-flex; gap: 2px; vertical-align: middle; margin-right: 6px; }
   .ex-slots i { width: 6px; height: 14px; border-radius: 2px; background: var(--accent-cyan); display: block; opacity: 0.85; }
   .ex-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-family: 'JetBrains Mono', monospace; }
@@ -4797,7 +4799,7 @@ async function _loadSharesPanel() {
   SHARES = (await apiFetch('/api/backup/targets')) || [];
   const rows = SHARES.map(sh => `
     <tr>
-      <td class="um-username">${_clEsc(sh.name)}${sh.default_for_unfiled ? ` <span class="um-badge um-badge-user" title="${_clEsc(t('shares.assign_unfiled_title'))}">no_folder</span>` : ''}<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(sh.uri_base)}</div></td>
+      <td class="um-username">${_clEsc(sh.name)}${sh.default_for_unfiled ? ` <span class="um-badge um-badge-user" title="${_clEsc(t('shares.assign_unfiled_title'))}">no_folder</span>` : ''}<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(sh.uri_base)}</div>${_isNfs(sh.uri_base) ? `<div class="sh-nfs-warn" style="font-size:10px;">${t('shares.nfs_badge')}</div>` : ''}</td>
       <td>${_clEsc(sh.username || '—')}</td>
       <td>${_clEsc(sh.prune_path || '—')}</td>
       <td>${sh.folder_count}</td>
@@ -5011,12 +5013,18 @@ function _shareFormHtml(prefix, sh) {
   return `
     <div class="ex-form">
       <div><label>${t('shares.name')}</label><input type="text" id="${prefix}-name" value="${_clEsc(sh.name)}" placeholder="NAS backups"></div>
-      <div><label>${t('shares.uri')}</label><input type="text" id="${prefix}-uri" value="${_clEsc(sh.uri_base)}" placeholder="smb://nas.local/backups/hypercore"><div class="ex-hint">${t('shares.uri_hint')}</div></div>
+      <div><label>${t('shares.uri')}</label><input type="text" id="${prefix}-uri" value="${_clEsc(sh.uri_base)}" placeholder="smb://nas.local/backups/hypercore" oninput="_shNfsWarn('${prefix}')"><div class="ex-hint">${t('shares.uri_hint')}</div><div class="ex-hint sh-nfs-warn" id="${prefix}-nfswarn"${_isNfs(sh.uri_base) ? '' : ' hidden'}>${t('shares.nfs_warn')}</div></div>
       <div><label>${t('ex.f_smb_user')}</label><input type="text" id="${prefix}-user" value="${_clEsc(sh.username)}" autocomplete="off"><div class="ex-hint">${t('ex.f_smb_user_hint')}</div></div>
       <div><label>${t('ex.f_smb_password')}</label><input type="password" id="${prefix}-pass" autocomplete="new-password" placeholder="${sh.id ? _clEsc(t('clusters.password_keep')) : ''}"></div>
       <div><label>${t('shares.prune_path')}</label><input type="text" id="${prefix}-prune" value="${_clEsc(sh.prune_path)}" placeholder="/mnt/nas/hypercore"><div class="ex-hint">${t('shares.prune_hint')}</div></div>
     </div>
     <div class="cl-msg" id="${prefix}-msg"></div>`;
+}
+function _isNfs(uri) { return String(uri || '').trim().toLowerCase().startsWith('nfs://'); }
+// HyperCore imports and exports over SMB only: an NFS target cannot do VM restores, test restores, export mode or Import
+function _shNfsWarn(prefix) {
+  const el = document.getElementById(`${prefix}-nfswarn`);
+  if (el) el.hidden = !_isNfs(document.getElementById(`${prefix}-uri`)?.value);
 }
 function _shRead(prefix) {
   const g = id => document.getElementById(`${prefix}-${id}`);
