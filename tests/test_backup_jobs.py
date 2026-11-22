@@ -7,6 +7,7 @@ objects are kept as module globals."""
 import importlib
 import os
 import sys
+import time
 
 import pytest
 
@@ -217,3 +218,35 @@ def test_nfs_is_refused_for_hypercore_import_and_export(monkeypatch):
     monkeypatch.setattr(jobs.db, 'update_import', lambda iid, **f: imports.update(f))
     jobs.run_import(3)
     assert imports['status'] == 'ERROR' and 'SMB only' in imports['message'] and not asked
+
+
+def test_preflight_for_the_dashboard_never_waits_for_the_cluster(monkeypatch):
+    """/status answers from the last pre-flight; a stale or missing one is refreshed in the background, once per
+    cluster at a time, so a slow login (a node down) cannot make the dashboard hide the Backup tab."""
+    import threading
+    jobs._PREFLIGHT_CACHE.clear(); jobs._PREFLIGHT_REFRESHING.clear()
+    gate, calls = threading.Event(), []
+
+    class SlowHC:
+        def update_status(self): return {}
+        def list_nodes(self):
+            calls.append(1); gate.wait(5)
+            return [{'lanIP': '10.0.0.1', 'networkStatus': 'ONLINE'}]
+    assert jobs.preflight_cached('c1', client_factory=lambda cid: SlowHC()) is None, 'first call: nothing known yet, no wait'
+    assert jobs.preflight_cached('c1', client_factory=lambda cid: SlowHC()) is None
+    gate.set()
+    for _ in range(50):
+        if 'c1' in jobs._PREFLIGHT_CACHE and not jobs._PREFLIGHT_REFRESHING: break
+        time.sleep(0.02)
+    assert len(calls) == 1, 'one refresh at a time per cluster'
+    assert jobs.preflight_cached('c1', client_factory=lambda cid: SlowHC())['ok'] is True
+    # stale: the old answer comes back at once while a refresh runs; a failing cluster leaves a non-blocking answer
+    jobs._PREFLIGHT_CACHE['c1'] = (time.monotonic() - 120, {'ok': False, 'kind': 'node', 'detail': 'old', 'nodes': []})
+
+    def boom(cid): raise jobs.HyperCoreError('login timed out')
+    assert jobs.preflight_cached('c1', client_factory=boom)['detail'] == 'old'
+    for _ in range(50):
+        if not jobs._PREFLIGHT_REFRESHING: break
+        time.sleep(0.02)
+    pf = jobs.preflight_cached('c1', client_factory=boom)
+    assert pf['ok'] is True and 'timed out' in pf['unavailable']

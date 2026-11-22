@@ -2023,12 +2023,22 @@ def backup_status():
     try:
         rq = urllib.request.Request(f'{url}/api/v1/status?cluster={_cluster_id()}',
                                     headers={'Authorization': f'Bearer {token}'} if token else {})
-        with urllib.request.urlopen(rq, timeout=3) as resp:
+        with urllib.request.urlopen(rq, timeout=5) as resp:
             data = json.loads(resp.read().decode())
         data['available'] = True
         return jsonify(data if _access().can('backup.targets.manage') else _strip_sensitive(data))
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        # a slow answer is not a missing service: keep the tab (it hid while a node was down); only a
+        # refused or unresolvable connection means the backup container is not running
+        if _is_timeout(e):
+            return jsonify({'available': True, 'status_slow': True})
         return jsonify({'available': False})
+
+
+def _is_timeout(e: BaseException) -> bool:
+    import socket
+    reason = getattr(e, 'reason', e)
+    return isinstance(reason, (socket.timeout, TimeoutError)) or 'timed out' in str(reason).lower()
 
 
 @app.route('/api/backup/<path:sub>', methods=['GET', 'POST', 'PUT', 'DELETE'])

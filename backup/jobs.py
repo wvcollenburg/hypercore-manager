@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -209,6 +210,37 @@ def preflight(hc: HyperCoreClient, cluster_id: str | None = None, max_age: float
     if cluster_id:
         _PREFLIGHT_CACHE[cluster_id] = (time.monotonic(), result)
     return result
+
+
+_PREFLIGHT_REFRESHING: set[str] = set()
+_PREFLIGHT_LOCK = threading.Lock()
+
+
+def preflight_cached(cluster_id: str, max_age: float = 60, client_factory=None) -> dict | None:
+    """The last known pre-flight answer for the dashboard, without waiting for the cluster. A missing or
+    stale answer is refreshed in a background thread (one per cluster at a time); until the first answer
+    arrives this returns None. Asking the cluster live made /status take as long as the HyperCore login,
+    which with a node down (timeouts per node) outlasted the dashboard's 3 s and hid the Backup tab."""
+    hit = _PREFLIGHT_CACHE.get(cluster_id)
+    if hit and time.monotonic() - hit[0] < max_age:
+        return hit[1]
+    with _PREFLIGHT_LOCK:
+        if cluster_id in _PREFLIGHT_REFRESHING:
+            return hit[1] if hit else None
+        _PREFLIGHT_REFRESHING.add(cluster_id)
+
+    def refresh():
+        try:
+            preflight((client_factory or client_for)(cluster_id), cluster_id)
+        except Exception as e:  # noqa: BLE001 -- unreachable cluster: the next call tries again
+            log.info('[%s] pre-flight for the dashboard failed: %s', cluster_id, e)
+            _PREFLIGHT_CACHE[cluster_id] = (time.monotonic(), {'ok': True, 'kind': None, 'detail': '', 'nodes': [],
+                                                               'unavailable': str(e)})
+        finally:
+            with _PREFLIGHT_LOCK:
+                _PREFLIGHT_REFRESHING.discard(cluster_id)
+    threading.Thread(target=refresh, name=f'preflight-{cluster_id[:8]}', daemon=True).start()
+    return hit[1] if hit else None
 
 
 def wait_until_clear(hc: HyperCoreClient, on_wait, max_hours: float | None = None, poll_seconds: int | None = None) -> dict:

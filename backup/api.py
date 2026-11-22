@@ -100,12 +100,10 @@ def status():
     loc = jobs.location_for_cluster(cid) if cid else None
     pf = None
     if cid:
-        try:
-            pf = jobs.preflight(jobs.client_for(cid), cid, max_age=60)
-            if not pf['ok']:
-                pf = dict(pf, hint=jobs.DEFERRED_HINT.get(pf['kind'], ''))
-        except HyperCoreError as e:
-            pf = {'ok': True, 'kind': None, 'detail': '', 'nodes': [], 'unavailable': str(e)}
+        # never wait for the cluster here: the last answer, refreshed in the background when stale
+        pf = jobs.preflight_cached(cid, max_age=60)
+        if pf and not pf['ok']:
+            pf = dict(pf, hint=jobs.DEFERRED_HINT.get(pf['kind'], ''))
     return jsonify({
         'service': 'backup',
         # update in progress / node missing: the dashboard shows a banner, runs are deferred

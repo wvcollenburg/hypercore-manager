@@ -6177,11 +6177,12 @@ async function _exProbe() {
     return false;
   }
   const d = await apiFetch('/api/backup/status');
-  _exAvailable = !!(d && d.available);
-  if (d && d.available) { _exDefaults = d; _exLocation = d.location || null; _exClusterZone = d.cluster_timezone || ''; }
   const tab = document.getElementById('navTabExports');
+  if (!d) return _exAvailable;          // the request itself failed (network, dashboard restart): leave the tab as it is
+  _exAvailable = !!d.available;
+  if (d.available && !d.status_slow) { _exDefaults = d; _exLocation = d.location || null; _exClusterZone = d.cluster_timezone || ''; }
   if (tab) tab.hidden = !_exAvailable;
-  _exPreflightBanner(d && d.available ? d.preflight : null);
+  if (!d.status_slow) _exPreflightBanner(d.available ? d.preflight : null);
   return _exAvailable;
 }
 // cluster self-update or a node missing: HyperCore cannot snapshot, so every backup, export and
