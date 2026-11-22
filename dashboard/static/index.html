@@ -2343,6 +2343,11 @@ let vmSort = {key: 'name', dir: 1};
 // search: every word must match something about the VM (live facts from HyperCore plus what the list knows)
 let vmQuery = '', _vmIndex = {}, _vmIndexFor = null, _vmIndexAt = 0, _vmTagsOf = {};
 function _vmTags(uuid) { return _vmTagsOf[uuid] || []; }
+// a role given on a tag needs each VM's tags (from the VM index) before Edit or Console can show
+function _hasTagGrant(cid) {
+  const c = ((window.HCM_ACCESS || {}).clusters || {})[cid];
+  return !!(c && (c.grants || []).some(g => g.tag));
+}
 async function loadVmIndex(force) {
   const cid = currentCluster;
   if (!cid) return;
@@ -2495,7 +2500,7 @@ async function loadVMs() {
   cachedStorage = storageData || { vms: [], cluster: { history: [] } };
   cachedVmData = vmData;
   await loadVmPending();
-  if (vmQuery) { await loadVmIndex(_vmIndexForce); _vmIndexForce = false; }
+  if (vmQuery || _hasTagGrant(cid)) { await loadVmIndex(_vmIndexForce); _vmIndexForce = false; }
   if (cid !== currentCluster) return;
 
   renderVmCards();

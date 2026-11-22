@@ -117,3 +117,13 @@ def test_vm_edit_keeps_typed_values_when_a_button_redraws_the_form(repo):
         if 'function _veRender' in line or line.strip() == '_veRender();':   # the definition, and openVmEdit's first draw
             continue
         assert '_veSync()' in line[:line.index('_veRender()')], f'redraw without _veSync(): {line.strip()[:120]}'
+
+
+def test_a_role_on_a_tag_shows_its_buttons_without_a_search(repo):
+    """_vmTags() reads the VM index, which loadVMs only fetched while the search box had text: a user whose role
+    is assigned on a tag saw no Edit or Console button until they typed something."""
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
+    body = src[src.index('async function loadVMs()'):][:1500]
+    assert 'if (vmQuery || _hasTagGrant(cid)) { await loadVmIndex(' in body
+    helper = src[src.index('function _hasTagGrant('):][:200]
+    assert 'g.tag' in helper
