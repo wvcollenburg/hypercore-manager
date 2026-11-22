@@ -344,6 +344,47 @@ def test_finished_jobs_drop_their_request_and_only_the_newest_are_kept(stack, mo
     assert 'hunter2' not in ''.join(open(os.path.join(stack.cfg.data_dir, 'jobs', f)).read() for f in os.listdir(os.path.join(stack.cfg.data_dir, 'jobs')))
 
 
+def test_a_job_cancelled_while_queued_never_runs_and_a_finished_one_is_not_called_cancelled(stack, monkeypatch):
+    """Cancel was not honoured for a queued job, and a job that completed was reported 'cancelled' (live: a
+    delete_chain cancelled while queued ended 'cancelled' with result {'removed': True})."""
+    import threading
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, _ = _three_point_chain(stack)
+    gate = threading.Event()
+
+    def blocking_sweep(job):
+        gate.wait(10); return {'removed': []}
+    monkeypatch.setattr(stack.engine, 'run_sweep', blocking_sweep)
+    first = stack.client.post('/jobs/sweep', json={'target': tgt, 'folder': 'F'}, headers=H).get_json()['id']
+    queued = stack.client.post('/jobs/delete_chain', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id']
+    assert stack.client.delete(f'/jobs/{queued}', headers=H).get_json()['cancel_requested']
+    stack.client.delete(f'/jobs/{first}', headers=H)    # too late for a job that does not look: it completes
+    gate.set()
+    j1, j2 = _wait(stack, first), _wait(stack, queued)
+    assert j1['state'] == 'done' and j1['result'] == {'removed': []}
+    assert j2['state'] == 'cancelled' and j2['result'] is None and os.path.isdir(chain), 'the chain was not deleted'
+
+
+def test_a_prune_cancelled_between_points_stops_with_a_consistent_chain(stack, monkeypatch):
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, srcs = _three_point_chain(stack)
+    real_persist = stack.engine._persist
+
+    def persist(job):
+        real_persist(job)
+        if job.kind == 'prune' and job.progress.get('dropped') == 1:
+            job.cancel()
+    monkeypatch.setattr(stack.engine, '_persist', persist)
+    j = _wait(stack, stack.client.post('/jobs/prune', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain', 'keep_min_seq': 2}, headers=H).get_json()['id'])
+    assert j['state'] == 'cancelled' and j['error'] == 'cancelled', j
+    ch = json.load(open(os.path.join(chain, 'chain.json')))
+    assert [(p['seq'], p['dir']) for p in ch['points']] == [(1, 'base'), (2, 'delta-0002')]
+    assert sorted(os.listdir(chain)) == ['base', 'chain.json', 'delta-0002']
+    assert json.load(open(os.path.join(chain, 'base', 'manifest.json')))['checksums_after_commit'] is True
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
+    assert v['result']['ok'], v
+
+
 def test_job_files_of_earlier_lives_are_trimmed_at_start(tmp_path, monkeypatch):
     d = tmp_path / 'data' / 'jobs'; d.mkdir(parents=True)
     for i in range(8):

@@ -139,14 +139,23 @@ class Engine:
             pass
 
     def _guard(self, job: Job, runner) -> None:
+        if job.cancelled():                         # cancelled while it was queued: it never runs
+            job.state, job.error = 'cancelled', 'cancelled before it started'
+            self._persist(job)
+            self._forget_old(job)
+            return
         job.state = 'running'
         self._persist(job)
         try:
             job.result = runner(job)
-            job.state = 'cancelled' if job.cancelled() else 'done'
+            job.state = 'done'                      # it got to the end: a cancel that came too late changes nothing
         except Exception as e:                      # noqa: BLE001 — the job is the error boundary
-            log.exception('job %s (%s) failed', job.id, job.kind)
-            job.state = 'failed'
+            if job.cancelled() and str(e) == 'cancelled':
+                log.info('job %s (%s) cancelled', job.id, job.kind)
+                job.state = 'cancelled'
+            else:
+                log.exception('job %s (%s) failed', job.id, job.kind)
+                job.state = 'failed'
             job.error = str(e)
         finally:
             job.progress.pop('current_device', None)
@@ -304,6 +313,8 @@ class Engine:
             for d in pm.get('devices', []):
                 if only and d['uuid'] not in only:
                     continue
+                if job.cancelled():
+                    raise RuntimeError('cancelled')
                 src = os.path.join(chain_dir, point['dir'], d['file'])
                 name = req.get('files', {}).get(d['uuid'], d['file'])
                 dst = os.path.join(out_dir, name)
@@ -368,10 +379,13 @@ class Engine:
         req = job.request
         job.progress = {'targets': len(req.get('targets') or [])}
         try:
-            return netcheck.run(req['mac'], req['probe'], req.get('targets') or [], dhcp=req.get('dhcp') or None,
-                                wait_s=float(req.get('wait_s') or 0), cancelled=job.cancelled)
+            out = netcheck.run(req['mac'], req['probe'], req.get('targets') or [], dhcp=req.get('dhcp') or None,
+                               wait_s=float(req.get('wait_s') or 0), cancelled=job.cancelled)
         except netcheck.NetcheckError as e:
             raise RuntimeError(str(e)) from None
+        if job.cancelled() and not out.get('answered'):
+            raise RuntimeError('cancelled')         # stopped waiting early: no verdict
+        return out
 
     # ---------------------------------------------------------------- sweep
     def run_sweep(self, job: Job) -> dict:
@@ -473,6 +487,8 @@ class Engine:
             # goes last; a retry that finds the base already holding nxt's manifest only finishes the
             # bookkeeping (before, it read the vanished nxt's manifest as {} and wrote that over the base).
             while points and points[0]['seq'] < keep_min:
+                if job.cancelled():                                     # between points: the chain is whole here
+                    break
                 oldest, nxt = points[0], points[1] if len(points) > 1 else None
                 base_dir = os.path.join(chain_dir, oldest['dir'])
                 if nxt is None:
@@ -536,6 +552,8 @@ class Engine:
                 self._rehash(os.path.join(chain_dir, point_dir), files, mark=mark)
             chain['points'] = points
             manifest.save_chain(chain_dir, chain)
+            if job.cancelled() and len(points) > 1 and points[0]['seq'] < keep_min:
+                raise RuntimeError('cancelled')                         # after the checksums: what was dropped is consistent
             return {'dirs': {str(p['seq']): p['dir'] for p in points}, 'dropped': job.progress['dropped']}
         finally:
             self._release_target(req)
