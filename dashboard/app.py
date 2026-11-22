@@ -127,9 +127,41 @@ INFLUX_BUCKET = os.getenv('INFLUX_BUCKET', 'metrics')
 # fallback stale threshold — live value is read from config_db per request
 STALE_SECONDS = int(os.getenv('SC_DASHBOARD_STALE_SECONDS', 120))
 
-# session signing key — generated randomly at startup if not set (sessions won't
-# survive restarts in that case, but everything still works for dev)
-_secret_key = os.getenv('SC_DASHBOARD_SECRET_KEY', '') or secrets.token_hex(32)
+_PLACEHOLDER_SECRETS = ('HCM_SECRET_KEY', 'SC_DASHBOARD_SECRET_KEY', 'SC_DASHBOARD_PASSWORD')
+
+
+def _placeholder_secrets(env=os.environ) -> list[str]:
+    """The secrets still set to the .env.template placeholder: a key everyone knows signs everyone's sessions
+    (or decrypts the stored cluster passwords), and the first admin would get a password everyone knows."""
+    return [k for k in _PLACEHOLDER_SECRETS if (env.get(k) or '').strip() == 'CHANGE_ME']
+
+
+def _session_secret(env=os.environ) -> str:
+    """SC_DASHBOARD_SECRET_KEY, else one derived from HCM_SECRET_KEY: the four gunicorn workers must sign with
+    the same key (a random key per worker made a login work only on the worker that issued it)."""
+    key = (env.get('SC_DASHBOARD_SECRET_KEY') or '').strip()
+    if key:
+        return key
+    base = (env.get(hcm_crypto.ENV_VAR) or '').strip()
+    if base:
+        return hmac.new(base.encode(), b'hcm-internal:dashboard-session', hashlib.sha256).hexdigest()
+    app.logger.warning('neither SC_DASHBOARD_SECRET_KEY nor %s is set: each worker signs sessions with its own random '
+                       'key, so logins fail now and then; set SC_DASHBOARD_SECRET_KEY in .env', hcm_crypto.ENV_VAR)
+    return secrets.token_hex(32)
+
+
+_placeholders = _placeholder_secrets()
+if _placeholders:
+    _msg = (f"refusing to start: {', '.join(_placeholders)} in .env still has the placeholder CHANGE_ME. Set each to a "
+            'long random value (python3 -c "import secrets; print(secrets.token_hex(32))"; for SC_DASHBOARD_PASSWORD '
+            'the first admin\'s password), then start the stack again.')
+    import sys as _sys
+    print(_msg, file=_sys.stderr, flush=True)
+    app.logger.critical(_msg)
+    raise SystemExit(_msg)
+
+# session signing key: the same in every worker and across restarts
+_secret_key = _session_secret()
 app.secret_key = _secret_key
 
 # bootstrap the users table and seed the admin account from env vars on first run
