@@ -61,6 +61,8 @@ def register(app, requires, h):
                 return e.code, json.loads(e.read().decode() or 'null')
             except ValueError:
                 return e.code, {'error': f'backup service answered {e.code}'}
+        except Exception as e:                       # noqa: BLE001 — refused, unresolvable, timed out
+            return 503, {'error': f'Backup service unreachable: {e}'}
 
     def listed(cid: str) -> tuple[int, dict]:
         return backup('GET', 'media', {'cluster': cid})

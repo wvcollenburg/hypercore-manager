@@ -148,3 +148,11 @@ def test_the_vm_dialogs_offer_and_accept_only_visible_media(env, dash, monkeypat
     assert r.status_code == 403
     r = c.post(f'/api/backup/vmedit/new?cluster={C}', json={'cluster_id': C, 'spec': {'name': 'v', 'iso_uuid': ISO_A}})
     assert r.status_code == 200, r.get_json()
+
+
+def test_an_unreachable_backup_service_is_a_503_not_a_500(env, monkeypatch):
+    def refuse(rq, timeout=None):
+        raise OSError('Connection refused')
+    monkeypatch.setattr('urllib.request.urlopen', refuse)
+    r = env.as_(rbac.Grant(ADMIN, 'root')).get(f'/api/media?cluster={C}')
+    assert r.status_code == 503 and 'unreachable' in r.get_json()['error']
