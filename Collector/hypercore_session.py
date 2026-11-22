@@ -26,12 +26,16 @@ import time
 from typing import Callable, Optional
 
 import requests
+from urllib3.exceptions import ConnectTimeoutError, NewConnectionError
 
 import cluster_registry
 
 log = logging.getLogger('hypercore_session')
 
 TRANSPORT_ERRORS = (requests.exceptions.ConnectionError, requests.exceptions.Timeout)   # SSLError is a ConnectionError
+# methods HyperCore may receive twice without harm; anything else (a POST that starts a migration, a clone, a new VM)
+# is re-sent only when the first attempt provably never reached the node
+SAFE_TO_RESEND = frozenset({'GET', 'HEAD', 'OPTIONS'})
 
 
 class ClusterUnreachable(requests.exceptions.ConnectionError):
@@ -76,6 +80,7 @@ class ClusterSession:
         self.session.verify = self.verify
         self.host: Optional[str] = self._pinned
         self.logged_in_at = 0.0
+        self.generation = 0          # +1 per successful login: lets a thread see that another one already logged in again
         self.lock = threading.RLock()
         if not self.verify:
             import urllib3
@@ -134,6 +139,7 @@ class ClusterSession:
                     attempts.append((h, f'HTTP {r.status_code}'))
                     continue
                 self.host, self.logged_in_at = h, time.monotonic()
+                self.generation += 1
                 if attempts:
                     self._log(f'{self.service}: node(s) not answering: ' + '; '.join(f'{a}: {e}' for a, e in attempts))
                 if previous and previous != h:
@@ -177,28 +183,47 @@ class ClusterSession:
     def request(self, method: str, path: str, **kw) -> requests.Response:
         """One REST call on the node in use. A 401 means the session expired: log in again on
         the same node and retry once. A transport failure means the node is gone: log in on
-        another candidate and retry once there. Raises ClusterUnreachable / AuthFailed."""
+        another candidate and retry once there. Raises ClusterUnreachable / AuthFailed.
+
+        Only GET/HEAD/OPTIONS are re-sent after any transport failure. Other methods are re-sent
+        only when the request never left (connection refused, connect timeout); a read timeout or
+        a dropped connection after sending may mean HyperCore accepted it, so that error goes to
+        the caller instead of a second (or third) migration, clone or VM."""
         kw.setdefault('timeout', self.timeout)
+        resend_any = method.upper() in SAFE_TO_RESEND
         self.ensure()
-        host = self.host
+        host, generation = self.host, self.generation
         try:
             try:
                 resp = self.session.request(method, f'{self.base_url}{path}', **kw)
             except TRANSPORT_ERRORS as e:
+                if not (resend_any or _not_sent(e)):
+                    raise
                 # a pooled keep-alive connection the node already closed ("Remote end closed connection
                 # without response") is no dead node: once more on the same node, on a fresh connection
                 self._log(f'{self.service}: {host} dropped the connection ({_short(e)}); retrying there once')
                 resp = self.session.request(method, f'{self.base_url}{path}', **kw)
         except TRANSPORT_ERRORS as e:
+            if not (resend_any or _not_sent(e)):
+                self._log(f'{self.service}: {method} {path} on {host} failed after sending ({_short(e)}); not re-sent')
+                raise
             self._log(f'{self.service}: {host} not answering ({_short(e)}); trying another node')
             with self.lock:
-                self.logged_in_at = 0.0
-                self.login(exclude=host)
+                if self.generation == generation:      # else another thread already moved to a working node
+                    self.logged_in_at = 0.0
+                    self.login(exclude=host)
+                elif not self.logged_in_at:
+                    self.login()
             resp = self.session.request(method, f'{self.base_url}{path}', **kw)
         if resp.status_code == 401:
             with self.lock:
-                self.logout()
-                self.login()
+                # six threads seeing the same expiry make one new login, and no thread logs out the session
+                # another thread has just made
+                if self.generation == generation:
+                    self.logout()
+                    self.login()
+                elif not self.logged_in_at:
+                    self.login()
             resp = self.session.request(method, f'{self.base_url}{path}', **kw)
         return resp
 
@@ -212,6 +237,17 @@ class ClusterSession:
         resp = self.request('GET', path, **kw)
         resp.raise_for_status()
         return resp.json()
+
+
+def _not_sent(e: BaseException) -> bool:
+    """True when the request provably never reached the node: the TCP connection could not be made
+    (refused, unreachable, DNS) or timed out while connecting."""
+    if isinstance(e, requests.exceptions.ConnectTimeout):
+        return True
+    if isinstance(e, requests.exceptions.ConnectionError) and e.args:
+        reason = getattr(e.args[0], 'reason', e.args[0])
+        return isinstance(reason, (NewConnectionError, ConnectTimeoutError))
+    return False
 
 
 def _short(e: BaseException) -> str:
