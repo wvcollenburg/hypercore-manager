@@ -165,8 +165,8 @@ def client_for(cluster_id: str) -> HyperCoreClient:
 
 
 def derive_name(folder: str) -> str:
-    """Strip a `_YYYYMMDD-HHMMSS` export suffix to guess the original VM name."""
-    m = re.match(r'^(.*)_\d{8}-\d{6}$', folder or '')
+    """Strip a `[_uuid8]_YYYYMMDD-HHMMSS` export suffix to guess the original VM name."""
+    m = re.match(r'^(.*?)(?:_[0-9a-f]{8})?_\d{8}-\d{6}$', folder or '')
     return m.group(1) if m else (folder or '')
 
 
@@ -376,7 +376,7 @@ def run_export(schedule_id: int, policy_id: int | None = None, occurrence=None) 
 
     run_id = db.start_run(schedule_id, policy_id, occurrence)
     db.update_run(run_id, mode='export')
-    folder = f"{safe_name(sched['vm_name'])}_{datetime.now().strftime(TIMESTAMP_FMT)}"
+    folder = export_folder(sched['vm_name'], sched.get('vm_uuid'), datetime.now().strftime(TIMESTAMP_FMT))
     try:
         loc = location_for_schedule(sched)
     except HyperCoreError as e:
@@ -502,15 +502,40 @@ def smb_list_dirs(base_uri: str, user: str, password: str | None) -> list[str]:
     return sorted(names, reverse=True)
 
 
-def select_excess(dir_names, vm_name: str, retention: int):
-    """Which folders to delete: only this VM's `{safe_name}_YYYYMMDD-HHMMSS` folders are
-    candidates, sibling VMs are never touched; the newest `retention` are kept."""
-    prefix = safe_name(vm_name) + '_'
-    pattern = re.compile(re.escape(prefix) + r'\d{8}-\d{6}$')
-    copies = sorted(n for n in dir_names if pattern.match(n))
+def export_folder(vm_name: str, vm_uuid: str | None, stamp: str) -> str:
+    """`{safe_name}_{first 8 of the VM uuid}_YYYYMMDD-HHMMSS`: the tenant directory is shared by every cluster of
+    the folder, so the name alone would let two clusters' VMs called "dc01" prune each other's exports."""
+    short = re.sub(r'[^0-9A-Za-z]', '', vm_uuid or '')[:8]
+    return f'{safe_name(vm_name)}_{short}_{stamp}' if short else f'{safe_name(vm_name)}_{stamp}'
+
+
+def select_excess(dir_names, vm_name: str, retention: int, vm_uuid: str | None = None, own_legacy=()):
+    """Which folders to delete: only this VM's `{safe_name}_{uuid8}_YYYYMMDD-HHMMSS` folders are candidates,
+    sibling VMs (also a namesake on another cluster of the folder) are never touched; the newest `retention`
+    are kept. A folder in the older `{safe_name}_YYYYMMDD-HHMMSS` form counts only when it is in
+    `own_legacy` (recorded in this plan's own runs). Without vm_uuid: the old name-only rule."""
+    stamp = r'\d{8}-\d{6}$'
+    if vm_uuid:
+        pattern = re.compile(re.escape(export_folder(vm_name, vm_uuid, '')) + stamp)
+        legacy = re.compile(re.escape(safe_name(vm_name) + '_') + stamp)
+        own = set(own_legacy or ())
+        copies = [n for n in dir_names if pattern.match(n) or (n in own and legacy.match(n))]
+        copies.sort(key=lambda n: n[-15:])                  # by timestamp: legacy and new names interleave
+    else:
+        pattern = re.compile(re.escape(safe_name(vm_name) + '_') + stamp)
+        copies = sorted(n for n in dir_names if pattern.match(n))
     excess = copies[:-retention] if retention > 0 else []
     kept = min(len(copies), retention)
     return excess, kept
+
+
+def _own_legacy(sched) -> set:
+    """Export folder names recorded in this plan's runs (to recognise its exports from before the uuid suffix)."""
+    try:
+        return {p.rsplit('/', 1)[-1] for p in db.export_paths(sched['id'])}
+    except Exception as e:                  # noqa: BLE001 -- no history: legacy folders are simply kept
+        log.warning('export history of plan %s not readable: %s', sched.get('id'), e)
+        return set()
 
 
 def prune_old_exports(sched) -> str:
@@ -534,7 +559,7 @@ def _prune_via_mount(sched, loc) -> str:
     if not base.is_dir():
         return f'Pruning skipped: {base} is not accessible from this container.'
     names = [d.name for d in base.iterdir() if d.is_dir()]
-    excess, kept = select_excess(names, sched['vm_name'], sched['retention'])
+    excess, kept = select_excess(names, sched['vm_name'], sched['retention'], sched.get('vm_uuid'), _own_legacy(sched))
     for name in excess:
         try:
             shutil.rmtree(base / name)
@@ -556,7 +581,7 @@ def _prune_via_smb(sched, loc) -> str:
         names = [e.name for e in smbclient.scandir(unc_base, **conn) if e.is_dir()]
     except Exception as e:  # noqa: BLE001
         return f'Pruning skipped: could not list {unc_base} over SMB: {e}'
-    excess, kept = select_excess(names, sched['vm_name'], sched['retention'])
+    excess, kept = select_excess(names, sched['vm_name'], sched['retention'], sched.get('vm_uuid'), _own_legacy(sched))
     for name in excess:
         try:
             smb_shutil.rmtree(unc_base + '\\' + name, **conn)

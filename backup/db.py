@@ -216,6 +216,12 @@ def get_runs(cluster_id: Optional[str] = None, schedule_id: Optional[int] = None
     return _all(sql, params)
 
 
+def export_paths(schedule_id: int) -> list[str]:
+    """Every export folder (tenant/folder) this plan's runs recorded."""
+    return [r['export_path'] for r in _all('SELECT DISTINCT export_path FROM backup.runs WHERE schedule_id = %s AND export_path IS NOT NULL',
+                                           (schedule_id,))]
+
+
 def get_run(run_id: int) -> Optional[dict]:
     return _one('SELECT * FROM backup.runs WHERE id = %s', (run_id,))
 

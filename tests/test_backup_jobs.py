@@ -91,8 +91,23 @@ def test_select_excess_uses_safe_name_prefix():
     assert excess == ['web_server_1_20260101-000000'] and kept == 1
 
 
+def test_two_clusters_with_a_vm_of_the_same_name_never_prune_each_other():
+    """The tenant directory is shared by every cluster of the folder; retention picked folders by VM name only."""
+    a, b = '3cf115a9-1111-4111-8111-111111111111', '9d0e22b7-2222-4222-8222-222222222222'
+    names = [jobs.export_folder('dc01', a, f'2026010{d}-030000') for d in range(1, 5)] + \
+            [jobs.export_folder('dc01', b, f'2026010{d}-040000') for d in range(1, 5)]
+    assert names[0] == 'dc01_3cf115a9_20260101-030000'
+    excess, kept = jobs.select_excess(names, 'dc01', 2, a)
+    assert excess == ['dc01_3cf115a9_20260101-030000', 'dc01_3cf115a9_20260102-030000'] and kept == 2
+    # folders of the old form count only when this plan's own runs recorded them
+    legacy = ['dc01_20251230-030000', 'dc01_20251231-030000']
+    excess, _ = jobs.select_excess(names + legacy, 'dc01', 2, a, own_legacy={'dc01_20251230-030000'})
+    assert excess == ['dc01_20251230-030000', 'dc01_3cf115a9_20260101-030000', 'dc01_3cf115a9_20260102-030000']
+
+
 @pytest.mark.parametrize('folder, expected', [
     ('DC02_20260101-030000', 'DC02'), ('DC02', 'DC02'), ('', ''), ('a_b_20261231-235959', 'a_b'),
+    ('dc01_3cf115a9_20260101-030000', 'dc01'),
 ])
 def test_derive_name(folder, expected):
     assert jobs.derive_name(folder) == expected
