@@ -209,3 +209,121 @@ def test_affinity_violation_none_when_compliant(lb):
     state = feed(lb, nodes, vms, {})
     usable = [u for u in state.values() if u['is_usable']]
     assert lb.find_affinity_violation(usable) == (None, None, None, None)
+
+
+# ── a balancer thread that cannot die on bad settings, and a supervisor that does not log in every minute ──
+
+def test_a_window_shorter_than_one_sample_still_holds_one_sample(monkeypatch):
+    """AVG_WINDOW_MINUTES=1 with SAMPLE_INTERVAL_SECONDS=120 (both allowed) gave a window of 0 samples:
+    mean() of an empty deque raised and killed the thread."""
+    monkeypatch.setattr(hb.config_db, 'get_all', lambda cid: {})
+    lb = hb.LoadBalancer(client=object(), config=dict(CONFIG, AVG_WINDOW_MINUTES=1, SAMPLE_INTERVAL_SECONDS=120),
+                         migration_logger=object())
+    assert lb.max_history == 1
+    state = feed(lb, [node('n1', '10.0.0.241', 10.0, 8)], [vm('v1', 'a', 'n1')], {'v1': 5.0}, samples=1)
+    assert state['n1']['avg_cpu'] == pytest.approx(10.0)
+    lb.config.update(AVG_WINDOW_MINUTES=1, SAMPLE_INTERVAL_SECONDS=300)
+    lb.max_history = 10
+    lb.reload_config()
+    assert lb.max_history == 1, 'the hot reload uses the same floor'
+
+
+def test_a_node_reporting_zero_threads_does_not_divide_by_zero(lb):
+    nodes = [dict(node('n1', '10.0.0.241', 10.0, 8), numThreads=0)]
+    state = feed(lb, nodes, [vm('v1', 'a', 'n1')], {})
+    assert state['n1']['threads'] == 1
+
+
+class _Logger:
+    def __init__(self): self.events = []
+    def log_event(self, **kw): self.events.append(kw)
+    def close(self): pass
+
+
+class _Client:
+    """A cluster that answers with fixed nodes and VMs and records migrations."""
+    def __init__(self, nodes, vms, cpu=None, fail_migrate=False):
+        self.nodes, self.vms, self.cpu = nodes, vms, cpu or {}
+        self.fail_migrate, self.migrations, self.task_states = fail_migrate, [], []
+        self.closed = False
+    def get_nodes(self): return self.nodes
+    def get_vms(self): return self.vms
+    def get_vm_stats(self): return stats(self.vms, self.cpu)
+    def get_task_status(self, tag): return self.task_states.pop(0) if self.task_states else 'RUNNING'
+    def migrate(self, vm_uuid, target):
+        self.migrations.append((vm_uuid, target))
+        if self.fail_migrate:
+            raise RuntimeError('HTTP 500')
+        return {'taskTag': f't{len(self.migrations)}'}
+    def close(self): self.closed = True
+
+
+def _balancer(client, **config):
+    lb = hb.LoadBalancer(client=client, config=dict(CONFIG, PREDICTIVE_BALANCING_ENABLED=False, **config),
+                         migration_logger=_Logger())
+    lb._last_config_check = time.time() + 10 ** 6       # no hot reload in these tests
+    return lb
+
+
+def test_a_failing_cycle_does_not_end_the_thread():
+    """An exception after the fetch used to escape the loop: the thread ended, logged out, and the
+    supervisor started a new one with a new login."""
+    client = _Client([node('n1', '10.0.0.241', 10.0, 8)], [])
+    lb = _balancer(client)
+    lb.max_history = 1
+    calls, sleeps = [], []
+
+    def boom(state):
+        calls.append(1)
+        raise ValueError('bad data')
+    lb.select_candidate = boom
+
+    def sleep(sec):
+        sleeps.append(sec)
+        if len(sleeps) >= 3:
+            lb.stop.set()
+    lb._sleep = sleep
+    lb.start()
+    assert len(calls) == 3, 'the loop went on after the failure'
+    assert sleeps == [30, 30, 30]
+
+
+class _T:
+    def __init__(self, cluster, alive=True, started_at=0.0):
+        self.cluster, self.alive, self.started_at = cluster, alive, started_at
+    def is_alive(self): return self.alive
+
+
+class _C:
+    def __init__(self, cid, updated_at='u1'):
+        self.cluster_id, self.name, self.updated_at = cid, cid, updated_at
+
+
+def test_a_thread_that_keeps_dying_is_restarted_with_a_growing_backoff():
+    """A thread that died (refused login, crash) was recreated on every 60 s registry pass: 60 logins an hour."""
+    clusters = {'c1': _C('c1')}
+    threads, backoff, started = {}, {}, []
+    clock = {'now': 0.0}
+
+    def start(cl, ev):
+        started.append(clock['now'])
+        return _T(cl, alive=False, started_at=clock['now'])      # dies at once, like a refused login
+    for _ in range(60):                                            # one hour of registry passes
+        hb.reconcile(threads, clusters, set(), backoff, start, clock['now'])
+        clock['now'] += hb.REGISTRY_POLL_SECONDS
+    assert len(started) <= 6, f'{len(started)} restarts (logins) in an hour'
+    assert backoff['c1'][0] >= 4
+    clusters['c1'] = _C('c1', updated_at='u2')                     # a new password is tried at once
+    n = len(started)
+    hb.reconcile(threads, clusters, set(), backoff, start, clock['now'])
+    assert len(started) == n + 1
+
+
+def test_a_healthy_thread_is_left_alone_and_a_removed_cluster_stopped():
+    c = _C('c1'); threads, backoff = {}, {}
+    hb.reconcile(threads, {'c1': c}, set(), backoff, lambda cl, ev: _T(cl), 0.0)
+    t, ev = threads['c1']
+    hb.reconcile(threads, {'c1': c}, set(), backoff, lambda cl, ev: pytest.fail('restarted'), 60.0)
+    assert threads['c1'][0] is t
+    hb.reconcile(threads, {}, set(), backoff, lambda cl, ev: pytest.fail('restarted'), 120.0)
+    assert threads == {} and ev.is_set() and backoff == {}
