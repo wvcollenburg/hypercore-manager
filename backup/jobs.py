@@ -127,6 +127,17 @@ def location_for_schedule(sched) -> dict:
     }
 
 
+def under_location(uri: str | None, base: str | None) -> bool:
+    """True when uri is base itself or lies inside it (no `..` segment): the only URIs a folder target's
+    stored credentials may be put into."""
+    if not uri or not base:
+        return False
+    uri, base = uri.rstrip('/').lower(), base.rstrip('/').lower()
+    if '..' in urlsplit(uri).path.split('/'):
+        return False
+    return uri == base or uri.startswith(base + '/')
+
+
 def effective_base(sched) -> str:
     """Kept for the API: the resolved <share>/<tenant> path, or '' when unresolvable."""
     try:
@@ -570,8 +581,13 @@ def run_import(import_id: int) -> None:
             password = db.decrypt_password(imp['smb_pass_enc']) if imp['smb_pass_enc'] else None
             source_uri = build_path_uri(imp['source_uri'], imp['smb_user'], password)
         else:
+            # the folder target's credentials go only into a URI inside that folder's own directory, never into
+            # a source somebody typed elsewhere
             loc = location_for_cluster(imp['cluster_id'])
-            source_uri = build_path_uri(imp['source_uri'], loc['user'] or None, loc['password'] or None) if loc else imp['source_uri']
+            if loc and under_location(imp['source_uri'], loc['base']):
+                source_uri = build_path_uri(imp['source_uri'], loc['user'] or None, loc['password'] or None)
+            else:
+                source_uri = imp['source_uri']
         task_tag, created = hc.import_vm(source_uri, name=imp['target_name'] or None)
         db.update_import(import_id, task_tag=task_tag, created_uuid=created or None)
         wait_for_task(hc, task_tag, lambda state, pct: db.update_import(import_id, message=f'{state} {pct}%'))

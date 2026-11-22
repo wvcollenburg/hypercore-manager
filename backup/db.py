@@ -170,15 +170,17 @@ def delete_schedule(schedule_id: int) -> None:
     _exec('DELETE FROM backup.plans WHERE id = %s', (schedule_id,))
 
 
-def get_known_smb_locations() -> list[dict]:
-    """Distinct SMB destinations (base + user) saved on schedules, across all clusters, so
-    an import can reuse them (cross-cluster restore) without re-entering credentials.
+def get_known_smb_locations(cluster_ids: list[str]) -> list[dict]:
+    """Distinct SMB destinations (base + user) saved on the schedules of these clusters (the
+    importing cluster's folder), so an import can reuse them without re-entering credentials.
     ref_id is the newest schedule holding the stored password for that location."""
+    if not cluster_ids:
+        return []
     return _all(
         '''SELECT path_uri_base, smb_user, MAX(id) AS ref_id
              FROM backup.plans
-            WHERE path_uri_base ILIKE 'smb://%%' AND smb_user IS NOT NULL
-            GROUP BY path_uri_base, smb_user ORDER BY path_uri_base''')
+            WHERE path_uri_base ILIKE 'smb://%%' AND smb_user IS NOT NULL AND cluster_id::text = ANY(%s)
+            GROUP BY path_uri_base, smb_user ORDER BY path_uri_base''', (list(cluster_ids),))
 
 
 # ----------------------------------------------------------------------- runs

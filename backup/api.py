@@ -451,6 +451,18 @@ def schedules():
     return jsonify(rows)
 
 
+def _vm_of(cid: str, vm_uuid: str):
+    """(the VM as HyperCore reports it, None) or (None, error response). A plan for a VM that does not exist
+    was accepted and then failed every night; its name is taken from HyperCore, never from the request (it is
+    the export prefix and the retention key)."""
+    try:
+        return jobs.client_for(cid).get_vm(vm_uuid), None
+    except HyperCoreError as e:
+        if e.status == 404 or (e.status == 0 and 'not found' in str(e).lower()):
+            return None, _err('that VM does not exist on the cluster', 404)
+        return None, _err(f'could not look up the VM on the cluster: {e}', 502)
+
+
 def _valid_time(v: str) -> str | None:
     try:
         hh, mm = (v or '').split(':')
@@ -472,9 +484,9 @@ def schedules_add():
     run_time = _valid_time(b.get('run_time') or cfg_module.load().default_run_time)
     if not run_time:
         return _err('run_time must be HH:MM (24h)')
-    for k in ('vm_uuid', 'vm_name'):
-        if not (b.get(k) or '').strip():
-            return _err(f'{k} is required')
+    vm_uuid = str(b.get('vm_uuid') or '').strip()
+    if not vm_uuid:
+        return _err('vm_uuid is required')
     if not (b.get('path_uri_base') or '').strip() and not jobs.location_for_cluster(cid):
         return _err("no share is assigned to this cluster's folder; an admin can add one under Settings → Shares and assign it from the folder menu")
     try:
@@ -490,8 +502,11 @@ def schedules_add():
         return _err(jobs.smb_only_error('Export mode'))
     if mode == 'incremental' and not any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)):
         return _err('incremental plans need a registered backup proxy for this cluster (Settings → Clusters → Proxies)')
+    vm, err = _vm_of(cid, vm_uuid)
+    if err:
+        return err
     try:
-        sid = db.add_schedule(cluster_id=cid, vm_uuid=b['vm_uuid'], vm_name=b['vm_name'],
+        sid = db.add_schedule(cluster_id=cid, vm_uuid=vm['uuid'] or vm_uuid, vm_name=vm.get('name') or vm_uuid,
                               path_uri_base=(b.get('path_uri_base') or '').strip(), smb_user=b.get('smb_user'),
                               smb_password=b.get('smb_password'), prune_path=b.get('prune_path'),
                               retention=retention, run_time=run_time, compress=bool(b.get('compress')),
@@ -810,13 +825,17 @@ def policies_add_member(pid):
     cid = (b.get('cluster_id') or _cluster_arg() or '').strip()
     if db.folder_of_cluster(cid) != (True, pol['folder_id']):
         return _err("the VM's cluster is not in this schedule's folder")
-    vm_uuid, vm_name = (b.get('vm_uuid') or '').strip(), (b.get('vm_name') or '').strip()
-    if not vm_uuid or not vm_name:
-        return _err('vm_uuid and vm_name are required')
+    vm_uuid = str(b.get('vm_uuid') or '').strip()
+    if not vm_uuid:
+        return _err('vm_uuid is required')
     if not jobs.location_for_cluster(cid):
         return _err("no share is assigned to this cluster's folder; an admin can add one under Settings → Shares and assign it from the folder menu")
     if pol['kind'] == 'incremental' and not any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)):
         return _err('backup schedules need a registered backup proxy on the cluster (Settings → Clusters → Proxies)')
+    vm, err = _vm_of(cid, vm_uuid)
+    if err:
+        return err
+    vm_uuid, vm_name = vm.get('uuid') or vm_uuid, vm.get('name') or vm_uuid
     plan = db.plan_for_vm(cid, vm_uuid)
     moved_from = plan.get('policy_name') if plan and plan.get('policy_id') not in (None, pid) else None
     if plan is None:
@@ -893,12 +912,23 @@ def _folder_source(target_cluster):
     return (loc['base'], loc['user'], loc['password']) if loc else None
 
 
+def _scope_clusters(cluster) -> list[str]:
+    """The clusters whose saved locations an import onto `cluster` may reuse: those of its folder, or the
+    cluster alone when it has no folder."""
+    if cluster is None:
+        return []
+    if not getattr(cluster, 'folder_id', None):
+        return [cluster.cluster_id]
+    return [c['cluster_id'] for c in db.folder_clusters(cluster.folder_id)] or [cluster.cluster_id]
+
+
 def _resolve_source(b: dict, target_cluster):
     """(base_uri, user, password). A saved location (known_id -> schedule) keeps its credentials
-    server-side and is scoped to the target cluster's tenant folder, so an import can only pick
-    up exports that belong to the same HyperCore Manager folder. A manually typed source is used
-    as typed (admin-only route)."""
-    if not b.get('known_id') and not (b.get('source_uri') or '').strip():
+    server-side; only a plan of the target cluster's own folder qualifies, and the path is scoped to
+    that folder's tenant directory, so an import can only pick up exports of the same HyperCore
+    Manager folder. A manually typed source is used as typed, with the credentials sent along
+    (admin-only route). Raises ValueError for a saved location outside that scope."""
+    if not b.get('known_id') and not str(b.get('source_uri') or '').strip():
         src = _folder_source(target_cluster)
         if src:
             return src
@@ -908,11 +938,13 @@ def _resolve_source(b: dict, target_cluster):
             sched = db.get_schedule(int(known_id))
         except (TypeError, ValueError):
             sched = None
-        if sched and (sched['path_uri_base'] or '').lower().startswith('smb://'):
+        if not sched or str(sched['cluster_id']) not in _scope_clusters(target_cluster):
+            raise ValueError("unknown saved location for this cluster's folder")
+        if (sched['path_uri_base'] or '').lower().startswith('smb://'):
             password = db.decrypt_password(sched['smb_pass_enc']) if sched['smb_pass_enc'] else ''
             base = f"{sched['path_uri_base'].rstrip('/')}/{jobs.tenant_slug(target_cluster)}"
             return base, sched['smb_user'] or '', password
-    return (b.get('source_uri') or '').strip(), (b.get('smb_user') or '').strip(), b.get('smb_password') or ''
+    return str(b.get('source_uri') or '').strip(), str(b.get('smb_user') or '').strip(), b.get('smb_password') or ''
 
 
 @app.get('/api/v1/import/known')
@@ -922,7 +954,7 @@ def import_known():
     cluster = cluster_registry.get(cid) if cid else None
     tenant = jobs.tenant_slug(cluster)
     rows = []
-    for r in db.get_known_smb_locations():
+    for r in db.get_known_smb_locations(_scope_clusters(cluster)):
         d = _ser(r)
         d['tenant'] = tenant
         d['effective_base'] = f"{r['path_uri_base'].rstrip('/')}/{tenant}"
@@ -934,7 +966,10 @@ def import_known():
 @_require_token
 def import_browse():
     cid = _cluster_arg()
-    base, user, password = _resolve_source(request.get_json(silent=True) or {}, cluster_registry.get(cid) if cid else None)
+    try:
+        base, user, password = _resolve_source(request.get_json(silent=True) or {}, cluster_registry.get(cid) if cid else None)
+    except ValueError as e:
+        return _err(str(e))
     if not base:
         return _err("no share is assigned to this cluster's folder")
     if jobs.is_nfs(base):
@@ -955,14 +990,23 @@ def import_start():
     cluster = cluster_registry.get(cid) if cluster_registry.is_uuid(cid) else None
     if not cluster:
         return _err('unknown target cluster')
-    base, smb_user, smb_password = _resolve_source(b, cluster)
+    try:
+        base, smb_user, smb_password = _resolve_source(b, cluster)
+    except ValueError as e:
+        return _err(str(e))
     base = base.rstrip('/')
-    folder = (b.get('source_folder') or '').strip().strip('/')
+    folder = str(b.get('source_folder') or '').strip().strip('/')
+    if folder and ('..' in folder or '/' in folder or '\\' in folder):
+        return _err('source_folder must be one folder name from the browse list')
     if not base:
         return _err('a source path is required')
     if jobs.is_nfs(base):
         return _err(jobs.smb_only_error('Import'))
     source_uri = f'{base}/{folder}' if folder else base
+    if not smb_user and '@' not in source_uri.split('//', 1)[-1].split('/', 1)[0] \
+            and not jobs.under_location(source_uri, (jobs.location_for_cluster(cid) or {}).get('base')):
+        # the folder target's stored credentials are only ever used inside that folder's own directory
+        return _err("a source outside this folder's target needs smb_user and smb_password")
     target_name = (b.get('target_name') or '').strip()
     effective = target_name or jobs.derive_name(folder)
     if effective:
