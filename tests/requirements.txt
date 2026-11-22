@@ -11,5 +11,13 @@ python-dateutil==2.9.0.post0
 # optional imports some tests skip without (importorskip): with them CI runs the console tests and the
 # manual rendering tests too (49 tests were silently skipped before 1.8.1). Same versions as the services.
 aiohttp==3.12.15
+python-json-logger==4.1.0   # every service's log.py, for tests that import a service's main module
 pillow==13.0.0
 markdown==3.8.2
+# the real modules behind tests that load a service's own code (the dashboard's app.py, the collector's points,
+# psycopg2's exceptions): conftest only stubs them when they are missing, and the stubs lack what these tests use.
+# Same versions as the services; without them CI failed where the local test image (which has them) passed.
+flask-sock==0.7.0
+simple-websocket==1.1.0
+influxdb-client==1.50.0
+psycopg2-binary==2.9.13

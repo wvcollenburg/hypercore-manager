@@ -10,9 +10,27 @@ import pytest
 import config as sentinel_config
 import tunables
 
-_spec = importlib.util.spec_from_file_location('sentinel_main', Path(__file__).resolve().parents[1] / 'sentinel' / 'sentinel.py')
-sentinel_main = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(sentinel_main)
+
+def _import_sentinel_main():
+    """sentinel/sentinel.py imports 'log', a name every service has: with another service's directory first on
+    sys.path (the console tests put theirs there) it got console/log.py. Import it with sentinel/ first and the
+    clashing name cleared, then put sys.modules back as it was."""
+    sentinel_dir = str(Path(__file__).resolve().parents[1] / 'sentinel')
+    saved = sys.modules.pop('log', None)
+    sys.path.insert(0, sentinel_dir)
+    try:
+        spec = importlib.util.spec_from_file_location('sentinel_main', Path(sentinel_dir) / 'sentinel.py')
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    finally:
+        sys.path.remove(sentinel_dir)
+        sys.modules.pop('log', None)
+        if saved is not None:
+            sys.modules['log'] = saved
+
+
+sentinel_main = _import_sentinel_main()
 
 
 class _Stop:
