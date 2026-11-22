@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Replicas are recognised.** A replication target (a VM HyperCore keeps up to date from a source VM on another
+  cluster) is no longer listed as a stopped VM: the VM list has a **Replicas** section, always last, with a
+  *replica* badge and, when you may see the source cluster, *replica of <VM> on <cluster>*.
+- **Media management.** An Infraviewer **Media** tab per cluster lists the ISOs and disk images you may use, with
+  uploads straight from the browser (progress bar), giving an item down the tenant tree, and delete. An upload
+  belongs to the uploader's layer and is seen there and below it within the same tenant, never above; an MSP's
+  upload reaches a customer only when the MSP gives it; what was on the cluster before belongs to the top-level
+  administrators. The New VM and Edit dialogs offer, and the server accepts, only media you may see. New
+  permission *Manage ISOs and disk images* (`media.manage`), in the built-in Admin and Engineer roles.
+
+### Upgrade notes
+- Behind nginx, uploads need `client_max_body_size 0` and `proxy_request_buffering off` on `/api/media/upload`
+  (see Installing and updating → the nginx example).
+- Custom roles copied from Engineer before this release do not get `media.manage` by themselves.
+
 ## [1.8.1]
 
 A maintenance release from a full review of 1.8.0: security, backup safety and robustness. Read the upgrade

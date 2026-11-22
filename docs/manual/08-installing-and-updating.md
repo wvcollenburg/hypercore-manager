@@ -331,7 +331,27 @@ map $http_upgrade $connection_upgrade {
     default upgrade;
     ''      close;
 }
+```
 
+ISO and disk image uploads (Infraviewer → Media) are one request each, often several GB. nginx refuses
+request bodies over 1 MB by default and buffers the rest to disk first; give the upload its own block in
+the `server` above:
+
+```nginx
+    location = /api/media/upload {
+        proxy_pass              http://127.0.0.1:5000;
+        proxy_set_header        Host              $host;
+        proxy_set_header        X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header        X-Forwarded-Proto $scheme;
+        client_max_body_size    0;          # no limit: an ISO or disk image is as large as it is
+        proxy_request_buffering off;        # stream it on as it arrives
+        proxy_read_timeout      4h;         # the cluster takes a while to swallow a large disk image
+    }
+```
+
+Caddy has no body limit by default.
+
+```nginx
 server {
     listen 80;
     server_name hcm.your-domain.com;

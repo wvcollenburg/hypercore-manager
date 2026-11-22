@@ -51,7 +51,9 @@ Who may do what, and where. The tabs:
   installation.
 - **Groups**: a group gives its access to every member.
 - **Roles**: the five built-in roles (Admin, Engineer, App Manager, Backup Manager, Viewer) are
-  templates; **Copy** one to make your own with exactly the permissions you want.
+  templates; **Copy** one to make your own with exactly the permissions you want. *Manage ISOs and disk
+  images* (upload, give and delete media, see Infraviewer → Media) is in Admin and Engineer; a custom role
+  copied before 1.9.0 does not have it until you add it.
 - **Tenants**: MSPs, customers, folders and clusters in columns, like a file browser. Click
   through them; the pane on the right shows who is assigned on what you selected, and what it
   inherits from above. Assign or remove people there.
