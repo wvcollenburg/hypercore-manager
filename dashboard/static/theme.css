@@ -79,6 +79,7 @@
   --bg-card: var(--surface);
   --bg-card-hover: var(--row-hover);
   --bg-nested: var(--surface-2);
+  --bg-input: var(--surface);
   --border-active: var(--border-strong);
   --text-primary: var(--ink);
   --text-secondary: var(--ink-2);
@@ -150,5 +151,7 @@
 html { -webkit-font-smoothing: antialiased; }
 ::selection { background: var(--accent-tint); }
 input, select, textarea, button { font-family: inherit; }
+input:not([type=checkbox]):not([type=radio]):not([type=range]):focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: none; border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--focus-ring); }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .num, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }

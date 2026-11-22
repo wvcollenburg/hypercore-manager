@@ -432,7 +432,7 @@
     position: fixed; z-index: 10000;
     background: var(--bg-secondary); border: 1px solid var(--border-active);
     border-radius: 10px; padding: 16px 18px; width: 310px;
-    box-shadow: 0 12px 40px color-mix(in srgb, var(--shadow-color) 60%, transparent);
+    box-shadow: var(--shadow-lg);
     display: none; pointer-events: auto;
   }
   .info-popup.visible { display: block; }
@@ -464,15 +464,15 @@
   .vm-detail-btn:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
   .vm-modal-backdrop {
     display: none; position: fixed; inset: 0; z-index: 10100;
-    background: color-mix(in srgb, var(--shadow-color) 70%, transparent); backdrop-filter: blur(2px);
+    background: var(--backdrop);
     align-items: center; justify-content: center;
   }
   .vm-modal-backdrop.visible { display: flex; }
   .vm-modal {
-    background: var(--bg-secondary); border: 1px solid var(--border-active);
-    border-radius: 12px; padding: 24px 28px; width: min(1056px, 95vw);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 22px 26px; width: min(1056px, 95vw);
     max-height: 90vh; overflow-y: auto;
-    box-shadow: 0 20px 60px color-mix(in srgb, var(--shadow-color) 70%, transparent);
+    box-shadow: var(--shadow-lg);
   }
   /* the top bar (title, time range, actions) stays in place while the content scrolls under it */
   .vm-modal-header {
@@ -482,10 +482,7 @@
     background: var(--bg-secondary); border-bottom: 1px solid var(--border);
     border-radius: 12px 12px 0 0;
   }
-  .vm-modal-title {
-    font-family: var(--font-ui); font-size: 13px;
-    font-weight: 700; color: var(--accent-cyan);
-  }
+  .vm-modal-title { font-family: var(--font-ui); font-size: 16px; font-weight: 600; color: var(--ink); }
   .vm-modal-close {
     background: none; border: none; cursor: pointer; color: var(--text-muted);
     font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 4px;
@@ -811,7 +808,7 @@
   .cc-refs img { width: 160px; border: 1px solid var(--border); border-radius: 4px; }
   .update-modal-backdrop {
     display: none; position: fixed; inset: 0; z-index: 10200;
-    background: color-mix(in srgb, var(--shadow-color) 70%, transparent); backdrop-filter: blur(2px);
+    background: var(--backdrop);
     align-items: center; justify-content: center;
   }
   .update-modal-backdrop.visible { display: flex; }
@@ -868,15 +865,13 @@
   .update-status-text.checking  { color: var(--text-muted); }
   .update-status-text.error     { color: var(--accent-red); }
   .update-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  /* the primary button of every dialog (hcmModal) and of the update dialog: solid accent */
   .update-apply-btn {
-    padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    padding: 6px 14px; border-radius: 6px; font-size: 13px; cursor: pointer;
     font-family: var(--font-ui); font-weight: 500;
-    background: color-mix(in srgb, var(--warn) 12%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
-    color: var(--accent-amber); transition: all 0.2s;
+    background: var(--accent); border: 1px solid var(--accent); color: var(--on-accent); transition: filter .15s;
   }
-  .update-apply-btn:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--warn) 20%, transparent);
-  }
+  .update-apply-btn:hover:not(:disabled) { filter: brightness(1.08); }
   .update-apply-btn:disabled { opacity: 0.5; cursor: default; }
   .update-log {
     background: var(--bg-primary); border: 1px solid var(--border);
