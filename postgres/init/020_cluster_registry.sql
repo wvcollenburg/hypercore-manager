@@ -37,8 +37,9 @@ INSERT INTO config.clusters (cluster_id, cluster_name, is_template, enabled)
 VALUES ('00000000-0000-0000-0000-000000000001', 'Defaults', TRUE, FALSE)
 ON CONFLICT (cluster_id) DO NOTHING;
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_clusters_name
-    ON config.clusters (lower(cluster_name));
+-- (an install-wide unique index on the cluster name lived here until 1.8.0. Migration 051 replaces it with
+--  one per folder; like the folder index in 021 it must not be recreated when the runner applies this file
+--  again, or an install that stops between here and 051 has install-wide names back.)
 
 -- sharing_prefs: TEXT 'default' -> UUID per cluster
 DO $$

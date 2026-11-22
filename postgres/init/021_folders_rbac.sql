@@ -14,7 +14,10 @@ CREATE TABLE IF NOT EXISTS config.folders (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_folders_name ON config.folders (lower(name));
+-- (a unique index on lower(name) lived here until 1.8.0. Migration 044 drops it: folder names are unique
+--  per parent since then. It must not come back: the dashboard's runner applies this file again on an
+--  install whose database was created by initdb, after 044 has seeded two nodes named 'Default', and
+--  failed here for good, which blocked every later migration and every in-app update.)
 
 ALTER TABLE config.clusters
     ADD COLUMN IF NOT EXISTS folder_id UUID REFERENCES config.folders (folder_id) ON DELETE SET NULL;
