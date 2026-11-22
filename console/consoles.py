@@ -147,6 +147,8 @@ async def relay(request: web.Request, http: aiohttp.ClientSession) -> web.WebSoc
                                       'vm_uuid': ticket.vm_uuid, 'cluster_id': ticket.cluster_id,
                                       'client_ip': ticket.client_ip})
 
+    view_filter = rfb.ViewOnlyFilter() if ticket.view_only else None
+
     async def browser_to_cluster():
         async for msg in down:
             if msg.type == aiohttp.WSMsgType.BINARY:
@@ -156,8 +158,10 @@ async def relay(request: web.Request, http: aiohttp.ClientSession) -> web.WebSoc
             else:
                 break
             state['in'] += len(data)
-            if ticket.view_only and rfb.carries_input(data):
-                continue                      # read-only: keys, pointer and clipboard never reach the VM
+            if view_filter is not None:
+                data = view_filter.feed(data)  # read-only: only screen-update traffic reaches the VM
+                if not data:
+                    continue
             if rfb.is_user_input(data, True):
                 state['last_input'] = time.monotonic()
             await up.send_bytes(data)

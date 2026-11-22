@@ -171,25 +171,73 @@ def is_user_input(msg: bytes, handshake_done: bool) -> bool:
     return i != len(msg)
 
 
-def carries_input(msg: bytes) -> bool:
-    """True when a browser -> console message (after the handshake) holds a key event, a pointer event
-    or clipboard text: what a read-only viewer must not send. Screen-update requests (alone or batched),
-    the pixel format and the encodings pass; so do the handshake's short messages (version, security
-    choice, the shared flag), none of which starts with 4, 5 or 6."""
-    if not msg:
-        return False
-    if msg[0] in (4, 5, 6):
-        return True
-    if msg[0] == 3:
-        i = 0
-        while i + _SIZES[3] <= len(msg):
-            if msg[i] in (4, 5, 6):
-                return True
-            if msg[i] != 3:
-                return False
-            i += _SIZES[3]
-        return i < len(msg) and msg[i] in (4, 5, 6)
-    return False
+class ViewOnlyFilter:
+    """The browser -> console byte stream of a read-only session, parsed as RFB: what reaches the VM is
+    the client's handshake (version, security choice, shared flag) and then only complete
+    SetPixelFormat (0), SetEncodings (2) and FramebufferUpdateRequest (3) messages. Key and pointer
+    events and clipboard text are skipped by their length; any other type (QEMU's extended key event
+    255 among them) ends what can be parsed of that websocket message, and the rest of it is dropped.
+    The server therefore only ever sees whole messages of the three allowed types, whatever the browser
+    packs into a frame (looking at a frame's first byte let input ride behind an allowed message)."""
+    _FORWARD = {0: 20, 3: 10}                       # fixed sizes; 2 is 4 + 4 per encoding
+    _SKIP = {4: 8, 5: 6}                            # 6 is 8 + its text length
+
+    def __init__(self):
+        self.buf = bytearray()
+        self.stage = 'version'                      # version | init | messages
+        self.init_left = 0
+        self.skip = 0
+
+    def feed(self, data: bytes) -> bytes:
+        """Bytes of one websocket message in, the bytes that may go to the console out."""
+        self.buf += data
+        out = bytearray()
+        while self.buf:
+            if self.skip:
+                n = min(self.skip, len(self.buf))
+                del self.buf[:n]
+                self.skip -= n
+                continue
+            if self.stage == 'version':
+                if len(self.buf) < 12:
+                    break
+                version = bytes(self.buf[:12])
+                del self.buf[:12]
+                if not version.startswith(b'RFB '):
+                    self.buf.clear()
+                    break
+                out += version
+                # 3.3: the server picks the security type, ClientInit follows; 3.7+: security choice, then ClientInit
+                self.stage, self.init_left = 'init', 1 if version[8:11] < b'007' else 2
+                continue
+            if self.stage == 'init':
+                out += self.buf[:1]
+                del self.buf[:1]
+                self.init_left -= 1
+                if not self.init_left:
+                    self.stage = 'messages'
+                continue
+            t = self.buf[0]
+            if t in self._FORWARD or t == 2:
+                if t == 2:
+                    if len(self.buf) < 4:
+                        break
+                    size = 4 + 4 * struct.unpack_from('>H', self.buf, 2)[0]
+                else:
+                    size = self._FORWARD[t]
+                if len(self.buf) < size:
+                    break                           # the rest comes in the next message
+                out += self.buf[:size]
+                del self.buf[:size]
+            elif t in self._SKIP:
+                self.skip = self._SKIP[t]
+            elif t == 6:
+                if len(self.buf) < 8:
+                    break
+                self.skip = 8 + abs(struct.unpack_from('>i', self.buf, 4)[0])   # negative: extended clipboard
+            else:
+                self.buf.clear()                    # length unknown: nothing more of this message is passed
+        return bytes(out)
 
 
 def first_message_type(msg: bytes) -> Optional[int]:
