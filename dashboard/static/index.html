@@ -507,6 +507,15 @@
   }
   .vm-modal-close:hover { color: var(--text-primary); }
   /* VM list: one row per VM */
+  .media-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .media-bar .um-hint { margin-right: auto; }
+  .media-section { margin-bottom: 20px; }
+  .media-section h3 { font-size: 13px; font-weight: 600; margin: 0 0 8px; color: var(--text-secondary); }
+  .media-up { display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin-bottom: 8px; border: 1px solid var(--border);
+              border-radius: 8px; background: var(--bg-card); font-size: 12px; }
+  .media-up .vm-meter-bar { flex: 1; }
+  .media-up.err { border-color: var(--accent-red); color: var(--accent-red); }
+  .media-give label { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
   .vm-list { width: 100%; border-collapse: collapse; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
   .vm-list th { text-align: left; font-family: var(--font-ui); font-size: 12px;
                 color: var(--text-muted); font-weight: 500; padding: 9px 12px; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap; }
@@ -579,6 +588,7 @@
   .ve-cyc { color: var(--accent-amber); }
   .ve-foot [hidden] { display: none !important; }
   .vm-state-off { font-family: var(--font-ui); font-size: 12px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--border); color: var(--text-muted); }
+  .vm-state-replica { border-style: dashed; }
   .vm-pending { font-family: var(--font-ui); font-size: 12px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--accent-amber); color: var(--accent-amber); margin-left: 6px; }
   /* VM details: live facts from HyperCore above the charts */
   .vmi { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; }
@@ -1212,6 +1222,7 @@
       <div class="iv-sub-tab"        data-ivpanel="nodes"  data-i18n="iv.nodes_drives" onclick="switchIvPanel('nodes')">Nodes &amp; Drives</div>
       <div class="iv-sub-tab"        data-ivpanel="vmperf" data-i18n="iv.tab_vmperf" onclick="switchIvPanel('vmperf')">VM performance</div>
       <div class="iv-sub-tab"        data-ivpanel="events" data-i18n="iv.tab_events" onclick="switchIvPanel('events')">Cluster events</div>
+      <div class="iv-sub-tab"        data-ivpanel="media"  data-i18n="iv.tab_media"  onclick="switchIvPanel('media')" hidden>Media</div>
     </div>
     <!-- VM list: what a cluster is for, so it comes first and is where selecting a cluster lands -->
     <div class="iv-panel active" id="ivpanel-vms">
@@ -1296,6 +1307,11 @@
       </div>
     </div>
     <!-- cluster events: HyperCore's task feed (REST v2) -->
+    <!-- media: the ISOs and disk images of the cluster this user may use (dashboard/media.py) -->
+    <div class="iv-panel" id="ivpanel-media">
+      <div id="mediaUploads"></div>
+      <div id="mediaBody"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
     <div class="iv-panel" id="ivpanel-events">
       <div class="chart-container" id="ivActivityCard" style="margin-bottom:12px;">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-amber)"></div><span data-i18n="iv.activity">Cluster activity</span>
@@ -2009,6 +2025,7 @@ function switchIvPanel(p) {
   document.querySelectorAll('.iv-panel').forEach(e => e.classList.remove('active'));
   document.querySelector(`[data-ivpanel="${p}"]`).classList.add('active');
   document.getElementById(`ivpanel-${p}`).classList.add('active');
+  if (p === 'media') loadMedia();
 }
 
 function formatTime(s) { return new Date(s).toLocaleTimeString(_hcmLocale(),{hour:'2-digit',minute:'2-digit'}); }
@@ -2455,17 +2472,21 @@ function renderVmCards() {
   const isAdmin = can('vm.create', currentCluster);
   const mayEdit = vm => ['vm.edit', 'vm.power', 'vm.snapshot', 'vm.clone', 'vm.delete'].some(p => canVm(p, currentCluster, vm.uuid, _vmTags(vm.uuid)));
   const mayConsole = vm => canVm('vm.console', currentCluster, vm.uuid, _vmTags(vm.uuid));
-  const rows = cachedVmData.filter(_vmMatches).map(vm => ({vm, name: vm.name, cpu: vm.state && vm.state !== 'RUNNING' ? -1 : _vmCpu(vm), iops: _vmIops(vm.uuid), ram: vm.mem_bytes ?? null, disk: vm.disk_bytes ?? null}));
-  const maxIops = Math.max(100, ...rows.map(r => r.iops || 0));
+  const allRows = cachedVmData.filter(_vmMatches).map(vm => ({vm, name: vm.name, cpu: vm.state && vm.state !== 'RUNNING' ? -1 : _vmCpu(vm), iops: _vmIops(vm.uuid), ram: vm.mem_bytes ?? null, disk: vm.disk_bytes ?? null}));
+  // replication targets (HyperCore's sourceVirDomainUUID) are not stopped VMs: they get their own section, last
+  const rows = allRows.filter(r => !r.vm.replica_of), replicas = allRows.filter(r => r.vm.replica_of);
+  const maxIops = Math.max(100, ...allRows.map(r => r.iops || 0));
   const val = (r, k) => k === 'name' ? (r.name || '').toLowerCase() : (r[k] ?? -1);
   const cmp = (a, b) => { const x = val(a, vmSort.key), y = val(b, vmSort.key); return (x < y ? -1 : x > y ? 1 : 0) * vmSort.dir || a.name.localeCompare(b.name); };
   const row = r => {
     const vm = r.vm, cpuCol = progressColor(r.cpu);
     const iopsPct = r.iops == null ? 0 : Math.min(100, r.iops / maxIops * 100);
-    const sub = [vm.tag, vm.node_peer_id && vm.node_peer_id !== 'unknown' ? t('vm.group_label.peer') + ' ' + vm.node_peer_id : '', vm.vlan && vm.vlan !== '0' ? 'VLAN ' + vm.vlan : ''].filter(Boolean).join(' · ');
+    const src = vm.replica_source;
+    const sub = [vm.replica_of && src && src.name ? t('vm.replica_of', {name: src.name, cluster: src.cluster || '?'}) : '',
+                 vm.tag, vm.node_peer_id && vm.node_peer_id !== 'unknown' ? t('vm.group_label.peer') + ' ' + vm.node_peer_id : '', vm.vlan && vm.vlan !== '0' ? 'VLAN ' + vm.vlan : ''].filter(Boolean).join(' · ');
     return `<tr>
       <td><div class="vm-name">${_clEsc(vm.name)}${_vmConsoleOpenIcon(vm.uuid)}${_vmPending[vm.uuid] ? `<span class="vm-pending" title="${_clEsc(_vmPending[vm.uuid].summary || '')}">⏱ ${_vmPending[vm.uuid].run_at ? _exFmt(_vmPending[vm.uuid].run_at) : t('ve.st_running')}</span>` : ''}</div>${sub ? `<div class="vm-sub">${_clEsc(sub)}</div>` : ''}</td>
-      <td>${r.cpu < 0 ? `<span class="vm-state-off">${_clEsc((vm.state || '').toLowerCase())}</span>` : `<div class="vm-meter"><div class="vm-meter-bar"><div class="vm-meter-fill" style="width:${Math.min(r.cpu, 100)}%;background:${cpuCol}"></div></div><span class="vm-meter-val" style="color:${cpuCol}">${r.cpu.toFixed(1)}%</span></div>`}</td>
+      <td>${vm.replica_of ? `<span class="vm-state-off vm-state-replica" title="${_clEsc(t('vm.replica_hint'))}">${_clEsc(t('vm.replica'))}</span>` : r.cpu < 0 ? `<span class="vm-state-off">${_clEsc((vm.state || '').toLowerCase())}</span>` : `<div class="vm-meter"><div class="vm-meter-bar"><div class="vm-meter-fill" style="width:${Math.min(r.cpu, 100)}%;background:${cpuCol}"></div></div><span class="vm-meter-val" style="color:${cpuCol}">${r.cpu.toFixed(1)}%</span></div>`}</td>
       <td><div class="vm-meter"><div class="vm-meter-bar"><div class="vm-meter-fill" style="width:${iopsPct}%;background:var(--accent-cyan)"></div></div><span class="vm-meter-val">${r.iops == null ? '—' : Math.round(r.iops).toLocaleString()}</span></div></td>
       <td class="num mono">${_gb(r.ram)}</td>
       <td class="num mono">${_gb(r.disk)}</td>
@@ -2506,13 +2527,20 @@ function renderVmCards() {
             + (folded ? '' : groups[k].sort(cmp).map(row).join(''));
     }
   }
+  if (replicas.length) {
+    // whatever the grouping, the replicas come last, in a section of their own that folds like a group
+    const gk = 'replicas:', folded = vmCollapsed.has(gk) && !vmQuery;
+    if (!(window._vmGroupKeys || []).includes(gk) && currentVmGroup !== 'none') window._vmGroupKeys = [...(window._vmGroupKeys || []), gk];
+    body += `<tr class="grp grp-replicas ${folded ? 'collapsed' : ''}" data-gk="${gk}" onclick="toggleVmGroup(this.dataset.gk)" title="${_clEsc(t(folded ? 'vm.group_expand' : 'vm.group_collapse'))}"><td colspan="6"><span class="grp-arrow">▾</span>${_clEsc(t('vm.replicas'))}<span class="grp-count">${replicas.length}</span></td></tr>`
+          + (folded ? '' : replicas.sort(cmp).map(row).join(''));
+  }
   const grouped = currentVmGroup !== 'none';
   const bar = (isAdmin || grouped) ? `<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;">
       ${grouped ? `<button class="refresh-btn" onclick="setAllVmGroups(true)">⊟ ${t('vm.groups_collapse_all')}</button><button class="refresh-btn" onclick="setAllVmGroups(false)">⊞ ${t('vm.groups_expand_all')}</button>` : ''}
       ${isAdmin ? `<button class="refresh-btn" onclick="openNewVm()">+ ${t('vn.new_vm')}</button>` : ''}</div>` : '';
   const cnt = document.getElementById('vmSearchCount');
-  if (cnt) cnt.textContent = vmQuery ? t('vm.search_count', {n: rows.length, total: cachedVmData.length}) : '';
-  container.innerHTML = `${bar}<div style="overflow-x:auto;">${rows.length ? `<table class="vm-list">${head}<tbody>${body}</tbody></table>`
+  if (cnt) cnt.textContent = vmQuery ? t('vm.search_count', {n: allRows.length, total: cachedVmData.length}) : '';
+  container.innerHTML = `${bar}<div style="overflow-x:auto;">${allRows.length ? `<table class="vm-list">${head}<tbody>${body}</tbody></table>`
     : `<div class="empty-state">${t('vm.search_none')}</div>`}</div>`;
 }
 
@@ -2530,6 +2558,7 @@ async function loadVMs() {
   await loadVmPending();
   if (vmQuery || _hasTagGrant(cid)) { await loadVmIndex(_vmIndexForce); _vmIndexForce = false; }
   if (cid !== currentCluster) return;
+  _vmFollowTick();
 
   renderVmCards();
 
@@ -2685,6 +2714,25 @@ function openVmConsole(cid, vm) {
 // ─── VM edit window (admins): every setting, power actions, now or in a maintenance window ───
 // HCM holds a change set until it runs; changes that need the VM off run as OS shutdown, change, start.
 var _vmPending = {};                 // vm uuid -> its scheduled/running change set (badge in the list)
+// While a change set runs on this cluster the VM list refreshes every 4 s, and once more after it ends: the backup
+// service has the collector poll the cluster when a change finishes, so a deleted or new VM shows within seconds
+// instead of at the next 30 s refresh (William, 2026-11-22).
+let _vmFollowTimer = null, _vmFollowing = false, _vmFollowUntil = 0;
+function _vmFollow() {
+  _vmFollowing = true;
+  _vmFollowUntil = Date.now() + 15000;      // a change just submitted may take a moment to show as running
+  if (!_vmFollowTimer) _vmFollowTimer = setTimeout(() => { _vmFollowTimer = null; loadVMs(); }, 2000);
+}
+function _vmFollowTick() {
+  const running = Object.values(_vmPending).some(c => c.status === 'running');
+  if (running || Date.now() < _vmFollowUntil) {
+    _vmFollowing = true;
+    if (!_vmFollowTimer) _vmFollowTimer = setTimeout(() => { _vmFollowTimer = null; loadVMs(); }, 4000);
+  } else if (_vmFollowing) {
+    _vmFollowing = false;                   // ended: one more look, after the collector's poll on completion
+    if (!_vmFollowTimer) _vmFollowTimer = setTimeout(() => { _vmFollowTimer = null; loadVMs(); }, 4000);
+  }
+}
 let _ve = null;                      // {uuid, data, form}
 const GIB = 1073741824;
 const VE_VM_LIVE = ['name', 'description', 'tags', 'snapshotScheduleUUID', 'affinityStrategy'];
@@ -2975,6 +3023,7 @@ async function _veSubmit(kind, ops, confirmName) {
     force_off: document.getElementById('veForce').checked, shutdown_timeout_min: parseInt(document.getElementById('veTimeout').value, 10) || 10}, when);
   msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
   const r = await _netFetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (r.ok) _vmFollow();               // the VM list follows the change until it is done
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return false; }
   msg.style.color = 'var(--accent-green)';
@@ -3090,6 +3139,7 @@ async function vnCreate() {
   msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
   const r = await _netFetch(_withCluster('/api/backup/vmedit/new'), {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({cluster_id: currentCluster, spec, run_at})});
+  if (r.ok) _vmFollow();               // the VM list follows the change until it is done
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return; }
   document.getElementById('vnCreate').disabled = true;
@@ -3197,6 +3247,7 @@ async function vaGo() {
   msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
   const r = await _netFetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({cluster_id: currentCluster, vm_uuid: _va.uuid, kind: _va.kind, ops, run_at})});
+  if (r.ok) _vmFollow();               // the VM list follows the change until it is done
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return; }
   document.getElementById('vaGo').disabled = true;
@@ -3463,6 +3514,156 @@ function setStatus(c) {
 }
 
 // ─── Cluster activity (REST v2 task feed) ───
+// ═══════════════════════════════════════════════════════════════════
+// media: ISOs and disk images of the selected cluster (dashboard/media.py decides who sees what)
+// ═══════════════════════════════════════════════════════════════════
+const MEDIA_DISK_SUFFIXES = ['.qcow2', '.vmdk', '.vhd', '.vhdx', '.img', '.raw'];
+let _media = null;
+const _mediaUploads = {};          // id -> {xhr, name}
+
+function _clusterHas(perm, cid = currentCluster) {
+  const a = window.HCM_ACCESS;
+  if (!a) return true;
+  if (a.root_admin) return true;
+  const c = (a.clusters || {})[cid];
+  return !!c && ((c.all || []).includes(perm) || (c.some || []).includes(perm));
+}
+function _mayUseMedia() { return ['media.manage', 'vm.create', 'vm.edit'].some(p => _clusterHas(p)); }
+
+async function loadMedia() {
+  const cid = currentCluster, el = document.getElementById('mediaBody');
+  if (!el) return;
+  const d = await apiFetch('/api/media');
+  if (cid !== currentCluster) return;                 // switched clusters meanwhile
+  if (!d) { el.innerHTML = `<div class="empty-state">${t('media.unavailable')}</div>`; return; }
+  _media = d;
+  const owner = o => o && o.id ? _clEsc(o.label || o.id) : _clEsc(t('media.owner_top'));
+  const given = m => (m.assigned || []).map(a => _clEsc(a.label || a.id)).join(', ') || '—';
+  const acts = m => !m.can_manage ? '' : `
+      ${(m.assign_targets || []).length ? `<button class="um-action-btn" data-kind="${m.kind}" data-uuid="${_clEsc(m.uuid)}" onclick="mediaGive(this.dataset.kind, this.dataset.uuid)">${t('media.give')}</button>` : ''}
+      <button class="um-action-btn danger" data-kind="${m.kind}" data-uuid="${_clEsc(m.uuid)}" onclick="mediaDelete(this.dataset.kind, this.dataset.uuid)">${t('media.delete')}</button>`;
+  const table = (list, kind) => list.length ? `<table class="vm-list"><thead><tr>
+        <th class="nosort">${t('media.col_name')}</th><th class="nosort num">${t('media.col_size')}</th>
+        <th class="nosort">${t('media.col_owner')}</th><th class="nosort">${t('media.col_given')}</th>
+        ${kind === 'iso' ? `<th class="nosort">${t('media.col_in_use')}</th>` : ''}<th class="nosort"></th></tr></thead><tbody>
+      ${list.map(m => `<tr>
+        <td><div class="vm-name">${_clEsc(m.name)}</div>${m.kind === 'iso' && m.ready === false ? `<div class="vm-sub">${t('media.not_ready')}</div>` : ''}${m.converting ? `<div class="vm-sub">${t('media.converting')}</div>` : ''}</td>
+        <td class="num mono">${m.size ? formatBytes(m.size) : '—'}</td>
+        <td>${owner(m.owner)}</td><td>${given(m)}</td>
+        ${kind === 'iso' ? `<td>${(m.in_use || []).map(_clEsc).join(', ') || '—'}</td>` : ''}
+        <td class="acts">${acts(m)}</td></tr>`).join('')}
+      </tbody></table>` : `<div class="empty-state">${t(kind === 'iso' ? 'media.none_iso' : 'media.none_disk')}</div>`;
+  const bar = d.can_upload ? `<div class="media-bar">
+      <span class="um-hint">${_clEsc(t('media.upload_owner', {owner: d.upload_owner && d.upload_owner.id ? (d.upload_owner.label || '') : t('media.owner_top')}))}</span>
+      <input type="file" id="mediaFileIso" accept=".iso" hidden onchange="mediaPicked('iso', this)">
+      <input type="file" id="mediaFileDisk" accept="${MEDIA_DISK_SUFFIXES.join(',')}" hidden onchange="mediaPicked('disk', this)">
+      <button class="refresh-btn" onclick="document.getElementById('mediaFileIso').click()">⤒ ${t('media.upload_iso')}</button>
+      <button class="refresh-btn" onclick="document.getElementById('mediaFileDisk').click()">⤒ ${t('media.upload_disk')}</button>
+    </div>` : '';
+  el.innerHTML = `${bar}<div class="um-hint" style="margin-bottom:12px">${t('media.intro')}</div>
+    <div class="media-section"><h3>${t('media.isos')}</h3>${table(d.isos || [], 'iso')}</div>
+    <div class="media-section"><h3>${t('media.disks')}</h3>${table(d.disks || [], 'disk')}</div>`;
+}
+
+function mediaPicked(kind, input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  const low = file.name.toLowerCase();
+  if (kind === 'iso' ? !low.endsWith('.iso') : !MEDIA_DISK_SUFFIXES.some(x => low.endsWith(x))) {
+    showToast(t(kind === 'iso' ? 'media.bad_name_iso' : 'media.bad_name_disk'), 'err');
+    return;
+  }
+  _mediaUpload(kind, file);
+}
+
+function _mediaUpload(kind, file) {
+  // XMLHttpRequest, not fetch: only it reports upload progress. The file goes as the raw body (no form
+  // encoding), streamed by the dashboard and the backup service into the cluster.
+  const id = 'mu' + Date.now() + Math.floor(Math.random() * 1000), cid = currentCluster;
+  const box = document.getElementById('mediaUploads');
+  const row = document.createElement('div');
+  row.className = 'media-up'; row.id = id;
+  row.innerHTML = `<span class="mono"></span><div class="vm-meter-bar"><div class="vm-meter-fill" style="width:0%;background:var(--accent-blue)"></div></div>
+    <span class="media-pct">0%</span><button class="um-action-btn">${t('media.cancel')}</button>`;
+  row.querySelector('.mono').textContent = file.name;
+  box.appendChild(row);
+  const xhr = new XMLHttpRequest();
+  _mediaUploads[id] = {xhr, name: file.name};
+  const done = (ok, msg) => {
+    delete _mediaUploads[id];
+    if (ok) { row.remove(); showToast(t('media.uploaded', {name: file.name}), 'ok'); if (cid === currentCluster) loadMedia(); return; }
+    row.classList.add('err');
+    row.querySelector('.media-pct').textContent = '';
+    row.querySelector('.mono').textContent = t('media.upload_failed', {name: file.name, msg});
+    const b = row.querySelector('button'); b.textContent = '✕'; b.setAttribute('aria-label', t('acc.close')); b.onclick = () => row.remove();
+  };
+  row.querySelector('button').onclick = () => { xhr.abort(); };
+  xhr.open('PUT', `${API_BASE}/api/media/upload?cluster=${encodeURIComponent(cid)}&kind=${kind}&name=${encodeURIComponent(file.name)}`);
+  xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+  xhr.upload.onprogress = e => {
+    if (!e.lengthComputable) return;
+    const pct = Math.floor(e.loaded / e.total * 100);
+    row.querySelector('.vm-meter-fill').style.width = pct + '%';
+    row.querySelector('.media-pct').textContent = pct + '%';
+  };
+  xhr.upload.onload = () => { row.querySelector('.media-pct').textContent = t('media.processing'); };
+  xhr.onload = () => {
+    if (xhr.status === 401) { location.href = '/login'; return; }
+    let d = {};
+    try { d = JSON.parse(xhr.responseText || '{}'); } catch (_) {}
+    if (xhr.status === 202) { delete _mediaUploads[id]; row.remove(); showToast(t('media.converting_toast', {name: file.name}), 'ok'); if (cid === currentCluster) loadMedia(); return; }
+    done(xhr.status === 201, d.error || `HTTP ${xhr.status}`);
+  };
+  xhr.onerror = () => done(false, t('media.network_error'));
+  xhr.onabort = () => done(false, t('media.cancelled'));
+  xhr.send(file);
+}
+window.addEventListener('beforeunload', e => {
+  if (Object.keys(_mediaUploads).length) { e.preventDefault(); e.returnValue = t('media.leave_warning'); }
+});
+
+function _mediaItem(kind, uuid) {
+  return ((_media || {})[kind === 'iso' ? 'isos' : 'disks'] || []).find(m => m.uuid === uuid);
+}
+
+async function mediaGive(kind, uuid) {
+  const m = _mediaItem(kind, uuid);
+  if (!m) return;
+  const targets = m.assign_targets || [];
+  hcmModal({
+    title: _esc(t('media.give_title', {name: m.name})), width: 'min(480px, 96vw)',
+    body: `<div class="um-hint" style="margin-bottom:10px">${_esc(t('media.give_hint'))}</div><div class="media-give">
+      ${targets.map((x, i) => `<label><input type="checkbox" data-i="${i}" ${x.assigned ? 'checked' : ''}>${_esc(x.label || x.id)}${x.level ? ` <span class="um-hint">(${_esc(t('acc.level_' + x.level))})</span>` : ''}</label>`).join('')}</div>`,
+    buttons: [
+      {label: t('media.cancel'), onClick: h => h.close()},
+      {label: t('acc.save'), kind: 'primary', onClick: async h => {
+        for (const box of h.body.querySelectorAll('input[type=checkbox]')) {
+          const x = targets[+box.dataset.i];
+          if (box.checked === !!x.assigned) continue;
+          const r = await _netFetch(_withCluster('/api/media/assign'), {method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({kind, uuid, node_id: x.id, assign: box.checked})});
+          if (!r.ok) { const d = await r.json().catch(() => ({})); h.setMsg(d.error || `HTTP ${r.status}`); return; }
+        }
+        h.close();
+        showToast(t('media.saved'), 'ok');
+        loadMedia();
+      }},
+    ],
+  });
+}
+
+async function mediaDelete(kind, uuid) {
+  const m = _mediaItem(kind, uuid);
+  if (!m) return;
+  if (!await hcmConfirm(t('media.delete_confirm', {name: m.name}), {danger: true, typeToConfirm: m.name, confirmLabel: t('media.delete')})) return;
+  const r = await _netFetch(_withCluster(`/api/media?kind=${kind}&uuid=${encodeURIComponent(uuid)}`), {method: 'DELETE'});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { showToast(d.error || `HTTP ${r.status}`, 'err'); return; }
+  showToast(t('media.deleted', {name: m.name}), 'ok');
+  loadMedia();
+}
+
 async function loadActivity() {
   const card = document.getElementById('ivActivityCard'); if (!card) return;
   const cid = currentCluster;
@@ -3502,6 +3703,11 @@ function _clusterScopeUi() {
     const el = document.querySelector(`.iv-sub-tab[data-ivpanel="${sub}"]`);
     if (el) el.hidden = !full;
   }
+  const mediaTab = document.querySelector('.iv-sub-tab[data-ivpanel="media"]');
+  if (mediaTab) {
+    mediaTab.hidden = !_mayUseMedia();
+    if (mediaTab.hidden && document.querySelector('.iv-sub-tab.active')?.dataset.ivpanel === 'media') switchIvPanel('vms');
+  }
   if (!full) {
     const active = document.querySelector('.tab-content.active')?.id?.replace('tab-', '');
     if (['clusterbalancer', 'sentinel'].includes(active)) switchTab('infraviewer');
@@ -3517,7 +3723,8 @@ async function refreshAll() {
   if (!full) setStatus(true);
   await Promise.all([full ? loadNodes() : null, loadVMs(), full ? loadMigrations() : null, full ? loadForecastRuns() : null,
                      full ? loadPredictions() : null, can('install.manage') || !window.HCM_ACCESS ? loadModules() : null,
-                     full ? loadActivity() : null]);
+                     full ? loadActivity() : null,
+                     document.getElementById('ivpanel-media')?.classList.contains('active') ? loadMedia() : null]);
 }
 
 // apply translations to static HTML before the first data fetch
@@ -5731,6 +5938,8 @@ async function loadClusters() {
   // the Backup tab depends on the selected cluster: the first probe (0.8 s after load) can run before
   // there is one, which hid the tab for two minutes from anyone without backup rights on the whole installation
   if (typeof _exProbe === 'function') _exProbe();
+  // the per-cluster tabs (Media among them) likewise: the first refresh can run before a cluster is selected
+  if (window.HCM_ACCESS) _clusterScopeUi();
   if (!window._alertsPrimed && enabled.length) { window._alertsPrimed = true; loadClusterAlerts(); }
   // the data-quality banner names the cluster: it is first checked once the clusters are known
   if (!window._dqPrimed && enabled.length) { window._dqPrimed = true; checkDataQuality(); }

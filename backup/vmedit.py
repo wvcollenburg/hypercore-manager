@@ -193,7 +193,8 @@ def plan(kind: str, ops: list[dict], vm: dict, ctx: Optional[dict] = None) -> di
             t = o.get('type') or 'VIRTIO_DISK'
             if t not in ALL_DISK_TYPES:
                 raise EditError('disk type must be one of ' + ', '.join(ALL_DISK_TYPES))
-            body: dict[str, Any] = {'type': t}
+            # capacity is required by HyperCore for every new block device; an empty CD-ROM drive is 0
+            body: dict[str, Any] = {'type': t, 'capacity': 0}
             if t != 'IDE_CDROM':
                 body['capacity'] = _int(o.get('capacity'), 'disk size', GIB // 1024, 64 * 1024 * GIB)
             if o.get('cacheMode'):
@@ -400,7 +401,8 @@ def _create_vm(hc, change_id: int, spec: dict, step) -> None:
         if dev:
             boot.append(dev)
     if spec.get('iso_uuid'):
-        r = hc._request('POST', '/VirDomainBlockDevice', json={'virDomainUUID': vm_uuid, 'type': 'IDE_CDROM',
+        # capacity is required for every new block device (HyperCore 400 without it); a CD-ROM takes its ISO's size
+        r = hc._request('POST', '/VirDomainBlockDevice', json={'virDomainUUID': vm_uuid, 'type': 'IDE_CDROM', 'capacity': 0,
                                                                  'path': f"scribe/{spec['iso_uuid']}"}) or {}
         _task(hc, r.get('taskTag', ''), 'add CD-ROM', 300)
         if r.get('createdUUID'):
@@ -471,6 +473,12 @@ def _claim(change_id: int) -> bool:
 def _finish(change_id: int, status: str, result: list, error: Optional[str]) -> None:
     db._exec('UPDATE backup.vm_changes SET status = %s, finished_at = now(), result = %s, error = %s WHERE id = %s',
              (status, psycopg2.extras.Json(result), error, change_id))
+    # the VM list follows at once (a delete, a new VM, a power change), not at the collector's next poll
+    try:
+        row = db._one('SELECT cluster_id::text AS cluster_id FROM backup.vm_changes WHERE id = %s', (change_id,))
+        db.poke_inventory((row or {}).get('cluster_id'))
+    except Exception:                                    # noqa: BLE001 — the change itself is recorded
+        pass
 
 
 def _progress(change_id: int, result: list) -> None:

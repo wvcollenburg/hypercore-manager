@@ -751,6 +751,36 @@ def get_nodes():
 # =============================================================================
 # API: VM metrics (last 1 hour, 1-minute windows)
 # =============================================================================
+def _replica_sources(client, vms: dict) -> None:
+    """Names each replica's source VM ('replica_source': {name, cluster}) when that VM is on a cluster the user
+    sees in full: a replica's source is on another cluster, and its name is not for someone who may not see it."""
+    wanted = {v['replica_of'] for v in vms.values() if v.get('replica_of') and cluster_registry.is_uuid(v['replica_of'])}
+    if not wanted:
+        return
+    acc = _access()
+    names = {c.cluster_id: c.name for c in _visible_clusters()}
+    full = [cid for cid in names if acc.scope_for('vm.view', [cid]).get(cid) == 'all']
+    if not full:
+        return
+    fresh = max(60, int(_stale_seconds()))
+    cids = full
+    uuids = ', '.join(f'"{u}"' for u in sorted(wanted))
+    found: dict[str, dict] = {}
+    for table in client.query_api().query(org=INFLUX_ORG, query=f"""
+        from(bucket: "{INFLUX_BUCKET}")
+          |> range(start: -{fresh}s)
+          {_flux_clusters(cids)}
+          |> filter(fn: (r) => r["_measurement"] == "vm_inventory" and r["_field"] == "num_vcpu")
+          |> filter(fn: (r) => contains(value: r["vm_uuid"], set: [{uuids}]))
+          |> last()"""):
+        for rec in table.records:
+            found[rec.values.get('vm_uuid')] = {'name': rec.values.get('vm_name') or '',
+                                                'cluster': names.get(rec.values.get('cluster_id'), '')}
+    for v in vms.values():
+        if v.get('replica_of') in found:
+            v['replica_source'] = found[v['replica_of']]
+
+
 def _vm_sizes(client, vms: dict) -> None:
     """Adds mem_bytes, num_vcpu, os, state and disk_bytes to each VM of the list, and the VMs that are
     not running (from vm_inventory, which lists every VM). Memory and vCPUs come from
@@ -760,6 +790,7 @@ def _vm_sizes(client, vms: dict) -> None:
     q = client.query_api()
     # the inventory as of the last polls only: a deleted VM drops out as fast as a stopped one shows up
     fresh = max(60, int(_stale_seconds()))
+    seen: dict[str, datetime] = {}
     for table in q.query(org=INFLUX_ORG, query=f"""
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{fresh}s)
@@ -768,6 +799,8 @@ def _vm_sizes(client, vms: dict) -> None:
           |> last()"""):
         for rec in table.records:
             uuid = rec.values.get('vm_uuid')
+            if rec.get_time() and (uuid not in seen or rec.get_time() > seen[uuid]):
+                seen[uuid] = rec.get_time()
             state = rec.values.get('vm_state') or 'UNKNOWN'
             vm = vms.get(uuid)
             if vm is None and state != 'RUNNING':
@@ -780,6 +813,12 @@ def _vm_sizes(client, vms: dict) -> None:
                 vm[rec.get_field()] = rec.get_value()
                 vm['os'] = rec.values.get('vm_os') or ''
                 vm['state'] = state
+                # a replication target (HyperCore's sourceVirDomainUUID): listed apart, never as a stopped VM
+                vm['replica_of'] = rec.values.get('vm_source') or None
+    # a VM the newest poll no longer lists is gone (deleted in HCM or in HyperCore): out at once, not when its last
+    # performance sample turns stale. The collector polls right after HCM changes a VM (inventory_listener).
+    for uuid in vm_rows.missing_from_last_poll(vms, seen):
+        vms.pop(uuid, None)
     disks_of: dict[str, set] = {}
     for table in q.query(org=INFLUX_ORG, query=f"""
         from(bucket: "{INFLUX_BUCKET}")
@@ -848,6 +887,7 @@ def get_vms():
         active = [v for v in vms.values() if not is_stale(v['history'], stale_secs)]
         listed = {v['uuid']: v for v in active}
         _vm_sizes(client, listed)
+        _replica_sources(client, listed)
         return jsonify(_filter_vms(list(listed.values()), _vm_scope()))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2391,6 +2431,11 @@ def backup_proxy(sub):
             problem = _clean_plan_payload(payload, body_cid or cid)
             if problem is not None:
                 return problem
+        if request.method == 'POST' and sub in ('vmedit/new', 'vmedit/changes'):
+            # an ISO or disk image belongs to a layer of the tree (media.py): only one this user may see
+            problem = _media_check(sub, payload, body_cid or cid)
+            if problem is not None:
+                return problem
         user = session.get('username') or ('anonymous' if not _AUTH_ENABLED else None)
         if sub == 'notices/mute':                    # who muted it is the session's user, not the body's
             payload['muted_by'] = user
@@ -2432,12 +2477,15 @@ def backup_proxy(sub):
     except Exception as e:
         return jsonify({'error': f'Backup service unreachable: {e}'}), 503
     sees_targets = _access().can('backup.targets.manage')
-    if sees_targets and scope in (None, 'all'):
+    media_lists = request.method == 'GET' and sub in ('vmedit/vm', 'vmedit/options') and status == 200
+    if sees_targets and scope in (None, 'all') and not media_lists:
         return Response(raw, status=status, mimetype='application/json')
     try:
         data = json.loads(raw.decode() or 'null')
     except ValueError:
         return Response(raw, status=status, mimetype='application/json')
+    if media_lists:
+        data = _media_narrow(sub, data, cid)     # the ISOs and images offered: only those this user may see
     if scope not in (None, 'all'):
         data = _narrow_backup(sub, data, scope, cid)
     if any(k.encode() in raw for k in _BACKUP_NAME_KEYS):
@@ -4342,6 +4390,11 @@ from types import SimpleNamespace  # noqa: E402
 guest_api.register(app, sock, requires, public, SimpleNamespace(
     access=_access, can_vm=_can_vm, console_call=_console_call, console_binding=_console_binding, client_ip=_client_ip,
     relay_pipe=_relay_pipe, clusters=_enabled_clusters, vm_index_rows=_vm_index_rows))
+import media_api  # noqa: E402
+_media_narrow, _media_check = media_api.register(app, requires, SimpleNamespace(   # looked up per call (tests replace them)
+    access=lambda: _access(), cluster_id=lambda: _cluster_id(), backup_env=lambda: _backup_env(), pg=lambda: _pg(),
+    write_cluster_problem=lambda perm, need: _write_cluster_problem(perm, need),
+    audit=lambda *a, **k: _audit(*a, **k)))
 
 
 # =============================================================================

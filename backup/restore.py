@@ -346,6 +346,10 @@ def _run(r: dict) -> None:
     except ProxyError as e:
         log.warning('[restore %s] restore directory cleanup failed: %s', rid, e)
     bytes_written = res.get('bytes_written', 0)
+    try:
+        db.poke_inventory(cid)                   # the restored VM shows in the VM list now
+    except Exception:                            # noqa: BLE001 — never fails the restore it reports
+        pass
     db.update_restore(rid, status='COMPLETE', finished_at=_now(), progress=None,
                       message=f"restored as '{name}'" + (f' on {_cluster_name(cid)}' if cid != chain['cluster_id'] else '')
                               + f" ({len(disks)} disk(s), {bytes_written >> 20} MiB written); chain "

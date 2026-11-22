@@ -36,7 +36,10 @@ as such and never receives VMs.
 Every running VM of the cluster on one line: name (with its tag, peer and VLAN), CPU usage,
 IOPS over all its disks, memory and total disk size in GB. Click a column header to sort by it.
 The list is grouped by tag unless you pick node, VLAN or no grouping; click a group's header to fold
-it (Collapse all / Expand all above the list), and the dashboard remembers both choices. The
+it (Collapse all / Expand all above the list), and the dashboard remembers both choices. Replicas
+(the target VMs of a HyperCore replication from another cluster) are not listed as stopped VMs: they
+have their own section, **Replicas**, always last, marked *replica* and, when you may see the source
+cluster, *replica of <VM> on <cluster>*. The
 search field next to the grouping matches anything HyperCore knows about a VM: name, every tag,
 description, guest IP and MAC addresses, VLAN, mounted ISO, disk names, OS, node. Several words
 must all match ("infraservices dc"); Esc or switching cluster clears it. **Details** opens the VM's
@@ -84,6 +87,34 @@ not record console access.
 
 The cluster totals above the list add up IOPS and throughput over all VMs; the latency shown
 for the cluster is the worst disk, not an average, so one struggling disk is visible.
+
+## Media
+
+The ISOs and disk images of the selected cluster that you may use, in two lists: name, size, owner,
+who it is given to and, for an ISO, the VMs whose CD-ROM holds it. The tab is there for whoever may
+create or edit VMs, or manage media, on the cluster.
+
+HyperCore keeps media per cluster and knows nothing of customers, so HCM gives each item an owner:
+
+- **What you upload** belongs to your part of the organisation: the highest layer (MSP, customer or
+  folder) at which you hold *Manage ISOs and disk images* over this cluster. That layer sees it, and a
+  customer's or folder's upload is seen in its folders too. The layers above do not see it: an MSP does
+  not see what its customers upload.
+- **An MSP's upload** stays the MSP's until it gives it to one of its customers with **Give to…**. Only
+  the customer (and folder) of this cluster's own branch are offered: an MSP can only give to its own
+  customers.
+- **What was already on the cluster**, or was put there outside HCM (HyperCore's own UI, a cloud image
+  HCM uploaded for a backup proxy), belongs to the top-level administrators. They see every item and
+  can give any of them down the branch.
+
+The owner layer (or a top-level administrator) gives an item and deletes it; deleting asks for its
+name, and an ISO still in a CD-ROM cannot be deleted. The New VM and Edit dialogs offer only the ISOs
+and disk images you may see.
+
+**Upload ISO** and **Upload disk image** (for whoever holds *Manage ISOs and disk images*) send the
+file straight from your browser to the cluster, through the dashboard, with a progress bar; an ISO is
+ready to insert once the bar finishes, a disk image (`.qcow2`, `.vmdk`, `.vhd`, `.vhdx`, `.img`,
+`.raw`) can then be the first disk of a New VM. Keep the page open until the upload is done.
 
 ## What to look for
 

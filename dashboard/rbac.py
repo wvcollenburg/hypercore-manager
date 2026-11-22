@@ -36,6 +36,8 @@ PERMISSIONS: dict[str, dict] = {
     'vm.delete':              {'area': 'vms', 'level': 'vm', 'implies': ['vm.view']},
     'vm.tags.edit':           {'area': 'vms', 'level': 'vm', 'implies': ['vm.view']},
     'vm.create':              {'area': 'vms', 'level': 'cluster', 'implies': ['vm.view']},
+    # ISOs and disk images on a cluster: upload, assign down the tree, delete (dashboard/media.py)
+    'media.manage':           {'area': 'vms', 'level': 'cluster', 'implies': ['vm.view']},
     # backup
     'backup.view':            {'area': 'backup', 'level': 'vm', 'implies': ['vm.view']},
     'backup.schedule':        {'area': 'backup', 'level': 'vm', 'implies': ['backup.view']},
@@ -100,7 +102,7 @@ BUILTIN_ROLES: dict[str, dict] = {
     'admin': {'name': 'Admin', 'perms': ALL},
     'engineer': {'name': 'Engineer', 'perms': expand([
         'cluster.view', 'cluster.alerts.mute', 'vm.view', 'vm.console', 'vm.power', 'vm.edit', 'vm.snapshot',
-        'vm.clone', 'vm.delete', 'vm.tags.edit', 'vm.create', 'backup.view', 'guest_console.request',
+        'vm.clone', 'vm.delete', 'vm.tags.edit', 'vm.create', 'media.manage', 'backup.view', 'guest_console.request',
         'console.audit'])},
     'app_manager': {'name': 'App Manager', 'perms': expand([
         'cluster.view', 'vm.view', 'vm.console', 'guest_console.request'])},

@@ -26,7 +26,7 @@ import recurrence
 import scheduler
 import verifier
 import vmedit
-from hypercore import HyperCoreError
+from hypercore import HyperCoreError, LengthStream
 from proxy_client import ProxyError, certificate_fingerprint, normalise_fingerprint
 
 log = logging.getLogger('backup.api')
@@ -343,6 +343,151 @@ def vmedit_cancel(change_id):
     if not vmedit.cancel(change_id, cid, b.get('created_by')):
         return _err('only a scheduled change that has not started can be cancelled', 409)
     return jsonify({'ok': True})
+
+
+# ---------------------------------------------------------------------- media
+# ISOs and uploaded disk images (VirtualDisk) on a cluster. The dashboard decides who sees and manages which
+# (dashboard/media.py, config.media); this service only talks to HyperCore.
+_MEDIA_KINDS = ('iso', 'disk')
+_CONVERTING = __import__('re').compile(r'^uploading-')
+_CONVERT_WAIT_SECONDS = 15 * 60          # how long an upload waits for HyperCore's conversion before it answers 202
+
+
+def _media_list(hc) -> dict:
+    """The cluster's ISOs (with the VMs whose CD-ROM holds each) and disk images."""
+    isos = hc.list_isos()
+    disks = hc._request('GET', '/VirtualDisk') or []
+    used: dict[str, list[str]] = {}
+    for vm in hc._request('GET', '/VirDomain') or []:
+        for d in vm.get('blockDevs') or []:
+            if d.get('type') == 'IDE_CDROM' and d.get('path'):
+                used.setdefault(str(d['path']), []).append(vm.get('name') or vm.get('uuid'))
+    return {
+        'isos': [{'uuid': i.get('uuid'), 'name': i.get('name'), 'size': i.get('size'), 'ready': i.get('readyForInsert'),
+                  'in_use': sorted(used.get(str(i.get('path') or ''), []))} for i in isos],
+        # a qcow2 / vmdk / vhd(x) upload is converted to HyperCore's own format first: until then it is listed as
+        # 'uploading-<name>' (and gets a new uuid when it is done)
+        'disks': [{'uuid': d.get('uuid'), 'name': _CONVERTING.sub('', d.get('name') or ''),
+                   'converting': bool(_CONVERTING.match(d.get('name') or '')),
+                   'size': d.get('capacityBytes') or d.get('capacity')} for d in disks],
+    }
+
+
+@app.get('/api/v1/media')
+@_require_token
+def media_list():
+    cid = _cluster_arg()
+    if not cid:
+        return _err('cluster required')
+    try:
+        return jsonify(_media_list(jobs.client_for(cid)))
+    except HyperCoreError as e:
+        return _err(str(e), 502)
+
+
+def _body_chunks(size: int, chunk: int = 1 << 20):
+    """The request body as it arrives, exactly `size` bytes; a body that ends early fails the upload."""
+    left = size
+    while left > 0:
+        data = request.stream.read(min(chunk, left))
+        if not data:
+            raise HyperCoreError(f'the upload ended after {size - left} of {size} bytes')
+        left -= len(data)
+        yield data
+
+
+@app.put('/api/v1/media/upload')
+@_require_token
+def media_upload():
+    """?cluster=&kind=iso|disk&name=  body: the file, with its Content-Length. Streams it into the cluster:
+    an ISO is created, filled and made ready for insert; a disk image becomes a VirtualDisk. The dashboard
+    has checked the name and the uploader's right; a name already on the cluster is refused here."""
+    cid, kind, name = _cluster_arg(), request.args.get('kind'), (request.args.get('name') or '').strip()
+    if not cid or kind not in _MEDIA_KINDS or not name:
+        return _err('cluster, kind (iso or disk) and name are required')
+    size = request.content_length or 0
+    if size <= 0:
+        return _err('the upload needs a Content-Length')
+    try:
+        hc = jobs.client_for(cid)
+        have = _media_list(hc)['isos' if kind == 'iso' else 'disks']
+        if any((m.get('name') or '').lower() == name.lower() for m in have):
+            return _err(f"'{name}' is already on this cluster", 409)
+        if kind == 'iso':
+            iso_uuid = hc.create_iso(name, size)
+            try:
+                hc.upload_iso(iso_uuid, _body_chunks(size), size)
+                tag = hc.ready_iso(iso_uuid)
+                if tag:
+                    incremental.wait_task(hc, tag, 'ISO ready', 600)
+            except Exception:
+                try:
+                    hc.delete_iso(iso_uuid)          # a half-uploaded ISO is not left behind
+                except HyperCoreError:
+                    log.warning('could not remove the half-uploaded ISO %s', iso_uuid)
+                raise
+            return jsonify({'ok': True, 'uuid': iso_uuid, 'name': name, 'size': size}), 201
+        return _disk_upload(hc, name, size)
+    except (HyperCoreError, incremental.IncrementalError) as e:
+        return _err(str(e), 502)
+
+
+def _disk_upload(hc, name: str, size: int):
+    """A disk image into the cluster. HyperCore converts a qcow2, vmdk or vhd(x) to its own format after receiving
+    it: while it does, the image is listed as 'uploading-<name>', and the upload request itself may end in a 502
+    from HyperCore's nginx or no answer at all although the image arrived (seen on 9.8, 2026-11-22). So after the
+    body is sent, a 502/504 or a read timeout is not a failure as long as the image is there; then wait for the
+    converted image, which has a new uuid. 201 with that uuid, or 202 {converting} when it takes longer."""
+    import time
+    import requests
+    try:
+        r = hc.http().put(f'{hc.base}/VirtualDisk/upload', params={'filename': name, 'filesize': size},
+                          data=LengthStream(_body_chunks(size), size), timeout=(900, 120),
+                          headers={'Content-Type': 'application/octet-stream'})
+        answered = r.status_code
+        if not r.ok and r.status_code not in (502, 504):
+            raise HyperCoreError(f'disk image upload failed ({r.status_code}): {r.text[:200]}')
+    except requests.exceptions.ReadTimeout:
+        answered = None                                  # the body went through; the answer did not come
+    except requests.exceptions.RequestException as e:
+        raise HyperCoreError(f'disk image upload failed: {e}') from e
+    deadline = time.monotonic() + _CONVERT_WAIT_SECONDS
+    seen_converting = False
+    while True:
+        mine = [d for d in _media_list(hc)['disks'] if d.get('name') == name]
+        done = next((d for d in mine if not d.get('converting')), None)
+        if done:
+            return jsonify({'ok': True, 'uuid': done['uuid'], 'name': name, 'size': done.get('size') or size}), 201
+        seen_converting = seen_converting or bool(mine)
+        if not seen_converting and answered not in (200, 201):
+            raise HyperCoreError(f'disk image upload failed: HyperCore answered {answered or "nothing"} and the image is not on the cluster')
+        if time.monotonic() > deadline:
+            return jsonify({'ok': True, 'converting': True, 'name': name,
+                            'message': 'the cluster is still converting the image; it appears in the list when done'}), 202
+        time.sleep(5)
+
+
+@app.delete('/api/v1/media')
+@_require_token
+def media_delete():
+    """?cluster=&kind=&uuid=  An ISO still in a CD-ROM is refused (eject it first)."""
+    cid, kind, uuid = _cluster_arg(), request.args.get('kind'), (request.args.get('uuid') or '').strip()
+    if not cid or kind not in _MEDIA_KINDS or not cluster_registry.is_uuid(uuid):
+        return _err('cluster, kind and uuid are required')
+    try:
+        hc = jobs.client_for(cid)
+        listed = _media_list(hc)
+        item = next((m for m in listed['isos' if kind == 'iso' else 'disks'] if m.get('uuid') == uuid), None)
+        if not item:
+            return _err('not on this cluster', 404)
+        if kind == 'iso' and item.get('in_use'):
+            return _err('this ISO is inserted in ' + ', '.join(item['in_use']) + '; eject it first', 409)
+        tag = hc.delete_iso(uuid) if kind == 'iso' else (hc._request('DELETE', f'/VirtualDisk/{uuid}') or {}).get('taskTag', '')
+        if tag:
+            incremental.wait_task(hc, tag, 'media delete', 600)
+        return jsonify({'ok': True})
+    except (HyperCoreError, incremental.IncrementalError) as e:
+        return _err(str(e), 502)
 
 
 # ---------------------------------------------------------------------- VMs
