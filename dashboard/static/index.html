@@ -579,6 +579,7 @@
   .ve-cyc { color: var(--accent-amber); }
   .ve-foot [hidden] { display: none !important; }
   .vm-state-off { font-family: var(--font-ui); font-size: 12px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--border); color: var(--text-muted); }
+  .vm-state-replica { border-style: dashed; }
   .vm-pending { font-family: var(--font-ui); font-size: 12px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--accent-amber); color: var(--accent-amber); margin-left: 6px; }
   /* VM details: live facts from HyperCore above the charts */
   .vmi { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; }
@@ -2455,17 +2456,21 @@ function renderVmCards() {
   const isAdmin = can('vm.create', currentCluster);
   const mayEdit = vm => ['vm.edit', 'vm.power', 'vm.snapshot', 'vm.clone', 'vm.delete'].some(p => canVm(p, currentCluster, vm.uuid, _vmTags(vm.uuid)));
   const mayConsole = vm => canVm('vm.console', currentCluster, vm.uuid, _vmTags(vm.uuid));
-  const rows = cachedVmData.filter(_vmMatches).map(vm => ({vm, name: vm.name, cpu: vm.state && vm.state !== 'RUNNING' ? -1 : _vmCpu(vm), iops: _vmIops(vm.uuid), ram: vm.mem_bytes ?? null, disk: vm.disk_bytes ?? null}));
-  const maxIops = Math.max(100, ...rows.map(r => r.iops || 0));
+  const allRows = cachedVmData.filter(_vmMatches).map(vm => ({vm, name: vm.name, cpu: vm.state && vm.state !== 'RUNNING' ? -1 : _vmCpu(vm), iops: _vmIops(vm.uuid), ram: vm.mem_bytes ?? null, disk: vm.disk_bytes ?? null}));
+  // replication targets (HyperCore's sourceVirDomainUUID) are not stopped VMs: they get their own section, last
+  const rows = allRows.filter(r => !r.vm.replica_of), replicas = allRows.filter(r => r.vm.replica_of);
+  const maxIops = Math.max(100, ...allRows.map(r => r.iops || 0));
   const val = (r, k) => k === 'name' ? (r.name || '').toLowerCase() : (r[k] ?? -1);
   const cmp = (a, b) => { const x = val(a, vmSort.key), y = val(b, vmSort.key); return (x < y ? -1 : x > y ? 1 : 0) * vmSort.dir || a.name.localeCompare(b.name); };
   const row = r => {
     const vm = r.vm, cpuCol = progressColor(r.cpu);
     const iopsPct = r.iops == null ? 0 : Math.min(100, r.iops / maxIops * 100);
-    const sub = [vm.tag, vm.node_peer_id && vm.node_peer_id !== 'unknown' ? t('vm.group_label.peer') + ' ' + vm.node_peer_id : '', vm.vlan && vm.vlan !== '0' ? 'VLAN ' + vm.vlan : ''].filter(Boolean).join(' · ');
+    const src = vm.replica_source;
+    const sub = [vm.replica_of && src && src.name ? t('vm.replica_of', {name: src.name, cluster: src.cluster || '?'}) : '',
+                 vm.tag, vm.node_peer_id && vm.node_peer_id !== 'unknown' ? t('vm.group_label.peer') + ' ' + vm.node_peer_id : '', vm.vlan && vm.vlan !== '0' ? 'VLAN ' + vm.vlan : ''].filter(Boolean).join(' · ');
     return `<tr>
       <td><div class="vm-name">${_clEsc(vm.name)}${_vmConsoleOpenIcon(vm.uuid)}${_vmPending[vm.uuid] ? `<span class="vm-pending" title="${_clEsc(_vmPending[vm.uuid].summary || '')}">⏱ ${_vmPending[vm.uuid].run_at ? _exFmt(_vmPending[vm.uuid].run_at) : t('ve.st_running')}</span>` : ''}</div>${sub ? `<div class="vm-sub">${_clEsc(sub)}</div>` : ''}</td>
-      <td>${r.cpu < 0 ? `<span class="vm-state-off">${_clEsc((vm.state || '').toLowerCase())}</span>` : `<div class="vm-meter"><div class="vm-meter-bar"><div class="vm-meter-fill" style="width:${Math.min(r.cpu, 100)}%;background:${cpuCol}"></div></div><span class="vm-meter-val" style="color:${cpuCol}">${r.cpu.toFixed(1)}%</span></div>`}</td>
+      <td>${vm.replica_of ? `<span class="vm-state-off vm-state-replica" title="${_clEsc(t('vm.replica_hint'))}">${_clEsc(t('vm.replica'))}</span>` : r.cpu < 0 ? `<span class="vm-state-off">${_clEsc((vm.state || '').toLowerCase())}</span>` : `<div class="vm-meter"><div class="vm-meter-bar"><div class="vm-meter-fill" style="width:${Math.min(r.cpu, 100)}%;background:${cpuCol}"></div></div><span class="vm-meter-val" style="color:${cpuCol}">${r.cpu.toFixed(1)}%</span></div>`}</td>
       <td><div class="vm-meter"><div class="vm-meter-bar"><div class="vm-meter-fill" style="width:${iopsPct}%;background:var(--accent-cyan)"></div></div><span class="vm-meter-val">${r.iops == null ? '—' : Math.round(r.iops).toLocaleString()}</span></div></td>
       <td class="num mono">${_gb(r.ram)}</td>
       <td class="num mono">${_gb(r.disk)}</td>
@@ -2506,13 +2511,20 @@ function renderVmCards() {
             + (folded ? '' : groups[k].sort(cmp).map(row).join(''));
     }
   }
+  if (replicas.length) {
+    // whatever the grouping, the replicas come last, in a section of their own that folds like a group
+    const gk = 'replicas:', folded = vmCollapsed.has(gk) && !vmQuery;
+    if (!(window._vmGroupKeys || []).includes(gk) && currentVmGroup !== 'none') window._vmGroupKeys = [...(window._vmGroupKeys || []), gk];
+    body += `<tr class="grp grp-replicas ${folded ? 'collapsed' : ''}" data-gk="${gk}" onclick="toggleVmGroup(this.dataset.gk)" title="${_clEsc(t(folded ? 'vm.group_expand' : 'vm.group_collapse'))}"><td colspan="6"><span class="grp-arrow">▾</span>${_clEsc(t('vm.replicas'))}<span class="grp-count">${replicas.length}</span></td></tr>`
+          + (folded ? '' : replicas.sort(cmp).map(row).join(''));
+  }
   const grouped = currentVmGroup !== 'none';
   const bar = (isAdmin || grouped) ? `<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;">
       ${grouped ? `<button class="refresh-btn" onclick="setAllVmGroups(true)">⊟ ${t('vm.groups_collapse_all')}</button><button class="refresh-btn" onclick="setAllVmGroups(false)">⊞ ${t('vm.groups_expand_all')}</button>` : ''}
       ${isAdmin ? `<button class="refresh-btn" onclick="openNewVm()">+ ${t('vn.new_vm')}</button>` : ''}</div>` : '';
   const cnt = document.getElementById('vmSearchCount');
-  if (cnt) cnt.textContent = vmQuery ? t('vm.search_count', {n: rows.length, total: cachedVmData.length}) : '';
-  container.innerHTML = `${bar}<div style="overflow-x:auto;">${rows.length ? `<table class="vm-list">${head}<tbody>${body}</tbody></table>`
+  if (cnt) cnt.textContent = vmQuery ? t('vm.search_count', {n: allRows.length, total: cachedVmData.length}) : '';
+  container.innerHTML = `${bar}<div style="overflow-x:auto;">${allRows.length ? `<table class="vm-list">${head}<tbody>${body}</tbody></table>`
     : `<div class="empty-state">${t('vm.search_none')}</div>`}</div>`;
 }
 

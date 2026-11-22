@@ -751,6 +751,36 @@ def get_nodes():
 # =============================================================================
 # API: VM metrics (last 1 hour, 1-minute windows)
 # =============================================================================
+def _replica_sources(client, vms: dict) -> None:
+    """Names each replica's source VM ('replica_source': {name, cluster}) when that VM is on a cluster the user
+    sees in full: a replica's source is on another cluster, and its name is not for someone who may not see it."""
+    wanted = {v['replica_of'] for v in vms.values() if v.get('replica_of') and cluster_registry.is_uuid(v['replica_of'])}
+    if not wanted:
+        return
+    acc = _access()
+    names = {c.cluster_id: c.name for c in _visible_clusters()}
+    full = [cid for cid in names if acc.scope_for('vm.view', [cid]).get(cid) == 'all']
+    if not full:
+        return
+    fresh = max(60, int(_stale_seconds()))
+    cids = full
+    uuids = ', '.join(f'"{u}"' for u in sorted(wanted))
+    found: dict[str, dict] = {}
+    for table in client.query_api().query(org=INFLUX_ORG, query=f"""
+        from(bucket: "{INFLUX_BUCKET}")
+          |> range(start: -{fresh}s)
+          {_flux_clusters(cids)}
+          |> filter(fn: (r) => r["_measurement"] == "vm_inventory" and r["_field"] == "num_vcpu")
+          |> filter(fn: (r) => contains(value: r["vm_uuid"], set: [{uuids}]))
+          |> last()"""):
+        for rec in table.records:
+            found[rec.values.get('vm_uuid')] = {'name': rec.values.get('vm_name') or '',
+                                                'cluster': names.get(rec.values.get('cluster_id'), '')}
+    for v in vms.values():
+        if v.get('replica_of') in found:
+            v['replica_source'] = found[v['replica_of']]
+
+
 def _vm_sizes(client, vms: dict) -> None:
     """Adds mem_bytes, num_vcpu, os, state and disk_bytes to each VM of the list, and the VMs that are
     not running (from vm_inventory, which lists every VM). Memory and vCPUs come from
@@ -780,6 +810,8 @@ def _vm_sizes(client, vms: dict) -> None:
                 vm[rec.get_field()] = rec.get_value()
                 vm['os'] = rec.values.get('vm_os') or ''
                 vm['state'] = state
+                # a replication target (HyperCore's sourceVirDomainUUID): listed apart, never as a stopped VM
+                vm['replica_of'] = rec.values.get('vm_source') or None
     disks_of: dict[str, set] = {}
     for table in q.query(org=INFLUX_ORG, query=f"""
         from(bucket: "{INFLUX_BUCKET}")
@@ -848,6 +880,7 @@ def get_vms():
         active = [v for v in vms.values() if not is_stale(v['history'], stale_secs)]
         listed = {v['uuid']: v for v in active}
         _vm_sizes(client, listed)
+        _replica_sources(client, listed)
         return jsonify(_filter_vms(list(listed.values()), _vm_scope()))
     except Exception as e:
         return jsonify({'error': str(e)}), 500

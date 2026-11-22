@@ -145,6 +145,8 @@ def collect_fast(cid, nodes, vms, vm_stats, node_info_map):
             "os": vm.get('operatingSystem', ''),
             "description": vm.get('description', ''),
             "snapshot_count": len(vm.get('snapUUIDs', [])),
+            # a replication target: the uuid of its source VM (on the source cluster); empty for every other VM
+            "source": vm.get('sourceVirDomainUUID') or '',
         }
 
         for block_dev in vm.get('blockDevs', []):
@@ -223,6 +225,7 @@ def collect_fast(cid, nodes, vms, vm_stats, node_info_map):
             .tag("vm_vlan", info['primary_vlan']) \
             .tag("vm_state", info.get('state', 'UNKNOWN')) \
             .tag("vm_os", info.get('os', '')) \
+            .tag("vm_source", info.get('source', '')) \
             .field("num_vcpu", int(info.get('num_vcpu', 0))) \
             .field("mem_bytes", int(info.get('mem', 0))) \
             .field("snapshot_count", int(info.get('snapshot_count', 0)))

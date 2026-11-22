@@ -36,7 +36,10 @@ as such and never receives VMs.
 Every running VM of the cluster on one line: name (with its tag, peer and VLAN), CPU usage,
 IOPS over all its disks, memory and total disk size in GB. Click a column header to sort by it.
 The list is grouped by tag unless you pick node, VLAN or no grouping; click a group's header to fold
-it (Collapse all / Expand all above the list), and the dashboard remembers both choices. The
+it (Collapse all / Expand all above the list), and the dashboard remembers both choices. Replicas
+(the target VMs of a HyperCore replication from another cluster) are not listed as stopped VMs: they
+have their own section, **Replicas**, always last, marked *replica* and, when you may see the source
+cluster, *replica of <VM> on <cluster>*. The
 search field next to the grouping matches anything HyperCore knows about a VM: name, every tag,
 description, guest IP and MAC addresses, VLAN, mounted ISO, disk names, OS, node. Several words
 must all match ("infraservices dc"); Esc or switching cluster clears it. **Details** opens the VM's
