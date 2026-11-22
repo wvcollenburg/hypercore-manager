@@ -45,3 +45,6 @@ power actions, snapshots, clones and **New VM** (Infraviewer); a **Console** ses
 per run) and restores (a new VM); test restores, which create a temporary VM, start it and delete it
 again; and deploying or removing a backup proxy VM. Changes that need the VM off ask first and can be
 scheduled; deletions ask for the name.
+
+**Setting up a new installation?** [Getting started](01a-getting-started.md) walks through the tenant
+tree, the first cluster and the first users, step by step.

@@ -10,7 +10,8 @@ are registered in Access → Tenants. The panels are described in full in the
 ![Tenants](img/settings-tenants.png)
 
 Clusters are registered and maintained in the tenant tree (**Access → Tenants**, below): **+ Cluster**
-in a folder's cluster column for whoever may manage clusters there, and the selected cluster's pane
+in a folder's cluster column for whoever may manage clusters there ([Getting started](01a-getting-started.md#5-add-the-cluster)
+walks through it), and the selected cluster's pane
 shows every registered cluster's nodes (green reachable, amber present but offline or out,
 grey no longer listed), the HyperCore account in use, the API version in use and the HyperCore
 version found, the cluster's time zone, and when it was last seen. **Test connection** logs in on

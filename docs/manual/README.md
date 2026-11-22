@@ -10,6 +10,7 @@ users, backup targets and proxies) are in [administration.md](../administration.
 | [Installing and updating](08-installing-and-updating.md) | prerequisites, the installer `install.py` or a hand-written `.env`, first login, the backup proxy's host, every `.env` setting, hardening, backing up the installation, updating and upgrading from 0.9.x, health checks, troubleshooting |
 | [Connectivity](09-connectivity.md) | every connection between the HCM host, clusters, proxies, the backup share and browsers: direction, ports and protocols, for firewall planning |
 | [Getting around](01-getting-around.md) | the cluster rail and its alert badges, folders, tabs, roles, language, the first-login notice |
+| [Getting started](01a-getting-started.md) | step by step from an empty installation: an MSP, a customer, a folder, a cluster, then a user and their rights on each |
 | [Infraviewer](02-infraviewer.md) | nodes, drives, VMs and storage performance; the cluster activity panel |
 | [Clusterbalancer](03-clusterbalancer.md) | the migration log, the balancer's settings, the Oracle's forecast log, placement tags |
 | [Foresight](04-foresight.md) | capacity forecasts, right-sizing, exhaustion alerts, reports, what-if |

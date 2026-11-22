@@ -537,6 +537,7 @@ carries a `cluster_id` tag.
 | Document | Contents |
 |----------|----------|
 | [docs/manual/README.md](docs/manual/README.md) | User manual: one chapter per module (Infraviewer, Clusterbalancer, Foresight, Backup, Settings, Modules and Account) with screenshots |
+| [docs/manual/01a-getting-started.md](docs/manual/01a-getting-started.md) | Getting started: from an empty installation to an MSP, customer, folder and cluster, and a user with rights on each |
 | [docs/manual/08-installing-and-updating.md](docs/manual/08-installing-and-updating.md) | Installing and updating: prerequisites, the installer, every `.env` variable, the backup proxy's host, hardening, backing up the installation, upgrading (including from 0.9.x), health checks, troubleshooting |
 | [docs/manual/09-connectivity.md](docs/manual/09-connectivity.md) | Connectivity: every connection between the HCM host, clusters, proxies, the backup share and browsers, with direction, ports and protocols for firewall planning |
 | [docs/administration.md](docs/administration.md) | Day-to-day administration: registering clusters, folders and members, users and roles, backup targets and layout |

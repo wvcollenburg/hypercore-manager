@@ -104,6 +104,7 @@ a minute the collector writes metrics and the first charts appear; the balancer 
 opinion. Switch dry-run off for that cluster in Clusterbalancer → settings once you have
 checked its tunables. Foresight's tab fills after its first analysis cycle, an hour after start
 by default. Further clusters are added with **+ Cluster** in a folder under Settings → Access → Tenants; no restart is needed.
+[Getting started](01a-getting-started.md) walks through the tenant tree, the first cluster and the first users.
 
 ## Backups: what the installation needs
 

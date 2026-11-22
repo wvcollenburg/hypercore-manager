@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **A removed cluster can be registered again.** Remove keeps the cluster's row (renamed "(removed …)") for its
+  history, and registering the same HyperCore cluster again was treated as a duplicate of that removed entry: a
+  warning about a second entry being polled twice, and only an administrator of the whole installation could go
+  on. A removed entry no longer counts, neither by cluster identity nor by its nodes.
+- **The Backup tab could stay hidden for two minutes** after login or after switching clusters for anyone without
+  backup rights on the whole installation: the tab was checked once, 0.8 s after the page loaded (often before a
+  cluster was selected), and then only every two minutes. It is now checked once the clusters have loaded and on
+  every cluster switch.
+
+### Documentation
+- New manual chapter **Getting started**: from an empty installation to an MSP, a customer, a folder and a cluster,
+  then a user and their rights on each layer, step by step. Linked from the manual index, Getting around,
+  Settings, the installing chapter and the README.
+
 ## [1.7.2]
 
 ### Fixed
