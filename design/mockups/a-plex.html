@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HCM mockup A+B: Plex layout, light and dark</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* A+B: variation A's layout, fonts and light theme, with variation B's warm charcoal and amber as the dark
+   theme. Every colour is a token; [data-theme="dark"] redefines them. The theme follows the system
+   setting until the user picks one with the switch in the top bar (?theme=dark|light also works).
+   Variation A: calm, light, engineering. IBM Plex Sans / Plex Mono, graphite ink, one teal accent.
+   Navigation: everything across the top: a cluster switcher (tree in a dropdown) and the modules as tabs.
+   No permanent sidebar, so the VM table gets the full width. */
+:root {
+  --bg: #f4f5f7; --surface: #fff; --surface-2: #f8f9fa; --border: #dfe3e8; --border-strong: #c5ccd5;
+  --ink: #1d2329; --ink-2: #4b5560; --ink-3: #7b8692;
+  --accent: #0f766e; --accent-2: #115e59; --accent-tint: #e6f4f2;
+  --ok: #1a7f37; --ok-bg: #e7f5ec; --warn: #9a6700; --warn-bg: #fff4d6; --bad: #b42318; --bad-bg: #fdecea;
+  --bar: #20262d; --bar-ink: #e9edf1; --bar-ink-2: #9aa5b1;
+  --r: 6px;
+  /* tokens that were literals in A */
+  --on-accent: #fff; --mod-underline: #2dd4bf; --switch-bg: #2c343c; --switch-line: #3a434d; --avatar: #3a434d;
+  --track: #edf0f3; --row-line: #edf0f3; --row-hover: #fafbfc; --neutral-fill: #eef1f4; --chip-line: #f1d58a;
+  --meter: var(--accent); --meter-hi: #d4a72c;
+  --dot-ok: #3fb950; --dot-warn: #d29922; --menu-shadow: 0 12px 32px rgba(16,24,40,.18);
+}
+/* dark: variation B's palette */
+:root[data-theme="dark"] {
+  --bg: #141517; --surface: #1c1d20; --surface-2: #232428; --border: #2e3035; --border-strong: #3a3c42;
+  --ink: #ececec; --ink-2: #b4b6bb; --ink-3: #7d8088;
+  --accent: #f0a030; --accent-2: #f5b452; --accent-tint: rgba(240,160,48,.12); --on-accent: #1a1305;
+  --ok: #4cc38a; --ok-bg: rgba(76,195,138,.12); --warn: #f0a030; --warn-bg: rgba(240,160,48,.10); --bad: #f2555a; --bad-bg: rgba(242,85,90,.12);
+  --bar: #0f1012; --bar-ink: #ececec; --bar-ink-2: #8d9096; --mod-underline: #f0a030;
+  --switch-bg: #1c1d20; --switch-line: #2e3035; --avatar: #2e3035;
+  --track: #3a3c42; --row-line: #2a2c30; --row-hover: #212226; --neutral-fill: #2a2c31; --chip-line: rgba(240,160,48,.35);
+  --meter: #b4b6bb; --meter-hi: #f0a030;
+  --dot-ok: #4cc38a; --dot-warn: #f0a030; --menu-shadow: 0 12px 32px rgba(0,0,0,.55);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; margin: 0; }
+body { font: 14px/1.45 'IBM Plex Sans', system-ui, sans-serif; color: var(--ink); background: var(--bg); }
+.num, td.n, .kpi b { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+/* top bar */
+.bar { background: var(--bar); color: var(--bar-ink); display: flex; align-items: center; gap: 22px; padding: 0 20px; height: 52px; }
+.logo { display: flex; align-items: center; gap: 9px; font-weight: 600; letter-spacing: .01em; }
+.logo i { width: 22px; height: 22px; border-radius: 5px; background: var(--accent); display: grid; place-items: center; font-style: normal; font-size: 12px; color: var(--on-accent); }
+.switch { display: flex; align-items: center; gap: 8px; background: var(--switch-bg); border: 1px solid var(--switch-line); border-radius: var(--r); padding: 6px 10px; cursor: pointer; position: relative; }
+.switch small { color: var(--bar-ink-2); }
+.switch .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dot-warn); }
+.menu { position: absolute; top: 40px; left: 0; width: 320px; background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--menu-shadow); padding: 8px; z-index: 5; }
+.menu input { width: 100%; font: inherit; padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 6px; }
+.menu .grp { font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; padding: 8px 8px 3px; }
+.menu .it { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; }
+.menu .it.sel { background: var(--accent-tint); color: var(--accent-2); font-weight: 500; }
+.menu .it .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dot-ok); }
+.menu .it .dot.w { background: var(--dot-warn); }
+.modules { display: flex; height: 100%; }
+.modules a { color: var(--bar-ink-2); text-decoration: none; padding: 0 14px; display: flex; align-items: center; border-bottom: 2px solid transparent; }
+.modules a.on { color: var(--bar-ink); border-bottom-color: var(--mod-underline); }
+.bar .right { margin-left: auto; display: flex; align-items: center; gap: 14px; color: var(--bar-ink-2); font-size: 13px; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--avatar); display: grid; place-items: center; color: var(--bar-ink); font-size: 12px; }
+/* page */
+main { padding: 20px 24px 40px; max-width: 1440px; margin: 0 auto; }
+.crumbs { color: var(--ink-3); font-size: 13px; }
+.crumbs b { color: var(--ink); font-weight: 500; }
+.head { display: flex; align-items: flex-end; gap: 16px; margin: 4px 0 16px; }
+h1 { font-size: 22px; font-weight: 600; }
+.chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--warn-bg); color: var(--warn); border: 1px solid var(--chip-line); }
+.head .act { margin-left: auto; display: flex; gap: 8px; }
+.btn { font: 500 13px 'IBM Plex Sans', sans-serif; border: 1px solid var(--border-strong); background: var(--surface); color: var(--ink); padding: 7px 12px; border-radius: var(--r); cursor: pointer; }
+.btn.p { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.sub { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.sub a { padding: 8px 12px; color: var(--ink-2); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.sub a.on { color: var(--accent-2); border-bottom-color: var(--accent); font-weight: 500; }
+.kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.kpi span { color: var(--ink-3); font-size: 12px; }
+.kpi b { display: block; font-size: 20px; font-weight: 500; margin-top: 2px; }
+.kpi .meter { height: 4px; background: var(--track); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+.kpi .meter i { display: block; height: 100%; background: var(--meter); }
+.kpi .meter i.hi, .cpu .m i.hi { background: var(--meter-hi); } /* from 60%: the warning colour, never the accent */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.tools { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.tools input { font: inherit; padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--r); width: 260px; }
+.seg { display: flex; border: 1px solid var(--border-strong); border-radius: var(--r); overflow: hidden; }
+.seg button { font: inherit; font-size: 13px; border: 0; background: var(--surface); padding: 5px 10px; color: var(--ink-2); }
+.seg button.on { background: var(--accent-tint); color: var(--accent-2); }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 500; font-size: 12px; color: var(--ink-3); padding: 9px 12px; border-bottom: 1px solid var(--border); }
+td { padding: 9px 12px; border-bottom: 1px solid var(--row-line); vertical-align: middle; }
+tr:hover td { background: var(--row-hover); }
+.vm b { font-weight: 500; } .vm small { display: block; color: var(--ink-3); font-size: 12px; }
+.st { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+.st.run { background: var(--ok-bg); color: var(--ok); } .st.off { background: var(--neutral-fill); color: var(--ink-3); }
+.cpu { display: flex; align-items: center; gap: 8px; } .cpu .m { width: 90px; height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
+.cpu .m i { display: block; height: 100%; background: var(--meter); }
+.tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--neutral-fill); color: var(--ink-2); margin-right: 4px; }
+.theme { background: none; border: 1px solid var(--switch-line); color: var(--bar-ink-2); border-radius: var(--r); padding: 3px 8px; font: inherit; font-size: 13px; cursor: pointer; }
+.menu input { background: var(--surface); color: var(--ink); }
+.tools input { background: var(--surface); color: var(--ink); }
+.seg button { background: var(--surface); }
+.btn { background: var(--surface); color: var(--ink); }
+.btn.p { background: var(--accent); color: var(--on-accent); }
+.row-act { display: flex; gap: 6px; justify-content: flex-end; }
+.row-act .btn { padding: 4px 9px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="logo"><i>H</i>HyperCore Manager</div>
+  <div class="switch"><span class="dot"></span><span>Acme-Prod</span><small>Example IT › Acme › Production</small> ▾
+    <div class="menu">
+      <input placeholder="Find a cluster…">
+      <div class="grp">Example IT › Acme</div>
+      <div class="it sel"><span class="dot w"></span>Acme-Prod <small style="margin-left:auto;color:var(--warn)">1 warning</small></div>
+      <div class="it"><span class="dot"></span>Acme-DR <small style="margin-left:auto;color:var(--ink-3)">DR</small></div>
+      <div class="grp">Example IT › Blue Harbor</div>
+      <div class="it"><span class="dot"></span>Harbor-01</div>
+      <div class="grp">Default › Lab</div>
+      <div class="it"><span class="dot"></span>Lab-01</div>
+    </div>
+  </div>
+  <nav class="modules"><a class="on" href="#">Infrastructure</a><a href="#">Balancer</a><a href="#">Forecasts</a><a href="#">Backup</a><a href="#">Settings</a></nav>
+  <div class="right">⟳ 30 s ago · <span>EN</span><button class="theme" id="themeBtn" onclick="toggleTheme()">☾ Dark</button><span class="avatar">JD</span></div>
+</div>
+<main>
+  <div class="crumbs">Example IT › Acme › Production › <b>Acme-Prod</b></div>
+  <div class="head"><h1>Acme-Prod</h1><span class="chip">⚠ 1 warning: node 2 memory 91%</span>
+    <div class="act"><button class="btn">Edit cluster</button><button class="btn p">+ New VM</button></div></div>
+  <div class="sub"><a class="on" href="#">Virtual machines</a><a href="#">Nodes &amp; drives</a><a href="#">Performance</a><a href="#">Events</a></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="card">
+    <div class="tools"><input placeholder="Search VMs"><div class="seg"><button>None</button><button class="on">Tag</button><button>Node</button><button>VLAN</button></div><span style="margin-left:auto;color:var(--ink-3);font-size:13px">27 VMs · 24 running</span></div>
+    <table><thead><tr><th>Name</th><th>State</th><th>Node</th><th>CPU</th><th style="text-align:right">vCPU</th><th style="text-align:right">RAM</th><th style="text-align:right">Disk</th><th>Tags</th><th></th></tr></thead><tbody id="vms"></tbody></table>
+  </div>
+</main>
+<script>
+// theme: ?theme= wins, then the user's choice, then the system setting
+(function () {
+  const q = new URLSearchParams(location.search).get('theme');
+  let t = q || (function () { try { return localStorage.getItem('hcm.theme'); } catch (_) { return null; } })();
+  if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  document.documentElement.dataset.theme = t;
+})();
+function toggleTheme() {
+  const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('hcm.theme', t); } catch (_) {}
+  label();
+}
+function label() { document.getElementById('themeBtn').textContent = document.documentElement.dataset.theme === 'dark' ? '☀ Light' : '☾ Dark'; }
+label();
+</script>
+<script src="data.js"></script>
+<script>
+document.getElementById('kpis').innerHTML = KPIS.map(k => `<div class="kpi"><span>${k.label}</span><b>${k.value}</b>${k.pct != null ? `<div class="meter"><i class="${k.pct >= 60 ? 'hi' : ''}" style="width:${k.pct}%"></i></div>` : `<div style="font-size:12px;color:var(--ink-3);margin-top:6px">${k.note}</div>`}</div>`).join('');
+document.getElementById('vms').innerHTML = VMS.map(v => `<tr><td class="vm"><b>${v.name}</b><small>${v.os}</small></td>
+  <td><span class="st ${v.on ? 'run' : 'off'}">${v.on ? 'Running' : 'Stopped'}</span></td><td>${v.node}</td>
+  <td>${v.on ? `<div class="cpu"><div class="m"><i class="${v.cpu >= 60 ? 'hi' : ''}" style="width:${v.cpu}%"></i></div><span class="num">${v.cpu}%</span></div>` : '–'}</td>
+  <td class="n" style="text-align:right">${v.vcpu}</td><td class="n" style="text-align:right">${v.ram} GiB</td><td class="n" style="text-align:right">${v.disk} GiB</td>
+  <td>${v.tags.map(t => `<span class="tag">${t}</span>`).join('')}</td>
+  <td><div class="row-act"><button class="btn">Details</button><button class="btn">Console</button><button class="btn">⋯</button></div></td></tr>`).join('');
+</script>
+</body>
+</html>
