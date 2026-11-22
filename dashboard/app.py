@@ -269,13 +269,12 @@ def requires(perm: str | None, scope: str = 'cluster'):
                 elif scope == 'any':
                     ok = acc.held_anywhere(perm)
                 else:
+                    problem = _write_cluster_problem(perm, need=True)
+                    if problem is not None:
+                        return problem
+                    # reads fall back to the first allowed cluster (the UI recovers after a cluster was taken
+                    # away); a write was checked above: it names a cluster the user may use for this route
                     ok = bool(_visible_clusters(perm))
-                    wanted = (request.args.get('cluster') or '').strip()
-                    if ok and wanted and cluster_registry.is_uuid(wanted) and \
-                            wanted not in {c.cluster_id for c in _visible_clusters(perm)}:
-                        # reads fall back to the first allowed cluster (the UI recovers after a cluster was
-                        # taken away); anything that changes something is refused
-                        ok = request.method in ('GET', 'HEAD')
                 if not ok:
                     if request.path.startswith('/api/'):
                         return jsonify({'error': 'Access denied', 'permission': perm}), 403
@@ -485,6 +484,21 @@ def _cluster_id() -> str:
         if any(c.cluster_id == wanted for c in visible):
             return wanted
     return visible[0].cluster_id if visible else cluster_registry.TEMPLATE_CLUSTER_ID
+
+
+def _write_cluster_problem(perm: str, need: bool):
+    """For a request that changes something on a cluster: the cluster in ?cluster= must be one the user may use
+    for `perm` (403), and with `need` it must be there at all (400). Never the first visible cluster instead:
+    a write that names no cluster, or one taken away, would otherwise act on some other cluster. Reads are not
+    checked here (they fall back, so the UI recovers). Returns an error response or None."""
+    if request.method in ('GET', 'HEAD', 'OPTIONS'):
+        return None
+    wanted = (request.args.get('cluster') or '').strip()
+    if not wanted:
+        return (jsonify({'error': 'cluster is required'}), 400) if need else None
+    if not cluster_registry.is_uuid(wanted) or wanted not in {c.cluster_id for c in _visible_clusters(perm)}:
+        return jsonify({'error': 'Access denied', 'permission': perm}), 403
+    return None
 
 
 def _named_cluster(perm: str) -> str:
@@ -2235,6 +2249,12 @@ def backup_proxy(sub):
     url, token = _backup_env()
     route = _backup_route(request.method, sub)
     g.hcm_perm = route[0] if route and route[0] else 'vm.view'
+    if route is not None and route[1] not in ('root', 'any'):
+        # a write acts on the cluster it names, never on the user's first one; a resource found by its id
+        # ('owner') is checked on its own cluster, so it needs no cluster in the query, but may not name a wrong one
+        problem = _write_cluster_problem(g.hcm_perm, need=not isinstance(route[1], tuple))
+        if problem is not None:
+            return problem
     cid = _cluster_id()
     payload = None
     if request.method in ('POST', 'PUT'):
@@ -2801,10 +2821,10 @@ def console_proxy(sub):
     if sub == 'sessions' and not request.args.get('cluster'):
         cid = None                                    # the audit log across every cluster the user may audit
     else:
+        problem = _write_cluster_problem(perm, need=True)
+        if problem is not None:
+            return problem
         cid = _cluster_id()
-        wanted = (request.args.get('cluster') or '').strip()
-        if wanted and wanted != cid and request.method not in ('GET', 'HEAD'):
-            return jsonify({'error': 'Access denied'}), 403
         if perm != 'console.audit' and not acc.can(perm, cid):
             return jsonify({'error': 'Access denied'}), 403
     args = [(k, v) for k, v in request.args.items(multi=True) if k != 'cluster']
