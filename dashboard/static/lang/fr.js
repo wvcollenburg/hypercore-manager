@@ -389,11 +389,11 @@ window.LANG = {
 
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.what': "Les VM qui utilisent durablement moins que ce % du CPU alloué sur la fenêtre d'analyse sont signalées comme sur-provisionnées.",
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.benefits': "Repère les VM dotées de trop de vCPU et libère de la capacité réattribuable aux VM sous-provisionnées, ou permet une densité de VM plus élevée sur le même matériel.",
-  'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.careful': "Trop élevé, des VM volontairement surdimensionnées (serveurs de secours, traitements batch à charge variable) sont signalées à tort. Tenez compte de votre mix de charges avant de descendre sous 20 %.",
+  'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.careful': "Trop élevé, des VM volontairement surdimensionnées (serveurs de secours, traitements par lots à charge variable) sont signalées à tort. Tenez compte de votre mix de charges avant de le relever au-dessus de 20 %.",
 
   'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.what': "Une utilisation CPU moyenne supérieure à ce % sur la fenêtre d'analyse déclenche le Signal 1 du modèle de sous-provisionnement. Le seuil de moyenne et le seuil P95 peuvent chacun se déclencher indépendamment.",
   'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.benefits': "Repère les VM constamment proches de leur capacité — une utilisation élevée et soutenue est l'indicateur le plus fiable qu'une VM a besoin de plus de vCPU.",
-  'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.careful': "Trop bas, les VM à pics occasionnels mais à moyenne saine passent inaperçues. Ce signal fonctionne au mieux avec le seuil P95, qui repère les rafales que la moyenne lisse.",
+  'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.careful': "Trop élevé, les VM qui ne frôlent leur capacité qu'une partie du temps passent inaperçues ; trop bas, des VM dont la moyenne est saine sont signalées. Ce signal fonctionne mieux avec le seuil P95, qui détecte les pics que la moyenne lisse.",
 
   'info.SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD.what': "Un P95 CPU supérieur à ce % déclenche le sous-provisionnement de type rafale (Signal 1). Repère les VM qui frôlent leur capacité lors des pics, même quand leur moyenne paraît saine.",
   'info.SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD.benefits': "Fait ressortir les VM qui semblent correctes en moyenne mais manquent régulièrement de CPU aux heures chargées — une source fréquente de plaintes des utilisateurs sur les performances, que les métriques moyennes masquent.",

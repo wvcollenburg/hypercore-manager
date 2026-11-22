@@ -389,11 +389,11 @@ window.LANG = {
 
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.what': "VM's die over het analysevenster structureel minder dan dit % van hun toegewezen CPU gebruiken, worden gemarkeerd als overgeprovisioneerd.",
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.benefits': "Vindt VM's met te veel vCPU's, zodat capaciteit vrijkomt voor ondergeprovisioneerde VM's of voor een hogere VM-dichtheid op dezelfde hardware.",
-  'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.careful': "Te hoog en VM's die bewust ruim zijn bemeten (standby-servers, batchjobs met wisselende belasting) worden ten onrechte gemarkeerd. Kijk naar je mix aan workloads voordat je onder 20% gaat.",
+  'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.careful': "Te hoog en VM's die bewust reserve hebben (standby-servers, batchtaken met wisselende belasting) worden ten onrechte gemarkeerd. Kijk naar je werklastmix voordat je hem boven 20% zet.",
 
   'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.what': "Gemiddeld CPU-gebruik boven dit % over het analysevenster activeert Signaal 1 van het onderprovisioningmodel. De gemiddelde- en de P95-drempel kunnen elk afzonderlijk afgaan.",
   'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.benefits': "Vangt VM's die structureel tegen hun capaciteit aan zitten — aanhoudend hoge belasting is de sterkste aanwijzing dat een VM meer vCPU's nodig heeft.",
-  'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.careful': "Te laag en VM's met af en toe een piek maar een gezond gemiddelde worden gemist. Dit signaal werkt het best samen met de P95-drempel, die piekpatronen vangt die het gemiddelde wegpoetst.",
+  'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.careful': "Te hoog en VM's die maar een deel van de tijd tegen hun capaciteit aan zitten worden gemist; te laag en VM's met een gezond gemiddelde worden gemarkeerd. Dit signaal werkt het best samen met de P95-drempel, die pieken opvangt die het gemiddelde uitvlakt.",
 
   'info.SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD.what': "P95-CPU-gebruik boven dit % activeert onderprovisioning door piekpatronen (Signaal 1). Vangt VM's die tot bijna hun capaciteit pieken, ook als hun gemiddelde er gezond uitziet.",
   'info.SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD.benefits': "Brengt VM's aan het licht die gemiddeld prima lijken maar in drukke periodes regelmatig CPU tekortkomen — een veelvoorkomende bron van prestatieklachten van eindgebruikers die gemiddelden verbergen.",

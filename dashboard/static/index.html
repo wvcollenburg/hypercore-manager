@@ -5328,13 +5328,13 @@ const SENT_INFO = {
     label: 'Over-prov CPU threshold',
     what: 'VMs consistently using less than this % of allocated CPU over the analysis window are flagged as over-provisioned.',
     benefits: 'Identifies VMs with too many vCPUs allocated, freeing up capacity that can be reassigned to under-provisioned VMs or allow higher VM density on the same hardware.',
-    careful: 'Set too high and intentionally reserved VMs (standby servers, batch jobs with variable load) get incorrectly flagged. Consider your workload mix before lowering below 20%.',
+    careful: 'Set too high and intentionally reserved VMs (standby servers, batch jobs with variable load) get incorrectly flagged. Consider your workload mix before raising it above 20%.',
   },
   SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD: {
     label: 'Under-prov CPU avg',
     what: 'Average CPU usage above this % over the analysis window triggers Signal 1 of the under-provisioned model. Either avg or P95 threshold can fire independently.',
     benefits: 'Catches VMs that are consistently near capacity — sustained high utilisation is the strongest indicator that a VM needs more vCPUs.',
-    careful: 'Set too low and VMs with occasional spikes but healthy averages will be missed. This signal works best alongside the P95 threshold, which catches burst patterns the average smooths out.',
+    careful: 'Set too high and VMs that are near capacity only part of the time are missed; set too low and VMs with healthy averages are flagged. This signal works best alongside the P95 threshold, which catches burst patterns the average smooths out.',
   },
   SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD: {
     label: 'Under-prov CPU P95',

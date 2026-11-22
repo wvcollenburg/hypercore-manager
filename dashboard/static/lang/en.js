@@ -390,11 +390,11 @@ window.LANG = {
   // ─── info popup body text (ⓘ) — Sentinel / Foresight settings ────────
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.what':      'VMs consistently using less than this % of allocated CPU over the analysis window are flagged as over-provisioned.',
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.benefits':  'Identifies VMs with too many vCPUs allocated, freeing up capacity that can be reassigned to under-provisioned VMs or allow higher VM density on the same hardware.',
-  'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.careful':   'Set too high and intentionally reserved VMs (standby servers, batch jobs with variable load) get incorrectly flagged. Consider your workload mix before lowering below 20%.',
+  'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.careful':   "Set too high and intentionally reserved VMs (standby servers, batch jobs with variable load) get incorrectly flagged. Consider your workload mix before raising it above 20%.",
 
   'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.what':      'Average CPU usage above this % over the analysis window triggers Signal 1 of the under-provisioned model. Either avg or P95 threshold can fire independently.',
   'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.benefits':  'Catches VMs that are consistently near capacity \u2014 sustained high utilisation is the strongest indicator that a VM needs more vCPUs.',
-  'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.careful':   'Set too low and VMs with occasional spikes but healthy averages will be missed. This signal works best alongside the P95 threshold, which catches burst patterns the average smooths out.',
+  'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.careful':   "Set too high and VMs that are near capacity only part of the time are missed; set too low and VMs with healthy averages are flagged. This signal works best alongside the P95 threshold, which catches burst patterns the average smooths out.",
 
   'info.SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD.what':      'P95 CPU usage above this % triggers burst-pattern under-provisioning (Signal 1). Catches VMs that spike to near-capacity even when their average looks healthy.',
   'info.SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD.benefits':  'Surfaces VMs that look fine on average but regularly starve for CPU during busy periods \u2014 a common source of end-user performance complaints that average metrics hide.',

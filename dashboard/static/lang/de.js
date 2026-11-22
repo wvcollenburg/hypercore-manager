@@ -21,7 +21,7 @@ window.LANG = {
   // Sentinel sub-tabs
   'sentinel.tab.overview':    '\u00dcbersicht',
   'sentinel.tab.forecasts':   'Prognosen',
-  'sentinel.tab.rightsizing': 'Rechtsizing',
+  'sentinel.tab.rightsizing': 'Rightsizing',
   'sentinel.tab.exhaustion':  'Ersch\u00f6pfung',
   'sentinel.tab.reports':     'Berichte',
   'sentinel.tab.whatif':      'Was-w\u00e4re-wenn',
@@ -144,7 +144,7 @@ window.LANG = {
   'group.predictive':  'Predictive Engine  \u00b7  Das Orakel',
   'group.collector':   'Collector',
   'group.dashboard':   'Dashboard',
-  'group.rightsizing': 'Rechtsizing-Schwellenwerte',
+  'group.rightsizing': 'Rightsizing-Schwellenwerte',
   'group.forecast':    'Prognose & Analyse',
   'group.maintenance': 'Wartung',
 
@@ -389,11 +389,11 @@ window.LANG = {
 
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.what': "VMs, die über den Analysezeitraum durchgehend weniger als diesen %-Wert der zugewiesenen CPU nutzen, werden als überprovisioniert markiert.",
   'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.benefits': "Erkennt VMs mit zu vielen zugewiesenen vCPUs und gibt Kapazität frei, die unterprovisionierten VMs zugeteilt werden kann oder eine höhere VM-Dichte auf derselben Hardware ermöglicht.",
-  'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.careful': "Ist der Wert zu hoch, werden bewusst großzügig ausgestattete VMs (Standby-Server, Batch-Jobs mit schwankender Last) fälschlich markiert. Berücksichtigen Sie Ihren Workload-Mix, bevor Sie unter 20% gehen.",
+  'info.SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD.careful': "Ist der Wert zu hoch, werden bewusst großzügig ausgestattete VMs (Standby-Server, Batch-Jobs mit wechselnder Last) fälschlich markiert. Berücksichtigen Sie Ihren Workload-Mix, bevor Sie ihn über 20 % anheben.",
 
   'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.what': "Eine durchschnittliche CPU-Auslastung über diesem %-Wert im Analysezeitraum löst Signal 1 des Unterprovisionierungsmodells aus. Der Ø- und der P95-Schwellenwert können unabhängig voneinander auslösen.",
   'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.benefits': "Erkennt VMs, die dauerhaft nahe an ihrer Kapazitätsgrenze laufen — anhaltend hohe Auslastung ist der stärkste Hinweis darauf, dass eine VM mehr vCPUs braucht.",
-  'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.careful': "Ist der Wert zu niedrig, werden VMs mit gelegentlichen Spitzen, aber gesunden Mittelwerten übersehen. Dieses Signal funktioniert am besten zusammen mit dem P95-Schwellenwert, der Lastspitzen erfasst, die der Mittelwert glättet.",
+  'info.SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD.careful': "Ist der Wert zu hoch, werden VMs übersehen, die nur zeitweise an ihrer Kapazitätsgrenze laufen; ist er zu niedrig, werden VMs mit gesundem Durchschnitt markiert. Dieses Signal wirkt am besten zusammen mit dem P95-Schwellenwert, der Lastspitzen erfasst, die der Durchschnitt glättet.",
 
   'info.SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD.what': "Eine P95-CPU-Auslastung über diesem %-Wert löst die Unterprovisionierung durch Lastspitzen aus (Signal 1). Erkennt VMs, die bis nahe an die Kapazitätsgrenze ausschlagen, auch wenn ihr Mittelwert gesund aussieht.",
   'info.SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD.benefits': "Zeigt VMs, die im Mittel unauffällig sind, in Spitzenzeiten aber regelmäßig zu wenig CPU bekommen — eine häufige Ursache für Performance-Beschwerden der Anwender, die Mittelwerte verbergen.",
