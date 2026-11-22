@@ -4,6 +4,8 @@ Settings, Account, Backup and Modules down with the Foresight tab)."""
 import os
 from html.parser import HTMLParser
 
+import pytest
+
 INDEX = os.path.join(os.path.dirname(__file__), '..', 'dashboard', 'static', 'index.html')
 VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr'}
 
@@ -84,3 +86,20 @@ def test_a_lost_session_goes_to_the_login_page(repo):
     assert 'fetch(' not in main[:main.index('window.fetch = async function')]
     for wrapper in ('async function apiFetch(', 'async function _exCall(', 'async function _folderCall('):
         assert src.index(wrapper) > wrap, f'{wrapper} must be defined after the 401 check'
+
+
+PER_CLUSTER_LOADERS = ('loadNodes', 'loadVMs', 'loadVmIndex', 'loadVmPending', 'loadMigrations', 'loadForecastRuns',
+                       'loadPredictions', 'loadActivity', 'loadSentinelOverview', 'loadSentinelForecasts',
+                       'loadSentinelRightsizing', 'loadSentinelExhaustion', '_loadWhatifVmList', 'exLoadSchedules',
+                       'exLoadPolicies', 'exLoadVms', 'exLoadRuns', 'exLoadPoints')
+
+
+@pytest.mark.parametrize('loader', PER_CLUSTER_LOADERS)
+def test_a_late_answer_for_the_previous_cluster_is_dropped(repo, loader):
+    """A slow answer for cluster A that arrived after a switch to B overwrote B's VM list, charts and tables."""
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
+    start = src.index(f'async function {loader}(')
+    body = src[start:src.index('\n}\n', start)]
+    assert 'cid = currentCluster' in body, f'{loader} must note the cluster it asks for'
+    first_await = body.index('await ')
+    assert 'cid !== currentCluster' in body[first_await:], f'{loader} must drop an answer for another cluster'

@@ -2104,7 +2104,7 @@ function renderVsdsForVm(vmUuid) {
 
 // ─── load nodes + drives ───
 async function loadNodes() {
-  const h = nodeHours;
+  const h = nodeHours, cid = currentCluster;
   const [nodeData, driveData, allDriveData, vsdData, configData] = await Promise.all([
     apiFetch(`/api/nodes?hours=${h}`),
     apiFetch(`/api/drives?hours=${h}`),
@@ -2112,6 +2112,7 @@ async function loadNodes() {
     fetchStorageSummary(h),
     apiFetch('/api/config')
   ]);
+  if (cid !== currentCluster) return;     // the user switched clusters meanwhile: this answer is the old one's
   const maxVcpuRatio = configData ? (configData.find(c => c.key === 'MAX_VCPU_RATIO')?.value ?? 2.0) : 2.0;
 
   if (!nodeData) { document.getElementById('nodeCards').innerHTML = `<div class="empty-state">${t('empty.no_api')}</div>`; setStatus(false); return; }
@@ -2343,10 +2344,12 @@ let vmSort = {key: 'name', dir: 1};
 let vmQuery = '', _vmIndex = {}, _vmIndexFor = null, _vmIndexAt = 0, _vmTagsOf = {};
 function _vmTags(uuid) { return _vmTagsOf[uuid] || []; }
 async function loadVmIndex(force) {
-  if (!currentCluster) return;
-  if (!force && _vmIndexFor === currentCluster && Date.now() - _vmIndexAt < 20000) return;
+  const cid = currentCluster;
+  if (!cid) return;
+  if (!force && _vmIndexFor === cid && Date.now() - _vmIndexAt < 20000) return;
   const d = await apiFetch('/api/vm-index' + (force ? '?fresh=1' : ''));
-  _vmIndex = {}; _vmTagsOf = {}; _vmIndexFor = currentCluster; _vmIndexAt = Date.now();
+  if (cid !== currentCluster) return;
+  _vmIndex = {}; _vmTagsOf = {}; _vmIndexFor = cid; _vmIndexAt = Date.now();
   for (const v of (d && d.vms) || []) {
     _vmTagsOf[v.uuid] = v.tags || [];
     _vmIndex[v.uuid] = [v.name, ...v.tags, v.description, ...v.ips, ...v.macs, ...v.vlans.map(x => 'vlan ' + x), ...v.vlans,
@@ -2482,17 +2485,18 @@ function renderVmCards() {
 
 // ─── load VMs + VSDs ───
 async function loadVMs() {
-  const h = vmHours;
+  const h = vmHours, cid = currentCluster;
   const [vmData, storageData] = await Promise.all([
     apiFetch(`/api/vms?hours=${h}`),
     fetchStorageSummary(h)
   ]);
-  
+  if (cid !== currentCluster) return;     // switched clusters meanwhile
   if (!vmData) { document.getElementById('vmCards').innerHTML = `<div class="empty-state">${t('empty.no_api')}</div>`; return; }
   cachedStorage = storageData || { vms: [], cluster: { history: [] } };
   cachedVmData = vmData;
   await loadVmPending();
   if (vmQuery) { await loadVmIndex(_vmIndexForce); _vmIndexForce = false; }
+  if (cid !== currentCluster) return;
 
   renderVmCards();
 
@@ -2652,8 +2656,10 @@ let _ve = null;                      // {uuid, data, form}
 const GIB = 1073741824;
 const VE_VM_LIVE = ['name', 'description', 'tags', 'snapshotScheduleUUID', 'affinityStrategy'];
 async function loadVmPending() {
-  if (!canSome('vm.view', currentCluster) || !currentCluster) { _vmPending = {}; return; }
+  const cid = currentCluster;
+  if (!canSome('vm.view', cid) || !cid) { _vmPending = {}; return; }
   const d = await apiFetch('/api/backup/vmedit/changes?limit=200');
+  if (cid !== currentCluster) return;
   _vmPending = {};
   for (const c of (d && d.changes) || []) if (c.status === 'scheduled' || c.status === 'running') _vmPending[c.vm_uuid] = c;
 }
@@ -3286,7 +3292,9 @@ document.addEventListener('keydown', e => {
 
 // ─── migration log ───
 async function loadMigrations() {
+  const cid = currentCluster;
   const data = await apiFetch('/api/migrations?days=7');
+  if (cid !== currentCluster) return;
   const container = document.getElementById('migrationLog');
   if (!data||!data.length) { container.innerHTML=`<div class="empty-state">${t('empty.no_migrations')}</div>`; return; }
   data.sort((a, b) => new Date(b.time) - new Date(a.time));
@@ -3307,7 +3315,9 @@ async function loadMigrations() {
 
 // ─── forecast log: Oracle run summaries ───
 async function loadForecastRuns() {
+  const cid = currentCluster;
   const data = await apiFetch('/api/forecast_runs?days=7');
+  if (cid !== currentCluster) return;
   const container = document.getElementById('forecastRunsLog');
   if (!container) return;
   if (!data||!data.length) { container.innerHTML=`<div class="empty-state">No Oracle runs in the selected window.</div>`; return; }
@@ -3344,7 +3354,9 @@ async function loadForecastRuns() {
 
 // ─── forecast log: queued recommendations ───
 async function loadPredictions() {
+  const cid = currentCluster;
   const data = await apiFetch('/api/predictions?days=7');
+  if (cid !== currentCluster) return;
   const container = document.getElementById('predictionsLog');
   if (!container) return;
   if (!data||!data.length) { container.innerHTML=`<div class="empty-state">The Oracle has not queued any recommendations in the selected window.</div>`; return; }
@@ -3393,7 +3405,9 @@ function setStatus(c) {
 // ─── Cluster activity (REST v2 task feed) ───
 async function loadActivity() {
   const card = document.getElementById('ivActivityCard'); if (!card) return;
+  const cid = currentCluster;
   const d = await apiFetch('/api/cluster/tasks');
+  if (cid !== currentCluster) return;
   if (!d || !d.v2) {
     document.getElementById('ivActivityNote').textContent = '';
     document.getElementById('ivActivityBody').innerHTML = `<div style="font-size:12px;color:var(--text-muted);">${t(d ? 'iv.activity_needs_v2' : 'empty.no_api')}</div>`;
@@ -3948,8 +3962,10 @@ async function loadSentinelOverview() {
 
   // fetch status before summary so we can show a waiting message if the
   // analysis loop hasn't completed its first run yet
+  const cid = currentCluster;
   const status  = await apiFetch('/api/sentinel/status');
   const summary = await apiFetch('/api/sentinel/summary');
+  if (cid !== currentCluster) return;
 
   // no summary data AND analysis has never completed → show waiting state
   // status may be null (proxy error) or {status:'unavailable'} (Sentinel unreachable);
@@ -4179,7 +4195,9 @@ async function loadSentinelForecasts() {
   if (dim) url += `&dimension=${dim}`;
   if (hz)  url += `&horizon=${hz}`;
 
+  const cid = currentCluster;
   const data = await apiFetch(url);
+  if (cid !== currentCluster) return;
   const el   = document.getElementById('sentinelForecastTable');
   if (!data || !data.length) { el.innerHTML = `<div class="empty-state">${t('empty.no_forecasts')}</div>`; return; }
 
@@ -4221,7 +4239,9 @@ async function loadSentinelForecasts() {
 // ── right-sizing and resize advice ─────────────────────────────────────
 
 async function loadSentinelRightsizing() {
+  const cid = currentCluster;
   const rezData = await apiFetch('/api/sentinel/resize?limit=100');
+  if (cid !== currentCluster) return;
   const rezEl   = document.getElementById('sentinelResizeTable');
 
   if (!rezData || !rezData.length) {
@@ -4256,7 +4276,9 @@ async function loadSentinelRightsizing() {
 // ── exhaustion ───────────────────────────────────────────────────────
 
 async function loadSentinelExhaustion() {
+  const cid = currentCluster;
   const data = await apiFetch('/api/sentinel/exhaustion?limit=50');
+  if (cid !== currentCluster) return;
   const el   = document.getElementById('sentinelExhaustionTable');
   if (!data || !data.length) { el.innerHTML = `<div class="empty-state">${t('empty.no_exhaustion')}</div>`; return; }
 
@@ -4419,9 +4441,12 @@ function _whatifUpdateOptions() {
 
 async function _loadWhatifVmList() {
   try {
+    const cid = currentCluster;
     const resp = await fetch(_withCluster('/api/sentinel/vms'));
     if (!resp.ok) return;
-    _whatifVmData = await resp.json();
+    const vms = await resp.json();
+    if (cid !== currentCluster) return;
+    _whatifVmData = vms;
     const dl = document.getElementById('whatifVmList');
     if (!dl) return;
     dl.innerHTML = _whatifVmData.map(v => `<option value="${_clEsc(v.vm_name)}">`).join('');
@@ -6508,7 +6533,9 @@ async function loadExports() {
 async function exLoadSchedules() {
   const el = document.getElementById('expanel-schedules');
   let rows;
+  const cid = currentCluster;
   try { rows = await _exCall('GET', '/api/backup/plans'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  if (cid !== currentCluster) return;      // switched clusters meanwhile
   const admin = _exIsAdmin();
   if (!rows.length) {
     el.innerHTML = _exLocationLine(null) + `<div class="empty-state">${t('ex.no_schedules')}<br><span style="font-size:12px;color:var(--text-muted)">${t('ex.no_schedules_hint')}</span></div>`;
@@ -6603,7 +6630,11 @@ function _polOcc(iso, p) {
 
 async function exLoadPolicies() {
   const el = document.getElementById('expanel-policies');
-  try { _polData = await _exCall('GET', '/api/backup/policies'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  const cid = currentCluster;
+  let pol;
+  try { pol = await _exCall('GET', '/api/backup/policies'); } catch (e) { if (cid === currentCluster) el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  if (cid !== currentCluster) return;      // switched clusters meanwhile
+  _polData = pol;
   const scope = _polData.folder_name ? t('ex.pol_scope_folder', {folder: _exEsc(_polData.folder_name)}) : t('ex.pol_scope_unfiled');
   const section = (kind) => {
     const rows = _polData.policies.filter(p => p.kind === kind);
@@ -6933,7 +6964,9 @@ async function exLoadVms() {
   const el = document.getElementById('expanel-vms');
   el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
   let vms;
+  const cid = currentCluster;
   try { vms = await _exCall('GET', '/api/backup/vms'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  if (cid !== currentCluster) return;      // switched clusters meanwhile
   const admin = _exIsAdmin();
   if (!vms.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_vms')}</div>`; return; }
   _exVmList = vms;
@@ -7059,7 +7092,9 @@ let _exRunsFilter = null;
 async function exLoadRuns() {
   const el = document.getElementById('expanel-runs');
   let d;
+  const cid = currentCluster;
   try { d = await _exCall('GET', `/api/backup/runs?limit=100${_exRunsFilter ? '&schedule_id=' + _exRunsFilter : ''}`); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  if (cid !== currentCluster) return;      // switched clusters meanwhile
   const runs = d.runs || [], imports = d.imports || [], restores = d.restores || [];
   const table = (title, rows, kind) => `
     <div class="settings-group">
@@ -7079,12 +7114,12 @@ async function exLoadRuns() {
     </div>`;
   let tests = [];
   if (!_exRunsFilter) { try { tests = await _exCall('GET', '/api/backup/test-runs?limit=100'); } catch (e) { tests = []; } }
+  if (cid !== currentCluster) return;
   el.innerHTML = table(t('ex.runs_title'), runs, 'run') + (_exRunsFilter ? '' : _trHistory(tests) + table(t('ex.restores_title'), restores, 'rst') + table(t('ex.imports_title'), imports, 'imp') + _vfHistory(d.verifications || []));
   clearTimeout(_exPollTimer);
   // poll every 5 s while anything runs, every 20 s otherwise (a run started by a schedule or another user shows up
   // with its progress bar), but only while this panel is on screen and the cluster unchanged
   const busy = [...runs, ...imports, ...restores].some(r => r.status === 'RUNNING') || tests.some(r => r.status === 'running' || r.status === 'queued');
-  const cid = currentCluster;
   _exPollTimer = setTimeout(() => { if (currentCluster === cid && document.getElementById('expanel-runs')?.classList.contains('active')) exLoadRuns(); }, busy ? 5000 : 20000);
 }
 
@@ -7390,7 +7425,9 @@ async function exLoadPoints() {
   const el = document.getElementById('expanel-points');
   el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
   let chains;
+  const cid = currentCluster;
   try { chains = await _exCall('GET', '/api/backup/chains'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  if (cid !== currentCluster) return;      // switched clusters meanwhile
   _exChains = Object.fromEntries(chains.map(c => [c.id, c]));
   if (!chains.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_points')}</div>`; return; }
   const admin = _exIsAdmin();
