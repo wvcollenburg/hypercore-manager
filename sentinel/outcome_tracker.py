@@ -28,7 +28,8 @@ snapshot is null.
 
 import json
 import logging
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timedelta, timezone
 
 import psycopg2.extras
 import requests
@@ -73,7 +74,13 @@ def _fetch_before_vcpu(cfg: cfg_module.Config, vm_uuid: str, emitted_at: datetim
     """
     Query InfluxDB for the num_vcpu value closest to emitted_at.
     Returns None if no data is found (treated as unknown / no comparison).
+
+    The ±1 h window is computed here and passed as RFC3339 literals: the query used
+    duration.subtract/add, which Flux does not have, so every lookup failed (silently, at
+    debug level) and every outcome became 'no_action'.
     """
+    if not re.fullmatch(r'[0-9a-fA-F-]{8,64}', vm_uuid or ''):
+        return None
     try:
         from influxdb_client import InfluxDBClient
 
@@ -87,13 +94,16 @@ def _fetch_before_vcpu(cfg: cfg_module.Config, vm_uuid: str, emitted_at: datetim
         query_api = client.query_api()
 
         # look in a ±1-hour window around the recommendation time
-        ts = emitted_at.strftime('%Y-%m-%dT%H:%M:%SZ')
+        at = emitted_at if emitted_at.tzinfo else emitted_at.replace(tzinfo=timezone.utc)
+        at = at.astimezone(timezone.utc)
+        start = (at - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        stop = (at + timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ')
         flux = f'''
 from(bucket: "{cfg.influx_bucket}")
-  |> range(start: time(v: "{ts}") |> duration.subtract(d: 1h),
-           stop:  time(v: "{ts}") |> duration.add(d: 1h))
+  |> range(start: {start}, stop: {stop})
   |> filter(fn: (r) => r._measurement == "vm_inventory"
                     and r._field == "num_vcpu"
+                    and r.cluster_id == "{cfg.cluster_id}"
                     and r.vm_uuid == "{vm_uuid}")
   |> last()
   |> keep(columns: ["_value"])
@@ -104,8 +114,8 @@ from(bucket: "{cfg.influx_bucket}")
                 val = record.values.get('_value')
                 if val is not None:
                     return int(val)
-    except Exception:
-        log.debug('InfluxDB before-vcpu lookup failed for vm_uuid=%s', vm_uuid)
+    except Exception as exc:
+        log.warning('InfluxDB before-vcpu lookup failed for vm_uuid=%s: %s', vm_uuid, exc)
     return None
 
 
