@@ -315,7 +315,8 @@ def test_prune_commits_forward_and_delete_chain(stack):
     assert open(os.path.join(chain, 'base', f'{disk}.qcow2'), 'rb').read() == open(srcs[2][1], 'rb').read(), 'base now holds point 2'
     ch = json.load(open(os.path.join(chain, 'chain.json')))
     assert [(p['seq'], p['dir']) for p in ch['points']] == [(2, 'base')]
-    assert json.load(open(os.path.join(chain, 'base', 'manifest.json')))['seq'] == 2
+    bm = json.load(open(os.path.join(chain, 'base', 'manifest.json')))
+    assert bm['seq'] == 2 and bm['note'].startswith('committed from ') and bm['checksums_after_commit'] is True
     d = _wait(stack, stack.client.post('/jobs/delete_chain', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
     assert d['result'] == {'removed': True} and not os.path.exists(chain)
 
@@ -381,6 +382,39 @@ def test_a_prune_that_stops_at_any_step_can_be_run_again(stack, monkeypatch):
     assert open(os.path.join(chain, 'base', 'd0dd5d2c-9c7a-44ec-b6bc-d4ce06bb204d.qcow2'), 'rb').read() == open(srcs[2], 'rb').read()
     v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
     assert v['result']['ok'] and v['result']['points']['base']['checked'] == 1, v
+
+
+def test_verify_heals_once_the_checksums_an_older_proxy_left_after_a_prune(stack):
+    """Before 0.6.3 a prune left stale checksums in the base (committed into) and the point after it (rebased);
+    they healed only on a next prune that may never come. The verify job re-takes exactly those two once."""
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, _ = _three_point_chain(stack)
+
+    def stale(point, **extra):
+        p = os.path.join(chain, point, 'manifest.json'); m = json.load(open(p))
+        m['devices'][0]['sha256'] = '0' * 64; m.update(extra); P.manifest.write_json(p, m)
+    stale('base', note='committed from delta-0000 on 2026-10-01T03:00:00Z')
+    stale('delta-0001')
+    stale('delta-0002')                                  # not one an old prune touched: stays a mismatch
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
+    r = v['result']
+    assert r['healed'] == ['base', 'delta-0001'], r
+    assert r['points']['base']['ok'] and r['points']['delta-0001']['ok'] and not r['points']['delta-0002']['ok']
+    bm = json.load(open(os.path.join(chain, 'base', 'manifest.json')))
+    assert bm['checksums_after_commit'] is True and bm['healed_at']
+    assert json.load(open(os.path.join(chain, 'delta-0001', 'manifest.json')))['healed_at']
+    # once: a base with the mark is never re-hashed again, so later damage is reported
+    stale('base')
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain', 'seq': 0}, headers=H).get_json()['id'])
+    assert v['result']['healed'] == [] and not v['result']['points']['base']['ok']
+
+
+def test_verify_leaves_a_chain_that_was_never_pruned_alone(stack):
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, _ = _three_point_chain(stack)
+    p = os.path.join(chain, 'base', 'manifest.json'); m = json.load(open(p)); m['devices'][0]['sha256'] = '0' * 64; P.manifest.write_json(p, m)
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
+    assert v['result']['healed'] == [] and not v['result']['points']['base']['ok']
 
 
 def test_a_point_without_a_manifest_stops_the_prune_and_leaves_the_base_alone(stack):
@@ -1225,7 +1259,7 @@ def test_verify_upto_seq_reports_progress_and_names_the_corrupt_file(stack):
     assert list(v['result']['points']) == ['base'] and v['result']['points']['base']['mismatches'] == ['nvram-n.qcow2: missing']
     # an empty selection is not "ok"
     v = _wait(stack, stack.client.post('/jobs/verify', json={'target': target, 'chain_dir': 'Amsterdam/vm_v.chain', 'seq': 7}, headers=H).get_json()['id'])
-    assert v['state'] == 'done' and v['result'] == {'ok': False, 'points': {}, 'bytes': 0, 'duration_s': v['result']['duration_s']}
+    assert v['state'] == 'done' and v['result'] == {'ok': False, 'points': {}, 'bytes': 0, 'duration_s': v['result']['duration_s'], 'healed': []}
 
 
 def test_sha256_file_progress_and_cancel(tmp_path):

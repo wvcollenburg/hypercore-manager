@@ -295,6 +295,8 @@ class Engine:
         try:
             chain_dir = os.path.join(root, req['chain_dir'])
             chain = manifest.load_chain(chain_dir)
+            job.progress = {'phase': 'checksum'}
+            healed = self._heal_legacy_prune(chain_dir, chain)
             seq, upto = req.get('seq'), req.get('upto_seq')
             points = [p for p in chain['points'] if (seq is None or p['seq'] == int(seq)) and (upto is None or p['seq'] <= int(upto))]
             job.progress = {'points_total': len(points), 'points_done': 0, 'bytes_done': 0,
@@ -314,7 +316,7 @@ class Engine:
                 job.progress['points_done'] += 1
                 self._persist(job)
             return {'ok': bool(points) and all(r['ok'] for r in results.values()), 'points': results,
-                    'bytes': done, 'duration_s': round(time.time() - t0, 1)}
+                    'bytes': done, 'duration_s': round(time.time() - t0, 1), 'healed': healed}
         finally:
             self._release_target(req)
 
@@ -483,14 +485,16 @@ class Engine:
                 shutil.rmtree(nxt_dir, ignore_errors=True)
                 job.progress['dropped'] += 1
                 self._persist(job)
-            stale = [(points[0]['dir'], base_changed)] if points and base_changed else []
+            # the base is marked as hashed after its commit: a base that carries the 'committed from' note
+            # without the mark was pruned by an older proxy and is healed once by the next verify
+            stale = [(points[0]['dir'], base_changed, True)] if points and job.progress['dropped'] else []
             if rebased and any(p['dir'] == rebased[0] for p in points):
-                stale.append(rebased)
-            if stale:
+                stale.append((rebased[0], rebased[1], False))
+            if any(files for _, files, _ in stale):
                 job.progress['phase'] = 'checksum'
                 self._persist(job)
-            for point_dir, files in stale:
-                self._rehash(os.path.join(chain_dir, point_dir), files)
+            for point_dir, files, mark in stale:
+                self._rehash(os.path.join(chain_dir, point_dir), files, mark=mark)
             chain['points'] = points
             manifest.save_chain(chain_dir, chain)
             return {'dirs': {str(p['seq']): p['dir'] for p in points}, 'dropped': job.progress['dropped']}
@@ -498,8 +502,10 @@ class Engine:
             self._release_target(req)
 
     @staticmethod
-    def _rehash(point_dir: str, files: set[str]) -> None:
-        """Write the current sha256 of `files` into the point's manifest (after a commit or rebase changed them)."""
+    def _rehash(point_dir: str, files: set[str], mark: bool = False, healed: bool = False) -> None:
+        """Write the current sha256 of `files` into the point's manifest (after a commit or rebase changed them).
+        mark: the point is a base whose checksums were taken after its commit (LEGACY_COMMIT_NOTE without it
+        means an older proxy pruned it); healed: stamp healed_at (see _heal_legacy_prune)."""
         path = os.path.join(point_dir, manifest.POINT_FILE)
         m = manifest.read_json(path)
         if not m:
@@ -507,7 +513,39 @@ class Engine:
         for d in m.get('devices', []):
             if d.get('file') in files and os.path.exists(os.path.join(point_dir, d['file'])):
                 d['sha256'] = manifest.sha256_file(os.path.join(point_dir, d['file']))
+        if mark:
+            m['checksums_after_commit'] = True
+        if healed:
+            m['healed_at'] = _now()
         manifest.write_json(path, m)
+
+    LEGACY_COMMIT_NOTE = 'committed from '
+
+    def _heal_legacy_prune(self, chain_dir: str, chain: dict) -> list[str]:
+        """Proxies before 0.6.3 left stale checksums after a prune in two manifests: the base (its file was
+        committed into) and the point after it (rebased). They would heal only on the next prune, which may
+        never come, and until then every verification fails and a verified restore refuses the chain. Such a
+        base carries the 'committed from' note without the checksums_after_commit mark that run_prune writes
+        now: re-hash both points once, trusting their current file contents, and mark the base. Returns the
+        point directories healed."""
+        pts = sorted(chain.get('points') or [], key=lambda p: p['seq'])
+        if not pts:
+            return []
+        base_dir = os.path.join(chain_dir, pts[0]['dir'])
+        bm = manifest.read_json(os.path.join(base_dir, manifest.POINT_FILE)) or {}
+        if not str(bm.get('note') or '').startswith(self.LEGACY_COMMIT_NOTE) or bm.get('checksums_after_commit'):
+            return []
+        healed = []
+        if len(pts) > 1:                                    # the next point first: the base's mark is the last write
+            nxt_dir = os.path.join(chain_dir, pts[1]['dir'])
+            nm = manifest.read_json(os.path.join(nxt_dir, manifest.POINT_FILE)) or {}
+            if nm:
+                self._rehash(nxt_dir, {d['file'] for d in nm.get('devices', [])}, healed=True)
+                healed.append(pts[1]['dir'])
+        self._rehash(base_dir, {d['file'] for d in bm.get('devices', [])}, mark=True, healed=True)
+        healed.insert(0, pts[0]['dir'])
+        log.warning('checksums of %s re-taken once (pruned by a proxy before 0.6.3): %s', chain_dir, ', '.join(healed))
+        return healed
 
     def run_delete_chain(self, job: Job) -> dict:
         req = job.request
