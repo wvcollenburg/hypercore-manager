@@ -21,6 +21,7 @@ import requests
 
 import config as cfg_module
 import db
+import incremental
 from proxy_client import ProxyClient, ProxyError
 
 log = logging.getLogger('backup.proxy_image')
@@ -93,6 +94,11 @@ def push(client: ProxyClient, source: Callable[[], tuple[str, Iterable[bytes]]] 
     return answer
 
 
+# A backup or restore holds incremental.proxy_lock from its first clone until its proxy job is done: the proxy can
+# look idle (no job yet) while clones are being attached, and a container restart in that moment breaks the run.
+BUSY = 'a job is running on this proxy (or a backup or restore is preparing one); retry when it is idle'
+
+
 def prepare(proxy_id: int, *, force: bool = False, client_factory=None, info=stack_image) -> dict:
     """The checks before a push, quick enough for an API call: the proxy exists and is remote,
     the installation has an amd64 image, the proxy answers, is behind (or force), has the hook
@@ -119,8 +125,8 @@ def prepare(proxy_id: int, *, force: bool = False, client_factory=None, info=sta
         return {'skipped': 'already on this version', 'version': current}
     if not (ident.get('capabilities') or {}).get('update'):
         raise ProxyError(f"proxy runs {current}, the installation {stack['version']}; it has no update hook, update its container by hand")
-    if client.active_jobs():
-        raise ProxyError('a job is running on this proxy; retry when it is idle')
+    if client.active_jobs() or incremental.proxy_lock(proxy_id).locked():
+        raise ProxyError(BUSY)
     return {'proxy': p, 'client': client, 'current': current, 'stack': stack}
 
 
@@ -132,6 +138,16 @@ def update_proxy(proxy_id: int, *, force: bool = False, client_factory=None, sou
     pre = prepare(proxy_id, force=force, client_factory=client_factory, info=info)
     if pre.get('skipped'):
         return {'ok': True, **pre}
+    lock = incremental.proxy_lock(proxy_id)
+    if not lock.acquire(blocking=False):          # no waiting: the update pass skips a busy proxy
+        raise ProxyError(BUSY)
+    try:
+        return _push_and_wait(proxy_id, pre, source, sleep, wait_seconds)
+    finally:
+        lock.release()
+
+
+def _push_and_wait(proxy_id: int, pre: dict, source, sleep, wait_seconds: float) -> dict:
     client, current, stack = pre['client'], pre['current'], pre['stack']
     db.update_proxy(proxy_id, status='updating', status_detail=f"updating {current} -> {stack['version']}")
     push_error = None
