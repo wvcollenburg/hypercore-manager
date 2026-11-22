@@ -169,3 +169,32 @@ def test_root_holds_only_readme_license_and_notice(repo):
     assert root_docs == ['LICENSE', 'NOTICE', 'README.md'], root_docs
     assert (repo / '.github' / 'CONTRIBUTING.md').exists() and (repo / '.github' / 'SECURITY.md').exists()
     assert (repo / 'docs' / 'CHANGELOG.md').exists()
+
+
+def _lang_values(repo, code):
+    text = (repo / 'dashboard' / 'static' / 'lang' / f'{code}.js').read_text(encoding='utf-8')
+    return dict(re.findall(r"^\s*'([A-Za-z0-9_.]+)'\s*:\s*(.*),\s*$", text, re.M))
+
+
+def test_every_tunable_has_a_translated_label(repo):
+    """The Balancer and Foresight setting labels came from CTRL_GROUPS / the Sentinel API in English, and the
+    toggles said ON/OFF, in every language."""
+    html = (repo / 'dashboard' / 'static' / 'index.html').read_text(encoding='utf-8')
+    groups = html[html.index('const CTRL_GROUPS'):html.index('// reverse map: key')]
+    sent = html[html.index('const SENT_INFO'):html.index('const SENT_GROUPS')]
+    keys = set(re.findall(r"\{ key: '([A-Z0-9_]+)'", groups)) | set(re.findall(r"\n  ([A-Z0-9_]+): \{", sent))
+    assert len(keys) >= 40
+    for code in LANGS:
+        missing = {k for k in keys if f'tun.{k}' not in lang_keys(repo, code)}
+        assert not missing, f'{code}.js lacks tun.<KEY> for {sorted(missing)}'
+    assert "? 'ON' : 'OFF'" not in html
+
+
+@pytest.mark.parametrize('code', ('nl', 'fr', 'de'))
+def test_setting_help_is_translated(repo, code):
+    """All 123 info.<KEY>.what/benefits/careful values were the English text in nl, fr and de."""
+    en, other = _lang_values(repo, 'en'), _lang_values(repo, code)
+    info = [k for k in en if re.match(r'info\.[A-Z0-9_]+\.(what|benefits|careful)$', k)]
+    assert len(info) >= 120
+    same = [k for k in info if other.get(k) == en[k]]
+    assert not same, f'{code}.js still has English help for {same[:5]}'

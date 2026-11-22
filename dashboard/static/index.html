@@ -3750,7 +3750,7 @@ function onToggle(key, cbEl) {
   if (!_staged[gid]) _staged[gid] = {};
   _staged[gid][key] = cbEl.checked;
   const lbl = document.getElementById(`tgl-lbl-${key}`);
-  if (lbl) { lbl.textContent = cbEl.checked ? 'ON' : 'OFF'; lbl.style.color = cbEl.checked ? 'var(--accent-blue)' : 'var(--text-secondary)'; }
+  if (lbl) { lbl.textContent = _tunOnOff(cbEl.checked); lbl.style.color = cbEl.checked ? 'var(--accent-blue)' : 'var(--text-secondary)'; }
   _markDirty(gid);
 }
 
@@ -3800,17 +3800,22 @@ function showToast(msg, type='ok') {
 
 function _infoBtn(key) {
   return (CTRL_INFO[key] || SENT_INFO[key])
-    ? `<button class="info-btn" onclick="toggleInfo(event,'${key}')" title="More info">ⓘ</button>`
+    ? `<button class="info-btn" onclick="toggleInfo(event,'${key}')" title="${_clEsc(t('info.more'))}" aria-label="${_clEsc(t('info.more'))}">ⓘ</button>`
     : '';
 }
+// a tunable's label, unit and on/off state in the reader's language (tun.<KEY> in lang/*.js; the English of
+// CTRL_GROUPS / the Sentinel settings API is the fallback)
+function _tunLabel(key, fallback) { const k = 'tun.' + key, v = t(k); return v !== k ? v : fallback; }
+function _tunUnit(u) { return u === 'days' ? t('unit.days') : u === 'months' ? t('unit.months') : (u || ''); }
+const _tunOnOff = on => t(on ? 'settings.on' : 'settings.off');
 
 function _renderControl(def, value, readOnly = false) {
-  const labelRow = `<div class="ctrl-label-row"><div class="ctrl-label">${def.label}</div>${_infoBtn(def.key)}</div>`;
+  const labelRow = `<div class="ctrl-label-row"><div class="ctrl-label">${_clEsc(_tunLabel(def.key, def.label))}</div>${_infoBtn(def.key)}</div>`;
   const dis = readOnly ? ' disabled' : '';
 
   if (def.type === 'bool') {
     const checked = value ? 'checked' : '';
-    const stateLabel = value ? 'ON' : 'OFF';
+    const stateLabel = _tunOnOff(value);
     const stateColor = value ? 'var(--accent-blue)' : 'var(--text-secondary)';
     return `
       <div class="ctrl-strip ctrl-strip-bool">
@@ -3841,7 +3846,7 @@ function _renderControl(def, value, readOnly = false) {
         <input type="number" class="ctrl-value-input" id="vi_${def.key}"
                min="${def.min}" max="${def.max}" step="${def.step}" value="${value}"${dis}
                oninput="onValueInput('${def.key}', this)">
-        ${def.unit ? `<div class="ctrl-unit">${def.unit}</div>` : ''}
+        ${def.unit ? `<div class="ctrl-unit">${_tunUnit(def.unit)}</div>` : ''}
       </div>`;
   }
 
@@ -3863,7 +3868,7 @@ function _renderControl(def, value, readOnly = false) {
       <div class="ctrl-strip ${def.wide ? 'ctrl-strip-wide' : ''}">
         ${labelRow}
         <input type="text" class="ctrl-text-input" id="vi_${def.key}"
-               value="${safeVal}" placeholder="${def.hint || ''}"${dis}
+               value="${safeVal}" placeholder="${_clEsc(def.hint ? _tunLabel(def.key + '.hint', def.hint) : '')}"${dis}
                oninput="onTextInput('${def.key}', this)">
       </div>`;
   }
@@ -3890,7 +3895,7 @@ function toggleInfo(evt, key) {
     if (c) { label = c.label; break; }
   }
   if (label === key && SENT_INFO[key]) label = SENT_INFO[key].label;
-  document.getElementById('infoPopupTitle').textContent   = label;
+  document.getElementById('infoPopupTitle').textContent   = _tunLabel(key, label);
   const wKey = 'info.' + key + '.what';
   const bKey = 'info.' + key + '.benefits';
   const cKey = 'info.' + key + '.careful';
@@ -5478,7 +5483,7 @@ function onSentToggle(key, gid, cbEl) {
   if (!_sStagedSent[gid]) _sStagedSent[gid] = {};
   _sStagedSent[gid][key] = cbEl.checked;
   const lbl = document.getElementById(`stgl-lbl-${key}`);
-  if (lbl) { lbl.textContent = cbEl.checked ? 'ON' : 'OFF'; lbl.style.color = cbEl.checked ? 'var(--accent-cyan)' : 'var(--text-secondary)'; }
+  if (lbl) { lbl.textContent = _tunOnOff(cbEl.checked); lbl.style.color = cbEl.checked ? 'var(--accent-cyan)' : 'var(--text-secondary)'; }
   _sentMarkDirty(gid);
 }
 function onSentSelect(key, gid, selEl) {
@@ -5488,12 +5493,12 @@ function onSentSelect(key, gid, selEl) {
 }
 
 function _renderSentControl(meta, gid, readOnly = false) {
-  const labelRow = `<div class="ctrl-label-row"><div class="ctrl-label">${meta.label}${meta.unit ? '<span style="color:var(--text-muted);margin-left:3px;">'+meta.unit+'</span>' : ''}</div>${_infoBtn(meta.key)}</div>`;
+  const labelRow = `<div class="ctrl-label-row"><div class="ctrl-label">${_clEsc(_tunLabel(meta.key, meta.label))}${meta.unit ? '<span style="color:var(--text-muted);margin-left:3px;">'+_clEsc(_tunUnit(meta.unit))+'</span>' : ''}</div>${_infoBtn(meta.key)}</div>`;
   const dis = readOnly ? ' disabled' : '';
 
   if (meta.type === 'bool') {
     const checked    = meta.value ? 'checked' : '';
-    const stateLabel = meta.value ? 'ON' : 'OFF';
+    const stateLabel = _tunOnOff(meta.value);
     const stateColor = meta.value ? 'var(--accent-cyan)' : 'var(--text-secondary)';
     return `
       <div class="ctrl-strip ctrl-strip-bool">
