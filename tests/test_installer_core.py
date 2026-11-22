@@ -192,7 +192,7 @@ def test_easy_mode_covers_every_module_and_asks_for_the_time_zone(schema):
     for key in ('BACKUP_API_TOKEN', 'PROXY_API_TOKEN'):
         assert values[key] not in core.PLACEHOLDERS and len(values[key]) >= 32, key
     src = (Path(__file__).resolve().parents[1] / 'install.py').read_text()
-    assert '"backup",   "Backup",' in src and '"Backup (optional)"' not in src, 'every module is on by default in advanced mode'
+    assert 'screen_profiles(' not in src, 'advanced mode configures every module too (no module screen)'
     assert '"key": "TZ",' in src, 'easy mode asks for the time zone'
 
 
@@ -204,3 +204,15 @@ def test_timezone_picker_lists_utc_then_regions_then_cities():
     assert 'Indiana/Indianapolis' in core.timezone_cities('America'), 'sub-regions keep their path after the region'
     assert 'Eastern' in core.timezone_cities('US')
     assert core.validate_timezone('Europe/' + cities[0]) is None, 'everything the picker offers validates'
+
+
+def test_every_module_gets_its_tokens(schema):
+    """The advanced installer let you untick Backup or Foresight; their sections were then left out of .env,
+    tokens included, but the containers start anyway (no compose profiles): an empty token means no
+    authentication on a published port. Every module is configured now, whatever the mode."""
+    from installer.core import EASY_PROFILES, render_env, seed_default_values
+    src = (__import__('pathlib').Path(__file__).resolve().parent.parent / 'install.py').read_text()
+    assert 'screen_profiles(' not in src, 'the module screen no longer decides what runs'
+    body = render_env(schema, seed_default_values(schema), set(EASY_PROFILES))
+    for key in ('BACKUP_API_TOKEN', 'PROXY_API_TOKEN', 'SENTINEL_API_TOKEN'):
+        assert f'\n{key}=' in body
