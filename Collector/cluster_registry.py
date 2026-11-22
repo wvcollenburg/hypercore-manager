@@ -86,6 +86,21 @@ class Cluster:
 # helpers
 # ---------------------------------------------------------------------------
 
+NAME_MAX = 100
+_COLOUR_RE = re.compile(r'#[0-9a-fA-F]{6}')
+
+
+def clean_colour(value) -> Optional[str]:
+    """A cluster's or tree node's colour as the picker gives it ('#rrggbb'), None for no colour. Anything
+    else is refused: the value is written into style attributes of every viewer's page, where
+    'red;background:url(//x)' is a request to someone else's server and markup is script."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if not isinstance(value, str) or not _COLOUR_RE.fullmatch(value.strip()):
+        raise ValueError("a colour is written as '#rrggbb'")
+    return value.strip().lower()
+
+
 def is_uuid(value: str) -> bool:
     return bool(value) and bool(_UUID_RE.match(str(value)))
 
@@ -238,7 +253,10 @@ def create(name: str, host: str, username: str, password: str,
     host = normalize_host(host)
     if not name or not host or not username:
         raise ValueError('name, host and username are required')
+    if len(name) > NAME_MAX:
+        raise ValueError(f'a cluster needs a name of at most {NAME_MAX} characters')
     enc = hcm_crypto.encrypt(password or '')
+    colour = clean_colour(colour)
     conn = _connect()
     try:
         with conn.cursor() as cur:
@@ -287,8 +305,12 @@ def update(cluster_id: str, *, name: Optional[str] = None, host: Optional[str] =
     if folder_id is not ...:
         sets.append('folder_id = %s'); params.append(folder_id if folder_id and is_uuid(folder_id) else None)
     if name is not None:
+        if not isinstance(name, str) or not name.strip() or len(name.strip()) > NAME_MAX:
+            raise ValueError(f'a cluster needs a name of at most {NAME_MAX} characters')
         sets.append('cluster_name = %s'); params.append(name.strip())
     if host is not None:
+        if not isinstance(host, str) or not normalize_host(host):
+            raise ValueError('a cluster needs an address')
         sets.append('hc_host = %s'); params.append(normalize_host(host))
     if username is not None:
         sets.append('hc_username = %s'); params.append(username.strip())
@@ -297,7 +319,7 @@ def update(cluster_id: str, *, name: Optional[str] = None, host: Optional[str] =
     if verify_tls is not None:
         sets.append('verify_tls = %s'); params.append(bool(verify_tls))
     if colour is not None:
-        sets.append('colour = %s'); params.append(colour or None)
+        sets.append('colour = %s'); params.append(clean_colour(colour))
     if enabled is not None:
         sets.append('enabled = %s'); params.append(bool(enabled))
     if api_version is not None:
@@ -848,7 +870,7 @@ def create_folder(name: str, colour: Optional[str] = None) -> str:
     try:
         with conn.cursor() as cur:
             cur.execute('INSERT INTO config.folders (name, colour) VALUES (%s, %s) RETURNING folder_id::text AS folder_id',
-                        (name, colour or None))
+                        (name, clean_colour(colour)))
             fid = cur.fetchone()['folder_id']
         conn.commit()
         return fid
@@ -863,7 +885,7 @@ def update_folder(folder_id: str, name: Optional[str] = None, colour: Optional[s
     if name is not None:
         sets.append('name = %s'); params.append(name.strip())
     if colour is not None:
-        sets.append('colour = %s'); params.append(colour or None)
+        sets.append('colour = %s'); params.append(clean_colour(colour))
     if share_id is not ...:
         sets.append('share_id = %s'); params.append(int(share_id) if share_id not in (None, '', 0) else None)
     if not sets:

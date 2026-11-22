@@ -5583,9 +5583,12 @@ function _clAgo(iso) {
   if (s < 5400) return t('clusters.status_seen', {ago: Math.round(s / 60) + 'm'});
   return t('clusters.status_seen', {ago: Math.round(s / 3600) + 'h'});
 }
+// a colour as the picker gives it; anything else stored (from before the server checked) is not used:
+// these values go into style attributes
+function _safeColour(v) { return /^#[0-9a-fA-F]{6}$/.test(v || '') ? v : ''; }
 function _clColour(c, i) {
   // a cluster without a colour of its own takes the next chart colour of the theme
-  return c.colour || CHART_COLORS[i % CHART_COLORS.length];
+  return _safeColour(c.colour) || CHART_COLORS[i % CHART_COLORS.length];
 }
 
 async function loadClusters() {
@@ -5633,7 +5636,8 @@ function _renderClusterRail(enabled) {
 
   const group = (key, name, colour, members, adminMenu) => {
     const collapsed = !(_railQuery || '').trim() && _collapsedFolders.has(key);
-    const vars = colour ? `--fc:${_clEsc(colour)};--fc-tint:${_tint(colour, 0.16)}` : '';
+    colour = _safeColour(colour);
+    const vars = colour ? `--fc:${colour};--fc-tint:${_tint(colour, 0.16)}` : '';
     return `
     <div class="cluster-folder ${collapsed ? 'collapsed' : ''}" style="${vars}" onclick="toggleFolder('${key}')" title="${_clEsc(name)}">
       <span class="folder-chevron">▾</span>
@@ -5719,7 +5723,7 @@ function _updateBreadcrumbs() {
   const clusterScoped = !['settings', 'modules', 'account'].includes(activeTab);
   if (cur && clusterScoped) {
     const f = FOLDERS.find(x => x.folder_id === cur.folder_id);
-    if (f) parts.push(`<span class="crumb folder"><span class="crumb-dot" style="background:${_clEsc(f.colour || 'var(--text-muted)')}"></span>${_clEsc(f.name)}</span>`);
+    if (f) parts.push(`<span class="crumb folder"><span class="crumb-dot" style="background:${_safeColour(f.colour) || 'var(--text-muted)'}"></span>${_clEsc(f.name)}</span>`);
     parts.push(`<span class="crumb cluster"><span class="crumb-dot" style="background:${_clColour(cur, enabled.indexOf(cur))}"></span>${_clEsc(cur.name)}</span>`);
   }
   const tabEl = document.querySelector(`.nav-tab[data-tab="${activeTab}"], .rail-nav[data-tab="${activeTab}"]`);
@@ -5795,7 +5799,7 @@ function _clusterMenuRows(clusterId, q) {
   if (!list.length)    return `<div class="popmenu-item" style="color:var(--text-muted);cursor:default;">${t('folders.no_match')}</div>`;
   return list.map(f => `
     <div class="popmenu-item" onclick="moveClusterToFolder('${clusterId}', '${f.folder_id}')">
-      <span class="cluster-dot" style="background:${_clEsc(f.colour || 'var(--text-muted)')}"></span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_clEsc(f.name)}</span>${c && c.folder_id === f.folder_id ? '✓' : ''}
+      <span class="cluster-dot" style="background:${_safeColour(f.colour) || 'var(--text-muted)'}"></span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_clEsc(f.name)}</span>${c && c.folder_id === f.folder_id ? '✓' : ''}
     </div>`).join('');
 }
 function clusterMenuSearch(clusterId, q) { const box = document.getElementById('clusterMenuRows'); if (box) box.innerHTML = _clusterMenuRows(clusterId, q); }
@@ -5937,7 +5941,7 @@ function _clusterFormHtml(prefix, c) {
       <div><label>${t('clusters.username')}</label><input type="text" id="${prefix}-username" value="${_clEsc(c.username)}" autocomplete="off"></div>
       <div><label>${t('clusters.password')}</label><input type="password" id="${prefix}-password" autocomplete="new-password" placeholder="${c.cluster_id ? _clEsc(t('clusters.password_keep')) : ''}"></div>
       <div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="${prefix}-verify" ${c.verify_tls ? 'checked' : ''}><label for="${prefix}-verify" style="margin:0;">${t('clusters.verify_tls')}</label></div>
-      <div><label>${t('clusters.colour')}</label><input type="color" id="${prefix}-colour" value="${_clEsc(c.colour || '#3b82f6')}"/* token-ok: default of a user-picked colour */ style="width:48px;height:30px;border:none;background:none;"></div>
+      <div><label>${t('clusters.colour')}</label><input type="color" id="${prefix}-colour" value="${_safeColour(c.colour) || '#3b82f6'}"/* token-ok: default of a user-picked colour */ style="width:48px;height:30px;border:none;background:none;"></div>
       <div><label>${t('clusters.api')}</label><select id="${prefix}-api" style="width:100%;padding:7px 9px;border-radius:6px;font-size:12px;background:var(--bg-input, var(--bg-primary));border:1px solid var(--border);color:var(--text-primary);">
         <option value="auto" ${(c.api_version || 'auto') === 'auto' ? 'selected' : ''}>${t('clusters.api_auto')}</option>
         <option value="v1" ${c.api_version === 'v1' ? 'selected' : ''}>${t('clusters.api_v1')}</option>

@@ -218,3 +218,37 @@ def test_bookkeeping_survives_an_unreachable_database(monkeypatch):
 def test_the_collector_replaces_a_worker_that_died(repo):
     src = (repo / 'Collector' / 'collector.py').read_text()
     assert 'not workers[cid][0].is_alive()' in src, 'a dead worker must be started again'
+
+
+@pytest.mark.parametrize('value,clean', [
+    ('#3B82F6', '#3b82f6'), (' #000000 ', '#000000'), (None, None), ('', None), ('   ', None),
+])
+def test_a_colour_is_what_the_picker_gives(value, clean):
+    import cluster_registry as cr
+    assert cr.clean_colour(value) == clean
+
+
+@pytest.mark.parametrize('value', [
+    'red', '#fff', '#3b82f6;background:url(//x)', 'red;background:url(//x)', 'javascript:alert(1)',
+    '"><img src=x onerror=alert(1)>', 'var(--accent-blue)', '#3b82f6 !important', 7, ['#000000'],
+])
+def test_anything_else_is_not_a_colour(value):
+    """The value goes into style attributes on every viewer's page (2026-11-22: a cluster colour of
+    'red;background:url(//x)' made the browser fetch //x)."""
+    import cluster_registry as cr
+    with pytest.raises(ValueError):
+        cr.clean_colour(value)
+
+
+@pytest.mark.parametrize('fields', [
+    {'name': ''}, {'name': '   '}, {'name': 'A' * 300}, {'name': 5}, {'host': ''}, {'host': '  '},
+    {'colour': 'red;background:url(//x)'},
+])
+def test_an_update_is_checked_like_a_new_cluster(monkeypatch, fields):
+    """PUT /api/clusters/<id> stored an empty name, a 300-character name and an empty address (https:///rest/v1)."""
+    import cluster_registry as cr
+    if not hasattr(cr, '_connect'):
+        pytest.skip('the registry is stubbed in this run')
+    monkeypatch.setattr(cr, '_connect', lambda: pytest.fail('nothing may be written'))
+    with pytest.raises(ValueError):
+        cr.update('11111111-1111-4111-8111-111111111111', **fields)

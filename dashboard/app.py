@@ -1401,6 +1401,8 @@ def api_clusters_create():
                                       verify_tls=f['verify_tls'], colour=f['colour'], hc_cluster_uuid=hc_uuid,
                                       api_version=f['api_version'], api_v2_available=probe.get('api_v2') if probe.get('ok') else None,
                                       hc_version=probe.get('version') or None, folder_id=target_folder)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         msg = str(e)
         if 'ux_clusters_folder_name' in msg or 'duplicate key' in msg:
@@ -1641,6 +1643,8 @@ def api_folders_update(folder_id):
     try:
         cluster_registry.update_folder(folder_id, name=body.get('name'), colour=body.get('colour'),
                                        share_id=body['share_id'] if 'share_id' in body else ...)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         if 'ux_folders_name' in str(e) or 'duplicate key' in str(e):
             return jsonify({'error': 'a folder with that name already exists'}), 409

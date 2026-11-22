@@ -15,6 +15,7 @@ import re
 import threading
 import time
 
+import cluster_registry
 import rbac
 
 log = logging.getLogger(__name__)
@@ -316,6 +317,14 @@ def nodes() -> list[dict]:
         conn.close()
 
 
+def _colour(value):
+    """cluster_registry.clean_colour, as an AccessError (400)."""
+    try:
+        return cluster_registry.clean_colour(value)
+    except ValueError as e:
+        raise AccessError(str(e), 400) from None
+
+
 def create_node(name: str, level: str, parent_id: str | None, colour: str | None, actor: str) -> str:
     name = (name or '').strip()
     if not name or len(name) > 80:
@@ -331,7 +340,7 @@ def create_node(name: str, level: str, parent_id: str | None, colour: str | None
         with conn.cursor() as cur:
             try:
                 cur.execute('''INSERT INTO config.folders (name, level, parent_id, colour) VALUES (%s, %s, %s, %s)
-                               RETURNING folder_id::text AS id''', (name, level, parent_id, colour or None))
+                               RETURNING folder_id::text AS id''', (name, level, parent_id, _colour(colour)))
             except Exception as exc:  # noqa: BLE001
                 if 'ux_folders_parent_name' in str(exc) or 'duplicate key' in str(exc):
                     raise AccessError(f'there already is a {level} called {name!r} here', 409) from exc
@@ -365,7 +374,7 @@ def rename_node(node_id: str, name: str | None, colour, actor: str) -> None:
                     raise
                 audit(cur, actor, f"{row['level']}.rename", f"{row['name']} → {name}", node_id=node_id)
             if colour is not ...:
-                cur.execute('UPDATE config.folders SET colour = %s, updated_at = NOW() WHERE folder_id = %s', (colour or None, node_id))
+                cur.execute('UPDATE config.folders SET colour = %s, updated_at = NOW() WHERE folder_id = %s', (_colour(colour), node_id))
         conn.commit()
     finally:
         conn.close()
