@@ -13,8 +13,51 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: qemu-img and qemu-io for the qcow2 delta tests (skipped without them)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq qemu-utils
       - run: pip install -r tests/requirements.txt
       - run: pytest -m "not integration"
+
+  migrations-twice:
+    # The dashboard's migration runner applies every postgres/init file again on an install whose database
+    # was created by initdb (nothing is recorded yet). A file that is not idempotent against the later files
+    # blocks every later migration and every in-app update of a fresh install (021 did, 1.3.0 to 1.8.0).
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: hypercore_balancer
+          POSTGRES_USER: sentinel
+          POSTGRES_PASSWORD: ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sentinel" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install psycopg2-binary==2.9.13
+      - name: initdb pass (as the postgres image does on a new volume)
+        env: {PGPASSWORD: ci}
+        run: |
+          for f in postgres/init/*.sql; do
+            psql -v ON_ERROR_STOP=1 -q -h localhost -U sentinel -d hypercore_balancer -f "$f" || exit 1
+          done
+      - name: the dashboard's runner applies every file again, twice
+        run: |
+          python - <<'PY'
+          import sys, psycopg2, psycopg2.extras
+          sys.path.insert(0, 'dashboard')
+          import migrations
+          conn = psycopg2.connect(host='localhost', dbname='hypercore_balancer', user='sentinel', password='ci',
+                                  cursor_factory=psycopg2.extras.RealDictCursor)      # as the dashboard connects
+          first = migrations.apply_pending(conn, 'postgres/init')
+          second = migrations.apply_pending(conn, 'postgres/init')
+          print(f'applied {len(first)} file(s), then {len(second)}')
+          assert first and not second
+          PY
 
   compose-build:
     runs-on: ubuntu-latest

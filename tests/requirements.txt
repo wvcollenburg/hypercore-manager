@@ -8,3 +8,8 @@ PyYAML==6.0.2
 apscheduler==3.11.0
 tzdata==2025.2
 python-dateutil==2.9.0.post0
+# optional imports some tests skip without (importorskip): with them CI runs the console tests and the
+# manual rendering tests too (49 tests were silently skipped before 1.8.1). Same versions as the services.
+aiohttp==3.12.15
+pillow==13.0.0
+markdown==3.8.2
