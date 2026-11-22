@@ -1390,6 +1390,18 @@ def _cluster_payload(c, extras=None):
     return d
 
 
+def _audit(action: str, target: str, node_id: str | None = None, detail: dict | None = None,
+           actor: str | None = None) -> None:
+    """One row in the access audit (Settings -> Access -> Audit), best effort: a failed audit write is logged
+    and never fails the action it describes. node_id: where in the tree it happened (who may read the row)."""
+    try:
+        with _pg() as conn, conn.cursor() as cur:
+            access_db.audit(cur, actor or session.get('username') or ('anonymous' if not _AUTH_ENABLED else 'system'),
+                            action, str(target)[:300], node_id=node_id, detail=detail)
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning('audit %s %s not written: %s', action, target, exc)
+
+
 def _set_cluster_role(cluster_id: str, role: str) -> None:
     """A DR cluster is normally passive: its backup proxies verify restore points around the clock."""
     with _pg() as conn, conn.cursor() as cur:
@@ -1533,6 +1545,8 @@ def api_clusters_create():
         cluster_registry.upsert_nodes(cid, probe_nodes, seed_host=f['host'])
     if probe.get('timezone'):
         cluster_registry.mark_seen(cid, timezone=probe['timezone'])
+    _audit('cluster.register', f['name'], node_id=target_folder,
+           detail={'cluster_id': cid, 'host': f['host'], 'forced': bool(body.get('force')) and not probe.get('ok')})
     _invalidate_registry_cache()
     c = cluster_registry.get(cid)
     return jsonify({'ok': True, 'cluster': _cluster_payload(c), 'probe': probe}), 201
@@ -1541,7 +1555,8 @@ def api_clusters_create():
 @app.route('/api/clusters/<cluster_id>', methods=['PUT'])
 @requires('cluster.manage', 'any')
 def api_clusters_update(cluster_id):
-    if not cluster_registry.get(cluster_id):
+    before = cluster_registry.get(cluster_id)
+    if not before:
         return jsonify({'error': 'cluster not found'}), 404
     acc = _access()
     if not acc.can('cluster.manage', cluster_id):
@@ -1572,6 +1587,19 @@ def api_clusters_update(cluster_id):
         if 'ux_clusters_folder_name' in msg or 'duplicate key' in msg:
             return jsonify({'error': 'that folder already has a cluster with that name'}), 409
         return jsonify({'error': msg}), 500
+    changed = sorted(k for k in fields if k != 'folder_id' and (k != 'password' or fields[k]))
+    if role is not None:
+        changed.append('role')
+    if changed:
+        detail = {'cluster_id': cluster_id, 'fields': changed}
+        if 'host' in fields:
+            detail.update(host_from=before.host, host_to=fields['host'])
+        if 'enabled' in fields:
+            detail['enabled'] = fields['enabled']
+        _audit('cluster.edit', before.name, node_id=before.folder_id, detail=detail)
+    if 'folder_id' in fields and (fields['folder_id'] or None) != (before.folder_id or None):
+        _audit('cluster.move', before.name, node_id=fields['folder_id'] or before.folder_id,
+               detail={'cluster_id': cluster_id, 'from': before.folder_id, 'to': fields['folder_id']})
     _invalidate_registry_cache()
     return jsonify({'ok': True, 'cluster': _cluster_payload(cluster_registry.get(cluster_id))})
 
@@ -1579,13 +1607,15 @@ def api_clusters_update(cluster_id):
 @app.route('/api/clusters/<cluster_id>', methods=['DELETE'])
 @requires('cluster.manage', 'any')
 def api_clusters_delete(cluster_id):
-    if not cluster_registry.get(cluster_id) or not _access().can('cluster.manage', cluster_id):
+    c = cluster_registry.get(cluster_id)
+    if not c or not _access().can('cluster.manage', cluster_id):
         return jsonify({'error': 'cluster not found'}), 404
     purge = request.args.get('purge') == '1'
     try:
         cluster_registry.delete(cluster_id, purge=purge)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    _audit('cluster.purge' if purge else 'cluster.remove', c.name, node_id=c.folder_id, detail={'cluster_id': cluster_id})
     _invalidate_registry_cache()
     return jsonify({'ok': True, 'purged': purge})
 
@@ -1781,6 +1811,9 @@ def api_folders_update(folder_id):
         if 'foreign key' in str(e).lower() and 'share' in str(e).lower():
             return jsonify({'error': 'no such backup target'}), 404
         return jsonify({'error': str(e)}), 500
+    if share is not ...:
+        _audit('folder.target', acc.tree.name.get(folder_id, folder_id), node_id=folder_id,
+               detail={'target_id': share if share not in (None, '', 0) else None})
     _invalidate_registry_cache()
     return jsonify({'ok': True})
 
@@ -3438,8 +3471,13 @@ def sentinel_put_tunables():
             f'{sentinel_api_url}/api/v1/tunables?cluster={_cluster_id()}',
             data=payload, headers=headers, method='PUT',
         )
+        cid = _cluster_id()
         with _req.urlopen(rq, timeout=10) as resp:
-            return jsonify(json.loads(resp.read().decode()))
+            out = json.loads(resp.read().decode())
+        _audit('tunables.foresight', cid, node_id=_access().tree.cluster_folder.get(cid),
+               detail={'cluster_id': cid, 'changes': {str(k)[:80]: v for k, v in list(body.items())[:50]}
+                       if isinstance(body, dict) else None})
+        return jsonify(out)
     except urllib.error.HTTPError as e:
         body_err = e.read().decode(errors='replace')
         return jsonify({'error': body_err}), e.code
@@ -3516,8 +3554,10 @@ def login_page():
                 user_db.clear_login_failures(pending_username)
                 dest = _after_login(session.pop('next', None))
                 _start_session(u)
+                _audit('login', u['username'], detail={'ip': client, 'otp': True}, actor=u['username'])
                 return redirect(dest)
             user_db.record_login_failure(pending_username, client, 'otp')
+            _audit('login.otp_failed', pending_username, detail={'ip': client}, actor=pending_username)
             if user_db.otp_failures_since(pending_username, pending_at) >= user_db.MAX_OTP_FAILURES:
                 session.pop('otp_pending', None)
                 session.pop('otp_pending_at', None)
@@ -3527,6 +3567,7 @@ def login_page():
             typed = request.form.get('username', '')
             if user_db.login_locked(typed, client):
                 # counted by what was typed and by address, so the answer is the same for an unknown account
+                _audit('login.locked', typed.strip()[:254], detail={'ip': client}, actor='anonymous')
                 return _login_render('password', 'err_locked', False)
             found = user_db.get_by_login(typed)
             username = found['username'] if found else typed.strip()
@@ -3547,8 +3588,11 @@ def login_page():
                 user_db.clear_login_failures(typed)
                 dest = _after_login(session.pop('next', None))
                 _start_session(u)
+                _audit('login', u['username'], detail={'ip': client}, actor=u['username'])
                 return redirect(dest)
             user_db.record_login_failure(typed, client, 'password')
+            # what was typed, never the password; an unknown address is recorded as typed (that is the attempt)
+            _audit('login.failed', typed.strip()[:254], detail={'ip': client}, actor='anonymous')
             error = 'err_login'
 
     # pass otp_enabled=True only when on the OTP step (drives login.html hint text)
@@ -3651,6 +3695,7 @@ def api_otp_enable():
     if not code:
         return jsonify({'error': 'code is required'}), 400
     if user_db.enable_otp(username, code):
+        _audit('user.otp_enabled', username, actor=username)
         if _AUTH_ENABLED:
             gen = user_db.bump_session_gen(username)     # other sessions signed in without the code end
             if gen is not None:
@@ -3670,6 +3715,7 @@ def api_otp_disable():
         user_db.disable_otp(username)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    _audit('user.otp_disabled', username, actor=username)
     if _AUTH_ENABLED:
         gen = user_db.bump_session_gen(username)         # every other session of the account ends
         if gen is not None:
@@ -4214,6 +4260,8 @@ def api_update_apply():
         state.update({'apply_in_progress': True, 'apply_log': [], 'apply_failed': None, 'apply_pid': os.getpid(),
                       'apply_marker': _container_marker(), 'apply_started': time.time()})
         _store_update_file(state)
+    _audit('install.update_apply', state.get('remote_label') or 'update',
+           detail={'from': state.get('current_version'), 'to': state.get('remote_version')})
     threading.Thread(target=_do_apply_update, daemon=True).start()
     return jsonify({'ok': True})
 
