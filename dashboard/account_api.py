@@ -304,6 +304,7 @@ def register(app, requires, public, h):
             raise AccessError('not found', 404)
         if u['user_id'] == h.me_id():
             raise AccessError('turn off your own two-factor on your Account page', 409)
+        h.require_touch_account(h.access(), u)      # resetting someone's 2FA is half of signing in as them
         user_db.disable_otp(u['username'])
         _audit(h.actor(), 'user.otp_reset', u['username'])
         access_db.invalidate()

@@ -704,6 +704,8 @@ def update_user(user_id: str, actor: str, *, enabled=None, display_name=None, em
                     raise AccessError('give the account its access first', 409)
                 if enabled and u['awaiting_email'] and email is None:
                     raise AccessError('give the account its email address first', 409)
+                if not enabled:
+                    _guard_last_root_admin(cur, removing_user=user_id)   # as delete and assignment removal do
                 cur.execute('UPDATE config.users SET enabled = %s, updated_at = NOW() WHERE user_id = %s', (bool(enabled), user_id))
                 audit(cur, actor, 'user.enable' if enabled else 'user.disable', u['username'])
             if display_name is not None:
