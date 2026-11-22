@@ -537,6 +537,10 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_starte
             db.update_chain(chain['id'], anchor_snapshot_uuid=None)
             chain['anchor_snapshot_uuid'] = None
     kind, seq, prev_seq, note = plan_point(chain, plan, prev_point, full)
+    if kind == 'delta' and chain.get('target_id') != share['id']:
+        # the folder got another target: the chain's points live on its own target, a delta on the new one has no
+        # base. The old chain retires there and expires through retention on that target.
+        kind, seq, prev_seq, note = 'full', 0, None, "the folder's backup target changed: taking a full on the new target"
     if kind == 'full' and chain is not None:
         # a new full starts a new chain; the old one retires and expires through retention
         db.update_chain(chain['id'], status='retired')
@@ -782,11 +786,19 @@ def apply_retention(plan: dict, pc: ProxyClient, share: dict) -> str:
     by_chain: dict[int, list[dict]] = {}
     for p in drop:
         by_chain.setdefault(p['chain_id'], []).append(p)
-    pruned = 0
+    pruned, skipped = 0, 0
     for chain_id, pts in by_chain.items():
         chain = db.get_chain(chain_id)
+        # every chain is pruned on its own target: after a target change the old chains are still on the old one
+        # (deleting them on the new target "succeeds" on a missing directory and the data would stay for ever)
+        cshare = share if chain.get('target_id') == share['id'] else (
+            db.get_share(chain['target_id'], with_secret=True) if chain.get('target_id') else None)
+        if not cshare:
+            log.warning('retention: chain %s has no target any more; its points are left alone', chain_id)
+            skipped += len(pts)
+            continue
         remaining = [p for p in db.get_points(chain_id) if p['id'] not in {x['id'] for x in pts}]
-        body = {'target': {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')},
+        body = {'target': {'uri': cshare['uri_base'], 'username': cshare.get('username'), 'password': cshare.get('password')},
                 'chain_dir': chain['chain_dir']}
         try:
             if not remaining:
@@ -807,7 +819,8 @@ def apply_retention(plan: dict, pc: ProxyClient, share: dict) -> str:
             pruned += len(pts)
         except ProxyError as e:
             return f'Retention: pruning failed on chain {chain_id}: {e}'
-    return f'Retention: pruned {pruned} point(s), {len(points) - pruned} kept.'
+    return (f'Retention: pruned {pruned} point(s), {len(points) - pruned} kept'
+            + (f' ({skipped} due on a chain whose target no longer exists)' if skipped else '') + '.')
 
 
 # ------------------------------------------------------------------ sweeps

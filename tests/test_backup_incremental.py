@@ -621,6 +621,31 @@ def test_a_point_the_catalogue_never_recorded_starts_a_new_chain(world, monkeypa
     assert not inc.chain_out_of_step(inc.ProxyError('disk full on target'))
 
 
+def test_a_target_change_starts_a_new_chain_and_old_chains_are_pruned_on_their_own_target(world, monkeypatch):
+    """After the folder got another target the next delta went to the new share and failed every night, and
+    retention deleted old chains on the new share (a missing directory "deletes" fine) while the data stayed."""
+    shares = {9: {'id': 9, 'uri_base': 'smb://old/share', 'username': 'u', 'password': 'p'},
+              10: {'id': 10, 'uri_base': 'smb://new/share', 'username': 'u2', 'password': 'p2'}}
+    monkeypatch.setattr(world.db, 'get_share', lambda sid, with_secret=False: shares.get(sid))
+    monkeypatch.setattr(world.db, 'share_for_cluster', lambda cid: shares[9])
+    inc.run_incremental(4)
+    monkeypatch.setattr(world.db, 'share_for_cluster', lambda cid: shares[10])
+    world.db.plan['retention'] = 1
+    run = _next_run(world)
+    assert run['status'] == 'COMPLETE' and run['point_kind'] == 'full' and 'target changed' in run['message'], run
+    backups = [b for k, b in world.pc.jobs if k == 'backup']
+    assert backups[1]['target']['uri'] == 'smb://new/share' and backups[1]['point']['kind'] == 'full'
+    assert world.db.chains[1]['status'] == 'deleted' and world.db.chains[2]['target_id'] == 10
+    deletes = [b for k, b in world.pc.jobs if k == 'delete_chain']
+    assert [d['target']['uri'] for d in deletes] == ['smb://old/share'], 'the old chain goes on its own target'
+    # a chain whose target was deleted is left alone, not "deleted" on the current one
+    world.db.chains[2]['target_id'] = None
+    world.pc.jobs.clear()
+    world.db.add_point(2, 1, 'delta', 'delta-0001', {}, 1, 1, 1.0, [], {}, 9)
+    msg = inc.apply_retention(world.db.plan, world.pc, shares[10])
+    assert world.pc.jobs == [] and 'no longer exists' in msg
+
+
 def test_an_interrupted_delta_makes_the_next_run_a_full(monkeypatch):
     sys.path.insert(0, _BACKUP)
     try:
