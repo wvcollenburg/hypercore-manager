@@ -16,6 +16,33 @@ from flask import jsonify, request, session
 
 import media
 
+UPLOAD_STALL_SECONDS = 300     # no data from the browser for this long: the upload is void
+
+
+class BrowserGone(ConnectionError):
+    """The browser's body ended before its Content-Length: the upload was broken off."""
+
+
+class WholeBody:
+    """The request body as it arrives, raising BrowserGone where it ends early. The server reports a closed
+    connection as an ordinary end of the body; passed on like that, the backup service would wait for the rest
+    until its stall timeout. Raising instead closes the stream to it at once, and it voids the upload."""
+
+    def __init__(self, stream, size: int):
+        self.stream, self.left = stream, size
+
+    def read(self, n: int = -1) -> bytes:
+        if self.left <= 0:
+            return b''
+        try:
+            b = self.stream.read(self.left if n is None or n < 0 else min(n, self.left))
+        except Exception as e:                       # noqa: BLE001 — a reset or a read timeout
+            raise BrowserGone(f'the upload broke off with {self.left} bytes to go: {e}') from e
+        if not b:
+            raise BrowserGone(f'the upload broke off with {self.left} bytes to go')
+        self.left -= len(b)
+        return b
+
 
 def register(app, requires, h):
     """h: access(), cluster_id(), write_cluster_problem(perm, need), backup_env() -> (url, token), pg(),
@@ -158,8 +185,16 @@ def register(app, requires, h):
         size = request.content_length or 0
         if size <= 0:
             return jsonify({'error': 'the upload needs a Content-Length'}), 411
+        sock = request.environ.get('gunicorn.socket')
+        if sock is not None:
+            # a browser that vanished without closing the connection: the read gives up after this long, the stream
+            # to the backup service breaks, and the backup service voids the upload (deletes the half ISO)
+            try:
+                sock.settimeout(UPLOAD_STALL_SECONDS)
+            except OSError:
+                pass
         # the body goes on as it arrives (a disk image can be tens of GB): never read into memory here
-        st, data = backup('PUT', 'media/upload', {'cluster': cid, 'kind': kind, 'name': name}, data=request.stream,
+        st, data = backup('PUT', 'media/upload', {'cluster': cid, 'kind': kind, 'name': name}, data=WholeBody(request.stream, size),
                           headers={'Content-Length': str(size), 'Content-Type': 'application/octet-stream'},
                           timeout=4 * 3600)
         if st not in (201, 202):

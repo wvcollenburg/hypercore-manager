@@ -324,3 +324,57 @@ def test_a_long_conversion_answers_202(client, monkeypatch):
     assert r.status_code == 202 and r.get_json()['converting'] is True
     listed = client.get(f'/api/v1/media?cluster={CID}').get_json()['disks']
     assert listed == [{'uuid': 'temp-uuid', 'name': 'app.qcow2', 'converting': True, 'size': 1}]
+
+
+# ---------------------------------------------------------------------- interrupted uploads are void (1.9.2)
+class _Stream:
+    """A request body that breaks off after `n` bytes, the way a closed browser or a dropped connection does."""
+    def __init__(self, data, n): self.data, self.n, self.pos = data, n, 0
+    def tell(self): return self.pos
+    def seek(self, *a): return self.pos
+    def read(self, k=-1):
+        if self.pos >= self.n:
+            raise ConnectionResetError('the sender went away')
+        out = self.data[self.pos:min(self.pos + (k if k > 0 else len(self.data)), self.n)]
+        self.pos += len(out)
+        return out
+
+
+class _UploadDB:
+    """backup.media_uploads in a list."""
+    def __init__(self): self.rows, self.next = [], 1
+    def _one(self, sql, args):
+        row = {'id': self.next, 'cluster_id': args[0], 'kind': args[1], 'name': args[2], 'hc_uuid': None}
+        self.rows.append(row); self.next += 1
+        return {'id': row['id']}
+    def _exec(self, sql, args):
+        if sql.startswith('UPDATE'):
+            next(r for r in self.rows if r['id'] == args[1])['hc_uuid'] = args[0]
+        elif sql.startswith('DELETE'):
+            self.rows = [r for r in self.rows if r['id'] != args[0]]
+    def _all(self, sql, args=()): return list(self.rows)
+
+
+def test_an_iso_upload_that_breaks_off_is_void_and_deleted(client, media_hc, monkeypatch):
+    up = _UploadDB()
+    for k in ('_one', '_exec', '_all'):
+        monkeypatch.setattr(api.db, k, getattr(up, k), raising=False)
+    r = client.put(f'/api/v1/media/upload?cluster={CID}&kind=iso&name=half.iso',
+                   input_stream=_Stream(b'x' * 3000, 1000), environ_overrides={'CONTENT_LENGTH': '3000'})
+    status = r.status_code
+    assert status == 502, r.get_json()
+    assert media_hc.deleted == ['22222222-2222-4222-8222-222222222222'], 'the half ISO is removed from the cluster'
+    assert up.rows == [], 'and the upload is no longer recorded as in progress'
+
+
+def test_uploads_left_by_an_earlier_run_are_voided_at_start(media_hc, monkeypatch):
+    up = _UploadDB()
+    up.rows = [{'id': 1, 'cluster_id': CID, 'kind': 'iso', 'name': 'half.iso', 'hc_uuid': '22222222-2222-4222-8222-222222222222'},
+               {'id': 2, 'cluster_id': CID, 'kind': 'iso', 'name': 'have.iso', 'hc_uuid': '11111111-1111-4111-8111-111111111111'}]
+    media_hc.isos.append({'uuid': '22222222-2222-4222-8222-222222222222', 'name': 'half.iso', 'readyForInsert': False, 'path': 'scribe/2'})
+    for k in ('_one', '_exec', '_all'):
+        monkeypatch.setattr(api.db, k, getattr(up, k), raising=False)
+    monkeypatch.setattr(api, '_ACTIVE_UPLOADS', set())
+    assert api.sweep_media_uploads() == 2
+    assert media_hc.deleted == ['22222222-2222-4222-8222-222222222222'], 'the ready ISO (it did arrive) is kept'
+    assert up.rows == []

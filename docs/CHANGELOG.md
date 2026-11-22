@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **A broken-off media upload left a half ISO behind.** HyperCore lists an ISO from the moment it is created, so a
+  cancelled or interrupted upload stayed on the cluster as an ISO that never became usable. An upload that breaks off
+  (the browser closes or goes silent for five minutes, or the connection drops) is now void: the half ISO, or the
+  half-converted disk image, is deleted from the cluster at once. Uploads that were running when the backup service
+  stopped are cleaned up when it starts again. Each upload's start, end and failure (with the bytes received) is
+  logged.
+
 ## [1.9.1]
 
 ### Fixed

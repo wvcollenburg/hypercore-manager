@@ -31,6 +31,7 @@ def main() -> None:
                                            'poll_interval_s': cfg.poll_interval_seconds})
     api.start(cfg)
     scheduler.start(cfg.sync_interval_seconds)
+    api.start_upload_sweep()                     # uploads cut off by the last stop of this service are void
 
     stop = threading.Event()
 
