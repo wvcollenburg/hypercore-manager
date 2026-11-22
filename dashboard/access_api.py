@@ -176,7 +176,17 @@ def register(app, requires, access, clusters, vm_index_rows):
 
     def visible_roles(acc: rbac.Access) -> list[dict]:
         nodes = acc.visible_nodes() | acc.nodes_above()
-        return [r for r in access_db.roles() if r['node_id'] is None or r['node_id'] in nodes or acc.superuser]
+        vis = seen(acc)
+        out = []
+        for r in access_db.roles():
+            if not (r['node_id'] is None or r['node_id'] in nodes or acc.superuser):
+                continue
+            if vis is not None and r['node_id'] not in vis:
+                # defined above the reader (an MSP's or the installation's role): usable, but where it is defined,
+                # who made it, what it was copied from and how widely it is used are not theirs to know
+                r = dict(r, node_id=None, created_by=None, copied_from=None, in_use=None, defined_above=True)
+            out.append(r)
+        return out
 
     def node_payload(acc: rbac.Access) -> list[dict]:
         visible = acc.visible_nodes() if not acc.is_root_admin() else None

@@ -1810,7 +1810,23 @@ _BACKUP_MUTATING = {'POST', 'PUT', 'DELETE'}
 
 # keys that would reveal a target's path or account to a non-admin; the UI shows alias/folder only
 _BACKUP_SENSITIVE_KEYS = frozenset({'base', 'user', 'username', 'path_uri_base', 'prune_path', 'smb_user',
-                                    'source_uri', 'uri_base', 'uri'})
+                                    'source_uri', 'uri_base', 'uri', 'effective_base'})
+# who did something, in the backup service's answers: names above the reader are not shown (as elsewhere)
+_BACKUP_NAME_KEYS = ('created_by', 'requested_by', 'updated_by', 'muted_by')
+
+
+def _hide_backup_names(obj, names):
+    """Every dict in a backup API answer: the _BACKUP_NAME_KEYS the reader may not see named become None."""
+    if isinstance(obj, list):
+        for v in obj:
+            _hide_backup_names(v, names)
+    elif isinstance(obj, dict):
+        if any(k in obj for k in _BACKUP_NAME_KEYS):
+            access_db.hide_names([obj], _BACKUP_NAME_KEYS, names)
+        for v in obj.values():
+            if isinstance(v, (dict, list)):
+                _hide_backup_names(v, names)
+    return obj
 
 
 def _strip_sensitive(obj):
@@ -2349,6 +2365,10 @@ def backup_proxy(sub):
         return Response(raw, status=status, mimetype='application/json')
     if scope not in (None, 'all'):
         data = _narrow_backup(sub, data, scope, cid)
+    if any(k.encode() in raw for k in _BACKUP_NAME_KEYS):
+        names = access_db.nameable_usernames(_access(), session.get('username'))
+        if names is not None:
+            _hide_backup_names(data, names)
     return jsonify(data if sees_targets else _strip_sensitive(data)), status
 
 
@@ -2477,6 +2497,12 @@ def cluster_alerts():
                 counts[it['severity']] += 1
         items.sort(key=lambda i: (ALERT_LEVELS.index(i['severity']), i.get('since') or '', i['key']))
         out[cid] = {'items': items, 'counts': counts}
+    if mutes:
+        # who muted it: not named to a reader below that person (an MSP's staff stay unnamed to a customer)
+        names = access_db.nameable_usernames(_access(), session.get('username'))
+        if names is not None:
+            for v in out.values():
+                access_db.hide_names(v['items'], ('muted_by',), names)
     return jsonify({'clusters': out})
 
 
