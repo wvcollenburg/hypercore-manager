@@ -9,7 +9,7 @@ users, backup targets and proxies) are in [administration.md](../administration.
 |---|---|
 | [Installing and updating](08-installing-and-updating.md) | prerequisites, the installer `install.py` or a hand-written `.env`, first login, the backup proxy's host, every `.env` setting, hardening, backing up the installation, updating and upgrading from 0.9.x, health checks, troubleshooting |
 | [Connectivity](09-connectivity.md) | every connection between the HCM host, clusters, proxies, the backup share and browsers: direction, ports and protocols, for firewall planning |
-| [Getting around](01-getting-around.md) | the cluster rail and its alert badges, folders, tabs, roles, language, the first-login notice |
+| [Getting around](01-getting-around.md) | the top bar, the cluster switcher and its alert badges, folders, tabs, roles, language, light and dark, the first-login notice |
 | [Getting started](01a-getting-started.md) | step by step from an empty installation: an MSP, a customer, a folder, a cluster, then a user and their rights on each |
 | [Infraviewer](02-infraviewer.md) | nodes, drives, VMs and storage performance; the cluster activity panel |
 | [Clusterbalancer](03-clusterbalancer.md) | the migration log, the balancer's settings, the Oracle's forecast log, placement tags |
@@ -28,10 +28,10 @@ role holds all of them.
 schedule, a test plan, a restore) opens a dialog over the page; Escape, ✕ or **Cancel** closes it
 without saving.
 
-**Everything is per cluster.** The cluster selected in the rail on the left drives every tab.
-The breadcrumb in the header tells you which folder, cluster and tab you are looking at.
+**Everything is per cluster.** The cluster selected in the cluster switcher (top bar) drives every tab.
+The breadcrumb under the top bar tells you which folder, cluster and tab you are looking at.
 
 Screenshots in this manual were taken on a three-node lab cluster; your numbers will differ.
 
-The manual is also served by the dashboard itself: **Manual** in the rail under Account opens
+The manual is also served by the dashboard itself: **Manual** in the user menu (your initials, top right) opens
 it at `/manual`, so it is at hand on a site without internet access.

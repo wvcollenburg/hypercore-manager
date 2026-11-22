@@ -29,7 +29,7 @@ for any of its customers, a customer admin within their own customer.
 1. **+ Cluster.** Give it a name (unique within the folder; two customers may both have a
    "Production"), the management address (any node IP or hostname; `https://`
    and `/rest/v1` are added for you), a HyperCore account and password, and whether to verify the
-   TLS certificate. Pick a colour if you like; it is used in the rail.
+   TLS certificate. Pick a colour if you like; it is used in the cluster list and the switcher.
 2. **Test connection** logs in and reports the cluster name, node count and HyperCore version
    before anything is stored. Registering a cluster that is already registered is refused (same
    HyperCore cluster identity). The refusal names the existing entry only to someone who may see
@@ -77,7 +77,7 @@ still hit that limit; give HyperCore Manager its own account where possible.
 - **Remove** stops everything immediately and asks whether to purge the cluster's Foresight
   history and settings as well.
 - **Duplicate warning.** If two entries turn out to point at the same HyperCore cluster (for
-  example two node addresses), the rail flags the newer one and only the older one balances.
+  example two node addresses), the cluster list flags the newer one and only the older one balances.
   Remove or disable the duplicate.
 
 Only one HyperCore Manager installation may balance a cluster live. A second installation
@@ -87,13 +87,13 @@ pointed at the same cluster must stay in dry-run.
 
 Every cluster starts in dry-run: the balancer logs what it would do and moves nothing. Watch
 the migration log on the Clusterbalancer tab for a while; when the decisions look right, switch
-**Dry run** off in that cluster's balancer settings. The rail badge changes from **DRY RUN** to
+**Dry run** off in that cluster's balancer settings. The cluster list changes from **Dry run** to
 **LIVE**.
 
 ### Tunables
 
 **Settings → Tunables** edits the balancer and Foresight parameters of the cluster selected in
-the rail. The target bar at the top switches to the **Defaults** template (used for clusters
+the cluster switcher. The target bar at the top switches to the **Defaults** template (used for clusters
 registered from now on) and offers **Apply to all clusters** for a value you want everywhere.
 Changes take effect without a restart.
 
@@ -109,9 +109,9 @@ whole installation adds a second customer or MSP with **+ Customer** or **+ MSP*
 Access → Tenants**; the levels then show everywhere. The existing folders stay under the default
 customer ("Default" in the MSP "Default"): rename both to your own company.
 
-- **New folder** is at the bottom of the rail (for whoever manages the tree at customer level or
+- **+ New folder** is at the bottom of the cluster list (open the cluster switcher; for whoever manages the tree at customer level or
   above). Folders can be renamed, deleted (their clusters stay registered and fall back to **No
-  folder**), collapsed individually, or all at once from the rail header.
+  folder**), collapsed individually, or all at once from the top of the list.
 - The **cluster menu** ("…" on a cluster) moves it to another folder of the same customer; moving
   it to another customer or MSP is for administrators of the whole installation.
 - The **folder menu** ("…" on a folder) holds **Access…**, **Backup target**, **Rename** and
@@ -134,7 +134,7 @@ customer ("Default" in the MSP "Default"): rename both to your own company.
   and the console log leaves out their address. Roles defined higher up can still be handed
   out below; only where they were defined is not shown.
 - Users below folder level (engineers, application managers, viewers) and folder administrators
-  see their clusters as one list in the rail, without folders.
+  see their clusters as one list in the cluster switcher, without folders.
 
 ---
 
@@ -361,7 +361,7 @@ stored credentials. Both run from the backup container, so they prove what the s
 
 ### Assigning a target
 
-From the folder menu in the rail, **Backup target** picks one of the defined targets for that
+From the folder menu in the cluster list, **Backup target** picks one of the defined targets for that
 folder (or clears it). Every cluster in the folder backs up there. The **No folder** group has the
 same menu; its target is flagged as the default for clusters without a folder.
 
@@ -557,7 +557,7 @@ the copies already on the target.
 
 ## Account
 
-Everyone has an **Account** page in the rail footer: the own name and email address, the own
+Everyone has an **Account** page in the user menu (top right): the own name and email address, the own
 password, TOTP two-factor (scan the QR code, confirm with a code), and the language selector in the
 header. Administrators use the same page for their own account.
 

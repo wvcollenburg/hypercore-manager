@@ -26,7 +26,7 @@ the cluster **Acme-Prod**, then gives **jane@acme.example** access to them. Use 
 ![Settings, Access, Tenants](img/gs-01-open-tenants.png)
 
 Open the tenant tree:
-1. Click **Settings** at the bottom of the rail.
+1. Click **Settings** in the top bar.
 2. Click **Access**.
 3. Click **Tenants**.
 
@@ -37,7 +37,7 @@ whatever you selected.
 **One company or several?** A new installation starts as a single company: the MSP and customer
 levels exist but are hidden, and you only see folders.
 - **If you run HyperCore Manager for your own company only,** skip steps 2 and 3. Add folders with
-  **+ Folder** in the folder column (or **New folder** at the bottom of the rail) and continue at
+  **+ Folder** in the folder column (or **+ New folder** at the bottom of the cluster list, under the cluster switcher) and continue at
   step 4.
 - **If you serve customers,** continue with step 2.
 
@@ -46,7 +46,7 @@ levels exist but are hidden, and you only see folders.
 ![+ MSP on a new installation](img/gs-02-add-msp-single.png)
 
 On a new installation, click **+ MSP** at the top of the Tenants tab (1) and confirm. The MSP and
-customer levels now show everywhere: in Access, in the rail and in paths.
+customer levels now show everywhere: in Access, in the cluster list and in paths.
 
 Folders and clusters that already existed stay where they were, under the customer **Default** in
 the MSP **Default**. Rename those to your own company later (select it, then **Rename** in the
@@ -77,7 +77,7 @@ Type the name, **Example IT**, and click **OK** (1).
 2. Click **+ Folder** at the foot of the folder column, type **Production** and click **OK**.
 
 A folder groups the clusters that belong together. It is also where the backup target is set (the
-folder menu "⋯" in the rail → **Backup target**). If the customer has a DR cluster, give it a folder of
+folder menu "⋯" in the cluster list → **Backup target**). If the customer has a DR cluster, give it a folder of
 its own or put it in this one with the role **DR**; see the Backup chapter.
 
 ## 5. Add the cluster
@@ -104,7 +104,7 @@ The other fields can stay as they are.
    HyperCore version, in green under the fields.
 2. Click **Add cluster**.
 
-Within a minute the cluster appears in the rail and the first charts fill. The balancer starts in
+Within a minute the cluster appears in the cluster switcher and the first charts fill. The balancer starts in
 **dry-run**: it only logs what it would do. Switch dry-run off later in Clusterbalancer once you
 have checked its settings.
 
@@ -183,7 +183,7 @@ access.
 ![Jane's first login](img/gs-08-jane-view.png)
 
 When Jane logs in, she sees only Acme's cluster, with the tabs her roles allow: Infraviewer,
-Clusterbalancer, Foresight and Backup. As Engineer she also gets **+ New VM** and the **Edit** and
+Clusterbalancer, Foresight and Backup, and Settings for the panels she may see there. As Engineer she also gets **+ New VM** and the **Edit** and
 **Console** buttons. **Access…** on Jane in the Users tab lists all her access in one place.
 
 ## Next steps

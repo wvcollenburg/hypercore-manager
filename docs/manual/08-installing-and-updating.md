@@ -396,7 +396,7 @@ docker compose up -d
 
 ## Updating
 
-**From the dashboard.** The header shows **Update** when a newer release is available. Apply it
+**From the dashboard.** The top bar shows **Update** when a newer release is available. Apply it
 and the checkout moves to exactly that release tag from its own git origin (never to commits made
 after it), then the stack rebuilds and restarts the application services. The update is applied
 only to an installation on the default branch (`master`) or pinned to an earlier release tag,
@@ -476,12 +476,12 @@ at a time: `curl -H "Authorization: Bearer <token>" "http://localhost:8081/api/v
 or wrong `.env` value, or PostgreSQL or InfluxDB not healthy yet; the dependency handles the
 latter, wait a minute and look again.
 
-**The balancer is not migrating VMs.** The rail badge says **dry run** or **live**; switch it
+**The balancer is not migrating VMs.** The cluster list says **Dry run** or **Live** under the cluster; switch it
 in Clusterbalancer → settings. Balancing only triggers when a node exceeds the CPU or RAM
 thresholds, never to or from an excluded node, and not at all while the cluster is flagged as a
 duplicate registration. The balancer log says `would migrate` or `skipping` and why.
 
-**A cluster shows "duplicate" in the rail.** Two registry entries point at the same HyperCore
+**A cluster shows "duplicate" in the cluster list.** Two registry entries point at the same HyperCore
 cluster, for instance two node addresses. Remove or disable one; the other resumes.
 
 **The Backup tab is missing.** It appears only while the `backup` container is healthy and the

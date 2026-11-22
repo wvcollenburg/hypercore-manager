@@ -48,13 +48,16 @@
   .tb-logo { display: flex; align-items: center; gap: 9px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
   .tb-mark { width: 22px; height: 22px; border-radius: 5px; background: var(--accent); color: var(--on-accent);
     display: grid; place-items: center; font-size: 12px; font-weight: 600; }
-  .tb-switch { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 460px; flex: 0 1 auto; cursor: pointer;
+  .tb-switch { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 360px; flex: 0 1 auto; cursor: pointer;
     background: var(--bar-2); border: 1px solid var(--bar-line); color: var(--bar-ink); border-radius: 6px; padding: 6px 10px; font-size: 14px; }
   .tb-switch:hover, .tb-switch[aria-expanded="true"] { border-color: var(--bar-ink-2); }
   .tb-switch[hidden] { display: none; }
   .tb-switch .crumb-dot { margin: 0; flex-shrink: 0; }
   .tb-switch-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .tb-switch-path { color: var(--bar-ink-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 2 auto; }
+  .tb-switch-path { color: var(--bar-ink-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 2 auto; max-width: 160px; }
+  /* the bar gives way from the outside in: status text, then the wordmark and the path, the module tabs last */
+  @media (max-width: 1700px) { .status-text { display: none; } }
+  @media (max-width: 1360px) { .tb-word, .tb-switch-path { display: none; } }
   .tb-switch-alerts { display: flex; gap: 4px; flex-shrink: 0; }
   .tb-switch-alerts .alert-badge { cursor: default; }
   .tb-caret { color: var(--bar-ink-2); font-size: 12px; }
@@ -106,7 +109,7 @@
   /* module tabs, inside the bar */
   .nav-tabs { display: flex; align-self: stretch; gap: 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   .nav-tab {
-    display: flex; align-items: center; padding: 0 14px; font-size: 14px; color: var(--bar-ink-2); white-space: nowrap;
+    display: flex; align-items: center; padding: 0 12px; font-size: 14px; color: var(--bar-ink-2); white-space: nowrap;
     cursor: pointer; border-bottom: 2px solid transparent; user-select: none; transition: color .15s;
   }
   .nav-tab:hover { color: var(--bar-ink); }
