@@ -4319,7 +4319,7 @@ async function saveBranding() {
   const msg     = document.getElementById('brandingSaveMsg');
 
   try {
-    const resp = await fetch('/api/sentinel/branding', {
+    const resp = await fetch(_withCluster('/api/sentinel/branding'), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -4358,7 +4358,7 @@ async function pdfBtnClick(btn) {
   if (msg) msg.textContent = t('reports.building');
 
   try {
-    const resp = await fetch('/api/sentinel/report.pdf');
+    const resp = await fetch(_withCluster('/api/sentinel/report.pdf'));
     if (!resp.ok) {
       let detail = `HTTP ${resp.status}`;
       try { const j = await resp.json(); detail = j.error || detail; } catch (_) {}
@@ -4399,7 +4399,7 @@ function _whatifUpdateOptions() {
 
 async function _loadWhatifVmList() {
   try {
-    const resp = await fetch('/api/sentinel/vms');
+    const resp = await fetch(_withCluster('/api/sentinel/vms'));
     if (!resp.ok) return;
     _whatifVmData = await resp.json();
     const dl = document.getElementById('whatifVmList');
@@ -4477,7 +4477,7 @@ async function runWhatIf() {
   loadingEl.style.display  = 'block';
 
   try {
-    const resp = await fetch('/api/sentinel/whatif', {
+    const resp = await fetch(_withCluster('/api/sentinel/whatif'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -5471,7 +5471,7 @@ async function applySentGroup(gid) {
   const updates = _sStagedSent[gid];
   if (!updates || !Object.keys(updates).length) return;
   try {
-    const r = await fetch(`${API_BASE}/api/sentinel/tunables`, {
+    const r = await fetch(_withCluster('/api/sentinel/tunables'), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -5491,7 +5491,7 @@ async function triggerSentinelAnalysisRun(btnEl) {
   const originalLabel = btnEl ? btnEl.innerHTML : '';
   if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = `<span class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:6px;"></span>${t('sentinel.analysis_triggering')}`; }
   try {
-    const r = await fetch(`${API_BASE}/api/sentinel/trend/run`, { method: 'POST' });
+    const r = await fetch(_withCluster('/api/sentinel/trend/run'), { method: 'POST' });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.error || `HTTP ${r.status}`);
