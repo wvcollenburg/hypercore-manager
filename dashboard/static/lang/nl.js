@@ -689,7 +689,7 @@ window.LANG = {
   // export shares (admin) and folder assignment
   'settings.tab.shares': "Doelen",
   'shares.title': "Back-updoelen",
-  'shares.subtitle': "Waar back-ups naartoe gaan: SMB- of NFS-shares met hun inloggegevens. Wijs een doel toe aan een map via het mapmenu in de zijbalk.",
+  'shares.subtitle': "Waar back-ups naartoe gaan: SMB- of NFS-shares met hun inloggegevens. Wijs een doel toe aan een map via het mapmenu in de clusterlijst.",
   'shares.name': "Naam",
   'shares.uri': "Share-URI",
   'shares.uri_hint': "smb://nas.local/backups/hypercore (aanbevolen) of nfs://nas.local/export. Elke map krijgt hier een eigen submap.",
@@ -707,7 +707,7 @@ window.LANG = {
   'shares.assign_title': "Back-updoel voor deze map",
   'shares.unassign': "Geen doel",
   'shares.none_assigned': "geen",
-  'ex.no_share': "Aan de map van dit cluster is geen back-updoel toegewezen. Een beheerder voegt er een toe onder Instellingen → Doelen en wijst het toe via het mapmenu in de zijbalk.",
+  'ex.no_share': "Aan de map van dit cluster is geen back-updoel toegewezen. Een beheerder voegt er een toe onder Instellingen → Doelen en wijst het toe via het mapmenu in de clusterlijst.",
   'ex.location_line': "Back-ups gaan naar {path}",
   'ex.i_from': "Importeren vanaf {path}",
 
@@ -845,7 +845,7 @@ window.LANG = {
   'ex.pol_remove_member': "Verwijderen",
   'ex.pol_no_members': "Nog geen VM's in dit schema.",
   'ex.pol_add_from': "VM's van {cluster} toevoegen",
-  'ex.pol_add_hint': "Kies een ander cluster van de map in de zijbalk om de VM's daarvan toe te voegen. Een VM zit in één schema tegelijk: toevoegen verplaatst hem hierheen, en zijn eigen plan gaat met behoud van back-ups op in dit schema.",
+  'ex.pol_add_hint': "Kies een ander cluster van de map in de clusterlijst om de VM's daarvan toe te voegen. Een VM zit in één schema tegelijk: toevoegen verplaatst hem hierheen, en zijn eigen plan gaat met behoud van back-ups op in dit schema.",
   'ex.pol_moves_from': "verhuist van schema {name}",
   'ex.pol_joins_own_plan': "zijn eigen plan ({mode}) gaat op in dit schema",
   'ex.pol_add_selected': "Selectie toevoegen",

@@ -689,7 +689,7 @@ window.LANG = {
   // export shares (admin) and folder assignment
   'settings.tab.shares': "Ziele",
   'shares.title': "Backup-Ziele",
-  'shares.subtitle': "Wohin Backups gehen: SMB- oder NFS-Freigaben mit ihren Zugangsdaten. Weisen Sie einem Ordner ein Ziel über das Ordnermenü in der Seitenleiste zu.",
+  'shares.subtitle': "Wohin Backups gehen: SMB- oder NFS-Freigaben mit ihren Zugangsdaten. Weisen Sie einem Ordner ein Ziel über das Ordnermenü in der Clusterliste zu.",
   'shares.name': "Name",
   'shares.uri': "Freigabe-URI",
   'shares.uri_hint': "smb://nas.local/backups/hypercore (empfohlen) oder nfs://nas.local/export. Jeder Ordner erhält hier einen eigenen Unterordner.",
@@ -845,7 +845,7 @@ window.LANG = {
   'ex.pol_remove_member': "Entfernen",
   'ex.pol_no_members': "Noch keine VMs in diesem Zeitplan.",
   'ex.pol_add_from': "VMs von {cluster} hinzufügen",
-  'ex.pol_add_hint': "Wählen Sie in der Seitenleiste einen anderen Cluster des Ordners, um dessen VMs hinzuzufügen. Eine VM ist jeweils nur in einem Zeitplan: Das Hinzufügen verschiebt sie hierher, und ihr eigener Plan geht mit erhaltenen Backups in diesen Zeitplan über.",
+  'ex.pol_add_hint': "Wählen Sie in der Clusterliste einen anderen Cluster des Ordners, um dessen VMs hinzuzufügen. Eine VM ist jeweils nur in einem Zeitplan: Das Hinzufügen verschiebt sie hierher, und ihr eigener Plan geht mit erhaltenen Backups in diesen Zeitplan über.",
   'ex.pol_moves_from': "wechselt aus Zeitplan {name}",
   'ex.pol_joins_own_plan': "sein eigener Plan ({mode}) geht in diesen Zeitplan über",
   'ex.pol_add_selected': "Auswahl hinzufügen",

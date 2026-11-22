@@ -5700,7 +5700,9 @@ function _updateBreadcrumbs() {
     parts.push(`<span class="crumb cluster"><span class="crumb-dot" style="background:${_clColour(cur, enabled.indexOf(cur))}"></span>${_clEsc(cur.name)}</span>`);
   }
   const tabEl = document.querySelector(`.nav-tab[data-tab="${activeTab}"], .rail-nav[data-tab="${activeTab}"]`);
-  if (tabEl) parts.push(`<span class="crumb link" onclick="switchTab('${activeTab}')">${_clEsc(tabEl.textContent.trim())}</span>`);
+  // a user-menu entry carries an icon: take its label only
+  const tabLabel = tabEl ? ((tabEl.querySelector('span:last-child') || tabEl).textContent.trim()) : '';
+  if (tabEl) parts.push(`<span class="crumb link" onclick="switchTab('${activeTab}')">${_clEsc(tabLabel)}</span>`);
   const sub = document.querySelector(`#tab-${activeTab} .iv-sub-tab.active, #tab-${activeTab} .cb-sub-tab.active, #tab-${activeTab} .sentinel-sub-tab.active, #tab-${activeTab} .settings-sub-tab.active, #tab-${activeTab} .exports-sub-tab.active`);
   if (sub) parts.push(`<span class="crumb">${_clEsc(sub.textContent.trim())}</span>`);
   if (activeTab === 'settings' && document.getElementById('setpanel-tunables')?.classList.contains('active')) {

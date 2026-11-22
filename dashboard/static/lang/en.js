@@ -690,7 +690,7 @@ window.LANG = {
   // export shares (admin) and folder assignment
   'settings.tab.shares': "Targets",
   'shares.title': "Backup targets",
-  'shares.subtitle': "Where backups go: SMB or NFS shares with their credentials. Assign a target to a folder from the folder menu in the rail.",
+  'shares.subtitle': "Where backups go: SMB or NFS shares with their credentials. Assign a target to a folder from the folder menu in the cluster list.",
   'shares.name': "Name",
   'shares.uri': "Share URI",
   'shares.uri_hint': "smb://nas.local/backups/hypercore (recommended) or nfs://nas.local/export. Each folder gets its own subfolder here.",
@@ -708,7 +708,7 @@ window.LANG = {
   'shares.assign_title': "Backup target for this folder",
   'shares.unassign': "No target",
   'shares.none_assigned': "none",
-  'ex.no_share': "No backup target is assigned to this cluster's folder. An administrator adds one under Settings → Targets and assigns it from the folder's menu in the rail.",
+  'ex.no_share': "No backup target is assigned to this cluster's folder. An administrator adds one under Settings → Targets and assigns it from the folder's menu in the cluster list.",
   'ex.location_line': "Backups go to {path}",
   'ex.i_from': "Importing from {path}",
 
@@ -846,7 +846,7 @@ window.LANG = {
   'ex.pol_remove_member': "Remove",
   'ex.pol_no_members': "No VMs in this schedule yet.",
   'ex.pol_add_from': "Add VMs of {cluster}",
-  'ex.pol_add_hint': "Select another cluster of the folder in the sidebar to add its VMs. A VM is in one schedule at a time: adding it moves it here, and its own plan joins this schedule with its backups kept.",
+  'ex.pol_add_hint': "Select another cluster of the folder in the cluster list to add its VMs. A VM is in one schedule at a time: adding it moves it here, and its own plan joins this schedule with its backups kept.",
   'ex.pol_moves_from': "moves from schedule {name}",
   'ex.pol_joins_own_plan': "its own plan ({mode}) joins this schedule",
   'ex.pol_add_selected': "Add selected",

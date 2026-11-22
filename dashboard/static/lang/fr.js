@@ -689,7 +689,7 @@ window.LANG = {
   // export shares (admin) and folder assignment
   'settings.tab.shares': "Cibles",
   'shares.title': "Cibles de sauvegarde",
-  'shares.subtitle': "Où vont les sauvegardes : partages SMB ou NFS avec leurs identifiants. Attribuez une cible à un dossier depuis le menu du dossier dans la barre latérale.",
+  'shares.subtitle': "Où vont les sauvegardes : partages SMB ou NFS avec leurs identifiants. Attribuez une cible à un dossier depuis le menu du dossier dans la liste des clusters.",
   'shares.name': "Nom",
   'shares.uri': "URI du partage",
   'shares.uri_hint': "smb://nas.local/backups/hypercore (recommandé) ou nfs://nas.local/export. Chaque dossier y obtient son propre sous-dossier.",
@@ -845,7 +845,7 @@ window.LANG = {
   'ex.pol_remove_member': "Retirer",
   'ex.pol_no_members': "Aucune VM dans cette planification pour l'instant.",
   'ex.pol_add_from': "Ajouter des VM de {cluster}",
-  'ex.pol_add_hint': "Sélectionnez un autre cluster du dossier dans la barre latérale pour ajouter ses VM. Une VM n'est que dans une planification à la fois : l'ajouter la déplace ici, et son propre plan rejoint cette planification en gardant ses sauvegardes.",
+  'ex.pol_add_hint': "Sélectionnez un autre cluster du dossier dans la liste des clusters pour ajouter ses VM. Une VM n'est que dans une planification à la fois : l'ajouter la déplace ici, et son propre plan rejoint cette planification en gardant ses sauvegardes.",
   'ex.pol_moves_from': "quitte la planification {name}",
   'ex.pol_joins_own_plan': "son propre plan ({mode}) rejoint cette planification",
   'ex.pol_add_selected': "Ajouter la sélection",
