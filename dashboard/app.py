@@ -1865,9 +1865,13 @@ def _proxy_image_version() -> str | None:
 
 
 def _internal_token_ok() -> bool:
+    """Bearer BACKUP_API_TOKEN. Without a token configured nothing is accepted: these routes are reachable on
+    the dashboard's public port and hand out the proxy image (with its token-checking code)."""
     _, token = _backup_env()
+    if not token:
+        return False
     auth = request.headers.get('Authorization', '')
-    return not token or auth == f'Bearer {token}'
+    return hmac.compare_digest(auth.encode(), f'Bearer {token}'.encode())
 
 
 @app.route('/internal/proxy-image/version')
