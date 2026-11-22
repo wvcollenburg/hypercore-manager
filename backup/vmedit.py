@@ -193,7 +193,8 @@ def plan(kind: str, ops: list[dict], vm: dict, ctx: Optional[dict] = None) -> di
             t = o.get('type') or 'VIRTIO_DISK'
             if t not in ALL_DISK_TYPES:
                 raise EditError('disk type must be one of ' + ', '.join(ALL_DISK_TYPES))
-            body: dict[str, Any] = {'type': t}
+            # capacity is required by HyperCore for every new block device; an empty CD-ROM drive is 0
+            body: dict[str, Any] = {'type': t, 'capacity': 0}
             if t != 'IDE_CDROM':
                 body['capacity'] = _int(o.get('capacity'), 'disk size', GIB // 1024, 64 * 1024 * GIB)
             if o.get('cacheMode'):
@@ -400,7 +401,8 @@ def _create_vm(hc, change_id: int, spec: dict, step) -> None:
         if dev:
             boot.append(dev)
     if spec.get('iso_uuid'):
-        r = hc._request('POST', '/VirDomainBlockDevice', json={'virDomainUUID': vm_uuid, 'type': 'IDE_CDROM',
+        # capacity is required for every new block device (HyperCore 400 without it); a CD-ROM takes its ISO's size
+        r = hc._request('POST', '/VirDomainBlockDevice', json={'virDomainUUID': vm_uuid, 'type': 'IDE_CDROM', 'capacity': 0,
                                                                  'path': f"scribe/{spec['iso_uuid']}"}) or {}
         _task(hc, r.get('taskTag', ''), 'add CD-ROM', 300)
         if r.get('createdUUID'):

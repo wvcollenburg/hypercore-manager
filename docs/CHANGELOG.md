@@ -17,6 +17,11 @@ All notable changes to this project are documented here. The format follows
   administrators. The New VM and Edit dialogs offer, and the server accepts, only media you may see. New
   permission *Manage ISOs and disk images* (`media.manage`), in the built-in Admin and Engineer roles.
 
+### Fixed
+- **New VM with an ISO failed** after creating the VM and its disk ("One or more required properties missing:
+  capacity"): HyperCore wants a capacity for every new block device, CD-ROM drives included. Adding a CD-ROM drive
+  in VM edit had the same fault.
+
 ### Upgrade notes
 - Behind nginx, uploads need `client_max_body_size 0` and `proxy_request_buffering off` on `/api/media/upload`
   (see Installing and updating → the nginx example).

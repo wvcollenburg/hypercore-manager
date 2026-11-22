@@ -342,3 +342,37 @@ def test_a_leftover_replica_is_explained():
     msg = ve.explain(o, err)
     assert msg.startswith('WDvCN11 still holds the replica') and 'administrator of WDvCN11' in msg and 'pre-existing' in msg
     assert ve.explain({'op': 'vm'}, 'boom') == 'boom'
+
+
+# ---------------------------------------------------------------------- CD-ROM drives need a capacity
+# HyperCore refuses a new block device without `capacity`, CD-ROMs included (400 'One or more required
+# properties missing: capacity'): New VM with an ISO failed after creating the VM and its disk (William, 2026-11-22).
+class _CreateHC:
+    def __init__(self): self.posts = []
+    def _request(self, method, path, json=None, **kw):
+        self.posts.append((method, path, json))
+        if path == '/VirDomain':
+            return {'createdUUID': 'vm-new', 'taskTag': ''}
+        if path == '/VirDomainBlockDevice':
+            return {'createdUUID': 'cd-new', 'taskTag': ''}
+        return {}
+    def create_block_device(self, vm_uuid, capacity, typ): return '', 'disk-new'
+    def patch_vm(self, vm_uuid, **kw): return ''
+
+
+def test_a_new_vms_cdrom_is_created_with_a_capacity(monkeypatch):
+    import types
+    hc = _CreateHC()
+    monkeypatch.setitem(sys.modules, 'deploy', types.SimpleNamespace(attach_image=lambda *a, **k: 'img-dev'))
+    monkeypatch.setattr(ve.db, '_exec', lambda *a, **k: None, raising=False)
+    monkeypatch.setattr(ve.jobs, 'retry_transient', lambda f, what: f())
+    spec = ve.plan_create({'name': 'vd01', 'disks': [{'type': 'VIRTIO_DISK', 'capacity': 50 * GIB}], 'iso_uuid': 'iso-1'},
+                          [{'uuid': 'iso-1', 'name': 'fedora.iso'}], [], [])['ops'][0]['spec']
+    ve._create_vm(hc, 1, spec, lambda *a, **k: None)
+    cd = [j for m, p, j in hc.posts if p == '/VirDomainBlockDevice']
+    assert cd and cd[0]['type'] == 'IDE_CDROM' and cd[0]['capacity'] == 0 and cd[0]['path'] == 'scribe/iso-1'
+
+
+def test_an_added_cdrom_drive_carries_a_capacity_too():
+    op = _plan({'op': 'disk_add', 'type': 'IDE_CDROM'})['ops'][0]
+    assert op['body'] == {'type': 'IDE_CDROM', 'capacity': 0}
