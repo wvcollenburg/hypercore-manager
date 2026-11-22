@@ -100,7 +100,7 @@ so clusters can be added, disabled or removed independently.
 ### Prerequisites
 
 - A Linux host or VM (Ubuntu 22.04+ tested) with **Docker Engine 24+** and **Docker Compose v2**.
-  - Compose v2 is the `docker compose` (no hyphen) command. The legacy python `docker-compose` 1.29.x is **not supported** — it has known recreate bugs that break the in-app updater. On Debian/Ubuntu, install via `sudo apt install docker-compose-v2`.
+  - Compose v2 is the `docker compose` (no hyphen) command. The legacy python `docker-compose` 1.29.x is **not supported** — it has known recreate bugs that break the in-app updater. On Ubuntu, install via `sudo apt install docker-compose-v2`; on Debian, install Docker from Docker's own repository, which includes the `docker-compose-plugin`.
 - HyperCore cluster management IP and a service account with read + migration permissions.
 - Outbound HTTPS (TCP 443) to every node of each cluster (or fully offline — see [Dark-Site Deployment](#dark-site--air-gapped-deployment)). Backups add proxies and a share; see [Network requirements](#network-requirements).
 - ~2 vCPU / 4 GB RAM minimum for the core stack; more for Foresight (see [Resource Requirements](#resource-requirements)).
@@ -138,10 +138,20 @@ git clone https://github.com/wvcollenburg/hypercore-manager.git
 cd hypercore-manager
 
 cp .env.template .env
+# the checkout's own path: the updater, the migrations and the proxy image are read from it
+sed -i.bak "s|^SC_REPO_PATH=.*|SC_REPO_PATH=$(pwd)|" .env && rm .env.bak
 # Edit .env — replace every CHANGE_ME (HCM_SECRET_KEY, database secrets, dashboard password)
 
 docker compose up --build -d
 ```
+
+> **On a Mac:** macOS uses port 5000 for AirPlay Receiver, so `docker compose up` cannot publish the
+> dashboard there. Switch AirPlay Receiver off (System Settings → General → AirDrop & Handoff) or change
+> `"5000:5000"` in `docker-compose.yaml` to another host port.
+>
+> **The `proxy` container** is the backup proxy for a cluster the HCM host itself runs on. On a host that
+> is not a VM on one of your clusters it has nothing to read and only clears the host's `/dev/nbd*` devices
+> at start: stop it with `docker compose stop proxy` (deployed proxy VMs do the backup work there).
 
 The dashboard is available at **http://localhost:5000**. Log in, and the first screen asks for
 your cluster: management address plus a HyperCore account. Save it and the collector, balancer
@@ -389,7 +399,7 @@ The dashboard includes an in-app updater that detects new releases and applies t
 - Releases are tagged in git as `vMAJOR.MINOR.PATCH` and announced on [GitHub Releases](https://github.com/wvcollenburg/hypercore-manager/releases). Untagged commits don't trigger update prompts — only deliberate releases do, so customers are never bombarded with "update available" for in-flight development.
 - Database migrations under `postgres/init/` are applied automatically on dashboard startup; every script is idempotent (`CREATE TABLE IF NOT EXISTS` and similar guards) so existing installs never lose data when a new migration ships.
 - The updater works against the checkout's own git origin; nothing about the repository location is built in. It recreates the application services only and leaves InfluxDB and PostgreSQL running.
-- Manual update path (equivalent to clicking Apply Update in the dashboard): `git pull && docker compose up --build -d`.
+- Manual update path (equivalent to clicking Apply Update in the dashboard): `git fetch --tags && git merge --ff-only v<version> && docker compose up --build -d` (see [Installing and updating](docs/manual/08-installing-and-updating.md#updating)).
 
 ---
 
@@ -398,10 +408,10 @@ The dashboard includes an in-app updater that detects new releases and applies t
 ```bash
 # On an internet-connected machine:
 docker compose build
-docker save $(docker compose config --images) -o hypercore-balancer-images.tar
+docker save $(docker compose config --images) -o hypercore-manager-images.tar
 
 # On the air-gapped machine:
-docker load -i hypercore-balancer-images.tar
+docker load -i hypercore-manager-images.tar
 docker compose up -d
 ```
 
@@ -551,13 +561,6 @@ carries a `cluster_id` tag.
 | [SECURITY.md](.github/SECURITY.md) | Reporting a vulnerability |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Release history |
 | [LICENSE](LICENSE) | Apache License 2.0 |
-
----
-
-## Related Projects
-
-| Repository | Description |
-|------------|-------------|
 
 ---
 

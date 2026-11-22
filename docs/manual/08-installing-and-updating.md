@@ -35,6 +35,7 @@ the dashboard once it is up, and each service runs one worker per cluster.
 | `dashboard` | 5000 | The web UI, this manual, the updater |
 | `sentinel` | 8081 | Foresight capacity analysis and its REST API |
 | `backup` | 8082 | Backup and import scheduler and its REST API |
+| `console` | internal | VM console relay and the open-session check |
 | `proxy` | internal | Backup proxy: reads snapshot clones, writes backup chains (privileged) |
 
 There are no Compose profiles. A module you do not want is stopped (`docker compose stop
@@ -59,8 +60,10 @@ cd hypercore-manager
 python3 install.py
 ```
 
-**By hand.** Copy `.env.template` to `.env` and replace every `CHANGE_ME`. Each secret is any
-long random string:
+**By hand.** Copy `.env.template` to `.env`, set `SC_REPO_PATH` to the checkout's own path (the
+updater, the migrations and the proxy image are read from it; the template's `/opt/hypercore-manager`
+is only right if you cloned there), and replace every `CHANGE_ME`. The dashboard refuses to start while a
+secret still reads `CHANGE_ME`. Each secret is any long random string:
 
 ```
 python3 -c "import secrets; print(secrets.token_hex(32))"
@@ -390,7 +393,7 @@ Store both off the host and schedule the dump, for instance in `/etc/cron.d/hcm-
 To restore PostgreSQL:
 
 ```
-docker compose stop balancer collector dashboard sentinel backup
+docker compose stop balancer collector dashboard sentinel backup console
 docker exec -i sc_postgres psql -U sentinel hypercore_balancer < backup_pg_YYYYMMDD.sql
 docker compose up -d
 ```
