@@ -122,8 +122,10 @@ def seed_admin_from_env() -> None:
 # public API
 # ---------------------------------------------------------------------------
 
-def has_any_users() -> bool:
-    """Return True if at least one user row exists (auth is enabled)."""
+def has_any_users() -> bool | None:
+    """True when at least one user row exists (auth is enabled), False when the table is empty,
+    None when the database could not be asked. Unknown is not "no users": the caller keeps
+    authentication on until the database answers."""
     try:
         conn = _connect()
         try:
@@ -133,8 +135,8 @@ def has_any_users() -> bool:
         finally:
             conn.close()
     except Exception as exc:
-        logger.warning('user_db: has_any_users() DB error, assuming no users: %s', exc)
-        return False
+        logger.warning('user_db: has_any_users() DB error, answer unknown: %s', exc)
+        return None
 
 
 def get_by_username(username: str) -> dict | None:

@@ -121,9 +121,39 @@ try:
 except Exception as _exc:  # noqa: BLE001 — before migration 046, or the database is not up yet
     app.logger.info('email address check skipped: %s', _exc)
 
-# auth is enabled iff at least one user row exists. Cached at startup — restart
-# is required if the table goes from empty to populated outside of the UI
-_AUTH_ENABLED = user_db.has_any_users()
+# auth is enabled iff at least one user row exists. Cached once the database has answered — restart
+# is required if the table goes from empty to populated outside of the UI. Until it has answered
+# (Postgres still starting, or down) authentication stays ON: an unreachable database is not "no users".
+_AUTH_ENABLED = True
+_auth_known = False
+_auth_checked_at = 0.0
+_auth_lock = threading.Lock()
+
+
+def _refresh_auth_enabled(min_interval: float = 5.0) -> None:
+    """Ask the database whether accounts exist, until it has answered once. While the answer is unknown
+    every request is treated as needing a login; the question is repeated at most every few seconds."""
+    global _AUTH_ENABLED, _auth_known, _auth_checked_at
+    if _auth_known:
+        return
+    with _auth_lock:
+        if _auth_known or time.monotonic() - _auth_checked_at < min_interval:
+            return
+        first = _auth_checked_at == 0.0
+        _auth_checked_at = time.monotonic()
+        if not first:
+            # the start-up bootstrap ran against a database that was not there: do it now, before
+            # concluding that there are no accounts
+            user_db.ensure_table()
+            user_db.seed_admin_from_env()
+        state = user_db.has_any_users()
+        if state is None:
+            app.logger.warning('user store unreachable: logins stay required until it answers')
+            return
+        _AUTH_ENABLED, _auth_known = bool(state), True
+
+
+_refresh_auth_enabled()
 
 
 class AccessDenied(Exception):
@@ -232,6 +262,7 @@ def public(reason: str):
 
 @app.before_request
 def _access_fresh():
+    _refresh_auth_enabled()
     access_db.begin_request()
 
 
