@@ -918,6 +918,32 @@ def test_self_signed_certificate_and_fingerprint(tmp_path):
         tlsm.context_for(P.config.Config(data_dir=str(tmp_path), tls='cert', tls_cert='/nope.crt', tls_key='/nope.key'))
 
 
+def test_a_connection_that_never_speaks_tls_does_not_freeze_the_api(tmp_path):
+    """The handshake ran in werkzeug's single accept loop: one silent TCP connection (no token needed)
+    made /health and every other route time out for as long as it stayed open."""
+    import http.client, shutil, socket as _socket, ssl, subprocess
+    if not shutil.which('openssl'):
+        pytest.skip('openssl not installed')
+    crt, key = str(tmp_path / 'p.crt'), str(tmp_path / 'p.key')
+    subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-keyout', key, '-out', crt,
+                    '-subj', '/CN=localhost'], check=True, capture_output=True)
+    cfg = P.config.Config(api_token='t0k', data_dir=str(tmp_path / 'data'), backend='file')
+    app = P.api.create_app(cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}))
+    srv = P.api.start(app, 0, (crt, key), host='127.0.0.1')
+    silent = _socket.create_connection(('127.0.0.1', srv.port))
+    try:
+        ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+        c = http.client.HTTPSConnection('127.0.0.1', srv.port, timeout=5, context=ctx)
+        c.request('GET', '/health')
+        r = c.getresponse()
+        assert r.status == 200 and json.loads(r.read())['service'] == 'hcm-proxy'
+        c.close()
+        assert P.api._Handler.timeout, 'a silent connection must not hold its thread forever either'
+    finally:
+        silent.close()
+        srv.shutdown(); srv.server_close()
+
+
 # ---------------------------------------------------------------- stale nbd state (lab incident 2026-10-21)
 def test_copy_intervals_closes_every_descriptor(tmp_path):
     src = tmp_path / 'src'; dst = tmp_path / 'dst'
@@ -1331,7 +1357,7 @@ def test_support_bundle_route_needs_the_token(tmp_path):
     r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
     assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
     assert r.data[:2] == b'PK'
-    assert P.identity.VERSION == '0.6.4'
+    assert P.identity.VERSION == '0.6.5'
 
 
 def test_the_proxy_keeps_a_rotating_log_file(tmp_path):

@@ -23,11 +23,14 @@ from __future__ import annotations
 import logging
 import os
 import socket
+import ssl
 import threading
 import time
 from functools import wraps
 
 from flask import Flask, Response, jsonify, request
+from werkzeug.serving import WSGIRequestHandler
+from werkzeug.serving import make_server as _make_server
 
 import identity as identity_mod
 import mounts as mounts_mod
@@ -263,7 +266,37 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
     return app
 
 
-def start(app: Flask, port: int, ssl_context=None) -> None:
-    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=port, threaded=True, use_reloader=False, ssl_context=ssl_context),
-                     name='proxy-api', daemon=True).start()
-    log.info('Proxy REST API started', extra={'port': port, 'tls': bool(ssl_context)})
+class _Handler(WSGIRequestHandler):
+    """Werkzeug's request handler with the TLS handshake moved into the request thread. Werkzeug wraps
+    the listening socket with the default handshake-on-accept, so the handshake ran in the single accept
+    loop: one connection that never spoke TLS froze the whole API (no token needed). Every socket
+    operation is bounded by `timeout`, the handshake included; a slow reader between chunks is not."""
+    timeout = 300
+
+    def handle(self) -> None:
+        if isinstance(self.connection, ssl.SSLSocket):
+            try:
+                self.connection.do_handshake()
+            except (OSError, ValueError) as e:              # timeout, reset, not TLS at all
+                log.debug('TLS handshake from %s failed: %s', self.client_address[0], e)
+                return
+        super().handle()
+
+
+def make_server(app: Flask, port: int, ssl_context=None, host: str = '0.0.0.0'):
+    """A threaded werkzeug server; with TLS (a (cert, key) tuple) the listening socket is wrapped
+    without the handshake on accept, which _Handler does in the request's own thread."""
+    srv = _make_server(host, port, app, threaded=True, request_handler=_Handler)
+    if ssl_context:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(*ssl_context)
+        srv.socket = ctx.wrap_socket(srv.socket, server_side=True, do_handshake_on_connect=False)
+        srv.ssl_context = ctx                               # werkzeug reports https and treats TLS errors as dropped
+    return srv
+
+
+def start(app: Flask, port: int, ssl_context=None, host: str = '0.0.0.0'):
+    srv = make_server(app, port, ssl_context, host)
+    threading.Thread(target=srv.serve_forever, name='proxy-api', daemon=True).start()
+    log.info('Proxy REST API started', extra={'port': srv.port, 'tls': bool(ssl_context)})
+    return srv
