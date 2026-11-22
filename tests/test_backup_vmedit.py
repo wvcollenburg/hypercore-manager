@@ -197,6 +197,35 @@ def test_guest_that_will_not_stop_aborts_and_keeps_running(harness):
     assert st['hc'].calls == ['SHUTDOWN']                    # nothing changed, no power off, no start needed
 
 
+def test_a_guest_that_shuts_down_after_the_timeout_is_started_again(harness):
+    """The ACPI shutdown was sent and completed after the timeout: nothing started the VM again and a production
+    VM stayed off. Now the late shutdown is caught and the set carries on: apply, start."""
+    hc = FakeHC(stops_after=None)
+    orig = hc.get_vm
+
+    def get_vm(u):
+        if hc.reads >= 12:                     # past the 1-minute timeout (10 s per clock read in the harness)
+            hc.stops_after = 0
+        return orig(u)
+    hc.get_vm = get_vm
+    st = harness([{'op': 'vm', 'fields': {'mem': 8 * GIB}}], hc=hc)
+    ve.run(1)
+    assert st['status'] == 'done', st
+    assert hc.calls == ['SHUTDOWN', ('patch_vm', {'mem': 8 * GIB}), 'START'] and hc.state == 'RUNNING'
+    assert any('after the 1 min timeout' in r['detail'] for r in st['result'])
+
+
+def test_a_scheduled_set_that_missed_its_window_is_not_run(harness):
+    from datetime import datetime, timedelta, timezone
+    st = harness([{'op': 'vm', 'fields': {'mem': 8 * GIB}}])
+    st['ch']['run_at'] = datetime.now(timezone.utc) - timedelta(hours=31)
+    ve.run(1)
+    assert st['status'] == 'failed' and 'missed its window' in st['error'] and st['hc'].calls == []
+    st['ch']['run_at'] = datetime.now(timezone.utc) - timedelta(minutes=5)
+    ve.run(1)
+    assert st['status'] == 'done', 'a few minutes late is fine'
+
+
 def test_force_off_after_the_timeout(harness):
     st = harness([{'op': 'vm', 'fields': {'mem': 8 * GIB}}], force=True, hc=FakeHC(stops_after=None))
     ve.run(1)
