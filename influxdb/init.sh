@@ -7,7 +7,7 @@
 #
 # note: the primary 'metrics' bucket doesn't exist yet at this stage —
 # it gets created AFTER init scripts complete. its retention is set
-# by the influxdb-init sidecar container which waits for full startup
+# by the collector at start (INFLUX_PRIMARY_RETENTION)
 # =============================================================================
 
 INIT_PORT="${INFLUXD_INIT_PORT:-9999}"
@@ -117,4 +117,4 @@ rm -rf "$TMPDIR"
 
 echo "[INIT] ✓ Init script complete."
 echo "[INIT]   Long-term: '${LONGTERM}' (${LONGTERM_RET}d)"
-echo "[INIT]   Primary bucket retention will be set by the influxdb-init sidecar."
+echo "[INIT]   Primary bucket retention is set by the collector at start."

@@ -9,19 +9,18 @@
 # CPU cores available to Docker on the host. exceeding this causes containers
 # to compete for the same cores, increasing latency across the entire stack
 #
-# tuned for a 2-CPU host
+# the limits set below (keep this list in step with them):
 #
-#   always-on services:
-#     influxdb:  0.75 CPU   768MB
+#     influxdb:  1.25 CPU   768MB
 #     balancer:  1.50 CPU  1024MB  <- dominant consumer during predictive runs
 #     collector: 0.25 CPU   128MB
-#     dashboard: 0.25 CPU   256MB
-#     postgres:  0.25 CPU   256MB  <- shared config store (replaces SQLite volume)
+#     dashboard: 1.00 CPU   512MB
+#     postgres:  0.25 CPU   256MB  <- shared config store
 #
 #     sentinel:  0.50 CPU   512MB
 #     backup:    0.25 CPU   256MB  <- VM backup/import scheduler
 #     console:   1.00 CPU   256MB  <- VM console relay + open-session check (OCR bursts, idle otherwise)
-#     proxy:     1.00 CPU  1024MB  <- backup proxy (privileged, reads snapshot clones)
+#     proxy:     2.00 CPU  1024MB  <- backup proxy (privileged, reads snapshot clones)
 #
 # total limits intentionally exceed physical cores because the Oracle (balancer
 # spike) and Sentinel analysis runs never overlap — outside those windows the

@@ -128,7 +128,7 @@ customer ("Default" in the MSP "Default"): rename both to your own company.
   deleted from above it, and only when it is empty; deleting removes its roles, groups and access.
   Accounts stay: they only lose the access they had there.
 - Nobody sees the layers above their own. A customer's administrators and users do not see the MSP
-  that serves them: not in the tree, the sidebar, labels or "who has access", and the accounts above
+  that serves them: not in the tree, the cluster switcher, labels or "who has access", and the accounts above
   them (the MSP's staff, the installation's administrators) are not listed. In the audit log, the
   guest console list and the console log their names show as "an administrator above your level",
   and the console log leaves out their address. Roles defined higher up can still be handed

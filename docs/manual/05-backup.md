@@ -20,7 +20,7 @@ registered proxy defaults to incremental.
 A schedule backs up many VMs on one timetable: create the schedule first (**New schedule** opens the
 schedule dialog; **Edit** on a schedule opens the same dialog), then add VMs to it with **VMs (n)**.
 Schedules belong to the folder of the selected cluster and can hold VMs of every cluster in that
-folder; select another cluster of the folder in the sidebar to add its VMs. **Backup schedules**
+folder; select another cluster of the folder in the cluster switcher to add its VMs. **Backup schedules**
 run incremental backups and **export schedules** run exports; a schedule never mixes the two.
 
 - **Repeats** picks the days: every day or every N days, chosen weekdays every N weeks, the Nth or

@@ -647,7 +647,7 @@ def build_schema() -> list[Section]:
                     description=(
                         "Username for the first admin account, seeded into the "
                         "users table on first start. After that, manage users from "
-                        "Settings → Users in the dashboard. Leave BLANK to disable "
+                        "Settings → Access in the dashboard. Leave BLANK to disable "
                         "authentication entirely (dev/local mode)."
                     ),
                     why_default=(

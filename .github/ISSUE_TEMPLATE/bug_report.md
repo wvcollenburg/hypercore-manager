@@ -9,7 +9,7 @@ labels: bug
 **Environment**
 - Host OS and architecture (`uname -m`):
 - Docker / Compose versions (`docker compose version`):
-- Profile in use (`core`, `sentinel`, `full`):
+- Modules you stopped, if any (`docker compose ps` shows what runs):
 
 **What happened**
 
