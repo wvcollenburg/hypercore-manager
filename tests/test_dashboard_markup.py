@@ -159,3 +159,15 @@ def test_update_and_console_check_need_their_permission(repo):
     panel = src[src.index('async function _loadConsolePanel()'):][:700]
     assert "const mayCheck = can('console_check.manage', currentCluster)" in panel
     assert "!mayCheck ? Promise.resolve({}) : fetch(_withCluster('/api/console/check'))" in panel
+
+
+def test_data_quality_banner_waits_for_the_clusters_and_leaves_room(repo):
+    """A fixed 1.5 s timer ran the check before /api/clusters had answered on a cold load: 'collecting history
+    for : 9.5 d' with an empty name. The fixed bar also covered the last table row."""
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
+    assert 'setTimeout(checkDataQuality' not in src
+    loader = src[src.index('async function loadClusters()'):][:1800]
+    assert 'checkDataQuality()' in loader
+    check = src[src.index('async function checkDataQuality()'):][:2600]
+    assert 'if (!name) return;' in check
+    assert "classList.toggle('has-dq-banner'" in check and 'body.has-dq-banner { padding-bottom:' in src

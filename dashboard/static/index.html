@@ -1055,6 +1055,8 @@
     text-align: center;
   }
   #dataQualityBanner.visible { display: block; }
+  /* the banner is fixed over the bottom of the page: leave room for it so the last table row stays readable */
+  body.has-dq-banner { padding-bottom: 56px; }
   #dataQualityBanner.info { background: linear-gradient(var(--info-bg), var(--info-bg)), var(--surface); border-top-color: var(--info); color: var(--info); }
   #dataQualityBanner.warn { background: linear-gradient(var(--warn-bg), var(--warn-bg)), var(--surface); border-top-color: var(--warn); color: var(--warn); }
 
@@ -5686,6 +5688,8 @@ async function loadClusters() {
   // there is one, which hid the tab for two minutes from anyone without backup rights on the whole installation
   if (typeof _exProbe === 'function') _exProbe();
   if (!window._alertsPrimed && enabled.length) { window._alertsPrimed = true; loadClusterAlerts(); }
+  // the data-quality banner names the cluster: it is first checked once the clusters are known
+  if (!window._dqPrimed && enabled.length) { window._dqPrimed = true; checkDataQuality(); }
   return d;
 }
 
@@ -7920,13 +7924,14 @@ setTimeout(function firstUpdateCheck(tries = 0) {
 async function checkDataQuality() {
   const banner = document.getElementById('dataQualityBanner');
   if (!banner) return;
-  if (window.HCM_ACCESS && !can('cluster.view', currentCluster)) { banner.classList.remove('visible'); return; }
   try {
+    if (window.HCM_ACCESS && !can('cluster.view', currentCluster)) { banner.classList.remove('visible'); return; }
     const q = await apiFetch('/api/data-quality');
     banner.classList.remove('visible', 'info', 'warn');
     if (!q || (currentCluster && q.cluster_id && q.cluster_id !== currentCluster)) return;
     const cl      = CLUSTERS.find(c => c.cluster_id === q.cluster_id);
     const name    = cl ? cl.name : '';
+    if (!name) return;                      // a banner about an unnamed cluster ("history for : 9.5 d") says nothing
     const have    = q.window_hours || 0;
     const need    = q.required_hours || 336;
     const haveStr = have < 48 ? `${Math.round(have)} h` : `${(have / 24).toFixed(1)} d`;
@@ -7944,9 +7949,11 @@ async function checkDataQuality() {
       banner.textContent = t('quality.warning', {cluster: name, gaps: q.gap_count, hours: q.checked_hours, pct: gapPct, days: Math.round(need / 24)});
       banner.classList.add('visible');
     }
-  } catch (_) {}
+  } catch (_) {
+  } finally {
+    document.body.classList.toggle('has-dq-banner', banner.classList.contains('visible'));
+  }
 }
-document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality, 1500));
 </script>
 <script src="/static/access.js"></script>
 <script src="/static/mail.js"></script>
