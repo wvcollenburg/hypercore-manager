@@ -19,8 +19,11 @@ every known node and refreshes what the cluster reports, including nodes, versio
 **Edit** changes the name, address, account, TLS verification, colour, API version, time zone
 override, folder and role. The role **DR (normally passive)** marks a folder's standby cluster: its
 backup proxies verify the folder's restore points around the clock (see Backup → Verification). **Disable** pauses collection and balancing while keeping the history;
-**Remove** forgets the cluster. Registering the same cluster twice is detected and the duplicate's
-balancer is suspended.
+**Remove** takes the cluster out of service and keeps its history; **Remove and purge** also deletes
+its configuration and Foresight history, and is refused while the cluster still has backup chains (delete
+those first, or remove without purging: the backup catalogue is what lets you restore from them). Changing
+a cluster's address or account asks for its password again, so the stored password is never sent to a new
+address. Registering the same cluster twice is detected and the duplicate's balancer is suspended.
 
 The time zone matters for backups: plan times are read in it. It is filled from the cluster;
 type another IANA name only when the cluster's own setting is wrong.
@@ -94,9 +97,12 @@ is ticked; those rows are kept for 30 days, the others for good.
 One mail server for the whole installation, set by its administrators: invitations, password
 resets and address changes go out through it. Enter the SMTP server, port and security (STARTTLS on
 587, TLS on 465, or none on 25 for a relay on your own network), an optional login, the sender
-address and name, and the **address in links**: how people reach this dashboard (empty: the address
-you are using). **Send test mail** checks it. Without a mail server, whoever sends an invitation
-gets the link to pass on themselves.
+address and name, and the **address in links**: how people reach this dashboard, for example
+`https://hcm.example.com`. It is required: a link built from the address a request came in on could
+point anywhere (that address is the sender's to choose). Without it no password reset can be asked for
+by mail, and invitations are not mailed: whoever sends one gets the link to pass on. **Send test mail**
+checks the settings. Without a mail server, whoever sends an invitation gets the link to pass on
+themselves.
 
 ## Targets
 

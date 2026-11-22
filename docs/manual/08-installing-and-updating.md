@@ -299,7 +299,11 @@ Before the stack is reachable from anything but localhost, work through this lis
 The dashboard does not terminate TLS itself. Put nginx or Caddy in front of it. The proxy must
 pass websockets (the VM console uses one on `/console/ws`); Caddy does that by itself, nginx
 needs the `Upgrade` and `Connection` headers below. Without them everything works except the
-console, which closes right after opening.
+console, which closes right after opening. Keep the `Host` header as the browser sent it (both
+examples do): the dashboard refuses changes whose `Origin` is not its own address. In `.env`, set
+`HCM_TRUSTED_PROXIES=1` so the audit log and the sign-in attempt limit see the client's address
+instead of the proxy's, and `HCM_SESSION_COOKIE_SECURE=true` once the dashboard is only reached
+over HTTPS.
 
 ```nginx
 server {

@@ -14,8 +14,13 @@ cluster, and to explore the raw measurements without a query tool.
 ![Account](img/account.png)
 
 Your own account: your name, your email address, your password, and two-factor authentication
-with a time-based one-time password app. Two-factor applies to your account only; an administrator
-can reset it for you if you lose the device. This page is the same for administrators and users.
+with a time-based one-time password app. Setting it up asks for your current password first. Two-factor
+applies to your account only; an administrator can reset it for you if you lose the device. This page is
+the same for administrators and users.
+
+Changing your password or your address, and turning two-factor on, off or having it reset, signs out your
+other sessions. After a run of wrong passwords or two-factor codes, signing in to that account waits for a
+while (15 minutes at most); the sign-in page says so without telling whether the address has an account.
 
 To sign in with another address, enter it with your current password: a link goes to the new
 address, and your login changes once you open it (within 60 minutes). Forgot your password? Use the

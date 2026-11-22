@@ -278,7 +278,9 @@ through: invitations, password resets, address changes and guest console request
   your own network only; an optional login. The password is stored encrypted with
   `HCM_SECRET_KEY`, like the cluster passwords, and never shown again.
 - **Address in links**: the address people use to reach the dashboard, put in the links of
-  invitations, resets and guest requests. Empty: the address of the browser that sends the invitation.
+  invitations, resets and guest requests. Required to save a mail server: a link is never built from the
+  address a request came in on. Without it, password resets by mail are off and invitation links are shown
+  to the inviter instead of mailed.
 - **Address in guest console links**: how outside guests reach `/guest/` from the internet, for
   example `https://support.example.com`. Empty: `HCM_GUEST_BASE_URL` from `.env`, else the address
   of the browser of whoever gives the access.

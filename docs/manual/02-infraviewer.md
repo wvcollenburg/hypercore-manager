@@ -53,8 +53,11 @@ inserting or ejecting an ISO, name, tags, schedule, affinity, replications) and 
 off. Those run as an OS shutdown, the changes and a start: a reboot inside the guest does not apply
 them. Choose **Now**, or **At** a time to have it done in a maintenance window; HCM keeps the change
 until then and you can cancel it under *Changes*. If the guest has not shut down after the timeout
-(10 minutes by default), nothing is changed and the VM keeps running, unless **Force power off if
-the graceful shutdown fails** is ticked. Removing a disk or a network card and deleting the VM ask
+(10 minutes by default), HCM keeps watching for another 30 minutes: a guest that shuts down late still
+gets the changes and is started again, so a VM is never left off. A guest that is still running then
+keeps running unchanged, unless **Force power off if the graceful shutdown fails** is ticked. A
+scheduled change that could not start within 30 minutes of its time (the backup service was down)
+is not run later in the day: it fails with "missed its window". Removing a disk or a network card and deleting the VM ask
 for the VM's name; before a disk is removed HCM takes a snapshot of the VM, kept for 30 days. A VM
 with a scheduled change shows ⏱ and the time on its line. Every change keeps its steps (shutdown,
 each change, start) with who asked for it.
