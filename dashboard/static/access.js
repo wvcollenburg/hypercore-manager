@@ -208,7 +208,7 @@ async function _acLoad() {
 }
 
 async function _acCall(method, path, body) {
-  const r = await fetch(`${API_BASE}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const r = await _netFetch(`${API_BASE}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(d.error || `HTTP ${r.status}`); e.status = r.status; e.data = d; throw e; }
   return d;
@@ -1369,7 +1369,7 @@ async function _acClusterSave(h, P, clusterId, folderId, force) {
   else body.folder_id = folderId;
   if (force) body.force = true;
   _clMsg(P, t('clusters.testing'), '');
-  const r = await fetch(`${API_BASE}/api/clusters${clusterId ? '/' + clusterId : ''}`,
+  const r = await _netFetch(`${API_BASE}/api/clusters${clusterId ? '/' + clusterId : ''}`,
                         { method: clusterId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) {
@@ -1393,7 +1393,7 @@ async function _acClustersChanged() {
 
 async function acClusterTest(cid) { await clTestExisting(cid); }
 async function acClusterToggle(cid, enabled) {
-  const r = await fetch(`${API_BASE}/api/clusters/${cid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
+  const r = await _netFetch(`${API_BASE}/api/clusters/${cid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
   if (!r.ok) { const d = await r.json().catch(() => ({})); hcmAlert(d.error || `HTTP ${r.status}`); return; }
   await _acClustersChanged();
 }
@@ -1402,7 +1402,7 @@ async function acClusterRemove(cid) {
   if (!c) return;
   if (!await hcmConfirm(t('clusters.confirm_remove', { name: c.name }), { danger: true, typeToConfirm: c.name, confirmLabel: t('clusters.remove') })) return;
   const purge = await hcmConfirm(t('clusters.confirm_purge', { name: c.name }), { danger: true });
-  const r = await fetch(`${API_BASE}/api/clusters/${cid}?purge=${purge ? 1 : 0}`, { method: 'DELETE' });
+  const r = await _netFetch(`${API_BASE}/api/clusters/${cid}?purge=${purge ? 1 : 0}`, { method: 'DELETE' });
   if (!r.ok) { const d = await r.json().catch(() => ({})); hcmAlert(d.error || `HTTP ${r.status}`); return; }
   if (currentCluster === cid) { currentCluster = null; try { localStorage.removeItem(CLUSTER_LS_KEY); } catch (_) {} }
   _ac.tb.cluster = null;

@@ -1940,4 +1940,6 @@ window.LANG = {
   'acc.col_otp': "Tweestaps",
   'acc.otp_on': "aan",
   'acc.otp_off': "uit",
+  // network errors
+  'msg.network': "Geen antwoord van de server ({msg}). Controleer de verbinding en probeer het opnieuw.",
 };

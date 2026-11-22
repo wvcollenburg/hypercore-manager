@@ -1941,4 +1941,6 @@ window.LANG = {
   'acc.col_otp': "Two-factor",
   'acc.otp_on': "on",
   'acc.otp_off': "off",
+  // network errors
+  'msg.network': "No answer from the server ({msg}). Check the connection and try again.",
 };

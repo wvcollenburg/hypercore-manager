@@ -1940,4 +1940,6 @@ window.LANG = {
   'acc.col_otp': "Zwei-Faktor",
   'acc.otp_on': "an",
   'acc.otp_off': "aus",
+  // network errors
+  'msg.network': "Keine Antwort vom Server ({msg}). Prüfen Sie die Verbindung und versuchen Sie es erneut.",
 };

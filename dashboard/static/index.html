@@ -2024,6 +2024,14 @@ let _fetchCount = 0;
 function _fetchStart() { _fetchCount++; document.body.classList.add('fetching'); }
 function _fetchEnd()  { if (--_fetchCount <= 0) { _fetchCount = 0; document.body.classList.remove('fetching'); } }
 
+// fetch for the calls that handle !r.ok themselves: a network error (server gone, connection dropped) becomes a
+// 503 answer whose error says so, instead of an exception that left spinners and "Testing…" up for good
+async function _netFetch(input, init) {
+  try { return await fetch(input, init); }
+  catch (e) {
+    return new Response(JSON.stringify({error: t('msg.network', {msg: e.message})}), {status: 503, headers: {'Content-Type': 'application/json'}});
+  }
+}
 async function apiFetch(ep) {
   _fetchStart();
   try { const r=await fetch(_withCluster(ep)); if(!r.ok) throw new Error(`HTTP ${r.status}`); return await r.json(); }
@@ -2688,7 +2696,7 @@ async function openVmEdit(uuid) {
   document.getElementById('veTitle').textContent = t('ve.edit');
   document.getElementById('veFoot').hidden = true;
   bd.classList.add('visible');
-  const r = await fetch(_withCluster(`/api/backup/vmedit/vm?vm=${encodeURIComponent(uuid)}`));
+  const r = await _netFetch(_withCluster(`/api/backup/vmedit/vm?vm=${encodeURIComponent(uuid)}`));
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { document.getElementById('veBody').innerHTML = `<div class="ve-msg" style="color:var(--accent-red)">${_exEsc(d.error || 'HTTP ' + r.status)}</div>`; return; }
   _ve = {uuid, data: d, adds: [], nicAdds: [], remove: new Set(), boot: [...(d.vm.bootDevices || [])]};
@@ -2959,7 +2967,7 @@ async function _veSubmit(kind, ops, confirmName) {
   const body = Object.assign({cluster_id: currentCluster, vm_uuid: _ve.uuid, kind, ops, confirm_name: confirmName || '',
     force_off: document.getElementById('veForce').checked, shutdown_timeout_min: parseInt(document.getElementById('veTimeout').value, 10) || 10}, when);
   msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
-  const r = await fetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const r = await _netFetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return false; }
   msg.style.color = 'var(--accent-green)';
@@ -2984,7 +2992,7 @@ async function veDelete() {
   _veSubmit('delete', [], name);
 }
 async function veCancel(id) {
-  const r = await fetch(_withCluster(`/api/backup/vmedit/changes/${id}/cancel`), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({cluster_id: currentCluster})});
+  const r = await _netFetch(_withCluster(`/api/backup/vmedit/changes/${id}/cancel`), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({cluster_id: currentCluster})});
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { document.getElementById('veMsg').textContent = d.error || `HTTP ${r.status}`; return; }
   await openVmEdit(_ve.uuid);
@@ -2998,7 +3006,7 @@ async function openNewVm() {
   document.getElementById('vnBody').innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
   document.getElementById('vnFoot').hidden = true;
   bd.classList.add('visible');
-  const r = await fetch(_withCluster('/api/backup/vmedit/options'));
+  const r = await _netFetch(_withCluster('/api/backup/vmedit/options'));
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { document.getElementById('vnBody').innerHTML = `<div class="ve-msg" style="color:var(--accent-red)">${_exEsc(d.error || 'HTTP ' + r.status)}</div>`; return; }
   _vn = {opts: d, disks: [{type: 'VIRTIO_DISK', cap: 50, image: ''}], nics: [{type: 'VIRTIO', vlan: 0}], change: null};
@@ -3073,7 +3081,7 @@ async function vnCreate() {
     run_at = new Date(v).toISOString();
   }
   msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
-  const r = await fetch(_withCluster('/api/backup/vmedit/new'), {method: 'POST', headers: {'Content-Type': 'application/json'},
+  const r = await _netFetch(_withCluster('/api/backup/vmedit/new'), {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({cluster_id: currentCluster, spec, run_at})});
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return; }
@@ -3133,7 +3141,7 @@ async function openVmAct(kind, uuid) {
   document.getElementById('vaMsg').textContent = '';
   document.getElementById('vaGo').disabled = false;
   document.getElementById('vmActBackdrop').classList.add('visible');
-  const r = await fetch(_withCluster(`/api/backup/vmedit/vm?vm=${encodeURIComponent(uuid)}`));
+  const r = await _netFetch(_withCluster(`/api/backup/vmedit/vm?vm=${encodeURIComponent(uuid)}`));
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { document.getElementById('vaBody').innerHTML = `<div class="ve-msg" style="color:var(--accent-red)">${_exEsc(d.error || 'HTTP ' + r.status)}</div>`; return; }
   _va.data = d;
@@ -3180,7 +3188,7 @@ async function vaGo() {
     run_at = new Date(v).toISOString();
   }
   msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
-  const r = await fetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'},
+  const r = await _netFetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({cluster_id: currentCluster, vm_uuid: _va.uuid, kind: _va.kind, ops, run_at})});
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return; }
@@ -4796,7 +4804,7 @@ async function _loadConsolePanel() {
   if (_cc.refsOpen) _ccLoadRefs(_cc.refsOpen);
 }
 async function _ccPost(path, body, method = 'POST') {
-  const r = await fetch(_withCluster(path), {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.assign({cluster_id: currentCluster}, body || {}))});
+  const r = await _netFetch(_withCluster(path), {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.assign({cluster_id: currentCluster}, body || {}))});
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
   return d;
@@ -4835,7 +4843,7 @@ async function _ccLoadRefs(vm) {
     : `<div style="font-size:12px;color:var(--text-muted);">${t('cc.refs_none')}</div>`;
 }
 async function ccRefDelete(id) {
-  await fetch(_withCluster(`/api/console/check/refs/${id}`), {method: 'DELETE'});
+  await _netFetch(_withCluster(`/api/console/check/refs/${id}`), {method: 'DELETE'});
   _loadConsolePanel();
 }
 
@@ -5230,7 +5238,7 @@ async function umChangePassword() {
   const msg  = document.getElementById('umPwMsg');
   if (np !== np2) { msg.innerHTML = `<div class="um-error">${_esc(t('acct.pw_mismatch'))}</div>`; return; }
   if (np.length < 8) { msg.innerHTML = `<div class="um-error">${_esc(t('acct.pw_short'))}</div>`; return; }
-  const r = await fetch(`${API_BASE}/api/users/me/password`, {
+  const r = await _netFetch(`${API_BASE}/api/users/me/password`, {
     method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ current_password: cur, new_password: np })
   });
   const d = await r.json().catch(() => ({}));
@@ -5247,7 +5255,7 @@ async function umShowOtpSetup() {
   const box = document.getElementById('umOtpSetup');
   box.innerHTML = `<div style="color:var(--text-muted);font-size:12px;">${_esc(t('acct.loading'))}</div>`;
   box.style.display = 'block';
-  const r = await fetch(`${API_BASE}/api/users/me/otp/setup`);
+  const r = await _netFetch(`${API_BASE}/api/users/me/otp/setup`);
   const d = await r.json();
   if (!r.ok) { box.innerHTML = `<div class="um-error">${_esc(d.error)}</div>`; return; }
   box.innerHTML = `
@@ -5270,7 +5278,7 @@ async function umShowOtpSetup() {
 async function umConfirmOtp() {
   const code = (document.getElementById('umOtpCode') || {}).value || '';
   const msg  = document.getElementById('umOtpMsg');
-  const r = await fetch(`${API_BASE}/api/users/me/otp/enable`, {
+  const r = await _netFetch(`${API_BASE}/api/users/me/otp/enable`, {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({code})
   });
   const d = await r.json();
@@ -5285,7 +5293,7 @@ async function umConfirmOtp() {
 async function umDisableOtp() {
   const pw = await hcmPrompt(t('acc.otp_disable_pw'), {type: 'password'});
   if (pw === null) return;
-  const r = await fetch(`${API_BASE}/api/users/me/otp/disable`, {
+  const r = await _netFetch(`${API_BASE}/api/users/me/otp/disable`, {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({password: pw})
   });
   const d = await r.json();
@@ -5959,7 +5967,7 @@ function openFolderMenu(ev, folderId) {
 }
 
 async function _folderCall(method, path, body) {
-  const r = await fetch(`${API_BASE}${path}`, { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
+  const r = await _netFetch(`${API_BASE}${path}`, { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { hcmAlert(d.error || `HTTP ${r.status}`); return null; }
   return d;
@@ -6102,7 +6110,7 @@ function _clMsg(prefix, text, cls) { const el = document.getElementById(`${prefi
 
 async function clTest(prefix) {
   _clMsg(prefix, t('clusters.testing'), '');
-  const r = await fetch(`${API_BASE}/api/clusters/test`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(_clRead(prefix)) });
+  const r = await _netFetch(`${API_BASE}/api/clusters/test`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(_clRead(prefix)) });
   const d = await r.json().catch(() => ({}));
   if (d.ok) _clMsg(prefix, t('clusters.test_ok', {name: d.cluster_name || '?', nodes: d.node_count ?? '?', version: d.version || '?'}) + ' · ' + t(d.api_v2 ? 'clusters.api_v2_yes' : 'clusters.api_v2_no'), 'ok');
   else _clMsg(prefix, t('clusters.test_fail', {error: d.error || r.status}), 'err');
@@ -6115,7 +6123,7 @@ async function clSave(prefix, clusterId) {
   const newFolder = !clusterId ? body.folder_id : null;   // create() has no folder arg; set it after
   const url = clusterId ? `${API_BASE}/api/clusters/${clusterId}` : `${API_BASE}/api/clusters`;
   _clMsg(prefix, t('clusters.testing'), '');
-  const r = await fetch(url, { method: clusterId ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  const r = await _netFetch(url, { method: clusterId ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { _clMsg(prefix, d.error || `HTTP ${r.status}`, 'err'); return; }
   if (!clusterId && d.cluster) {
@@ -6129,7 +6137,7 @@ async function clSave(prefix, clusterId) {
 
 async function clTestExisting(id) {
   _clMsg('cl-' + id, t('clusters.testing'), '');
-  const r = await fetch(`${API_BASE}/api/clusters/${id}/test`, { method: 'POST' });
+  const r = await _netFetch(`${API_BASE}/api/clusters/${id}/test`, { method: 'POST' });
   const d = await r.json().catch(() => ({}));
   const perNode = d.nodes_total ? ' · ' + t('clusters.test_nodes', {ok: d.nodes_ok, total: d.nodes_total}) : '';
   const failed = (d.nodes_tested || []).filter(n => !n.ok).map(n => `${n.address}: ${n.error || '?'}`).join('; ');
@@ -6162,7 +6170,7 @@ function _clNodesHtml(c, isAdmin) {
   }).join('')}</div>`;
 }
 async function clForgetNode(id, uuid) {
-  const r = await fetch(`${API_BASE}/api/clusters/${id}/nodes/${encodeURIComponent(uuid)}`, { method: 'DELETE' });
+  const r = await _netFetch(`${API_BASE}/api/clusters/${id}/nodes/${encodeURIComponent(uuid)}`, { method: 'DELETE' });
   if (!r.ok) { const d = await r.json().catch(() => ({})); _clMsg('cl-' + id, d.error || `HTTP ${r.status}`, 'err'); return; }
   loadClusters();
   if (typeof _ac !== 'undefined' && _ac.tab === 'tree' && document.getElementById('acTbPane')) _acClustersChanged();
@@ -6542,7 +6550,7 @@ function exSetOnly(cid) { _exOnly = cid; switchExportsPanel(_exPanel); }
 async function _exCall(method, path, body) {
   if (method === 'GET' && _exOnly && /^\/api\/backup\/(plans|chains|runs|restores)(\?|$)/.test(path))
     path += (path.includes('?') ? '&' : '?') + 'only=' + encodeURIComponent(_exOnly);
-  const r = await fetch(_withCluster(path), { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
+  const r = await _netFetch(_withCluster(path), { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { const err = new Error(d.error || `HTTP ${r.status}`); err.status = r.status; err.data = d; throw err; }
   return d;

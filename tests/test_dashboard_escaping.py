@@ -87,7 +87,7 @@ def test_server_text_is_escaped_in_html_templates(repo):
     src = (repo / 'dashboard' / 'static' / 'index.html').read_text(encoding='utf-8')
     raw = [f'line {src.count(chr(10), 0, m.start()) + 1}: {m.group(0)}' for m in _SERVER_TEXT.finditer(src)]
     assert not raw, 'wrap these in _clEsc():\n' + '\n'.join(raw)
-    for sink in ("value=\"${v.vm_name}\"", "' ' + sm.source_vm", '{tz: c.timezone}', '{msg: e.message})}',
+    for sink in ("value=\"${v.vm_name}\"", "' ' + sm.source_vm", '{tz: c.timezone}', "t('empty.settings_load_failed', {msg: e.message})",
                  '<span class="sub-item-name">${v.name}</span>', "'operatingSystem' ? t('vmi.os') : `${k}: ${v}`"):
         assert sink not in src, f'unescaped: {sink}'
 

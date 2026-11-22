@@ -187,3 +187,15 @@ def test_small_frontend_regressions_stay_fixed(repo):
     acc = (repo / 'dashboard' / 'static' / 'access.js').read_text()
     secrets = acc[acc.index('function _gcShowSecrets('):][:300]
     assert 'closable: false' in secrets
+
+
+@pytest.mark.parametrize('rel', ('dashboard/static/index.html', 'dashboard/static/access.js'))
+def test_a_network_error_does_not_leave_a_spinner(repo, rel):
+    """An `await fetch(...)` straight in a function body throws on a network error: the VM edit, New VM, cluster
+    test and console check screens kept their spinner or 'Testing…' for good. Those calls go through _netFetch,
+    which turns the error into a 503 answer the !r.ok branch already shows."""
+    import re
+    src = (repo / rel).read_text(encoding='utf-8')
+    bare = [l.strip()[:100] for l in src.splitlines()
+            if re.match(r'^  (const r = )?await fetch\(', l)]
+    assert not bare, 'use _netFetch() or a try/catch:\n' + '\n'.join(bare)

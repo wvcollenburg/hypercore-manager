@@ -1940,4 +1940,6 @@ window.LANG = {
   'acc.col_otp': "Double facteur",
   'acc.otp_on': "activé",
   'acc.otp_off': "désactivé",
+  // network errors
+  'msg.network': "Pas de réponse du serveur ({msg}). Vérifiez la connexion et réessayez.",
 };
