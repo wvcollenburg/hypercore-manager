@@ -1470,6 +1470,8 @@ window.LANG = {
   'acct.otp_disable': "Tweestapsverificatie uitzetten",
   'acct.otp_off': "Niet ingesteld: voeg een authenticator-app toe voor extra beveiliging.",
   'acct.otp_setup': "Tweestapsverificatie instellen",
+  'acct.otp_setup_pw': "Je huidige wachtwoord, om tweestapsverificatie in te stellen",
+  'acct.otp_setup_failed': "Tweestapsverificatie instellen lukte niet. Probeer het opnieuw.",
   'acct.otp_key': "Sleutel om handmatig in te voeren",
   'acct.otp_scan': "Scan met Google Authenticator, Microsoft Authenticator, Authy of een andere TOTP-app.",
   'acct.otp_code': "6-cijferige code",

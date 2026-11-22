@@ -213,3 +213,13 @@ def test_icon_buttons_have_names_and_clickable_divs_a_tab_stop(repo):
     for part in ('.nav-tab', '.settings-sub-tab', '.lang-opt', 'th[onclick]', 'tr.grp'):
         assert part in src[src.index('const _KBD_TABS'):src.index('function _kbdMark(')], part
     assert "e.key === 'Enter' || e.key === ' '" in src and 'new MutationObserver' in src
+
+
+def test_sign_out_is_a_post_and_two_factor_setup_sends_the_password(repo):
+    """The server hands out the 2FA secret only for POST {password} and wants sign-out as a POST (a GET link
+    can be fired from another site). The page used a GET for both."""
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
+    assert 'href="/logout"' not in src
+    assert src.count('action="/logout"') == 2
+    setup = src[src.index('async function umShowOtpSetup()'):][:1200]
+    assert "method: 'POST'" in setup and 'password: pw' in setup

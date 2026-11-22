@@ -114,6 +114,11 @@
   .user-menu-who { padding: 6px 10px 8px; font-size: 12px; color: var(--ink-3); border-bottom: 1px solid var(--border); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; }
   .user-menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
   .user-menu a.rail-nav { text-decoration: none; }
+  /* sign out is a POST (a link could be triggered from another site): buttons that look like the links they replace */
+  .logout-form { margin: 0; }
+  .logout-form button.rail-nav { width: 100%; background: none; border: 0; font: inherit; color: inherit; text-align: left; }
+  .logout-link { background: none; border: 0; padding: 0; font: inherit; font-size: 12px; color: var(--text-muted); cursor: pointer; }
+  .logout-link:hover { color: var(--accent-blue); }
 
   /* module tabs, inside the bar */
   .nav-tabs { display: flex; align-self: stretch; gap: 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
@@ -5203,8 +5208,9 @@ function _renderMyAccountCard(me) {
         <div class="chart-title-dot" style="background:var(--accent-cyan)"></div>
         <span class="settings-group-title">${_esc(t('acct.title'))}</span>
         <span style="font-size:12px;color:var(--text-muted);">${_esc(me.username)}${devBadge}</span>
-        <a href="/logout" style="margin-left:auto;font-size:12px;color:var(--text-muted);text-decoration:none;"
-           onmouseover="this.style.color='var(--accent-blue)'" onmouseout="this.style.color='var(--text-muted)'">${_esc(t('acct.sign_out'))}</a>
+        <form method="post" action="/logout" class="logout-form" style="margin-left:auto">
+          <button type="submit" class="logout-link">${_esc(t('acct.sign_out'))}</button>
+        </form>
       </div>
       ${profileSection}${pwSection}${otpSection}
     </div>`;
@@ -5254,12 +5260,20 @@ async function umChangePassword() {
 }
 
 async function umShowOtpSetup() {
+  // the secret is handed out only against the current password: a borrowed session cannot enrol its own app
+  const pw = await hcmPrompt(t('acct.otp_setup_pw'), {type: 'password'});
+  if (pw === null) return;
   const box = document.getElementById('umOtpSetup');
   box.innerHTML = `<div style="color:var(--text-muted);font-size:12px;">${_esc(t('acct.loading'))}</div>`;
   box.style.display = 'block';
-  const r = await _netFetch(`${API_BASE}/api/users/me/otp/setup`);
-  const d = await r.json();
-  if (!r.ok) { box.innerHTML = `<div class="um-error">${_esc(d.error)}</div>`; return; }
+  const r = await _netFetch(`${API_BASE}/api/users/me/otp/setup`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({password: pw})
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    box.innerHTML = `<div class="um-error">${_esc(d.password_required ? t('acct.pw_wrong_current') : (d.error || t('acct.otp_setup_failed')))}</div>`;
+    return;
+  }
   box.innerHTML = `
     <div class="um-otp-qr">
       <img src="${d.qr_data_url}" width="160" height="160" alt="OTP QR code">
@@ -6221,7 +6235,7 @@ function _renderRailFooter(isAdmin) {
     <div class="rail-nav" data-tab="account" onclick="switchTab('account'); closeTopMenus()"><span class="rail-nav-icon">👤</span><span>${t('nav.account')}</span></div>
     <a class="rail-nav" href="/manual/" target="_blank" rel="noopener"><span class="rail-nav-icon">📖</span><span>${t('nav.manual')}</span></a>
     <div class="user-menu-sep"></div>
-    <a class="rail-nav" href="/logout"><span class="rail-nav-icon">⏻</span><span>${t('nav.sign_out')}</span></a>`;
+    <form method="post" action="/logout" class="logout-form"><button type="submit" class="rail-nav"><span class="rail-nav-icon">⏻</span><span>${t('nav.sign_out')}</span></button></form>`;
   const st = document.getElementById('navTabSettings');
   if (st) st.hidden = !canSettings();
   const btn = document.getElementById('userBtn');

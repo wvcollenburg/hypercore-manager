@@ -1470,6 +1470,8 @@ window.LANG = {
   'acct.otp_disable': "Zwei-Faktor ausschalten",
   'acct.otp_off': "Nicht eingerichtet: fügen Sie eine Authenticator-App für zusätzliche Sicherheit hinzu.",
   'acct.otp_setup': "Zwei-Faktor einrichten",
+  'acct.otp_setup_pw': "Ihr aktuelles Passwort, um die Zwei-Faktor-Authentifizierung einzurichten",
+  'acct.otp_setup_failed': "Die Einrichtung der Zwei-Faktor-Authentifizierung konnte nicht gestartet werden. Versuchen Sie es erneut.",
   'acct.otp_key': "Schlüssel zur manuellen Eingabe",
   'acct.otp_scan': "Mit Google Authenticator, Microsoft Authenticator, Authy oder einer anderen TOTP-App scannen.",
   'acct.otp_code': "6-stelliger Code",
