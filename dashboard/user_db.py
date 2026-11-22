@@ -407,6 +407,31 @@ def clear_login_failures(login: str) -> None:
     _failures_query('DELETE FROM config.login_failures WHERE login = %s', (_login_key(login),))
 
 
+def bump_session_gen(username: str) -> int | None:
+    """End every session of this account: each session carries the generation it signed in with, and every
+    request compares it with this column (migration 058). Returns the new generation, for the caller's own
+    session to keep going; None before migration 058 or for an unknown account."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute('UPDATE config.users SET session_gen = session_gen + 1 WHERE username = %s RETURNING session_gen',
+                            (username,))
+                row = cur.fetchone()
+            except psycopg2.Error as exc:
+                if getattr(exc, 'pgcode', None) != '42703':
+                    raise
+                conn.rollback()
+                logger.warning('user_db: session_gen missing (migration 058 not applied yet): sessions not ended')
+                return None
+        conn.commit()
+    finally:
+        conn.close()
+    import access_db
+    access_db.invalidate()                          # every worker re-reads the user's state at its next request
+    return int(row['session_gen']) if row else None
+
+
 def set_community_ack(username: str) -> None:
     """Record that *username* has acknowledged the community-support notice."""
     try:

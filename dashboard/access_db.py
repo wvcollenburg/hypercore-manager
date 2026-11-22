@@ -233,8 +233,8 @@ def _heal_root_admin(cur, user_id: str) -> None:
 
 
 def user_state(user_id: str) -> dict | None:
-    """{username, enabled, awaiting_access} of a user id, or None when the user no longer exists (cached
-    briefly: every API call asks)."""
+    """{username, enabled, awaiting_access, session_gen} of a user id, or None when the user no longer exists
+    (cached briefly: every API call asks; any change bumps the shared version, which ends the cache)."""
     now = time.monotonic()
     ver = _version()
     with _lock:
@@ -245,15 +245,24 @@ def user_state(user_id: str) -> dict | None:
     try:
         with conn.cursor() as cur:
             try:
-                cur.execute('SELECT username, enabled, awaiting_access FROM config.users WHERE user_id = %s', (user_id,))
+                cur.execute('SELECT username, enabled, awaiting_access, session_gen FROM config.users WHERE user_id = %s',
+                            (user_id,))
                 row = cur.fetchone()
             except Exception as exc:  # noqa: BLE001
                 if not _missing(exc):
                     raise
                 conn.rollback()
-                cur.execute('SELECT username, TRUE AS enabled, FALSE AS awaiting_access FROM config.users WHERE user_id = %s',
-                            (user_id,))
-                row = cur.fetchone()
+                try:                                         # before migration 058: no session generation yet
+                    cur.execute('SELECT username, enabled, awaiting_access, 0 AS session_gen FROM config.users WHERE user_id = %s',
+                                (user_id,))
+                    row = cur.fetchone()
+                except Exception as exc2:  # noqa: BLE001
+                    if not _missing(exc2):
+                        raise
+                    conn.rollback()
+                    cur.execute('SELECT username, TRUE AS enabled, FALSE AS awaiting_access, 0 AS session_gen '
+                                'FROM config.users WHERE user_id = %s', (user_id,))
+                    row = cur.fetchone()
     finally:
         conn.close()
     state = dict(row) if row else None

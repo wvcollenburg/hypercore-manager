@@ -414,6 +414,7 @@ def register(app, requires, public, access, h):
             return False
         session.clear()
         session['user_id'], session['username'], session['role'] = str(full['user_id']), full['username'], full['role']
+        session['gen'] = int(full.get('session_gen') or 0)      # the generation the session was started at
         return True
 
     @app.route('/invite/<token>', methods=['GET', 'POST'])

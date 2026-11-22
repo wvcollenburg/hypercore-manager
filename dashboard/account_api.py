@@ -213,6 +213,7 @@ def register(app, requires, public, h):
             return page('invalid', 404)
         import user_db
         user_db.set_password(tok['username'], pw)
+        user_db.bump_session_gen(tok['username'])      # whoever held a session with the old password is out
         _audit(tok['username'], 'user.password_reset_self', tok['username'])
         session.clear()
         return page('reset_done')
@@ -260,6 +261,8 @@ def register(app, requires, public, h):
             access_db.change_address(tok['user_id'], new, actor=old, verified=True)
         except AccessError:
             return page('email_taken', new=new)
+        import user_db
+        user_db.bump_session_gen(new)
         mailer.deliver(old, 'email_notice', _lang(), by=new, new=new)
         if session.get('user_id') == tok['user_id']:
             session.clear()
@@ -281,6 +284,9 @@ def register(app, requires, public, h):
         if len(new) < 8:
             raise AccessError('the password needs at least 8 characters')
         user_db.set_password(me, new)
+        gen = user_db.bump_session_gen(me)           # every other session of this account ends; this one goes on
+        if gen is not None:
+            session['gen'] = gen
         _audit(me, 'user.password_changed_self', me)
         return jsonify({'ok': True})
 
@@ -306,6 +312,7 @@ def register(app, requires, public, h):
             raise AccessError('turn off your own two-factor on your Account page', 409)
         h.require_touch_account(h.access(), u)      # resetting someone's 2FA is half of signing in as them
         user_db.disable_otp(u['username'])
+        user_db.bump_session_gen(u['username'])
         _audit(h.actor(), 'user.otp_reset', u['username'])
         access_db.invalidate()
         return jsonify({'ok': True})

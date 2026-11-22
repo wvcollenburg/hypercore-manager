@@ -351,6 +351,9 @@ def register(app, requires, access, clusters, vm_index_rows):
                 raise AccessError('the name is the person\'s own: they or an administrator of the whole installation set it', 403)
             kw['display_name'] = str(b['display_name'] or '')
         access_db.update_user(u['user_id'], actor(), **kw)
+        if 'email' in kw:
+            import user_db
+            user_db.bump_session_gen(access_db.normalise_email(kw['email']))   # a new login: the old sessions end
         return jsonify(dict({'ok': True}, **({'invitation': activation} if activation else {})))
 
     @app.route('/api/access/users/<user_id>', methods=['DELETE'])
@@ -384,6 +387,7 @@ def register(app, requires, access, clusters, vm_index_rows):
         if len(pw) < 8:
             raise AccessError('the password needs at least 8 characters')
         user_db.set_password(u['username'], pw)
+        user_db.bump_session_gen(u['username'])          # the person's open sessions end with the old password
         conn = access_db._connect()
         try:
             with conn.cursor() as cur:

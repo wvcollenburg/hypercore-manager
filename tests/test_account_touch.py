@@ -67,6 +67,7 @@ def as_manager(dash, monkeypatch):
     import user_db
     monkeypatch.setattr(user_db, 'set_password', lambda *a: calls.append(('password', a)))
     monkeypatch.setattr(user_db, 'disable_otp', lambda *a: calls.append(('otp', a)))
+    monkeypatch.setattr(user_db, 'bump_session_gen', lambda *a: 1, raising=False)
     client = dash.app.test_client()
     with client.session_transaction() as s:
         s['user_id'], s['username'] = '22222222-2222-2222-2222-222222222222', 'mgr@x.example'

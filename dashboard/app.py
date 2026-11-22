@@ -221,7 +221,22 @@ def _login_problem():
         if request.path.startswith('/api/'):
             return jsonify({'error': 'Your account is waiting for an administrator to assign its access'}), 401
         return redirect(url_for('login_page'))
+    if int(state.get('session_gen') or 0) != int(session.get('gen') or 0):
+        # the account's sessions were ended (password changed or reset, two-factor off or reset, new address):
+        # a cookie from before, also a stolen one, no longer signs in
+        session.clear()
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Authentication required'}), 401
+        return redirect(url_for('login_page'))
     return None
+
+
+def _start_session(u: dict) -> None:
+    """Sign `u` in on this session (after the password, and the code when two-factor is on)."""
+    session['user_id']  = str(u['user_id'])
+    session['username'] = u['username']
+    session['role']     = u['role']
+    session['gen']      = int(u.get('session_gen') or 0)
 
 
 _ROUTE_PERMS: dict = {}         # view function name -> (permission or None, scope); read by /api/access/routes
@@ -2629,7 +2644,20 @@ def console_ticket():
     status, raw, ctype = _console_call('POST', 'tickets', payload={
         'cluster_id': cid, 'vm_uuid': vm, 'username': _console_user(),
         'binding': _console_binding(create=True), 'client_ip': _client_ip()}, timeout=30)
+    if status == 200:
+        try:
+            ticket = json.loads(raw.decode() or '{}').get('ticket')
+        except ValueError:
+            ticket = None
+        if ticket:
+            # which VM a ticket opens, so the websocket can re-check the right to it while the console is open
+            seen = dict(session.get('console_vms') or {})
+            seen[hashlib.sha256(ticket.encode()).hexdigest()[:16]] = [cid, vm]
+            session['console_vms'] = dict(list(seen.items())[-4:])
     return Response(raw, status=status, mimetype=ctype)
+
+
+_CONSOLE_RECHECK_SECONDS = 120
 
 
 @sock.route('/console/ws')
@@ -2647,12 +2675,27 @@ def console_ws(ws):
     if not binding or not ticket:
         ws.close(reason=4401, message='console ticket required')
         return
-    _relay_pipe(ws, ticket, binding)
+    target = (session.get('console_vms') or {}).get(hashlib.sha256(ticket.encode()).hexdigest()[:16])
+    recheck = None
+    if _AUTH_ENABLED and target:
+        cid, vm = target
+
+        def recheck() -> bool:
+            # an open console outlives the checks made when it opened: every few minutes the login must still
+            # be live (not disabled, sessions not ended) and the user must still hold vm.console on this VM
+            access_db.begin_request()
+            g.pop('hcm_access', None)
+            try:
+                return _login_problem() is None and _can_vm('vm.console', cid, vm)
+            except Exception:  # noqa: BLE001 — the database is down: keep the console, check again later
+                return True
+    _relay_pipe(ws, ticket, binding, recheck=recheck)
 
 
-def _relay_pipe(ws, ticket: str, binding: str) -> None:
+def _relay_pipe(ws, ticket: str, binding: str, recheck=None) -> None:
     """Pipe a browser websocket to the console service's relay for a ticket bound to `binding`. The
-    ticket is checked (and consumed) there. Shared by the users' console and the guest console."""
+    ticket is checked (and consumed) there. Shared by the users' console and the guest console.
+    recheck(): called every _CONSOLE_RECHECK_SECONDS; False closes the console."""
     url = CONSOLE_API_URL.replace('http://', 'ws://', 1).replace('https://', 'wss://', 1)
     qs = urllib.parse.urlencode({'ticket': ticket, 'binding': binding})
     try:
@@ -2682,9 +2725,18 @@ def _relay_pipe(ws, ticket: str, binding: str) -> None:
 
     pump = threading.Thread(target=upstream_to_browser, daemon=True, name='console-pump')
     pump.start()
+    checked = time.monotonic()
     try:
         while True:
-            data = ws.receive()
+            data = ws.receive(timeout=30 if recheck else None)
+            if recheck and time.monotonic() - checked >= _CONSOLE_RECHECK_SECONDS:
+                checked = time.monotonic()
+                if not recheck():
+                    try:
+                        ws.close(reason=4403, message='console access ended')
+                    except Exception:  # noqa: BLE001
+                        pass
+                    break
             if data is None:
                 continue
             up.send(data if isinstance(data, (bytes, bytearray)) else data.encode())
@@ -3413,9 +3465,7 @@ def login_page():
                 session.pop('otp_pending_at', None)
                 user_db.clear_login_failures(pending_username)
                 dest = _after_login(session.pop('next', None))
-                session['user_id']  = str(u['user_id'])
-                session['username'] = u['username']
-                session['role']     = u['role']
+                _start_session(u)
                 return redirect(dest)
             user_db.record_login_failure(pending_username, client, 'otp')
             if user_db.otp_failures_since(pending_username, pending_at) >= user_db.MAX_OTP_FAILURES:
@@ -3445,9 +3495,7 @@ def login_page():
                     return redirect(url_for('login_page', step='otp'))
                 user_db.clear_login_failures(typed)
                 dest = _after_login(session.pop('next', None))
-                session['user_id']  = str(u['user_id'])
-                session['username'] = u['username']
-                session['role']     = u['role']
+                _start_session(u)
                 return redirect(dest)
             user_db.record_login_failure(typed, client, 'password')
             error = 'err_login'
@@ -3522,10 +3570,21 @@ def api_me_community_ack():
     return jsonify({'ok': True, 'dev_mode': False})
 
 
-@app.route('/api/users/me/otp/setup', methods=['GET'])
+@app.route('/api/users/me/otp/setup', methods=['GET', 'POST'])
 @requires(None)
 def api_otp_setup():
+    """The secret to enrol an authenticator: POST {"password": <current password>}. Never once two-factor is
+    on (the secret would let whoever holds the session make codes), and never without the password (a stolen
+    session could otherwise enrol its own authenticator and lock the person out)."""
     username = session.get('username', 'dev')
+    if _AUTH_ENABLED:
+        u = user_db.get_by_username(username)
+        if u and u.get('otp_enabled'):
+            return jsonify({'error': 'two-factor authentication is already on; turn it off first to set it up again'}), 409
+        data = (request.get_json(silent=True) or {}) if request.method == 'POST' else {}
+        if not user_db.verify_password(username, str(data.get('password') or '')):
+            return jsonify({'error': 'enter your current password to set up two-factor authentication',
+                            'password_required': True}), 403
     try:
         return jsonify(user_db.build_otp_setup(username))
     except Exception as e:
@@ -3541,6 +3600,10 @@ def api_otp_enable():
     if not code:
         return jsonify({'error': 'code is required'}), 400
     if user_db.enable_otp(username, code):
+        if _AUTH_ENABLED:
+            gen = user_db.bump_session_gen(username)     # other sessions signed in without the code end
+            if gen is not None:
+                session['gen'] = gen
         return jsonify({'ok': True})
     return jsonify({'error': 'Invalid code — check your authenticator app and try again'}), 400
 
@@ -3554,9 +3617,13 @@ def api_otp_disable():
         return jsonify({'error': 'Incorrect password'}), 403
     try:
         user_db.disable_otp(username)
-        return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    if _AUTH_ENABLED:
+        gen = user_db.bump_session_gen(username)         # every other session of the account ends
+        if gen is not None:
+            session['gen'] = gen
+    return jsonify({'ok': True})
 
 
 # =============================================================================
