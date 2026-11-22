@@ -32,6 +32,20 @@ def test_a_prune_interval_below_a_minute_is_refused(client, value):
     assert r.status_code == 400 and client.saved == {}
 
 
+def test_an_unknown_cluster_is_a_404_not_another_clusters_data(client):
+    """_cfg() silently used the first engine for a ?cluster= it did not know: a settings write for a cluster
+    Foresight did not (yet) run landed on another cluster."""
+    other = '22222222-2222-2222-2222-222222222222'
+    r = client.put(f'/api/v1/tunables?cluster={other}', json={'SENTINEL_VM_PRUNE_INTERVAL_SECONDS': 120})
+    assert r.status_code == 404 and client.saved == {}
+    assert client.get(f'/api/v1/tunables?cluster={other}').status_code == 404
+    trigger = []
+    sentinel_api._api_app.config['TRIGGER_ANALYSIS'] = trigger.append
+    assert client.post(f'/api/v1/trend/run?cluster={other}').status_code == 404 and trigger == []
+    assert client.get('/api/v1/tunables?cluster=11111111-1111-1111-1111-111111111111').status_code == 200
+    assert client.get('/api/v1/tunables').status_code == 200, 'no ?cluster= still means the first engine'
+
+
 def test_a_prune_interval_of_a_minute_is_accepted(client):
     r = client.put('/api/v1/tunables', json={'SENTINEL_VM_PRUNE_INTERVAL_SECONDS': 60})
     assert r.status_code == 200 and client.saved == {'SENTINEL_VM_PRUNE_INTERVAL_SECONDS': 60}
