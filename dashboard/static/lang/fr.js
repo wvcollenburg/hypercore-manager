@@ -435,7 +435,7 @@ window.LANG = {
   'info.SENTINEL_FORECAST_365D_ENABLED.benefits':  'Used for annual capacity planning and pre-sales growth conversations. Shows the full year trajectory for each resource dimension.',
   'info.SENTINEL_FORECAST_365D_ENABLED.careful':   'Forecast confidence at 365 days is the lowest of all horizons and should be treated as directional only. The data-coverage confidence penalty suppresses very uncertain forecasts automatically.',
 
-  'info.SENTINEL_RETENTION_MONTHS.what':      'How many months forecast snapshots and right-sizing records are kept before the automated cleanup job removes them. Audit records (recommendation_events) are kept indefinitely regardless.',
+  'info.SENTINEL_RETENTION_MONTHS.what':      'How many months Foresight keeps its audit history (recommendation events, outcomes and webhook deliveries) before the hourly cleanup removes it. Current forecasts and right-sizing results are replaced by every analysis cycle.',
   'info.SENTINEL_RETENTION_MONTHS.benefits':  'Prevents the PostgreSQL database from growing unboundedly. 12 months is sufficient for trend analysis and historical report generation.',
   'info.SENTINEL_RETENTION_MONTHS.careful':   'Lowering aggressively (e.g. 1\u20132 months) removes older recommendations from the dashboard and API, limiting historical comparison. Raising it increases database storage proportionally.',
 

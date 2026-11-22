@@ -155,7 +155,7 @@ TUNABLES: dict = {
         default=12, type_hint='int', live_reload=True,
         cfg_field='retention_months',
         label='Retention', unit='months',
-        description='How long to keep forecast snapshots and right-sizing records before automated cleanup.',
+        description='How long to keep the audit history (recommendation events, outcomes, webhook deliveries) before the hourly cleanup.',
     ),
     'SENTINEL_OUTCOME_TRACKER_ENABLED': TunableDef(
         env_var='SENTINEL_OUTCOME_TRACKER_ENABLED',

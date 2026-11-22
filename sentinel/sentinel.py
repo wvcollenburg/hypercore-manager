@@ -208,6 +208,7 @@ def analysis_loop(cfg: config.Config, stop: threading.Event, reader, trigger: th
             stats = _collect_and_analyse(reader, live_cfg, writer)
             health.record_trend_ok()
             logger.info('Analysis cycle complete', extra=stats)
+            writer.prune_audit(live_cfg.retention_months)        # audit rows past the Retention setting
         except Exception:
             health.record_trend_error()
             logger.exception('Analysis cycle failed')

@@ -5292,7 +5292,7 @@ const SENT_INFO = {
   },
   SENTINEL_RETENTION_MONTHS: {
     label: 'Retention',
-    what: 'How many months forecast snapshots and right-sizing records are kept before the automated cleanup job removes them. Audit records (recommendation_events) are kept indefinitely regardless.',
+    what: 'How many months Foresight keeps its audit history (recommendation events, outcomes and webhook deliveries) before the hourly cleanup removes it. Current forecasts and right-sizing results are replaced by every analysis cycle.',
     benefits: 'Prevents the PostgreSQL database from growing unboundedly. 12 months is sufficient for trend analysis and historical report generation.',
     careful: 'Lowering aggressively (e.g. 1–2 months) removes older recommendations from the dashboard and API, limiting historical comparison. Raising it increases database storage proportionally.',
   },
