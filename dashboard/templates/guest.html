@@ -14,22 +14,23 @@
   document.write('<scr'+'ipt src="/guest/lang/'+code+'.js"><\/scr'+'ipt>');
 })();
 </script>
+{{ theme_inline() }}
 <style>
-  :root { --bg: #0a0e14; --card: #151c27; --border: #2d4a6f; --text: #f4f7fa; --muted: #7a9ab0; --accent: #38bdf8; --err: #ef4444; --amber: #f59e0b; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--text);
-         font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; padding: 16px; }
-  .card { width: min(420px, 100%); background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 26px 26px 22px; }
-  h1 { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
-  .label { font-family: ui-monospace, 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent); margin-bottom: 16px; letter-spacing: .05em; }
-  p { font-size: 13px; line-height: 1.55; color: #c0d0e0; margin-bottom: 14px; }
-  input { width: 100%; font-family: ui-monospace, monospace; font-size: 28px; letter-spacing: .4em; text-align: center; padding: 10px;
-          background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; }
-  button { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--accent); background: rgba(56,189,248,.12); color: var(--accent);
-           font-size: 14px; cursor: pointer; }
-  .err { color: var(--err); font-size: 12px; margin-bottom: 12px; }
-  .warn { color: var(--amber); }
-  .small { font-size: 11px; color: var(--muted); margin-top: 14px; margin-bottom: 0; }
+  body { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--ink);
+         font-family: var(--font-ui); padding: 16px; }
+  .card { width: min(420px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-md); padding: 26px 26px 22px; }
+  h1 { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+  .label { font-family: var(--font-mono); font-size: 13px; color: var(--accent-2); margin-bottom: 16px; }
+  p { font-size: 14px; line-height: 1.55; color: var(--ink-2); margin-bottom: 14px; }
+  input { width: 100%; font-family: var(--font-mono); font-size: 28px; letter-spacing: .4em; text-align: center; padding: 10px;
+          background: var(--surface); color: var(--ink); border: 1px solid var(--border-strong); border-radius: 8px; margin-bottom: 14px; }
+  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
+  button { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
+           font-size: 14px; font-weight: 500; cursor: pointer; }
+  .err { color: var(--bad); font-size: 13px; margin-bottom: 12px; }
+  .warn { color: var(--warn); }
+  .small { font-size: 12px; color: var(--ink-3); margin-top: 14px; margin-bottom: 0; }
 </style>
 </head>
 <body>

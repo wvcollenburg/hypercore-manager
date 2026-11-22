@@ -56,7 +56,7 @@ function mailSecChanged() {
 
 function _mailMsg(text, ok) {
   const m = document.getElementById('mlMsg');
-  if (m) { m.textContent = text; m.style.color = ok ? 'var(--accent-green)' : 'var(--accent-red, #ef4444)'; }
+  if (m) { m.textContent = text; m.style.color = ok ? 'var(--accent-green)' : 'var(--bad)'; }
 }
 
 async function mailSave(extra) {

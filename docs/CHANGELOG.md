@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.8.0]
+
+### Changed
+- **A new look, with a light and a dark theme.** The dashboard no longer looks like a generated tool: IBM Plex
+  Sans for text and Plex Mono for figures (served by the dashboard itself, so sites without internet keep them),
+  normal capitalisation instead of small monospace capitals, no glows. The light theme is graphite and teal, the
+  dark theme warm charcoal and amber. The dashboard follows the computer's light/dark setting; **☾ Dark /
+  ☀ Light** in the top bar overrides it per browser. Login, invitation and account pages, the console, the guest
+  page and the manual follow the same theme.
+- **Top bar instead of the left rail.** The cluster list moved into a **cluster switcher** in the top bar: the
+  button shows the selected cluster, its folder and badges for alerts on your other clusters; the list itself
+  (folders, search, alert badges, dry-run/live, health) opens under it. Settings is a module tab; Modules,
+  Account, the Manual and Sign out are in the user menu (your initials). Sub-tabs are plain underline tabs, one
+  button style throughout, dialogs with a calm backdrop.
+- Every colour comes from one file, `dashboard/static/theme.css`, with a block per theme; a new theme is one more
+  block. A test fails on any colour written anywhere else. Charts read their colours from the theme and redraw
+  when it changes.
+- Headings, tunable labels and a few interface texts in normal case; texts that pointed at "the rail" now say
+  "the cluster list" (4 languages).
+
+### Documentation
+- Getting around describes the top bar, the cluster switcher and light/dark; Getting started, the manual and the
+  README follow the new navigation. Every screenshot in the manual and the README retaken in the new look (light
+  theme), Foresight and the Clusterbalancer with live analysis data.
+
 ## [1.7.4]
 
 ### Fixed

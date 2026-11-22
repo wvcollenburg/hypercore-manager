@@ -460,7 +460,7 @@ window.LANG = {
 
   // cluster registry, selection rail, onboarding
   'clusters.rail_title': "Clusters",
-  'clusters.title': "CLUSTERS",
+  'clusters.title': "Clusters",
   'clusters.subtitle': "Clusters HyperCore gérés par cette installation",
   'clusters.add': "Ajouter un cluster",
   'clusters.name': "Nom",
@@ -501,7 +501,7 @@ window.LANG = {
   'clusters.none_yet': "Aucun cluster enregistré pour le moment.",
 
   // cluster rail badges, duplicate warning, settings target
-  'clusters.mode_dry': "SIMULATION",
+  'clusters.mode_dry': "Simulation",
   'clusters.mode_live': "ACTIF",
   'clusters.health': "Score de santé Foresight",
   'clusters.dup_short': "Même cluster HyperCore qu'une autre entrée",
@@ -553,6 +553,10 @@ window.LANG = {
 
   'nav.account': "Compte",
   'nav.manual': "Manuel",
+  'nav.sign_out': "Se déconnecter",
+  'theme.to_dark': "☾ Sombre",
+  'theme.to_light': "☀ Clair",
+  'clusters.alerts_elsewhere': "{n} alerte(s) critique(s) ou d’avertissement sur d’autres clusters",
 
   'settings.admin_only': "Les param\u00e8tres sont r\u00e9serv\u00e9s aux administrateurs.",
 
@@ -635,7 +639,7 @@ window.LANG = {
   'ex.f_destination_required': "Une destination est requise.",
   'ex.schedule_created': "Plan de sauvegarde quotidien créé pour '{name}'.",
   'ex.admin_only': "Seuls les administrateurs peuvent lancer des imports.",
-  'ex.import_title': "IMPORTER UNE VM",
+  'ex.import_title': "Importer une VM",
   'ex.import_target': "Cluster cible : {cluster}",
   'ex.i_known': "Emplacement enregistré",
   'ex.i_manual': "Saisir un emplacement manuellement",
@@ -653,8 +657,8 @@ window.LANG = {
   'ex.i_confirm': "Lancer l'import vers le cluster sélectionné ?",
   'ex.i_starting': "Démarrage…",
   'ex.i_started': "Import démarré. Suivez la progression dans Exécutions.",
-  'ex.runs_title': "EXÉCUTIONS DE SAUVEGARDE",
-  'ex.imports_title': "IMPORTS",
+  'ex.runs_title': "Exécutions de sauvegarde",
+  'ex.imports_title': "Imports",
   'ex.show_all': "Tout afficher",
   'ex.col_source': "Source",
   'ex.col_started': "Début",
@@ -684,8 +688,8 @@ window.LANG = {
 
   // export shares (admin) and folder assignment
   'settings.tab.shares': "Cibles",
-  'shares.title': "CIBLES DE SAUVEGARDE",
-  'shares.subtitle': "Où vont les sauvegardes : partages SMB ou NFS avec leurs identifiants. Attribuez une cible à un dossier depuis le menu du dossier dans la barre latérale.",
+  'shares.title': "Cibles de sauvegarde",
+  'shares.subtitle': "Où vont les sauvegardes : partages SMB ou NFS avec leurs identifiants. Attribuez une cible à un dossier depuis le menu du dossier dans la liste des clusters.",
   'shares.name': "Nom",
   'shares.uri': "URI du partage",
   'shares.uri_hint': "smb://nas.local/backups/hypercore (recommandé) ou nfs://nas.local/export. Chaque dossier y obtient son propre sous-dossier.",
@@ -841,7 +845,7 @@ window.LANG = {
   'ex.pol_remove_member': "Retirer",
   'ex.pol_no_members': "Aucune VM dans cette planification pour l'instant.",
   'ex.pol_add_from': "Ajouter des VM de {cluster}",
-  'ex.pol_add_hint': "Sélectionnez un autre cluster du dossier dans la barre latérale pour ajouter ses VM. Une VM n'est que dans une planification à la fois : l'ajouter la déplace ici, et son propre plan rejoint cette planification en gardant ses sauvegardes.",
+  'ex.pol_add_hint': "Sélectionnez un autre cluster du dossier dans la liste des clusters pour ajouter ses VM. Une VM n'est que dans une planification à la fois : l'ajouter la déplace ici, et son propre plan rejoint cette planification en gardant ses sauvegardes.",
   'ex.pol_moves_from': "quitte la planification {name}",
   'ex.pol_joins_own_plan': "son propre plan ({mode}) rejoint cette planification",
   'ex.pol_add_selected': "Ajouter la sélection",
@@ -862,7 +866,7 @@ window.LANG = {
   'ex.f_full_every': "Complète toutes les N exécutions",
   'ex.f_retention_days': "Conserver (jours, optionnel)",
   'ex.full_every': "complète toutes les {n}",
-  'ex.points_title': "POINTS DE RESTAURATION",
+  'ex.points_title': "Points de restauration",
   'ex.no_points': "Aucun point de restauration pour le moment.",
   'ex.scope_folder': "Dossier {folder} · {n} clusters : les sauvegardes couvrent tout le dossier",
   'ex.scope_show': "Afficher",
@@ -886,7 +890,7 @@ window.LANG = {
   'ex.col_verified': "Vérifié",
   'ex.point_full': "complète",
   'ex.point_delta': "incrémentale",
-  'proxies.title': "PROXYS DE SAUVEGARDE",
+  'proxies.title': "Proxys de sauvegarde",
   'proxies.subtitle': "Un par cluster (ou plus). Le proxy lit les clones d'instantanés et écrit les chaînes de sauvegarde ; il doit tourner sur une VM de ce cluster.",
   'proxies.add': "Enregistrer un proxy",
   'proxies.none': "Aucun proxy enregistré. Sans proxy, les plans utilisent l'export natif HyperCore.",
@@ -929,7 +933,7 @@ window.LANG = {
   'ex.r_verify_hint': "Relit chaque fichier de la chaîne jusqu'à ce point et le compare aux sommes de contrôle écrites lors de la sauvegarde. Dernière vérification : {when}. À ignorer seulement si une vérification récente a réussi et que le temps presse.",
   'ex.r_confirm': "Restaurer ce point sous le nom '{name}' ?",
   'ex.r_started': "Restauration démarrée. Suivez la progression dans Exécutions.",
-  'ex.restores_title': "RESTAURATIONS",
+  'ex.restores_title': "Restaurations",
 
   'ex.files': "Fichiers",
   'ex.flr_title': "Fichiers du point de restauration n° {seq} ({date})",
@@ -1316,7 +1320,7 @@ window.LANG = {
   've.st_cancelled': "annulée",
 
   // roles and access (plans/PLAN-roles.md)
-  'acc.title': "ACCÈS",
+  'acc.title': "Accès",
   'acc.tab_users': "Utilisateurs",
   'acc.tab_groups': "Groupes",
   'acc.tab_roles': "Rôles",

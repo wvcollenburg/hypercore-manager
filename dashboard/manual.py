@@ -77,32 +77,38 @@ def page(title: str, body_html: str, nav: list[dict], current: str, version: str
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(title)} · HyperCore Manager manual</title>
+<link rel="stylesheet" href="/static/vendor/fonts.css">
+<link rel="stylesheet" href="/static/theme.css">
+<script src="/static/theme.js"></script>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <style>
-:root {{ --bg: #0b1220; --card: #111a2b; --line: #1f2a3f; --text: #e5e9f0; --muted: #94a3b8; --accent: #38bdf8; }}
 * {{ box-sizing: border-box; }}
-body {{ margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 -apple-system, "Segoe UI", Roboto, sans-serif; }}
-header {{ display: flex; align-items: center; gap: 16px; padding: 12px 24px; border-bottom: 1px solid var(--line); background: var(--card); position: sticky; top: 0; }}
-header .brand {{ font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 700; letter-spacing: .02em; }}
-header .brand span {{ color: var(--accent); }}
-header a {{ color: var(--muted); text-decoration: none; font-size: 13px; }}
+body {{ margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--font-ui); }}
+header {{ display: flex; align-items: center; gap: 16px; padding: 0 24px; height: 52px; background: var(--bar); color: var(--bar-ink); position: sticky; top: 0; z-index: 5; }}
+header .brand {{ display: flex; align-items: center; gap: 9px; font-weight: 600; }}
+header .brand::before {{ content: 'H'; width: 22px; height: 22px; border-radius: 5px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-size: 12px; }}
+header .brand span {{ color: var(--bar-ink-2); font-weight: 400; }}
+header a {{ color: var(--bar-ink-2); text-decoration: none; font-size: 13px; }}
+header a:hover {{ color: var(--bar-ink); }}
 .wrap {{ display: grid; grid-template-columns: 260px 1fr; gap: 32px; max-width: 1200px; margin: 0 auto; padding: 24px; }}
-nav {{ position: sticky; top: 72px; align-self: start; display: flex; flex-direction: column; gap: 4px; }}
-nav a {{ color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: 6px; font-size: 14px; }}
-nav a.cur, nav a:hover {{ background: var(--card); color: var(--text); }}
-main {{ min-width: 0; }}
-main img {{ max-width: 100%; border: 1px solid var(--line); border-radius: 8px; margin: 8px 0 16px; }}
+nav {{ position: sticky; top: 76px; align-self: start; display: flex; flex-direction: column; gap: 2px; }}
+nav a {{ color: var(--ink-2); text-decoration: none; padding: 6px 10px; border-radius: 6px; font-size: 14px; }}
+nav a:hover {{ background: var(--row-hover); color: var(--ink); }}
+nav a.cur {{ background: var(--accent-tint); color: var(--accent-2); font-weight: 500; }}
+main {{ min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 8px 32px 32px; }}
+main img {{ max-width: 100%; border: 1px solid var(--border); border-radius: 8px; margin: 8px 0 16px; }}
 main h1, main h2, main h3 {{ line-height: 1.25; }}
-main h1 {{ font-size: 28px; margin-top: 0; }}
-main h2 {{ font-size: 20px; margin-top: 32px; border-top: 1px solid var(--line); padding-top: 16px; }}
-main a {{ color: var(--accent); }}
-main code {{ background: var(--card); padding: 1px 5px; border-radius: 4px; font-size: 13px; }}
-main pre {{ background: var(--card); padding: 12px 14px; border-radius: 8px; overflow: auto; }}
+main h1 {{ font-size: 28px; margin-top: 24px; }}
+main h2 {{ font-size: 20px; margin-top: 32px; border-top: 1px solid var(--border); padding-top: 16px; }}
+main a {{ color: var(--accent-2); }}
+main code {{ font-family: var(--font-mono); background: var(--surface-3); padding: 1px 5px; border-radius: 4px; font-size: 13px; }}
+main pre {{ background: var(--surface-2); border: 1px solid var(--border); padding: 12px 14px; border-radius: 8px; overflow: auto; }}
 main pre code {{ padding: 0; background: none; }}
 main table {{ border-collapse: collapse; margin: 12px 0; width: 100%; font-size: 14px; }}
-main th, main td {{ border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }}
-main th {{ background: var(--card); color: var(--muted); font-weight: 600; }}
-main blockquote {{ border-left: 3px solid var(--accent); margin: 0; padding: 4px 14px; color: var(--muted); }}
-@media (max-width: 860px) {{ .wrap {{ grid-template-columns: 1fr; }} nav {{ position: static; flex-direction: row; flex-wrap: wrap; }} }}
+main th, main td {{ border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }}
+main th {{ background: var(--surface-2); color: var(--ink-2); font-weight: 600; }}
+main blockquote {{ border-left: 3px solid var(--accent); margin: 0; padding: 4px 14px; color: var(--ink-2); }}
+@media (max-width: 860px) {{ .wrap {{ grid-template-columns: 1fr; }} nav {{ position: static; flex-direction: row; flex-wrap: wrap; }} main {{ padding: 8px 16px 24px; }} }}
 </style></head>
 <body><header><div class="brand">HyperCore <span>Manager</span> · manual</div><a href="/">← back to the dashboard</a>{f'<a style="margin-left:auto">{html.escape(version)}</a>' if version else ''}</header>
 <div class="wrap"><nav>{items}<a href="/manual/administration">Administration guide</a></nav><main>{body_html}</main></div>

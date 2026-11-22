@@ -26,7 +26,7 @@ The optional **Foresight** module extends the platform with long-range capacity 
   - `node_<suffix>` — Pin a VM to a specific node (e.g. `node_241` pins to the node whose IP ends in `.241`)
   - `anti_<vm_name>` — Prevent two VMs from sharing the same node (e.g. `anti_dc02` on `dc01`)
 - **Clusters configured in the tool** — Register one or more HyperCore clusters from the dashboard, in a folder of the tenant tree (Settings → Access → Tenants), by an installation, MSP or customer admin. Credentials are stored encrypted in PostgreSQL; nothing cluster-specific lives in `.env`. Every view, setting and Foresight analysis is per cluster, and the same physical cluster registered twice is detected and only balanced once.
-- **Tenants, roles and access** — Clusters live in folders under customers and MSPs, shown in the sidebar rail (collapsible, colour-coded, searchable by folder, cluster name or address). Access is a role on a place: the installation, an MSP, a customer, a folder, a cluster, the VMs with a tag, or one VM. Five built-in roles (Admin, Engineer, App Manager, Backup Manager, Viewer) can be copied into your own; groups, invitations by mail, an audit log, and one-time guest console access for someone outside. Nobody hands out rights they do not hold.
+- **Tenants, roles and access** — Clusters live in folders under customers and MSPs, shown in the cluster switcher in the top bar (collapsible, colour-coded, searchable by folder, cluster name or address). Access is a role on a place: the installation, an MSP, a customer, a folder, a cluster, the VMs with a tag, or one VM. Five built-in roles (Admin, Engineer, App Manager, Backup Manager, Viewer) can be copied into your own; groups, invitations by mail, an audit log, and one-time guest console access for someone outside. Nobody hands out rights they do not hold.
 - **VM management and console** — Edit a VM's settings and power state, create VMs (also from a cloud image with cloud-init), take snapshots and clones, now or at a scheduled time, with the change history kept. Open a VM's console in the browser through HCM (no HyperCore session handed out), with every session logged. An optional check takes console screenshots and warns when a console was left logged in.
 - **Cluster alerts** — HyperCore's own conditions (failed drive, node low on memory), terminated updates, open console sessions and backup problems as badges on the cluster card, with mute and history.
 - **Live Configuration** — All tunable settings are stored in a shared PostgreSQL database. Change any parameter through the dashboard UI at runtime — no container restarts required.
@@ -72,7 +72,7 @@ The optional **Foresight** module extends the platform with long-range capacity 
    └───────▲──────────┘   └───────────────────────▲────────────────────────┘
            │                                      │
    ┌───────┴──────────────────────────────────────┴────────────────────────┐
-   │  Dashboard (port 5000): cluster rail with folders, Infraviewer,       │
+   │  Dashboard (port 5000): cluster switcher with folders, Infraviewer,   │
    │  Clusterbalancer, Foresight, Backup, Settings, in-app updater         │
    └───────────────────────────────────────────────────────────────────────┘
 ```
@@ -87,7 +87,7 @@ so clusters can be added, disabled or removed independently.
 | **Balancer**   | Decision engine — affinity, reactive, and predictive modes               |
 | **InfluxDB**   | Time-series metrics storage with 1-year detailed + 5-year long-term retention |
 | **PostgreSQL** | Config store and Foresight conclusions database                      |
-| **Dashboard**  | Web UI: cluster rail, monitoring, live configuration, access and tenants, VM management, Foresight, Backup, mail |
+| **Dashboard**  | Web UI: cluster switcher, monitoring, live configuration, access and tenants, VM management, Foresight, Backup, mail |
 | **Sentinel**   | Foresight capacity analysis, forecasting, and REST API               |
 | **Backup**     | Backup scheduler and REST API: schedules, plans, restore points, restores, verification, test restores, imports, proxy deployment |
 | **Console**    | VM console relay for the browser, open-session check and boot checks (screen recognition) |
@@ -261,9 +261,9 @@ Affinity rules take priority over all other engines. A VM with a `node_` tag wil
 
 ## Dashboard
 
-The dashboard is a single-page application served on port 5000. The UI is available in **English, Dutch, French, and German** — pick from the language selector in the header. The currently running version is shown in a small footer at the bottom-right of every page.
+The dashboard is a single-page application served on port 5000. The UI is available in **English, Dutch, French, and German** — pick from the language selector in the top bar. The currently running version is shown in a small footer at the bottom-right of every page.
 
-The left-hand **cluster rail** lists folders and clusters (collapsible, colour-coded, with a search box that matches folder names, cluster names and addresses). The selected cluster drives every tab; breadcrumbs in the header show where you are. Pages show state; adding or changing something opens a dialog. What a user sees depends on their roles: a panel or button they may not use is not shown, and the server checks every call anyway.
+The **cluster switcher** in the top bar opens the list of folders and clusters (collapsible, colour-coded, with a search box that matches folder names, cluster names and addresses); its button also counts alerts on your other clusters. The selected cluster drives every tab; breadcrumbs under the top bar show where you are. The dashboard follows the system's light or dark setting, and **☾ Dark / ☀ Light** in the top bar overrides it. Pages show state; adding or changing something opens a dialog. What a user sees depends on their roles: a panel or button they may not use is not shown, and the server checks every call anyway.
 
 | Area | Contents |
 |------|----------|
@@ -291,7 +291,7 @@ Screenshots were taken on a three-node lab cluster; the [user manual](docs/manua
 
 Access is given as roles on places in the tenant tree (Settings → Access): an MSP admin manages
 their customers, a customer admin their folders, a Backup Manager restores without editing VMs, a
-Viewer only looks. Folder menus in the rail (the "⋯" button) move clusters between folders, open the
+Viewer only looks. Folder menus in the cluster list (the "⋯" button) move clusters between folders, open the
 folder's access and assign a backup target. See [docs/administration.md](docs/administration.md) for
 the full walkthrough.
 
@@ -340,7 +340,7 @@ available as a plan mode.
 
 - **Targets (admin).** Settings → Targets holds the share URIs (`smb://nas.local/share/path` or
   `nfs://nas.local/export/path`) and their credentials, stored encrypted. A target is assigned to a
-  folder from the folder's menu in the rail: one target for everyone, or one per tenant, as you
+  folder from the folder's menu in the cluster list: one target for everyone, or one per tenant, as you
   prefer. Users never see a path or a password; a location is shown as `Target / Folder / vm`.
 - **Schedules.** Back up many VMs of a folder on one timetable: daily, weekly, monthly, hourly or any
   RRULE, with blackout periods and real or synthetic fulls on chosen days. Each VM's duration is learned
@@ -352,7 +352,7 @@ available as a plan mode.
   copies from the cluster's own folder. The tenant folder is created over SMB when missing;
   HyperCore creates the VM folder itself. Spaces in folder names become underscores on the share.
   Clusters without a folder use `no_folder` and the target flagged as default for them (the "No
-  folder" group in the rail has the same Backup target menu).
+  folder" group in the cluster list has the same Backup target menu).
 - **Retention.** After a successful run, older copies of that VM beyond the retention count are
   deleted, oldest first. SMB targets are pruned over the protocol with the stored credentials; for
   NFS, bind-mount the share into the `backup` container and set the prune path on the target.

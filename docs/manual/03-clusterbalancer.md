@@ -9,8 +9,8 @@ did and lets you tune it; the engines themselves run in the balancer container.
 
 A newly registered cluster starts in **dry-run**: the balancer analyses, decides and logs every
 move it would make, but moves nothing. Leave it there for a day or two and read the migration
-log. When the decisions look right, switch `DRY_RUN` off under Balancer Settings. The rail shows
-DRY RUN or LIVE under every cluster so there is never a doubt which mode you are in.
+log. When the decisions look right, switch `DRY_RUN` off under Balancer Settings. The cluster list shows
+Dry run or Live under every cluster so there is never a doubt which mode you are in.
 
 Only one installation may balance a given cluster live. If a second HyperCore Manager points at
 the same cluster, keep its balancer in dry-run, otherwise the two move VMs against each other.

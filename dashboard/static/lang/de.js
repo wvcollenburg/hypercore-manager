@@ -460,7 +460,7 @@ window.LANG = {
 
   // cluster registry, selection rail, onboarding
   'clusters.rail_title': "Cluster",
-  'clusters.title': "CLUSTER",
+  'clusters.title': "Cluster",
   'clusters.subtitle': "Von dieser Installation verwaltete HyperCore-Cluster",
   'clusters.add': "Cluster hinzufügen",
   'clusters.name': "Name",
@@ -501,7 +501,7 @@ window.LANG = {
   'clusters.none_yet': "Noch keine Cluster registriert.",
 
   // cluster rail badges, duplicate warning, settings target
-  'clusters.mode_dry': "TESTLAUF",
+  'clusters.mode_dry': "Testlauf",
   'clusters.mode_live': "LIVE",
   'clusters.health': "Foresight-Gesundheitswert",
   'clusters.dup_short': "Gleicher HyperCore-Cluster wie ein anderer Eintrag",
@@ -553,6 +553,10 @@ window.LANG = {
 
   'nav.account': "Konto",
   'nav.manual': "Handbuch",
+  'nav.sign_out': "Abmelden",
+  'theme.to_dark': "☾ Dunkel",
+  'theme.to_light': "☀ Hell",
+  'clusters.alerts_elsewhere': "{n} kritische oder Warnmeldung(en) auf anderen Clustern",
 
   'settings.admin_only': "Einstellungen stehen nur Administratoren zur Verf\u00fcgung.",
 
@@ -635,7 +639,7 @@ window.LANG = {
   'ex.f_destination_required': "Ein Ziel ist erforderlich.",
   'ex.schedule_created': "Täglicher Backup-Plan für '{name}' angelegt.",
   'ex.admin_only': "Imports können nur Administratoren starten.",
-  'ex.import_title': "EINE VM IMPORTIEREN",
+  'ex.import_title': "Eine VM importieren",
   'ex.import_target': "Zielcluster: {cluster}",
   'ex.i_known': "Gespeicherter Ort",
   'ex.i_manual': "Ort manuell eingeben",
@@ -653,8 +657,8 @@ window.LANG = {
   'ex.i_confirm': "Import in den ausgewählten Cluster starten?",
   'ex.i_starting': "Starte…",
   'ex.i_started': "Import gestartet. Fortschritt unter Läufe.",
-  'ex.runs_title': "BACKUP-LÄUFE",
-  'ex.imports_title': "IMPORTE",
+  'ex.runs_title': "Backup-Läufe",
+  'ex.imports_title': "Importe",
   'ex.show_all': "Alle anzeigen",
   'ex.col_source': "Quelle",
   'ex.col_started': "Gestartet",
@@ -684,8 +688,8 @@ window.LANG = {
 
   // export shares (admin) and folder assignment
   'settings.tab.shares': "Ziele",
-  'shares.title': "BACKUP-ZIELE",
-  'shares.subtitle': "Wohin Backups gehen: SMB- oder NFS-Freigaben mit ihren Zugangsdaten. Weisen Sie einem Ordner ein Ziel über das Ordnermenü in der Seitenleiste zu.",
+  'shares.title': "Backup-Ziele",
+  'shares.subtitle': "Wohin Backups gehen: SMB- oder NFS-Freigaben mit ihren Zugangsdaten. Weisen Sie einem Ordner ein Ziel über das Ordnermenü in der Clusterliste zu.",
   'shares.name': "Name",
   'shares.uri': "Freigabe-URI",
   'shares.uri_hint': "smb://nas.local/backups/hypercore (empfohlen) oder nfs://nas.local/export. Jeder Ordner erhält hier einen eigenen Unterordner.",
@@ -841,7 +845,7 @@ window.LANG = {
   'ex.pol_remove_member': "Entfernen",
   'ex.pol_no_members': "Noch keine VMs in diesem Zeitplan.",
   'ex.pol_add_from': "VMs von {cluster} hinzufügen",
-  'ex.pol_add_hint': "Wählen Sie in der Seitenleiste einen anderen Cluster des Ordners, um dessen VMs hinzuzufügen. Eine VM ist jeweils nur in einem Zeitplan: Das Hinzufügen verschiebt sie hierher, und ihr eigener Plan geht mit erhaltenen Backups in diesen Zeitplan über.",
+  'ex.pol_add_hint': "Wählen Sie in der Clusterliste einen anderen Cluster des Ordners, um dessen VMs hinzuzufügen. Eine VM ist jeweils nur in einem Zeitplan: Das Hinzufügen verschiebt sie hierher, und ihr eigener Plan geht mit erhaltenen Backups in diesen Zeitplan über.",
   'ex.pol_moves_from': "wechselt aus Zeitplan {name}",
   'ex.pol_joins_own_plan': "sein eigener Plan ({mode}) geht in diesen Zeitplan über",
   'ex.pol_add_selected': "Auswahl hinzufügen",
@@ -862,7 +866,7 @@ window.LANG = {
   'ex.f_full_every': "Vollbackup alle N Läufe",
   'ex.f_retention_days': "Aufbewahren in Tagen (optional)",
   'ex.full_every': "voll alle {n}",
-  'ex.points_title': "WIEDERHERSTELLUNGSPUNKTE",
+  'ex.points_title': "Wiederherstellungspunkte",
   'ex.no_points': "Noch keine Wiederherstellungspunkte.",
   'ex.scope_folder': "Ordner {folder} · {n} Cluster: Backups gelten für den ganzen Ordner",
   'ex.scope_show': "Anzeigen",
@@ -886,7 +890,7 @@ window.LANG = {
   'ex.col_verified': "Geprüft",
   'ex.point_full': "voll",
   'ex.point_delta': "inkrementell",
-  'proxies.title': "BACKUP-PROXYS",
+  'proxies.title': "Backup-Proxys",
   'proxies.subtitle': "Einer pro Cluster (oder mehr). Der Proxy liest Snapshot-Klone und schreibt die Backup-Ketten; er muss auf einer VM in diesem Cluster laufen.",
   'proxies.add': "Proxy registrieren",
   'proxies.none': "Keine Proxys registriert. Ohne Proxy nutzen Pläne den nativen HyperCore-Export.",
@@ -929,7 +933,7 @@ window.LANG = {
   'ex.r_verify_hint': "Liest jede Datei der Kette bis zu diesem Punkt erneut und vergleicht sie mit den Prüfsummen aus der Sicherung. Zuletzt geprüft: {when}. Nur überspringen, wenn eine aktuelle Prüfung bestanden hat und die Zeit drängt.",
   'ex.r_confirm': "Diesen Punkt als '{name}' wiederherstellen?",
   'ex.r_started': "Wiederherstellung gestartet. Fortschritt unter Läufe.",
-  'ex.restores_title': "WIEDERHERSTELLUNGEN",
+  'ex.restores_title': "Wiederherstellungen",
 
   'ex.files': "Dateien",
   'ex.flr_title': "Dateien des Wiederherstellungspunkts #{seq} ({date})",
@@ -1316,7 +1320,7 @@ window.LANG = {
   've.st_cancelled': "abgebrochen",
 
   // roles and access (plans/PLAN-roles.md)
-  'acc.title': "ZUGRIFF",
+  'acc.title': "Zugriff",
   'acc.tab_users': "Benutzer",
   'acc.tab_groups': "Gruppen",
   'acc.tab_roles': "Rollen",

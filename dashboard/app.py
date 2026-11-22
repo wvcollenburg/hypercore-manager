@@ -77,6 +77,22 @@ CORS(app)
 app.config['SOCK_SERVER_OPTIONS'] = {'ping_interval': 25, 'max_message_size': None}
 sock = Sock(app)
 
+
+@app.template_global()
+def theme_inline():
+    """theme.css and theme.js written into the page, for pages a guest opens: only /guest/ is published to
+    outsiders, so those pages cannot load /static/. Read once per process."""
+    cached = getattr(theme_inline, '_cached', None)
+    if cached is None:
+        from markupsafe import Markup
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+        with open(os.path.join(base, 'theme.css'), encoding='utf-8') as f:
+            css = f.read()
+        with open(os.path.join(base, 'theme.js'), encoding='utf-8') as f:
+            js = f.read()
+        cached = theme_inline._cached = Markup(f'<style>{css}</style>\n<script>{js}</script>')
+    return cached
+
 # seed tunables DB from env vars on first run (no-op if already seeded)
 config_db.seed_from_env()
 

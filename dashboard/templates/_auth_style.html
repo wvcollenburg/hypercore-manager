@@ -1,169 +1,97 @@
-{# the look of the login and invitation pages (login.html, invite.html) #}
+{# the look of the login, invitation and account pages (login.html, invite.html, account.html): theme.css tokens,
+   so they follow the same light/dark choice as the dashboard #}
+<link rel="stylesheet" href="/static/vendor/fonts.css">
+<link rel="stylesheet" href="/static/theme.css">
+<script src="/static/theme.js"></script>
 <style>
-  :root {
-    --bg-primary:    #0a0e14;
-    --bg-card:       #151c27;
-    --bg-input:      #0d1219;
-    --border:        #1e2a3a;
-    --border-active: #2d4a6f;
-    --text-primary:  #f4f7fa;
-    --text-secondary:#c0d0e0;
-    --text-muted:    #7a9ab0;
-    --accent-blue:   #3b82f6;
-    --accent-hover:  #2563eb;
-    --error:         #ef4444;
-    --error-bg:      #1f0a0a;
-    --error-border:  #7f1d1d;
-  }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    background: radial-gradient(ellipse at top, #121a26 0%, var(--bg-primary) 60%);
-    color: var(--text-primary);
-    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-ui);
     font-size: 14px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-    gap: 1.5rem;
+    gap: 1.25rem;
+    padding: 16px;
   }
 
-  .brand {
-    text-align: center;
-    color: var(--text-muted);
-    font-size: 12px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-  }
-  .brand strong {
-    display: block;
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    letter-spacing: 0.04em;
-    margin-bottom: 2px;
-  }
+  .brand { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--ink-3); font-size: 13px; text-align: center; }
+  .brand::before { content: 'H'; width: 40px; height: 40px; border-radius: 9px; background: var(--accent); color: var(--on-accent);
+    display: grid; place-items: center; font-weight: 600; font-size: 20px; }
+  .brand strong { display: block; font-size: 20px; font-weight: 600; color: var(--ink); }
 
   .card {
-    background: rgba(21, 28, 39, 0.85);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
+    box-shadow: var(--shadow-md);
     padding: 2rem;
     width: 100%;
-    max-width: 360px;
+    max-width: 380px;
   }
 
-  .card-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 0.35rem;
-  }
-  .card-sub {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-bottom: 1.5rem;
-  }
+  .card-title { font-size: 16px; font-weight: 600; color: var(--ink); margin-bottom: 0.35rem; }
+  .card-sub { font-size: 13px; color: var(--ink-3); margin-bottom: 1.5rem; }
 
-  .field {
-    margin-bottom: 1rem;
-  }
-  label {
-    display: block;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    margin-bottom: 0.4rem;
-    letter-spacing: 0.02em;
-  }
+  .field { margin-bottom: 1rem; }
+  label { display: block; font-size: 12px; font-weight: 500; color: var(--ink-2); margin-bottom: 0.4rem; }
   input[type="text"],
   input[type="email"],
   input[type="password"] {
     width: 100%;
-    background: var(--bg-input);
-    border: 1px solid var(--border);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
     border-radius: 6px;
-    color: var(--text-primary);
+    color: var(--ink);
     font-size: 14px;
     padding: 0.55rem 0.75rem;
     outline: none;
-    transition: border-color 0.15s;
+    transition: border-color 0.15s, box-shadow 0.15s;
   }
   input[type="text"]:focus,
   input[type="email"]:focus,
-  input[type="password"]:focus {
-    border-color: var(--border-active);
-  }
-  input::placeholder {
-    color: var(--text-muted);
-    opacity: 0.6;
-  }
+  input[type="password"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
+  input::placeholder { color: var(--ink-3); opacity: 0.8; }
 
-  /* OTP digit field — wider, centered, tracking */
-  .otp-field input {
-    letter-spacing: 0.3em;
-    text-align: center;
-    font-size: 18px;
-    font-variant-numeric: tabular-nums;
-  }
+  /* OTP digit field: wider, centred, tracking */
+  .otp-field input { letter-spacing: 0.3em; text-align: center; font-size: 18px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
   .error-box {
-    background: var(--error-bg);
-    border: 1px solid var(--error-border);
+    background: var(--bad-bg);
+    border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent);
     border-radius: 6px;
-    color: var(--error);
-    font-size: 12px;
+    color: var(--bad);
+    font-size: 13px;
     padding: 0.6rem 0.75rem;
     margin-bottom: 1rem;
   }
 
   button[type="submit"] {
     width: 100%;
-    background: var(--accent-blue);
-    border: none;
+    background: var(--accent);
+    border: 1px solid var(--accent);
     border-radius: 6px;
-    color: #fff;
+    color: var(--on-accent);
     cursor: pointer;
     font-size: 14px;
-    font-weight: 600;
+    font-weight: 500;
     padding: 0.6rem 1rem;
-    transition: background 0.15s;
+    transition: filter 0.15s;
     margin-top: 0.25rem;
   }
-  button[type="submit"]:hover { background: var(--accent-hover); }
+  button[type="submit"]:hover { filter: brightness(1.08); }
   button[type="submit"]:active { opacity: 0.85; }
 
-  .back-link {
-    text-align: center;
-    margin-top: 1rem;
-    font-size: 12px;
-    color: var(--text-muted);
-  }
-  .back-link a {
-    color: var(--accent-blue);
-    text-decoration: none;
-  }
+  .back-link { text-align: center; margin-top: 1rem; font-size: 13px; color: var(--ink-3); }
+  .back-link a { color: var(--accent-2); text-decoration: none; }
   .back-link a:hover { text-decoration: underline; }
 
-  .otp-hint {
-    font-size: 11px;
-    color: var(--text-muted);
-    margin-top: 0.4rem;
-  }
+  .otp-hint { font-size: 12px; color: var(--ink-3); margin-top: 0.4rem; }
 
-  footer {
-    font-size: 11px;
-    color: var(--text-muted);
-    opacity: 0.7;
-    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
-  }
-
-  .brand {
-    text-shadow: 0 1px 4px rgba(0,0,0,0.9);
-  }
-
+  footer { font-size: 12px; color: var(--ink-3); }
 </style>

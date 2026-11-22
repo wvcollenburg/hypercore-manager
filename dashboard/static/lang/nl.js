@@ -460,7 +460,7 @@ window.LANG = {
 
   // cluster registry, selection rail, onboarding
   'clusters.rail_title': "Clusters",
-  'clusters.title': "CLUSTERS",
+  'clusters.title': "Clusters",
   'clusters.subtitle': "HyperCore-clusters die door deze installatie worden beheerd",
   'clusters.add': "Cluster toevoegen",
   'clusters.name': "Naam",
@@ -501,7 +501,7 @@ window.LANG = {
   'clusters.none_yet': "Nog geen clusters geregistreerd.",
 
   // cluster rail badges, duplicate warning, settings target
-  'clusters.mode_dry': "DRY RUN",
+  'clusters.mode_dry': "Dry run",
   'clusters.mode_live': "LIVE",
   'clusters.health': "Foresight-gezondheidsscore",
   'clusters.dup_short': "Zelfde HyperCore-cluster als een andere registratie",
@@ -553,6 +553,10 @@ window.LANG = {
 
   'nav.account': "Account",
   'nav.manual': "Handleiding",
+  'nav.sign_out': "Afmelden",
+  'theme.to_dark': "☾ Donker",
+  'theme.to_light': "☀ Licht",
+  'clusters.alerts_elsewhere': "{n} kritieke of waarschuwingsmelding(en) op andere clusters",
 
   'settings.admin_only': "Instellingen zijn alleen beschikbaar voor beheerders.",
 
@@ -635,7 +639,7 @@ window.LANG = {
   'ex.f_destination_required': "Een bestemming is verplicht.",
   'ex.schedule_created': "Dagelijks back-upplan aangemaakt voor '{name}'.",
   'ex.admin_only': "Alleen beheerders kunnen imports starten.",
-  'ex.import_title': "EEN VM IMPORTEREN",
+  'ex.import_title': "Een VM importeren",
   'ex.import_target': "Doelcluster: {cluster}",
   'ex.i_known': "Opgeslagen locatie",
   'ex.i_manual': "Locatie handmatig invoeren",
@@ -653,8 +657,8 @@ window.LANG = {
   'ex.i_confirm': "De import naar het geselecteerde cluster starten?",
   'ex.i_starting': "Starten…",
   'ex.i_started': "Import gestart. Volg de voortgang onder Uitvoeringen.",
-  'ex.runs_title': "BACK-UPUITVOERINGEN",
-  'ex.imports_title': "IMPORTS",
+  'ex.runs_title': "Back-upuitvoeringen",
+  'ex.imports_title': "Imports",
   'ex.show_all': "Alles tonen",
   'ex.col_source': "Bron",
   'ex.col_started': "Gestart",
@@ -684,8 +688,8 @@ window.LANG = {
 
   // export shares (admin) and folder assignment
   'settings.tab.shares': "Doelen",
-  'shares.title': "BACK-UPDOELEN",
-  'shares.subtitle': "Waar back-ups naartoe gaan: SMB- of NFS-shares met hun inloggegevens. Wijs een doel toe aan een map via het mapmenu in de zijbalk.",
+  'shares.title': "Back-updoelen",
+  'shares.subtitle': "Waar back-ups naartoe gaan: SMB- of NFS-shares met hun inloggegevens. Wijs een doel toe aan een map via het mapmenu in de clusterlijst.",
   'shares.name': "Naam",
   'shares.uri': "Share-URI",
   'shares.uri_hint': "smb://nas.local/backups/hypercore (aanbevolen) of nfs://nas.local/export. Elke map krijgt hier een eigen submap.",
@@ -703,7 +707,7 @@ window.LANG = {
   'shares.assign_title': "Back-updoel voor deze map",
   'shares.unassign': "Geen doel",
   'shares.none_assigned': "geen",
-  'ex.no_share': "Aan de map van dit cluster is geen back-updoel toegewezen. Een beheerder voegt er een toe onder Instellingen → Doelen en wijst het toe via het mapmenu in de zijbalk.",
+  'ex.no_share': "Aan de map van dit cluster is geen back-updoel toegewezen. Een beheerder voegt er een toe onder Instellingen → Doelen en wijst het toe via het mapmenu in de clusterlijst.",
   'ex.location_line': "Back-ups gaan naar {path}",
   'ex.i_from': "Importeren vanaf {path}",
 
@@ -841,7 +845,7 @@ window.LANG = {
   'ex.pol_remove_member': "Verwijderen",
   'ex.pol_no_members': "Nog geen VM's in dit schema.",
   'ex.pol_add_from': "VM's van {cluster} toevoegen",
-  'ex.pol_add_hint': "Kies een ander cluster van de map in de zijbalk om de VM's daarvan toe te voegen. Een VM zit in één schema tegelijk: toevoegen verplaatst hem hierheen, en zijn eigen plan gaat met behoud van back-ups op in dit schema.",
+  'ex.pol_add_hint': "Kies een ander cluster van de map in de clusterlijst om de VM's daarvan toe te voegen. Een VM zit in één schema tegelijk: toevoegen verplaatst hem hierheen, en zijn eigen plan gaat met behoud van back-ups op in dit schema.",
   'ex.pol_moves_from': "verhuist van schema {name}",
   'ex.pol_joins_own_plan': "zijn eigen plan ({mode}) gaat op in dit schema",
   'ex.pol_add_selected': "Selectie toevoegen",
@@ -862,7 +866,7 @@ window.LANG = {
   'ex.f_full_every': "Volledig elke N runs",
   'ex.f_retention_days': "Bewaren in dagen (optioneel)",
   'ex.full_every': "volledig elke {n}",
-  'ex.points_title': "HERSTELPUNTEN",
+  'ex.points_title': "Herstelpunten",
   'ex.no_points': "Nog geen herstelpunten.",
   'ex.scope_folder': "Map {folder} · {n} clusters: back-ups gelden voor de hele map",
   'ex.scope_show': "Tonen",
@@ -886,7 +890,7 @@ window.LANG = {
   'ex.col_verified': "Gecontroleerd",
   'ex.point_full': "volledig",
   'ex.point_delta': "incrementeel",
-  'proxies.title': "BACK-UPPROXY’S",
+  'proxies.title': "Back-upproxy’s",
   'proxies.subtitle': "Eén per cluster (of meer). De proxy leest snapshot-klonen en schrijft de back-upketens; hij moet op een VM in dat cluster draaien.",
   'proxies.add': "Proxy registreren",
   'proxies.none': "Geen proxy’s geregistreerd. Zonder proxy gebruiken plannen de native HyperCore-export.",
@@ -929,7 +933,7 @@ window.LANG = {
   'ex.r_verify_hint': "Leest elk bestand van de keten tot en met dit punt opnieuw en vergelijkt het met de controlesommen van de back-up. Laatst gecontroleerd: {when}. Sla dit alleen over als een recente controle slaagde en tijd telt.",
   'ex.r_confirm': "Dit punt herstellen als '{name}'?",
   'ex.r_started': "Herstel gestart. Volg de voortgang onder Uitvoeringen.",
-  'ex.restores_title': "HERSTELACTIES",
+  'ex.restores_title': "Herstelacties",
 
   'ex.files': "Bestanden",
   'ex.flr_title': "Bestanden van herstelpunt #{seq} ({date})",
@@ -1316,7 +1320,7 @@ window.LANG = {
   've.st_cancelled': "geannuleerd",
 
   // roles and access (plans/PLAN-roles.md)
-  'acc.title': "TOEGANG",
+  'acc.title': "Toegang",
   'acc.tab_users': "Gebruikers",
   'acc.tab_groups': "Groepen",
   'acc.tab_roles': "Rollen",

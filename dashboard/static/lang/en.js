@@ -461,7 +461,7 @@ window.LANG = {
 
   // cluster registry, selection rail, onboarding
   'clusters.rail_title': "Clusters",
-  'clusters.title': "CLUSTERS",
+  'clusters.title': "Clusters",
   'clusters.subtitle': "HyperCore clusters managed by this installation",
   'clusters.add': "Add cluster",
   'clusters.name': "Name",
@@ -502,7 +502,7 @@ window.LANG = {
   'clusters.none_yet': "No clusters registered yet.",
 
   // cluster rail badges, duplicate warning, settings target
-  'clusters.mode_dry': "DRY RUN",
+  'clusters.mode_dry': "Dry run",
   'clusters.mode_live': "LIVE",
   'clusters.health': "Foresight health score",
   'clusters.dup_short': "Same HyperCore cluster as another entry",
@@ -554,6 +554,10 @@ window.LANG = {
 
   'nav.account': "Account",
   'nav.manual': "Manual",
+  'nav.sign_out': "Sign out",
+  'theme.to_dark': "☾ Dark",
+  'theme.to_light': "☀ Light",
+  'clusters.alerts_elsewhere': "{n} critical or warning alert(s) on other clusters",
 
   'settings.admin_only': "Settings are available to administrators only.",
 
@@ -636,7 +640,7 @@ window.LANG = {
   'ex.f_destination_required': "A destination is required.",
   'ex.schedule_created': "Daily backup plan created for '{name}'.",
   'ex.admin_only': "Imports can be started by administrators only.",
-  'ex.import_title': "IMPORT A VM",
+  'ex.import_title': "Import a VM",
   'ex.import_target': "Target cluster: {cluster}",
   'ex.i_known': "Saved location",
   'ex.i_manual': "Enter a location manually",
@@ -654,8 +658,8 @@ window.LANG = {
   'ex.i_confirm': "Start the import into the selected cluster?",
   'ex.i_starting': "Starting…",
   'ex.i_started': "Import started. Watch progress under Runs.",
-  'ex.runs_title': "BACKUP RUNS",
-  'ex.imports_title': "IMPORTS",
+  'ex.runs_title': "Backup runs",
+  'ex.imports_title': "Imports",
   'ex.show_all': "Show all",
   'ex.col_source': "Source",
   'ex.col_started': "Started",
@@ -685,8 +689,8 @@ window.LANG = {
 
   // export shares (admin) and folder assignment
   'settings.tab.shares': "Targets",
-  'shares.title': "BACKUP TARGETS",
-  'shares.subtitle': "Where backups go: SMB or NFS shares with their credentials. Assign a target to a folder from the folder menu in the rail.",
+  'shares.title': "Backup targets",
+  'shares.subtitle': "Where backups go: SMB or NFS shares with their credentials. Assign a target to a folder from the folder menu in the cluster list.",
   'shares.name': "Name",
   'shares.uri': "Share URI",
   'shares.uri_hint': "smb://nas.local/backups/hypercore (recommended) or nfs://nas.local/export. Each folder gets its own subfolder here.",
@@ -704,7 +708,7 @@ window.LANG = {
   'shares.assign_title': "Backup target for this folder",
   'shares.unassign': "No target",
   'shares.none_assigned': "none",
-  'ex.no_share': "No backup target is assigned to this cluster's folder. An administrator adds one under Settings → Targets and assigns it from the folder's menu in the rail.",
+  'ex.no_share': "No backup target is assigned to this cluster's folder. An administrator adds one under Settings → Targets and assigns it from the folder's menu in the cluster list.",
   'ex.location_line': "Backups go to {path}",
   'ex.i_from': "Importing from {path}",
 
@@ -842,7 +846,7 @@ window.LANG = {
   'ex.pol_remove_member': "Remove",
   'ex.pol_no_members': "No VMs in this schedule yet.",
   'ex.pol_add_from': "Add VMs of {cluster}",
-  'ex.pol_add_hint': "Select another cluster of the folder in the sidebar to add its VMs. A VM is in one schedule at a time: adding it moves it here, and its own plan joins this schedule with its backups kept.",
+  'ex.pol_add_hint': "Select another cluster of the folder in the cluster list to add its VMs. A VM is in one schedule at a time: adding it moves it here, and its own plan joins this schedule with its backups kept.",
   'ex.pol_moves_from': "moves from schedule {name}",
   'ex.pol_joins_own_plan': "its own plan ({mode}) joins this schedule",
   'ex.pol_add_selected': "Add selected",
@@ -863,7 +867,7 @@ window.LANG = {
   'ex.f_full_every': "Full every N runs",
   'ex.f_retention_days': "Keep for days (optional)",
   'ex.full_every': "full every {n}",
-  'ex.points_title': "RESTORE POINTS",
+  'ex.points_title': "Restore points",
   'ex.no_points': "No restore points yet.",
   'ex.scope_folder': "Folder {folder} · {n} clusters: backups cover the whole folder",
   'ex.scope_show': "Show",
@@ -887,7 +891,7 @@ window.LANG = {
   'ex.col_verified': "Verified",
   'ex.point_full': "full",
   'ex.point_delta': "incremental",
-  'proxies.title': "BACKUP PROXIES",
+  'proxies.title': "Backup proxies",
   'proxies.subtitle': "One per cluster (or more). The proxy reads snapshot clones and writes the backup chains; it must run on a VM in that cluster.",
   'proxies.add': "Register proxy",
   'proxies.none': "No proxies registered. Without one, plans use HyperCore's native export.",
@@ -930,7 +934,7 @@ window.LANG = {
   'ex.r_verify_hint': "Re-reads every file of the chain up to this point against the checksums written at backup time. Last verified: {when}. Skip only when a recent check passed and time matters.",
   'ex.r_confirm': "Restore this point as '{name}'?",
   'ex.r_started': "Restore started. Watch progress under Runs.",
-  'ex.restores_title': "RESTORES",
+  'ex.restores_title': "Restores",
 
   'ex.files': "Files",
   'ex.flr_title': "Files of restore point #{seq} ({date})",
@@ -1317,7 +1321,7 @@ window.LANG = {
   've.st_cancelled': "cancelled",
 
   // roles and access (plans/PLAN-roles.md)
-  'acc.title': "ACCESS",
+  'acc.title': "Access",
   'acc.tab_users': "Users",
   'acc.tab_groups': "Groups",
   'acc.tab_roles': "Roles",
