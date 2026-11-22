@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.8.0]
 
 ### Changed
 - **A new look, with a light and a dark theme.** The dashboard no longer looks like a generated tool: IBM Plex
