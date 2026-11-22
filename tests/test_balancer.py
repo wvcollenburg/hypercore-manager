@@ -358,3 +358,63 @@ def test_a_task_running_past_the_deadline_is_given_up():
     client.task_states = ['RUNNING']
     lb._cycle()
     assert lb.active_task is None
+
+
+# ── the affinity pass ──
+
+def _pin_violation():
+    nodes = [node('n1', '10.0.0.241', 10.0, 8), node('n2', '10.0.0.242', 10.0, 8)]
+    return nodes, [vm('v1', 'pinned', 'n2', tags='node_241')]
+
+
+def test_a_refused_affinity_move_is_not_logged_as_done_and_waits_before_retrying():
+    """After the except the code fell through to log_event(dry_run=False), and cooldowns do not apply to
+    affinity: 3 cycles gave 3 POSTs and 3 'moved' rows."""
+    nodes, vms = _pin_violation()
+    client = _Client(nodes, vms, fail_migrate=True)
+    lb = _balancer(client, DRY_RUN=False)
+    for _ in range(3):
+        lb._cycle()
+    assert len(client.migrations) == 1, 'one attempt, then a backoff of minutes'
+    assert lb.migration_logger.events == [], 'a refused move is not logged as a migration'
+    n, until = lb._affinity_backoff['v1']
+    assert n == 1 and until - time.time() > 200
+    lb._affinity_backoff['v1'] = (1, time.time() - 1)           # backoff over: one more attempt, longer wait
+    lb._cycle()
+    assert len(client.migrations) == 2 and lb._affinity_backoff['v1'][0] == 2
+    client.fail_migrate = False
+    lb._affinity_backoff['v1'] = (2, time.time() - 1)
+    lb._cycle()
+    assert len(client.migrations) == 3 and 'v1' not in lb._affinity_backoff
+    assert [e['dry_run'] for e in lb.migration_logger.events] == [False]
+
+
+def test_a_dry_run_violation_is_reported_once_and_the_other_engines_still_run():
+    """In dry-run one violation logged 'would move' every cycle (~2,880 rows a day) and skipped the
+    reactive and predictive engines for good."""
+    nodes, vms = _pin_violation()
+    client = _Client(nodes, vms)
+    lb = _balancer(client, DRY_RUN=True)
+    lb.max_history = 1
+    reactive = []
+    real = lb.select_candidate
+    lb.select_candidate = lambda state: (reactive.append(1), real(state))[1]
+    for _ in range(5):
+        lb._cycle()
+    assert len(lb.migration_logger.events) == 1 and lb.migration_logger.events[0]['dry_run'] is True
+    assert client.migrations == []
+    assert len(reactive) == 5, 'the reactive engine ran in every cycle'
+    lb._affinity_reported['v1'] = time.time() - hb.AFFINITY_DRY_REPORT_SECONDS - 1
+    lb._cycle()
+    assert len(lb.migration_logger.events) == 2, 'a lasting violation is mentioned again after a day'
+
+
+def test_a_skipped_vm_lets_the_next_violation_through(lb):
+    nodes = [node('n1', '10.0.0.241', 10.0, 8), node('n2', '10.0.0.242', 10.0, 8)]
+    vms = [vm('v1', 'p1', 'n2', tags='node_241'), vm('v2', 'p2', 'n2', tags='node_241')]
+    state = feed(lb, nodes, vms, {})
+    usable = [u for u in state.values() if u['is_usable']]
+    first = lb.find_affinity_violation(usable)[0]['uuid']
+    second = lb.find_affinity_violation(usable, {first})[0]['uuid']
+    assert {first, second} == {'v1', 'v2'}
+    assert lb.find_affinity_violation(usable, {'v1', 'v2'}) == (None, None, None, None)

@@ -54,6 +54,11 @@ HEALTHY_RUN_SECONDS = 900           # a thread that ran this long before dying s
 # a migration task the cluster no longer reports on must not hold the balancer forever
 TASK_DEADLINE_SECONDS = 1800
 TASK_MAX_UNKNOWN = 30               # consecutive UNKNOWN/UNINITIALIZED answers (~5 min at 10 s)
+# an affinity move the cluster refused is retried for that VM after 5, 10, 20 … minutes, at most hourly
+AFFINITY_RETRY_BASE_SECONDS = 300
+AFFINITY_RETRY_MAX_SECONDS = 3600
+# in dry-run a lasting affinity violation is reported once a day, not every sample interval
+AFFINITY_DRY_REPORT_SECONDS = 86400
 
 # influxdb target for migration events — configurables
 INFLUX_URL = get_config('INFLUX_URL', "http://influxdb:8086")
@@ -215,6 +220,8 @@ class LoadBalancer:
         self.vm_cooldowns = {}
         self.last_migration_time = 0
         self.active_task = None
+        self._affinity_backoff = {}       # vm_uuid -> (refusals in a row, earliest next attempt)
+        self._affinity_reported = {}      # dry-run: vm_uuid -> when its violation was last reported
 
         self.last_predictive_run = 0
         self.reserved_nodes = {}
@@ -387,10 +394,12 @@ class LoadBalancer:
                         return vm, src, tgt, mode
         return None, None, None, primary
 
-    def find_affinity_violation(self, usable):
+    def find_affinity_violation(self, usable, skip=frozenset()):
         """
         Highest-priority pass: detect and return one remediation move for any affinity violation.
-        Bypasses migration cooldown and per-VM cooldown — affinity is always fixed first.
+        Bypasses migration cooldown and per-VM cooldown — affinity is always fixed first. VMs in
+        `skip` (a refused move waiting for its retry, or a dry-run violation already reported)
+        are not moved, so the next violation gets its turn.
 
         Checks (in priority order):
           1. Anti-affinity: VM with anti_X tag sharing a node with VM named X
@@ -427,6 +436,8 @@ class LoadBalancer:
             for blocker in sorted(target_node['vms'], key=lambda v: v['mem']):
                 if _pinned_suffix(blocker) == target_node['name'].split('.')[-1]:
                     continue  # cannot evict a VM pinned to this node
+                if blocker['uuid'] in skip:
+                    continue
                 blocker_anti = {t.strip()[5:] for t in blocker['tags'].split(',')
                                 if t.strip().startswith('anti_')}
                 for dest in sorted(usable, key=lambda n: n['avg_cpu']):
@@ -446,7 +457,7 @@ class LoadBalancer:
                 vm_anti = {t.strip()[5:] for t in vm['tags'].split(',')
                            if t.strip().startswith('anti_')}
                 conflicts = vm_anti & names_here
-                if not conflicts:
+                if not conflicts or vm['uuid'] in skip:
                     continue
 
                 self.log(1, f"[AFFINITY] VIOLATION: {vm['name']} shares {src['name']} "
@@ -476,8 +487,8 @@ class LoadBalancer:
             src_suffix = src['name'].split('.')[-1]
             for vm in src['vms']:
                 pin = _pinned_suffix(vm)
-                if not pin or pin == src_suffix:
-                    continue  # not pinned, or already on correct node
+                if not pin or pin == src_suffix or vm['uuid'] in skip:
+                    continue  # not pinned, already on correct node, or waiting
 
                 tgt = next((n for n in usable if n['name'].split('.')[-1] == pin), None)
                 if not tgt:
@@ -584,13 +595,24 @@ class LoadBalancer:
         # =================================================================
         # affinity enforcement — highest priority, bypasses all cooldowns
         # =================================================================
-        aff_vm, aff_src, aff_tgt, aff_reason = self.find_affinity_violation(usable)
+        now = time.time()
+        dry_run = self.config['DRY_RUN']
+        if dry_run:
+            self._affinity_reported = {u: t for u, t in self._affinity_reported.items()
+                                       if now - t < AFFINITY_DRY_REPORT_SECONDS}
+            skip = set(self._affinity_reported)
+        else:
+            skip = {u for u, (_, until) in self._affinity_backoff.items() if until > now}
+        aff_vm, aff_src, aff_tgt, aff_reason = self.find_affinity_violation(usable, skip)
         if aff_vm:
             info = f"{aff_vm['name']} | {aff_src['name']} -> {aff_tgt['name']} (Affinity: {aff_reason})"
-            if self.config['DRY_RUN']:
+            aff_mode = "anti-affinity" if "anti-affinity" in aff_reason.lower() else "node-affinity"
+            if dry_run:
+                # reported once (again after a day); nothing moves, so the reactive and predictive
+                # engines below still get their turn instead of being skipped every cycle
                 self.log(0, f"[AFFINITY DRY RUN] Would move {info}")
-                self.vm_cooldowns[aff_vm['uuid']] = time.time()
-                self.last_migration_time = time.time()
+                self._affinity_reported[aff_vm['uuid']] = now
+                self.vm_cooldowns[aff_vm['uuid']] = now
             else:
                 self.log(0, f"[AFFINITY ACTION] {info}")
                 try:
@@ -598,18 +620,24 @@ class LoadBalancer:
                     self.active_task = {"tag": task['taskTag'], "vm": aff_vm['name'], "started": time.time()}
                     self.vm_cooldowns[aff_vm['uuid']] = time.time()
                     self.last_migration_time = time.time()
+                    self._affinity_backoff.pop(aff_vm['uuid'], None)
                 except Exception as e:
-                    self.log(0, f"[AFFINITY ERROR] Migration rejected for {aff_vm['name']}: {e}")
+                    n = self._affinity_backoff.get(aff_vm['uuid'], (0, 0))[0] + 1
+                    wait = min(AFFINITY_RETRY_MAX_SECONDS, AFFINITY_RETRY_BASE_SECONDS * 2 ** (n - 1))
+                    self._affinity_backoff[aff_vm['uuid']] = (n, time.time() + wait)
                     self.vm_cooldowns[aff_vm['uuid']] = time.time()
-            aff_mode = "anti-affinity" if "anti-affinity" in aff_reason.lower() else "node-affinity"
+                    self.log(0, f"[AFFINITY ERROR] Migration rejected for {aff_vm['name']}: {e} "
+                                f"(next attempt in {wait // 60} min)")
+                    return self.config['SAMPLE_INTERVAL_SECONDS']   # a refused move is not logged as done
             self.migration_logger.log_event(
                 vm_name=aff_vm['name'], vm_uuid=aff_vm['uuid'],
                 source_ip=aff_src['name'], target_ip=aff_tgt['name'],
                 engine="Affinity", mode=aff_mode,
-                dry_run=self.config['DRY_RUN'], reason="affinity-violation",
+                dry_run=dry_run, reason="affinity-violation",
                 cluster_id=self.cluster_id
             )
-            return self.config['SAMPLE_INTERVAL_SECONDS']
+            if not dry_run:
+                return self.config['SAMPLE_INTERVAL_SECONDS']
 
         # non-affinity migration cooldown
         elapsed = time.time() - self.last_migration_time
