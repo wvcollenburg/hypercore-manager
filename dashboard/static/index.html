@@ -4700,16 +4700,13 @@ function _renderGroups(groups, vals, isAdmin = true) {
 }
 
 async function loadSettings() {
-  const [data, me] = await Promise.all([
-    apiFetch('/api/config'),
-    apiFetch('/api/users/me'),
-  ]);
-  if (!data) { document.getElementById('settingsContent').innerHTML = `<div class="empty-state">${t('empty.settings_failed')}</div>`; return; }
-  const vals = {};
-  data.forEach(item => { vals[item.key] = item.value; });
+  // which sub-tabs this user gets is known before anything is fetched: someone who reaches Settings only for
+  // guest console requests (an App Manager) may not read the tunables, and must not get "settings failed"
+  const me = await apiFetch('/api/users/me');
+  _accSet(me);
   const groups = CTRL_GROUPS.filter(g => g.tab === 'general');
   _dropStaged(groups);
-  _accSet(me);
+  const vals = {};
   const isAdmin = can('cluster.settings', currentCluster) || (_settingsTarget === 'defaults' && can('install.manage'));
 
   if (me && !canSettings()) {
@@ -4725,6 +4722,11 @@ async function loadSettings() {
     console: can('console_check.manage') || can('console.audit') || canAnyVmPerm('console.audit'),
     mail: can('install.manage'),
   };
+  if (show.tunables) {
+    const data = await apiFetch('/api/config');
+    if (!data) { document.getElementById('settingsContent').innerHTML = `<div class="empty-state">${t('empty.settings_failed')}</div>`; return; }
+    data.forEach(item => { vals[item.key] = item.value; });
+  }
   for (const [k, v] of Object.entries(show)) {
     const tab = document.querySelector(`[data-setpanel="${k}"]`);
     if (tab) tab.style.display = v ? '' : 'none';

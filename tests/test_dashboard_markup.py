@@ -223,3 +223,11 @@ def test_sign_out_is_a_post_and_two_factor_setup_sends_the_password(repo):
     assert src.count('action="/logout"') == 2
     setup = src[src.index('async function umShowOtpSetup()'):][:1200]
     assert "method: 'POST'" in setup and 'password: pw' in setup
+
+
+def test_settings_reads_the_tunables_only_for_whoever_gets_that_tab(repo):
+    """An App Manager reaches Settings for guest console requests but may not read the tunables: loadSettings
+    fetched /api/config first and showed "settings failed" on its 403 instead of the Access tab."""
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
+    body = src[src.index('async function loadSettings()'):][:2600]
+    assert body.index("apiFetch('/api/config')") > body.index('if (show.tunables) {')
