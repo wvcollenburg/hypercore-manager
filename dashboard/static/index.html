@@ -1161,7 +1161,7 @@
   <div class="header-right">
     <div class="tb-status"><div class="status-dot" id="statusDot"></div><span class="status-text" id="statusText">Connecting...</span></div>
     <button class="tb-btn" data-i18n="header.refresh" onclick="vmIndexStale(); refreshAll()">↻ Refresh</button>
-    <button class="update-badge-btn" id="updateBadgeBtn" onclick="openUpdateModal()" title="Software update">Update</button>
+    <button class="update-badge-btn" id="updateBadgeBtn" onclick="openUpdateModal()" title="Software update" hidden>Update</button>
     <div class="lang-picker" id="langPicker">
       <button class="lang-btn tb-btn" id="langBtn" onclick="toggleLangDropdown(event)">
         <span id="langBtnCode">EN</span><span class="tb-caret">▾</span>
@@ -2711,6 +2711,8 @@ function _veRender() {
   const isoOpts = [['', t('ve.iso_none')], ...isos.filter(i => i.ready !== false).map(i => [i.uuid, i.name])];
   const curIso = dv => { const m = /scribe\/([0-9a-f-]+)/.exec(dv.path || ''); return m ? m[1] : ''; };
   const pending = changes.find(c => c.status === 'scheduled' || c.status === 'running');
+  // each control on its own permission: one of vm.edit/power/delete/snapshot/clone opens the dialog
+  const may = p => canVm(p, currentCluster, _ve.uuid, _vmTags(_ve.uuid));
   const diskRows = devs.filter(dv => !['NVRAM', 'VTPM'].includes(dv.type)).map(dv => {
     const cd = dv.type === 'IDE_CDROM';
     return `<tr id="ve-d-${dv.uuid}" class="${_ve.remove.has(dv.uuid) ? 'removing' : ''}">
@@ -2749,15 +2751,15 @@ function _veRender() {
       ${(c.result || []).length ? `<details style="margin-top:3px;"><summary style="cursor:pointer;color:var(--text-muted);">${t('ve.steps')}</summary>${c.result.map(x => `<div style="font-family:var(--font-ui);font-size:12px;color:${x.ok ? 'var(--text-secondary)' : 'var(--accent-red)'}">${_exFmt(x.at)} ${x.ok ? '✓' : '✕'} ${E(x.step)}${x.detail ? ' — ' + E(x.detail) : ''}</div>`).join('')}</details>` : ''}</div>`).join('');
   document.getElementById('veBody').innerHTML = `
     ${pending ? `<div class="ve-sec" style="border-color:var(--accent-amber);font-size:12px;color:var(--accent-amber);">${t('ve.has_pending')}</div>` : ''}
-    <div class="ve-power">
+    ${!may('vm.power') ? '' : `<div class="ve-power">
       <span style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);margin-right:6px;">${t('ve.power')}</span>
       <button class="um-action-btn" ${on ? 'disabled' : ''} onclick="vePower('START')">${t('ve.p_start')}</button>
       <button class="um-action-btn" ${on ? '' : 'disabled'} onclick="vePower('SHUTDOWN')" title="${E(t('ve.p_shutdown_hint'))}">${t('ve.p_shutdown')}</button>
       <button class="um-action-btn" ${on ? '' : 'disabled'} onclick="vePower('REBOOT')">${t('ve.p_reboot')}</button>
       <button class="um-action-btn danger" ${on ? '' : 'disabled'} onclick="vePower('STOP')" title="${E(t('ve.p_stop_hint'))}">${t('ve.p_stop')}</button>
       <button class="um-action-btn danger" ${on ? '' : 'disabled'} onclick="vePower('RESET')" title="${E(t('ve.p_reset_hint'))}">${t('ve.p_reset')}</button>
-    </div>
-    <div class="ve-sec"><h3>${t('ve.general')}</h3><div class="ve-grid">
+    </div>`}
+    ${!may('vm.edit') ? '' : `<div class="ve-sec"><h3>${t('ve.general')}</h3><div class="ve-grid">
       <label>${t('vmi.d_name')}<input type="text" id="ve-name" value="${E(vm.name)}" oninput="_veSummary()"></label>
       <label>${t('vmi.description')}<input type="text" id="ve-desc" value="${E(vm.description)}" oninput="_veSummary()"></label>
       <label>${t('vmi.tags')}<input type="text" id="ve-tags" value="${E(vm.tags)}" oninput="_veSummary()"><span class="ve-tag-access" id="veTagAccess"></span></label>
@@ -2782,10 +2784,11 @@ function _veRender() {
             <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="ve-rep-pause" ${rp.enable ? '' : 'checked'} onchange="_veSummary()"> ${t('ve.rep_pause')}</label>`)(replications[0])
           : sel('ve-rep', [['', t('ve.rep_none')], ...(_ve.data.connections || []).map(c => [c.uuid, c.cluster + (c.status && c.status !== 'ESTABLISHED' ? ` (${c.status.toLowerCase()})` : '')])], '')}
         <span id="ve-rep-hint" style="color:var(--text-muted);"></span>
-      </div>${replications.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">${t('ve.rep_end_note')}</div>` : ''}</div>` : ''}
+      </div>${replications.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">${t('ve.rep_end_note')}</div>` : ''}</div>` : ''}`}
     <div class="ve-sec"><h3>${t('ve.changes')}</h3>${chg || `<div style="font-size:12px;color:var(--text-muted);">${t('ve.no_changes_yet')}</div>`}</div>
-    <div class="ve-sec ve-danger"><h3 style="color:var(--accent-red)">${t('ve.danger')}</h3>
-      <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--text-secondary);"><button class="um-action-btn danger" onclick="veDelete()">${t('ve.delete_vm')}</button> ${t('ve.delete_hint')}</div></div>`;
+    ${!may('vm.delete') ? '' : `<div class="ve-sec ve-danger"><h3 style="color:var(--accent-red)">${t('ve.danger')}</h3>
+      <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--text-secondary);"><button class="um-action-btn danger" onclick="veDelete()">${t('ve.delete_vm')}</button> ${t('ve.delete_hint')}</div></div>`}`;
+  document.getElementById('veApply').hidden = !may('vm.edit');
   // what was typed before a button redrew the form wins over the VM as loaded
   for (const [id, v] of Object.entries(_ve.form || {})) {
     const el = document.getElementById(id);
@@ -2819,6 +2822,7 @@ function _veOps() {
   // compare the form with the VM as loaded; the backup service validates and classifies again
   const {vm, replications} = _ve.data;
   const ops = [], f = {};
+  if (!document.getElementById('ve-name')) return ops;      // no vm.edit: the form is not drawn
   const mark = (id, changed) => { const el = document.getElementById(id); if (el) el.classList.toggle('changed', !!changed); return changed; };
   if (mark('ve-name', _veVal('ve-name').trim() !== vm.name)) f.name = _veVal('ve-name').trim();
   if (mark('ve-desc', _veVal('ve-desc') !== (vm.description || ''))) f.description = _veVal('ve-desc');
@@ -4705,8 +4709,9 @@ let _cc = { data: null, refsOpen: null, showSystem: false };
 async function _loadConsolePanel() {
   const el = document.getElementById('setpanel-console');
   if (!el) return;
+  const mayCheck = can('console_check.manage', currentCluster);   // the console.audit holder sees the log only
   const [check, log] = await Promise.all([
-    fetch(_withCluster('/api/console/check')).then(r => r.ok ? r.json() : r.json().then(d => ({error: d.error || `HTTP ${r.status}`}))).catch(e => ({error: e.message})),
+    !mayCheck ? Promise.resolve({}) : fetch(_withCluster('/api/console/check')).then(r => r.ok ? r.json() : r.json().then(d => ({error: d.error || `HTTP ${r.status}`}))).catch(e => ({error: e.message})),
     fetch(_withCluster(`/api/console/sessions?include_system=${_cc.showSystem ? 1 : 0}&limit=200`)).then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
   if (check.error) { el.innerHTML = `<div class="empty-state">${t('cc.unavailable')} (${_exEsc(check.error)})</div>`; return; }
@@ -4739,7 +4744,7 @@ async function _loadConsolePanel() {
   const logRows = sessions.map(s => `<tr><td style="font-size:12px;">${_exFmt(s.started_at)}</td><td>${(s.hidden || []).includes('username') ? `<span style="color:var(--text-muted)">${_clEsc(t('acc.actor_above'))}</span>` : _clEsc(s.username)}</td><td>${_clEsc(s.vm_name || s.vm_uuid)}</td>
       <td>${s.kind === 'screenshot' ? t('cc.kind_screenshot') : t('cc.kind_interactive')}</td><td>${dur(s)}</td>
       <td style="font-size:12px;color:var(--text-muted);">${_clEsc(s.end_reason || '')}</td><td style="font-size:12px;color:var(--text-muted);">${_clEsc(s.client_ip || '')}</td></tr>`).join('');
-  el.innerHTML = `
+  el.innerHTML = (!mayCheck ? '' : `
     <div class="settings-group">
       <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--chart-3)"></div>
         <span class="settings-group-title">${t('cc.title')}</span><span style="font-size:12px;color:var(--text-muted);">${_clEsc(cur ? cur.name : '')}</span></div>
@@ -4760,7 +4765,7 @@ async function _loadConsolePanel() {
       </div>
       ${vms.length ? `<table class="um-table"><thead><tr><th>${t('cc.vm')}</th><th>${t('cc.state')}</th><th>${t('cc.open_since')}</th><th>${t('cc.last_check')}</th><th>${t('cc.refs_count')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
                    : `<div style="color:var(--text-muted);font-size:12px;">${st.enabled ? t('cc.no_vms_yet') : t('cc.off_hint')}</div>`}
-    </div>
+    </div>`) + `
     <div class="settings-group">
       <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div>
         <span class="settings-group-title">${t('cc.log_title')}</span>
@@ -6392,7 +6397,7 @@ function _alertRow(it, cid) {
   const consoleBtns = it.kind === 'console' ? `
       ${canVm('vm.console', cid, it.vm_uuid) ? `<button class="um-action-btn" onclick="openVmConsole('${cid}', '${_clEsc(it.vm_uuid)}')">${t('console.open')}</button>` : ''}
       ${can('console_check.manage', cid) ? `<button class="um-action-btn" onclick="alertLearnLocked('${cid}', '${_clEsc(it.vm_uuid)}', this)" title="${_clEsc(t('cc.learn_hint'))}">${t('cc.learn')}</button>` : ''}` : '';
-  const muteCtl = it.muted_until
+  const muteCtl = !can('cluster.alerts.mute', cid) ? '' : it.muted_until
     ? `<button class="um-action-btn" data-k="${_clEsc(k)}" onclick="muteAlert('${cid}', this.dataset.k, 0)">${t('alerts.unmute')}</button>`
     : `<span>${t('notice.mute_for')}</span><input type="number" min="1" max="365" value="7" id="mute-${_clEsc(k)}"><span>${t('notice.days')}</span>
        <button class="um-action-btn" data-k="${_clEsc(k)}" onclick="muteAlert('${cid}', this.dataset.k)">${t('notice.mute')}</button>`;
@@ -6521,7 +6526,19 @@ async function _exCall(method, path, body) {
   return d;
 }
 const _exEsc = v => _clEsc(v);
-const _exIsAdmin = () => true;   // users of a folder may schedule exports and run imports; shares are admin-only
+// What the signed-in user may do with a backup row (a plan, chain or VM of the folder): the permission its route
+// needs, on the row's cluster or on its VM. The server checks again; this only hides what would be refused.
+function _exCan(perm, row) {
+  const cid = (row && row.cluster_id) || currentCluster;
+  if (can(perm, cid)) return true;
+  const vm = row && (row.vm_uuid || row.uuid);
+  if (!vm) return false;
+  if (_vmIndexFor === cid) return canVm(perm, cid, vm, _vmTags(vm));
+  // tags not known here (a VM of another cluster of the folder): a grant on any tag may cover it
+  return canVm(perm, cid, vm, []) || _hasTagGrant(cid) && (((window.HCM_ACCESS || {}).clusters || {})[cid].grants || []).some(g => g.tag && g.perms.includes(perm));
+}
+// policies, test restores and verification belong to the folder of the selected cluster
+const _exFolderCan = perm => can(perm, currentCluster);
 let _exLocation = null;
 const _exFmt = iso => iso ? new Date(iso).toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '—';
 function _exStatusBadge(status, message) {
@@ -6562,7 +6579,6 @@ async function exLoadSchedules() {
   const cid = currentCluster;
   try { rows = await _exCall('GET', '/api/backup/plans'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
   if (cid !== currentCluster) return;      // switched clusters meanwhile
-  const admin = _exIsAdmin();
   if (!rows.length) {
     el.innerHTML = _exLocationLine(null) + `<div class="empty-state">${t('ex.no_schedules')}<br><span style="font-size:12px;color:var(--text-muted)">${t('ex.no_schedules_hint')}</span></div>`;
     return;
@@ -6577,11 +6593,11 @@ async function exLoadSchedules() {
         <td style="font-family:var(--font-ui);">${s.policy_id ? `<span class="ex-badge run" title="${_exEsc(t('ex.pol_member_hint'))}">${t('ex.pol_member_of', {name: _exEsc(s.policy_name || '')})}</span>` : _exTimeLabel(s.run_time, s.timezone)}</td>
         <td>${s.last_run ? `${_exStatusBadge(s.last_run.status, s.last_run.message)}${s.last_run.notice ? ' ' + _exNoticeBadge(s.last_run.notice) : ''}<div style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);">${_exFmt(s.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:12px;">${t('ex.never')}</span>`}</td>
         <td style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted)">${_exFmt(s.next_run)}</td>
-        <td style="white-space:nowrap;">${admin ? `
-          <button class="um-action-btn" onclick="exRunNow(${s.id})" ${s.enabled ? '' : 'disabled'}>${t('ex.run_now')}</button>
+        <td style="white-space:nowrap;">${_exCan('backup.run', s) ? `
+          <button class="um-action-btn" onclick="exRunNow(${s.id})" ${s.enabled ? '' : 'disabled'}>${t('ex.run_now')}</button>` : ''}${_exCan('backup.schedule', s) ? `
           <button class="um-action-btn" onclick="exToggle(${s.id})">${s.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
           <button class="um-action-btn" onclick="exHistory(${s.id})">${t('ex.history')}</button>
-          ${admin ? `<button class="um-action-btn danger" data-name="${_exEsc(s.vm_name)}" onclick="exRemove(${s.id}, this.dataset.name)">${t('ex.remove')}</button>` : ''}
+          ${_exCan('backup.schedule', s) ? `<button class="um-action-btn danger" data-name="${_exEsc(s.vm_name)}" onclick="exRemove(${s.id}, this.dataset.name)">${t('ex.remove')}</button>` : ''}
         </td>
       </tr>`).join('')}</tbody></table></div>`;
 }
@@ -6669,7 +6685,7 @@ async function exLoadPolicies() {
     return `<div class="settings-group">
       <div class="settings-group-header"><div class="chart-title-dot" style="background:${kind === 'incremental' ? 'var(--accent-cyan)' : 'var(--accent-purple)'}"></div>
         <span class="settings-group-title">${title}</span>
-        <button class="um-action-btn" onclick="exPolicyEdit('new-${kind}')" ${disabled ? `disabled title="${_exEsc(t('ex.mode_hint_no_proxy'))}"` : ''}>${t('ex.pol_new')}</button></div>
+        ${_exFolderCan('backup.schedule') ? `<button class="um-action-btn" onclick="exPolicyEdit('new-${kind}')" ${disabled ? `disabled title="${_exEsc(t('ex.mode_hint_no_proxy'))}"` : ''}>${t('ex.pol_new')}</button>` : ''}</div>
       ${rows.length ? rows.map(_polCard).join('') : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.pol_none')}</div>`}
     </div>`;
   };
@@ -6747,10 +6763,10 @@ function _polCard(p) {
       <span class="pol-actions">
         <button class="um-action-btn" onclick="exPolicyMembers(${p.id})">${t('ex.pol_members', {n: p.members.length})}</button>
         ${p.members.length ? `<button class="um-action-btn" onclick="exPolicyNight(${p.id}, 'current')">${t('ex.pol_night_plan')}</button>` : ''}
-        <button class="um-action-btn" data-name="${_exEsc(p.name)}" onclick="exPolicyRunNow(${p.id}, this.dataset.name)" ${p.members.length && !p.manual_at ? '' : 'disabled'} title="${_exEsc(t('ex.pol_run_now_hint'))}">${t('ex.run_now')}</button>
-        <button class="um-action-btn" onclick="exPolicyEdit(${p.id})">${t('ex.pol_edit')}</button>
+        ${_exFolderCan('backup.run') ? `<button class="um-action-btn" data-name="${_exEsc(p.name)}" onclick="exPolicyRunNow(${p.id}, this.dataset.name)" ${p.members.length && !p.manual_at ? '' : 'disabled'} title="${_exEsc(t('ex.pol_run_now_hint'))}">${t('ex.run_now')}</button>` : ''}
+        ${_exFolderCan('backup.schedule') ? `<button class="um-action-btn" onclick="exPolicyEdit(${p.id})">${t('ex.pol_edit')}</button>
         <button class="um-action-btn" onclick="exPolicyToggle(${p.id})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
-        <button class="um-action-btn danger" data-name="${_exEsc(p.name)}" onclick="exPolicyDelete(${p.id}, this.dataset.name)">${t('ex.remove')}</button>
+        <button class="um-action-btn danger" data-name="${_exEsc(p.name)}" onclick="exPolicyDelete(${p.id}, this.dataset.name)">${t('ex.remove')}</button>` : ''}
       </span>
     </div>
     <div class="pol-meta">
@@ -6950,12 +6966,12 @@ async function exPolicyMembers(id, keepOpen) {
         <td style="font-size:12px;">${_exEsc(m.cluster_name)}</td>
         <td style="font-size:12px;">${!m.prediction ? '—' : m.prediction.learned ? `<span title="${_exEsc(t('ex.pol_tl_planned', {start: _polHM(m.prediction.planned_start, p.timezone), dur: _polDur(m.prediction.seconds)}))}">~${_polDur(m.prediction.seconds)}</span>` : `<span class="ex-badge off" title="${_exEsc(t('ex.pol_learning_hint'))}">${t('ex.pol_tl_learning', {n: m.prediction.samples, of: m.prediction.needed || 5})}</span>`}</td>
         <td>${m.last_run ? `${_exStatusBadge(m.last_run.status, m.last_run.message)}${m.last_run.notice ? ' ' + _exNoticeBadge(m.last_run.notice) : ''}<div style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);">${_exFmt(m.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:12px;">${t('ex.never')}</span>`}</td>
-        <td style="white-space:nowrap;">${m.cluster_id === currentCluster ? `<button class="um-action-btn" onclick="exToggle(${m.id}).then(exLoadPolicies)">${m.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
-          <button class="um-action-btn danger" data-name="${_exEsc(m.vm_name)}" onclick="exPolicyRemoveMember(${id}, ${m.id}, this.dataset.name)">${t('ex.pol_remove_member')}</button></td></tr>`).join('')}
+        <td style="white-space:nowrap;">${m.cluster_id === currentCluster && _exCan('backup.schedule', m) ? `<button class="um-action-btn" onclick="exToggle(${m.id}).then(exLoadPolicies)">${m.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
+          ${_exCan('backup.schedule', m) ? `<button class="um-action-btn danger" data-name="${_exEsc(m.vm_name)}" onclick="exPolicyRemoveMember(${id}, ${m.id}, this.dataset.name)">${t('ex.pol_remove_member')}</button>` : ''}</td></tr>`).join('')}
     </tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.pol_no_members')}</div>`}
     <div style="margin-top:10px;"><label style="font-size:12px;color:var(--text-muted);">${t('ex.pol_add_from', {cluster: _exEsc(cur ? cur.name : '')})}</label>
       <div class="ex-hint">${t('ex.pol_add_hint')}</div>
-      ${candidates.length ? `<div class="ex-folder-list">${candidates.map(vm => {
+      ${candidates.length && _exFolderCan('backup.schedule') ? `<div class="ex-folder-list">${candidates.map(vm => {
         const s = vm.schedule;
         const note = !s ? '' : s.policy_id ? t('ex.pol_moves_from', {name: _exEsc(s.policy_name || '')}) : t('ex.pol_joins_own_plan', {mode: t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')});
         return `<label><input type="checkbox" class="pol-add" value="${_exEsc(vm.uuid)}" data-name="${_exEsc(vm.name)}">${_exEsc(vm.name)}${note ? ` <span class="ex-hint" style="display:inline;">— ${note}</span>` : ''}</label>`;
@@ -6993,7 +7009,6 @@ async function exLoadVms() {
   const cid = currentCluster;
   try { vms = await _exCall('GET', '/api/backup/vms'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
   if (cid !== currentCluster) return;      // switched clusters meanwhile
-  const admin = _exIsAdmin();
   if (!vms.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_vms')}</div>`; return; }
   _exVmList = vms;
   el.innerHTML = `<div class="settings-group"><table class="um-table"><thead><tr>
@@ -7012,7 +7027,7 @@ async function exLoadVms() {
           ? `<span class="ex-badge run">${t('ex.pol_member_of', {name: _exEsc(vm.schedule.policy_name || '')})}</span>`
           : vm.schedule
           ? `<span class="ex-badge run" title="${_exEsc(vm.schedule.timezone || '')}">${_exEsc(t('ex.daily_at', {time: vm.schedule.run_time + (vm.schedule.timezone && vm.schedule.timezone !== _exViewerZone() ? ' ' + vm.schedule.timezone : '')}))}</span>`
-          : (admin ? `<button class="um-action-btn" onclick="exToggleForm(${i})">${t('ex.schedule_export')}</button>` : `<span style="color:var(--text-muted);font-size:12px;">—</span>`)}</td>
+          : (_exCan('backup.schedule', {vm_uuid: vm.uuid}) ? `<button class="um-action-btn" onclick="exToggleForm(${i})">${t('ex.schedule_export')}</button>` : `<span style="color:var(--text-muted);font-size:12px;">—</span>`)}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
 }
@@ -7163,7 +7178,7 @@ function _vfSection() {
   const dr = (d.clusters || []).filter(c => c.role === 'dr');
   const head = `<div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-green)"></div>
       <span class="settings-group-title">${t('vf.title')}</span>
-      <button class="um-action-btn" onclick="vfEdit()">${t('vf.edit')}</button></div>`;
+      ${_exFolderCan('backup.schedule') ? `<button class="um-action-btn" onclick="vfEdit()">${t('vf.edit')}</button>` : ''}</div>`;
   const rule = iv ? t('vf.rule', {n: iv, from: _exEsc(st.hours_from), until: _exEsc(st.hours_until)}) : t('vf.off');
   const badges = !sm.points ? `<span class="ex-hint">${t('vf.no_points')}</span>` : [
     sm.failed ? `<span class="ex-badge err">${t('vf.n_failed', {n: sm.failed})}</span>` : '',
@@ -7292,7 +7307,7 @@ function _trSection() {
   if (!d) return '';
   const head = `<div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-amber)"></div>
       <span class="settings-group-title">${t('tr.title')}</span>
-      <button class="um-action-btn" onclick="trEdit(null)">${t('tr.new')}</button></div>`;
+      ${_exFolderCan('backup.schedule') ? `<button class="um-action-btn" onclick="trEdit(null)">${t('tr.new')}</button>` : ''}</div>`;
   const body = (d.plans || []).map(_trCard).join('');
   return `<div class="settings-group">${head}
     <div class="ex-hint" style="margin-bottom:8px;">${t('tr.intro')}</div>
@@ -7308,8 +7323,9 @@ function _trCard(p) {
   ];
   if (p.level === 'network') opts.push(t('tr.net_line', {vlan: p.test_vlan, probe: _exEsc(p.probe_address || '?'), ports: (p.default_ports || []).join(', ') || t('tr.ports_ping')}));
   const vms = (_trData.vms || []);
+  const sched = _exFolderCan('backup.schedule');
   const member = m => `<span class="ex-badge ${m.mode === 'fixed' ? 'ok' : 'off'}" style="margin:2px;">${m.mode === 'exclude' ? '✕ ' : ''}${_exEsc(m.vm_name || m.vm_uuid.slice(0, 8))}${m.ports ? ` · ${m.ports.join(',')}` : ''}
-      <a href="#" title="${_exEsc(t('tr.remove_vm'))}" onclick="event.preventDefault(); trVmRemove(${p.id}, '${m.cluster_id}', '${_exEsc(m.vm_uuid)}')" style="margin-left:4px;color:inherit;">×</a></span>`;
+      ${sched ? `<a href="#" title="${_exEsc(t('tr.remove_vm'))}" onclick="event.preventDefault(); trVmRemove(${p.id}, '${m.cluster_id}', '${_exEsc(m.vm_uuid)}')" style="margin-left:4px;color:inherit;">×</a>` : ''}</span>`;
   return `<div class="pol-card" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <strong>${_exEsc(p.name)}</strong>
@@ -7317,18 +7333,18 @@ function _trCard(p) {
       <span class="ex-badge run">${t(p.level === 'network' ? 'tr.level_network' : 'tr.level_boot')}</span>
       ${p.level === 'network' && !netReady ? `<span class="ex-badge warn" title="${_exEsc(t('tr.net_not_ready_hint'))}">${t('tr.net_not_ready')}</span>` : ''}
       <span style="flex:1"></span>
-      <button class="um-action-btn" onclick="trRun(${p.id})">${t('tr.run_now')}</button>
-      <button class="um-action-btn" onclick="trEdit(${p.id})">${t('vf.edit')}</button>
-      <button class="um-action-btn danger" data-name="${_exEsc(p.name)}" onclick="trDelete(${p.id}, this.dataset.name)">${t('users.delete')}</button></div>
+      ${_exFolderCan('backup.run') ? `<button class="um-action-btn" onclick="trRun(${p.id})">${t('tr.run_now')}</button>` : ''}
+      ${sched ? `<button class="um-action-btn" onclick="trEdit(${p.id})">${t('vf.edit')}</button>
+      <button class="um-action-btn danger" data-name="${_exEsc(p.name)}" onclick="trDelete(${p.id}, this.dataset.name)">${t('users.delete')}</button>` : ''}</div>
     <div class="ex-hint" style="margin-top:4px;">${t('tr.rule', {n: p.interval_days, fixed: fixed.length, random: p.random_count, weeks: p.rest_weeks})} ${_trTargetLine(p)}</div>
     <div class="ex-hint">${opts.join(' · ')}${p.last_run_at ? ` · ${t('tr.last_round', {when: _exFmt(p.last_run_at)})}` : ''}</div>
     <div style="margin-top:6px;">${fixed.map(member).join('')}${excl.map(member).join('')}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">
+    ${!sched ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">
       <select class="um-select" id="tr-${p.id}-vm" style="max-width:260px;">${vms.map(v => `<option value="${v.cluster_id}|${_exEsc(v.vm_uuid)}|${_exEsc(v.vm_name || '')}">${_exEsc(v.vm_name || v.vm_uuid)}</option>`).join('')}</select>
       <select class="um-select" id="tr-${p.id}-mode"><option value="fixed">${t('tr.mode_fixed')}</option><option value="exclude">${t('tr.mode_exclude')}</option></select>
       ${p.level === 'network' ? `<input class="um-input" id="tr-${p.id}-ports" placeholder="${_exEsc(t('tr.ports_vm_ph'))}" style="width:150px;">` : ''}
       <button class="um-action-btn" onclick="trVmAdd(${p.id})" ${vms.length ? '' : 'disabled'}>${t('tr.add_vm')}</button>
-      <div class="cl-msg" id="tr-${p.id}-msg"></div></div>
+      <div class="cl-msg" id="tr-${p.id}-msg"></div></div>`}
   </div>`;
 }
 function _trForm(p) {
@@ -7456,7 +7472,6 @@ async function exLoadPoints() {
   if (cid !== currentCluster) return;      // switched clusters meanwhile
   _exChains = Object.fromEntries(chains.map(c => [c.id, c]));
   if (!chains.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_points')}</div>`; return; }
-  const admin = _exIsAdmin();
   el.innerHTML = `<div class="settings-group"><div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span class="settings-group-title">${t('ex.points_title')}</span></div>
     <table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_points')}</th><th>${t('ex.col_last_point')}</th><th>${t('ex.col_verified')}</th><th>${t('tr.col_tested')}</th><th></th></tr></thead>
     <tbody>${chains.map(c => `
@@ -7470,8 +7485,8 @@ async function exLoadPoints() {
         <td style="font-size:12px;">${_trChainCell(c)}</td>
         <td style="white-space:nowrap;">
           <button class="um-action-btn" data-name="${_exEsc(c.vm_name)}" onclick="exPointsOpen(${c.id}, this.dataset.name)">${t('ex.show_points')}</button>
-          ${admin ? `<button class="um-action-btn" onclick="exVerifyChain(${c.id})">${t('ex.verify')}</button>
-          <button class="um-action-btn danger" data-name="${_exEsc(c.vm_name)}" onclick="exDeleteChain(${c.id}, this.dataset.name)">${t('ex.delete_data')}</button>` : ''}
+          ${_exCan('backup.verify', c) ? `<button class="um-action-btn" onclick="exVerifyChain(${c.id})">${t('ex.verify')}</button>` : ''}
+          ${_exCan('backup.delete', c) ? `<button class="um-action-btn danger" data-name="${_exEsc(c.vm_name)}" onclick="exDeleteChain(${c.id}, this.dataset.name)">${t('ex.delete_data')}</button>` : ''}
           <div class="cl-msg" id="ch-${c.id}-msg"></div>
         </td>
       </tr>`).join('')}</tbody></table></div>`;
@@ -7492,11 +7507,13 @@ async function exPointsOpen(id, vm) {
     const pts = await _exCall('GET', `/api/backup/chains/${id}/points`);
     if (!_pts || _pts.chain !== id || _flr) return;   // closed or moved on meanwhile
     _pts.points = pts;
+    const chain = _exChains[id] || {};
+    const mayRestore = _exCan('backup.restore.full', chain), mayBrowse = _exCan('backup.browse', chain);
     body.innerHTML = pts.length ? `<table class="um-table"><thead><tr><th>#</th><th>${t('ex.col_kind')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_changed')}</th><th>${t('ex.col_written')}</th><th>${t('ex.col_verified')}</th><th></th></tr></thead><tbody>${pts.map(p => `
       <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted)">${_exEsc(p.dir)}</span>${p.synthetic ? ` <span class="ex-badge off" title="${_exEsc(t('ex.synthetic_hint'))}">${t('ex.synthetic')}</span>` : ''}${(p.short_disks || []).length ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.short_disk_hint', {n: Math.round((p.short_disks[0].guest_size - p.short_disks[0].image_size) / 1024)}))}">${t('ex.short_disk')}</span>` : ''}${p.quiesced === true ? ` <span class="ex-badge off" title="${_exEsc(t('ex.quiesced_hint'))}">${t('ex.quiesced')}</span>` : p.quiesced === false ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.crash_consistent_hint'))}">${t('ex.crash_consistent')}</span>` : ''}</td>
       <td style="font-family:var(--font-ui);font-size:12px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
       <td style="font-size:12px;color:var(--text-muted)">${p.verify_error ? `<span class="ex-badge err" title="${_exEsc(p.verify_error)}">${t('ex.point_corrupt')}</span>` : p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
-      <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" data-date="${_exEsc(_exFmt(p.created_at))}" onclick="exFilesOpen(${p.id}, ${p.seq}, this.dataset.date)">${t('ex.files')}</button></td></tr>`).join('')}</tbody></table>` : `<div class="empty-state">${t('ex.no_points')}</div>`;
+      <td style="white-space:nowrap;">${mayRestore ? `<button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button>` : ''} ${mayBrowse ? `<button class="um-action-btn" data-date="${_exEsc(_exFmt(p.created_at))}" onclick="exFilesOpen(${p.id}, ${p.seq}, this.dataset.date)">${t('ex.files')}</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<div class="empty-state">${t('ex.no_points')}</div>`;
   } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
 }
 let _exChains = {};
@@ -7738,6 +7755,10 @@ async function acknowledgeCommunityNotice() {
 let _updatePollTimer = null;
 
 async function loadUpdateStatus() {
+  // the status (version in the footer) is for everyone; checking and applying need install.manage, so only a
+  // user who holds it sees the Update button that leads to them
+  const badge = document.getElementById('updateBadgeBtn');
+  if (badge) badge.hidden = !can('install.manage');
   try {
     const d = await apiFetch('/api/update/status');
     if (d) _applyUpdateState(d);
@@ -7885,7 +7906,11 @@ function _startApplyPoll() {
 
 // refresh badge every 5 minutes while page is open; initial check after 6s
 setInterval(loadUpdateStatus, 300000);
-setTimeout(loadUpdateStatus, 6000);
+// (the first check waits for the access summary, which says whether this user may install updates)
+setTimeout(function firstUpdateCheck(tries = 0) {
+  if (!window.HCM_ACCESS && tries < 10) { setTimeout(firstUpdateCheck, 2000, tries + 1); return; }
+  loadUpdateStatus();
+}, 6000);
 
 // =============================================================================
 // data quality banner

@@ -127,3 +127,35 @@ def test_a_role_on_a_tag_shows_its_buttons_without_a_search(repo):
     assert 'if (vmQuery || _hasTagGrant(cid)) { await loadVmIndex(' in body
     helper = src[src.index('function _hasTagGrant('):][:200]
     assert 'g.tag' in helper
+
+
+BUTTON_PERMS = (('onclick="exRunNow(', "_exCan('backup.run'"), ('onclick="exToggle(${s.id})', "_exCan('backup.schedule'"),
+                ('onclick="exRemove(', "_exCan('backup.schedule'"), ('onclick="exVerifyChain(', "_exCan('backup.verify'"),
+                ('onclick="exDeleteChain(', "_exCan('backup.delete'"), ('onclick="exRestoreForm(', 'mayRestore ?'),
+                ('onclick="exFilesOpen(', 'mayBrowse ?'), ('onclick="exPolicyRunNow(', "_exFolderCan('backup.run')"),
+                ('onclick="exPolicyEdit(${p.id})', "_exFolderCan('backup.schedule')"), ('onclick="trRun(', "_exFolderCan('backup.run')"),
+                ('onclick="exToggleForm(', "_exCan('backup.schedule'"), ('onclick="muteAlert(', "can('cluster.alerts.mute', cid)"),
+                ('onclick="vePower(\'START\')', "may('vm.power')"), ('onclick="veDelete()', "may('vm.delete')"))
+
+
+@pytest.mark.parametrize('button,guard', BUTTON_PERMS)
+def test_buttons_show_only_with_the_permission_their_route_needs(repo, button, guard):
+    """The Backup tab showed Run now, Pause, Remove, Verify, Delete data, Restore and Files to anyone with backup.view
+    (_exIsAdmin() was always true), the alerts dialog showed Mute without cluster.alerts.mute, and the VM edit dialog
+    showed power and delete controls to whoever held any one of the VM change permissions."""
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
+    assert '_exIsAdmin' not in src
+    at = src.index(button)
+    assert guard in src[max(0, at - 900):at], f'{button} must be guarded by {guard}'
+
+
+def test_update_and_console_check_need_their_permission(repo):
+    """The Update button led to Check now / Apply update (install.manage) for everyone, and the engineer role's
+    Settings tab called /api/console/check (console_check.manage) and got 403 instead of its audit log."""
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
+    assert 'id="updateBadgeBtn"' in src and 'title="Software update" hidden>' in src
+    body = src[src.index('async function loadUpdateStatus()'):][:500]
+    assert "badge.hidden = !can('install.manage')" in body
+    panel = src[src.index('async function _loadConsolePanel()'):][:700]
+    assert "const mayCheck = can('console_check.manage', currentCluster)" in panel
+    assert "!mayCheck ? Promise.resolve({}) : fetch(_withCluster('/api/console/check'))" in panel
