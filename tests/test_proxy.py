@@ -321,6 +321,38 @@ def test_prune_commits_forward_and_delete_chain(stack):
     assert d['result'] == {'removed': True} and not os.path.exists(chain)
 
 
+def test_finished_jobs_drop_their_request_and_only_the_newest_are_kept(stack, monkeypatch):
+    """Finished jobs stayed in memory forever, each with its full request (the target's password), and their
+    json files under <data_dir>/jobs were never removed."""
+    H = {'Authorization': 'Bearer t0k'}
+    monkeypatch.setattr(stack.engine, 'KEEP_FINISHED', 3)
+    tgt = {'uri': 'smb://nas/share/hcm', 'username': 'bk', 'password': 'hunter2'}
+    ids = [stack.client.post('/jobs/sweep', json={'target': tgt, 'folder': 'F'}, headers=H).get_json()['id'] for _ in range(6)]
+    for i in ids:
+        try:
+            _wait(stack, i)
+        except Exception:                               # an evicted job answers 404
+            pass
+    import time
+    t0 = time.time()
+    while len(stack.engine.jobs) > 3 and time.time() - t0 < 5:
+        time.sleep(0.05)
+    assert list(stack.engine.jobs) == ids[3:]
+    assert all(j.request == {} for j in stack.engine.jobs.values()), 'no password kept once a job has ended'
+    assert sorted(os.listdir(os.path.join(stack.cfg.data_dir, 'jobs'))) == sorted(f'{i}.json' for i in ids[3:])
+    assert stack.client.get(f'/jobs/{ids[0]}', headers=H).status_code == 404
+    assert 'hunter2' not in ''.join(open(os.path.join(stack.cfg.data_dir, 'jobs', f)).read() for f in os.listdir(os.path.join(stack.cfg.data_dir, 'jobs')))
+
+
+def test_job_files_of_earlier_lives_are_trimmed_at_start(tmp_path, monkeypatch):
+    d = tmp_path / 'data' / 'jobs'; d.mkdir(parents=True)
+    for i in range(8):
+        (d / f'old{i}.json').write_text('{}'); os.utime(d / f'old{i}.json', (1000 + i, 1000 + i))
+    monkeypatch.setattr(P.jobs.Engine, 'KEEP_FINISHED', 5)
+    P.jobs.Engine(P.config.Config(data_dir=str(tmp_path / 'data'), backend='file'), P.images.FileBackend(), None)
+    assert sorted(os.listdir(d)) == [f'old{i}.json' for i in range(3, 8)]
+
+
 def _three_point_chain(stack):
     """base, delta-0001, delta-0002 of one 3 MiB disk on the file backend -> (chain dir, target, source files)."""
     H = {'Authorization': 'Bearer t0k'}

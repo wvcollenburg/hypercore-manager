@@ -10,8 +10,9 @@ sweep    remove stale restore directories under a folder on the target
 bench    measure write/read throughput onto a target through the paths a backup and a restore use
 
 Every job request carries the target (uri, username, password); the proxy mounts it for the
-job and never stores the credentials. Progress and results are kept in memory and mirrored as
-json under <data_dir>/jobs so a restarted proxy can still answer for finished jobs.
+job and never stores the credentials: a job drops its request when it ends. Progress and results
+are kept in memory and mirrored as json under <data_dir>/jobs (for a look on the VM itself), both
+for the newest KEEP_FINISHED finished jobs. A restarted proxy does not know earlier jobs.
 """
 from __future__ import annotations
 
@@ -68,13 +69,50 @@ def grown_tail(prev_size: int | None, size: int) -> dict | None:
     return {'lower': prev_size // copier.MiB, 'upper': (size - 1) // copier.MiB}
 
 
+_FINISHED = ('done', 'failed', 'cancelled')
+
+
 class Engine:
+    KEEP_FINISHED = 300                  # finished jobs kept in memory and as json; older ones are forgotten
+
     def __init__(self, cfg, backend, mounter):
         self.cfg, self.backend, self.mounter = cfg, backend, mounter
         self.jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=max(1, cfg.concurrency), thread_name_prefix='job')
         os.makedirs(os.path.join(cfg.data_dir, 'jobs'), exist_ok=True)
+        self._trim_job_files()
+
+    def _job_file(self, job_id: str) -> str:
+        return os.path.join(self.cfg.data_dir, 'jobs', f'{job_id}.json')
+
+    def _trim_job_files(self) -> None:
+        """Earlier container lives left one json per job, never removed: keep the newest KEEP_FINISHED."""
+        d = os.path.join(self.cfg.data_dir, 'jobs')
+        try:
+            files = sorted((e for e in os.scandir(d) if e.name.endswith('.json')), key=lambda e: e.stat().st_mtime)
+        except OSError:
+            return
+        for e in files[:max(0, len(files) - self.KEEP_FINISHED)]:
+            try:
+                os.unlink(e.path)
+            except OSError:
+                pass
+
+    def _forget_old(self, job: Job) -> None:
+        """A job has ended: its request (with the target's password) goes, and finished jobs beyond the
+        newest KEEP_FINISHED leave memory and disk."""
+        job.request = {}
+        with self._lock:
+            finished = [j for j in self.jobs.values() if j.state in _FINISHED]
+            drop = finished[:max(0, len(finished) - self.KEEP_FINISHED)]
+            for j in drop:
+                self.jobs.pop(j.id, None)
+        for j in drop:
+            try:
+                os.unlink(self._job_file(j.id))
+            except OSError:
+                pass
 
     # ---------------------------------------------------------------- registry
     def submit(self, kind: str, request: dict) -> Job:
@@ -96,7 +134,7 @@ class Engine:
     def _persist(self, job: Job) -> None:
         job.updated_at = _now()
         try:
-            manifest.write_json(os.path.join(self.cfg.data_dir, 'jobs', f'{job.id}.json'), job.public())
+            manifest.write_json(self._job_file(job.id), job.public())
         except OSError:
             pass
 
@@ -114,6 +152,7 @@ class Engine:
             job.progress.pop('current_device', None)
             job.progress.pop('current', None)
             self._persist(job)
+            self._forget_old(job)
 
     # ---------------------------------------------------------------- helpers
     def _with_target(self, req: dict):
