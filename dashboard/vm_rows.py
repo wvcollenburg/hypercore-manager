@@ -90,3 +90,24 @@ def missing_from_last_poll(vms: dict, seen: dict) -> list:
         return []
     last = max(seen.values())
     return [u for u in vms if u not in seen or seen[u] < last - POLL_SLACK]
+
+
+def newest_inventory(records: Iterable[tuple[datetime, str, Any, dict[str, Any]]]) -> dict[str, dict[str, Any]]:
+    """{vm_uuid: {'time', 'values', 'fields'}} from vm_inventory records (time, field, value, tags), each VM as of
+    its NEWEST record. Power state, node, OS and replication source are tags, so a VM that was just started has a
+    SHUTOFF series and a RUNNING series side by side for as long as the older one is in range: taking whichever
+    came last showed a started VM as 'shutoff' for up to two minutes (William, 2026-11-22). Field values (memory,
+    vCPUs) come from their own newest record."""
+    out: dict[str, dict[str, Any]] = {}
+    field_time: dict[tuple[str, str], datetime] = {}
+    for when, field, value, values in records:
+        uuid = values.get('vm_uuid')
+        if not uuid or when is None:
+            continue
+        cur = out.setdefault(uuid, {'time': when, 'values': values, 'fields': {}})
+        if when >= cur['time']:
+            cur['time'], cur['values'] = when, values
+        if (uuid, field) not in field_time or when >= field_time[(uuid, field)]:
+            field_time[(uuid, field)] = when
+            cur['fields'][field] = value
+    return out

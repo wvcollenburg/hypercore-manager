@@ -790,31 +790,30 @@ def _vm_sizes(client, vms: dict) -> None:
     q = client.query_api()
     # the inventory as of the last polls only: a deleted VM drops out as fast as a stopped one shows up
     fresh = max(60, int(_stale_seconds()))
-    seen: dict[str, datetime] = {}
-    for table in q.query(org=INFLUX_ORG, query=f"""
+    tables = q.query(org=INFLUX_ORG, query=f"""
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{fresh}s)
           {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "vm_inventory" and (r["_field"] == "mem_bytes" or r["_field"] == "num_vcpu"))
-          |> last()"""):
-        for rec in table.records:
-            uuid = rec.values.get('vm_uuid')
-            if rec.get_time() and (uuid not in seen or rec.get_time() > seen[uuid]):
-                seen[uuid] = rec.get_time()
-            state = rec.values.get('vm_state') or 'UNKNOWN'
-            vm = vms.get(uuid)
-            if vm is None and state != 'RUNNING':
-                # a stopped VM has no performance samples but is listed (so it can be started)
-                vm = vms[uuid] = {'uuid': uuid, 'name': rec.values.get('vm_name') or uuid,
-                                  'node_uuid': rec.values.get('node_uuid'), 'node_peer_id': rec.values.get('node_peer_id'),
-                                  'tag': rec.values.get('vm_tag') or '', 'vlan': rec.values.get('vm_vlan') or '0',
-                                  'history': [], 'current_cpu': None}
-            if vm is not None:
-                vm[rec.get_field()] = rec.get_value()
-                vm['os'] = rec.values.get('vm_os') or ''
-                vm['state'] = state
-                # a replication target (HyperCore's sourceVirDomainUUID): listed apart, never as a stopped VM
-                vm['replica_of'] = rec.values.get('vm_source') or None
+          |> last()""")
+    # each VM as of its newest record: state and node are tags, so a just-started VM has an old SHUTOFF series too
+    inv = vm_rows.newest_inventory((rec.get_time(), rec.get_field(), rec.get_value(), rec.values)
+                                   for table in tables for rec in table.records)
+    seen: dict[str, datetime] = {uuid: e['time'] for uuid, e in inv.items()}
+    for uuid, e in inv.items():
+        tags = e['values']
+        vm = vms.get(uuid)
+        if vm is None:
+            # no performance sample (stopped, or started a moment ago): listed from the inventory, so it can be used
+            vm = vms[uuid] = {'uuid': uuid, 'name': tags.get('vm_name') or uuid,
+                              'node_uuid': tags.get('node_uuid'), 'node_peer_id': tags.get('node_peer_id'),
+                              'tag': tags.get('vm_tag') or '', 'vlan': tags.get('vm_vlan') or '0',
+                              'history': [], 'current_cpu': None}
+        vm.update(e['fields'])
+        vm['os'] = tags.get('vm_os') or ''
+        vm['state'] = tags.get('vm_state') or 'UNKNOWN'
+        # a replication target (HyperCore's sourceVirDomainUUID): listed apart, never as a stopped VM
+        vm['replica_of'] = tags.get('vm_source') or None
     # a VM the newest poll no longer lists is gone (deleted in HCM or in HyperCore): out at once, not when its last
     # performance sample turns stale. The collector polls right after HCM changes a VM (inventory_listener).
     for uuid in vm_rows.missing_from_last_poll(vms, seen):
