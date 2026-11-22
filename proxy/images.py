@@ -152,9 +152,12 @@ class NbdBackend:
         raise RuntimeError(f'{slot} did not come up')
 
     def _disconnect(self, slot: str, strict: bool) -> None:
-        subprocess.run(['sync'], check=False)
-        subprocess.run(['blockdev', '--flushbufs', slot], check=False, capture_output=True)
-        subprocess.run(['udevadm', 'settle'], check=False, capture_output=True, timeout=60)
+        try:                                        # best effort: a hanging settle must not skip the disconnect
+            subprocess.run(['sync'], check=False)
+            subprocess.run(['blockdev', '--flushbufs', slot], check=False, capture_output=True)
+            subprocess.run(['udevadm', 'settle'], check=False, capture_output=True, timeout=60)
+        except (OSError, subprocess.SubprocessError) as e:
+            log.warning('before disconnecting %s: %s', slot, e)
         if strict:
             _run(['qemu-nbd', '-d', slot], timeout=120)
         else:
@@ -242,6 +245,12 @@ class NbdBackend:
                 if len(self.pool.retired) >= self.pool.size:
                     raise RuntimeError('every nbd slot refuses I/O; restart the proxy container (or its VM)') from e
             except BaseException:
+                # `qemu-nbd -c` may have connected before it timed out (only the parent is killed) or before
+                # the device failed to come up: never hand a connected slot to the next image
+                try:
+                    self._disconnect(slot, strict=False)
+                except Exception:                   # noqa: BLE001 — the original error is the one to report
+                    log.warning('disconnect of %s after a failed connect failed', slot, exc_info=True)
                 self.pool.release(slot)
                 raise
 
@@ -253,8 +262,12 @@ class NbdBackend:
         finally:
             try:
                 self._disconnect(slot, strict=True)
-            finally:
-                self.pool.release(slot)
+            except BaseException:
+                # still connected (or unknown): the slot must not go back to the pool
+                log.warning('%s did not disconnect; the slot is retired until the proxy restarts', slot)
+                self.pool.retire(slot)
+                raise
+            self.pool.release(slot)
         if not readonly:
             self.fsync_image(path)
 

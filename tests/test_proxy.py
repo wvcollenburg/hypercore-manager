@@ -1278,11 +1278,60 @@ def test_nbd_backend_releases_slot_when_connect_fails(tmp_path, monkeypatch):
 
     def boom(slot, path, ro, cache=None):
         raise RuntimeError('qemu-nbd failed')
+    calls = []
     monkeypatch.setattr(be, '_connect', boom)
+    monkeypatch.setattr(be, '_disconnect', lambda slot, strict: calls.append((slot, strict)))
     with pytest.raises(RuntimeError, match='qemu-nbd'):
         with be._attached('img.qcow2', False):
             pass
     assert pool.free == 1 and not pool.retired
+    assert calls == [(f'{tmp_path}/nbd0', False)], 'a connect that failed halfway is disconnected before the slot goes back'
+
+
+def test_an_nbd_slot_that_may_still_be_connected_never_returns_to_the_pool(tmp_path, monkeypatch):
+    """`qemu-nbd -c` timing out kills only the parent and may leave the device connected; a strict disconnect that
+    fails leaves it connected for sure. Either slot went back to the pool as it was."""
+    import subprocess
+    pool = P.images.NbdPool(2, dev_dir=str(tmp_path))
+    be = P.images.NbdBackend(pool)
+    calls = []
+
+    def timeout(slot, path, ro, cache=None):
+        raise subprocess.TimeoutExpired(['qemu-nbd', '-c', slot], 120)
+    monkeypatch.setattr(be, '_connect', timeout)
+    monkeypatch.setattr(be, '_disconnect', lambda slot, strict: calls.append((slot, strict)))
+    with pytest.raises(subprocess.TimeoutExpired):
+        with be._attached('img.qcow2', True):
+            pass
+    assert calls == [(f'{tmp_path}/nbd0', False)] and pool.free == 2
+    # the strict disconnect after use fails: the slot is retired, not released
+    monkeypatch.setattr(be, '_connect', lambda slot, path, ro, cache=None: None)
+    monkeypatch.setattr(be, '_probe', lambda slot: None)
+
+    def strict_fails(slot, strict):
+        if strict:
+            raise RuntimeError('qemu-nbd -d failed (1)')
+    monkeypatch.setattr(be, '_disconnect', strict_fails)
+    with pytest.raises(RuntimeError, match='-d failed'):
+        with be._attached('img.qcow2', True) as slot:
+            pass
+    assert pool.retired == [slot] and pool.free == 1
+
+
+def test_a_hanging_udev_settle_does_not_skip_the_disconnect(tmp_path, monkeypatch):
+    import subprocess
+    be = P.images.NbdBackend(P.images.NbdPool(1, dev_dir=str(tmp_path)))
+    ran = []
+
+    def fake_run(cmd, **kw):
+        ran.append(cmd[0])
+        if cmd[0] == 'udevadm':
+            raise subprocess.TimeoutExpired(cmd, 60)
+        return types.SimpleNamespace(returncode=0, stdout='', stderr='')
+    monkeypatch.setattr(P.images.subprocess, 'run', fake_run)
+    monkeypatch.setattr(be, '_wait_server_gone', lambda slot: None)
+    be._disconnect(f'{tmp_path}/nbd0', strict=True)
+    assert 'qemu-nbd' in ran
 
 
 def test_a_write_error_at_writeback_fails_the_image_after_the_nbd_server_is_gone(tmp_path, monkeypatch):
