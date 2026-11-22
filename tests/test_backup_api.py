@@ -137,6 +137,36 @@ def test_a_chain_in_use_cannot_be_deleted(monkeypatch, busy, word):
     assert r.status_code == 409 and word in r.get_json()['error'] and calls == []
 
 
+def test_bad_input_is_a_400_not_a_500(client, monkeypatch):
+    for path, body in (('/api/v1/plans', {'cluster_id': 5}), ('/api/v1/plans', {'cluster_id': ['x']}),
+                       ('/api/v1/import/start', {'cluster_id': {'a': 1}}), ('/api/v1/proxies', {'cluster_id': 7}),
+                       ('/api/v1/policies/preview', {'count': 'many'})):
+        r = client.post(path, json=body)
+        assert r.status_code == 400, (path, body, r.status_code)
+    assert client.get(f'/api/v1/vmedit/changes?cluster={CID}&limit=abc').status_code == 400
+    # a restore onto a cluster id that is no uuid, and removing a test VM without a valid cluster
+    api.db.get_point = lambda pid: {'id': pid, 'chain_id': 1, 'status': 'ok'}
+    api.db.get_chain = lambda cid: {'id': 1, 'status': 'active', 'cluster_id': CID, 'vm_name': 'dc01', 'target_id': None}
+    r = client.post('/api/v1/restores', json={'point_id': 4, 'target_cluster_id': "x' OR 1=1"})
+    assert r.status_code == 400
+    api.db.get_test_plan = lambda pid: {'id': pid, 'folder_id': FOLDER}
+    r = client.delete(f'/api/v1/test-plans/1/vms?cluster={CID}', json={'cluster_id': 'nope', 'vm_uuid': 'v'})
+    assert r.status_code == 400
+
+
+def test_a_missing_file_in_file_recovery_is_a_404(monkeypatch):
+    monkeypatch.setitem(api.app.config, 'API_TOKEN', '')
+
+    def stream(mid, kind, params):
+        raise api.ProxyError('proxy returned 404')
+    monkeypatch.setattr(api.flr, 'stream', stream)
+    monkeypatch.setattr(api.flr, 'ls', lambda mid, path: (_ for _ in ()).throw(api.ProxyError('proxy returned 404: no such path')))
+    c = api.app.test_client()
+    r = c.get('/api/v1/flr/mounts/m1/file?path=/nope.txt')
+    assert r.status_code == 404 and r.get_json()['error'] == 'file not found in the restore point'
+    assert c.get('/api/v1/flr/mounts/m1/ls?path=/nope').status_code == 404
+
+
 def test_run_import_puts_the_folder_credentials_only_into_its_own_directory(monkeypatch):
     seen = []
 
