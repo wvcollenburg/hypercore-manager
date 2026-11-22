@@ -181,6 +181,9 @@ def plan(kind: str, ops: list[dict], vm: dict, ctx: Optional[dict] = None) -> di
             summary += [_describe_vm_field(k, v) for k, v in fields.items()]
         elif op == 'disk_resize':
             d = _dev(vm, o.get('device'), 'disk')
+            if d.get('type') not in DISK_TYPES:
+                # HyperCore answers a resize of the NVRAM, vTPM or a CD-ROM with a 500 (live: four retries, then failed)
+                raise EditError(f"only a disk can grow, not the {d.get('type') or 'unknown'} device")
             cap = _int(o.get('capacity'), 'disk size', 1, 64 * 1024 * GIB)
             if cap <= int(d.get('capacity') or 0):
                 raise EditError(f"disk {d.get('name') or d.get('type')} can only grow")

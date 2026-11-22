@@ -102,6 +102,7 @@ def test_confirmation_is_the_vm_name():
 @pytest.mark.parametrize('op, msg', [
     ({'op': 'disk_resize', 'device': 'd1', 'capacity': 40 * GIB}, 'only grow'),
     ({'op': 'disk_resize', 'device': 'other', 'capacity': 60 * GIB}, 'does not belong'),
+    ({'op': 'disk_resize', 'device': 'cd', 'capacity': 60 * GIB}, 'only a disk can grow'),     # live: HyperCore 500 x4
     ({'op': 'nic_set', 'device': 'n1', 'fields': {'vlan': 5000}}, 'VLAN'),
     ({'op': 'nic_set', 'device': 'n1', 'fields': {'macAddress': 'nonsense'}}, 'MAC'),
     ({'op': 'vm', 'fields': {'mem': 1}}, 'memory'),
@@ -113,6 +114,12 @@ def test_confirmation_is_the_vm_name():
 def test_refused(op, msg):
     with pytest.raises(ve.EditError, match=msg):
         _plan(op)
+
+
+def test_the_nvram_device_cannot_be_grown():
+    vm = dict(VM, blockDevs=VM['blockDevs'] + [{'uuid': 'nv', 'type': 'NVRAM', 'capacity': 540672, 'slot': -1}])
+    with pytest.raises(ve.EditError, match='NVRAM'):
+        ve.plan('edit', [{'op': 'disk_resize', 'device': 'nv', 'capacity': GIB}], vm)
 
 
 def test_power_action_is_validated():
