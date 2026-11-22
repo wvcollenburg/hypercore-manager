@@ -89,6 +89,10 @@ def save(body: dict, actor: str) -> dict:
     if name and any(c in name for c in '\r\n'):
         raise AccessError('the sender name cannot contain line breaks')
     url = _link_address(body.get('public_url'), 'the address in links')
+    if host and not url:
+        # the links in reset, invitation and approval mails are built from it, never from a request's Host header
+        raise AccessError('the address in links is required: password reset links and invitations are built from it '
+                          '(the address people open HCM with, e.g. https://hcm.example.com)')
     guest_url = _link_address(body.get('guest_url'), 'the address in guest links')
     username = str(body.get('username') or '').strip()[:200] or None
     conn = access_db._connect()
@@ -143,13 +147,19 @@ def guest_link_base() -> str | None:
     return (url or (os.getenv('HCM_GUEST_BASE_URL') or '').strip()).rstrip('/') or None
 
 
-def link_base(request_host_url: str | None = None) -> str:
-    """The address put in links: the setting, else the address this request came in on."""
+def link_base() -> str | None:
+    """The address put in links that are mailed: the setting (Settings -> Mail, "Address in links"), or None.
+    Never the address a request came in on: its Host header is the sender's to choose, so an unauthenticated
+    'forgot password' with Host: evil.example would mail the account holder a genuine link to the attacker.
+    Callers that get None send no link (and say why); an inviter may still be shown a link to pass on."""
     try:
         url = settings().get('public_url')
     except Exception:  # noqa: BLE001
         url = None
-    return (url or (request_host_url or '')).rstrip('/')
+    return (url or '').strip().rstrip('/') or None
+
+
+LINK_ADDRESS_MISSING = 'the address in links is not set (Settings → Mail): no link can be mailed'
 
 
 # ── sending ─────────────────────────────────────────────────────────────────────────────────────────

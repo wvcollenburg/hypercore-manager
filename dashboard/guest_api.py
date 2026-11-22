@@ -331,6 +331,11 @@ def register(app, sock, requires, public, h):
         Sent in the background; True when at least one mail is on its way."""
         if not mailer.configured():
             return False
+        base = mailer.link_base()
+        if not base:
+            # never the requester's Host header: the approvers would get a genuine mail with a link of their choosing
+            app.logger.warning('guest request %s: no mail to the approvers: %s', gid, mailer.LINK_ADDRESS_MISSING)
+            return False
         try:
             tree = h.access().tree
             tags = next((v.get('tags') or [] for v in h.vm_index_rows(f['cluster_id']) if v.get('uuid') == f['vm_uuid']), [])
@@ -347,7 +352,7 @@ def register(app, sock, requires, public, h):
         cluster = next((c.name for c in h.clusters() if str(c.cluster_id) == f['cluster_id']), '')
         values = {'vm': f['vm_name'], 'cluster': cluster or '-',
                   'guest': f['guest_name'] + (f" ({f['guest_company']})" if f.get('guest_company') else ''),
-                  'link': f'{mailer.link_base(request.host_url)}/guest-requests/{gid}'}
+                  'link': f'{base}/guest-requests/{gid}'}
         by = actor()
 
         def send():
