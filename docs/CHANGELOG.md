@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.9.1]
 
 ### Fixed
 - **A VM that was just started still showed 'shutoff'** (and a stopped one 'running') for up to two minutes. Power
