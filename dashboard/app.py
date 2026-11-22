@@ -2151,6 +2151,34 @@ def _narrow_backup(sub: str, data, scope, cid: str):
     return data
 
 
+# writes that create or change a VM's backup plan (directly, or by adding the VM to a schedule)
+_PLAN_WRITE_RE = re.compile(r'plans|plans/\d+|policies/\d+/members|test-plans/\d+/vms')
+# where a plan writes: only a root target manager chooses that; everyone else gets the folder's target
+_BACKUP_DEST_KEYS = ('path_uri_base', 'smb_user', 'smb_password', 'prune_path')
+
+
+def _clean_plan_payload(payload: dict, cid: str):
+    """The VM's name comes from the cluster, not the browser: it is the export prefix and the key the plan's
+    pruning deletes by, so a user allowed one VM could otherwise name another VM and have that VM's backups
+    pruned. A destination of the browser's choosing is dropped unless the user manages targets on the whole
+    installation (else a backup.schedule holder could send a VM's export to an SMB server of their own).
+    Returns an error response or None."""
+    if not _access().can('backup.targets.manage'):
+        for k in _BACKUP_DEST_KEYS:
+            payload.pop(k, None)
+    vm = str(payload.get('vm_uuid') or '').strip()
+    if not vm:
+        payload.pop('vm_name', None)              # an update of an existing plan keeps the plan's own name
+        return None
+    def find(rows):
+        return next((v.get('name') for v in rows if v.get('uuid') == vm), None)
+    name = find(_vm_index_rows(cid)) or find(_vm_index_rows(cid, fresh=True))
+    if not name:
+        return jsonify({'error': 'that VM is not on the cluster'}), 404
+    payload['vm_name'] = name
+    return None
+
+
 @app.route('/api/backup/status')
 @requires('backup.view')
 def backup_status():
@@ -2227,6 +2255,10 @@ def backup_proxy(sub):
             return jsonify({'error': err}), 403
         if body_cid:
             payload['cluster_id'] = body_cid
+        if request.method in ('POST', 'PUT') and _PLAN_WRITE_RE.fullmatch(sub):
+            problem = _clean_plan_payload(payload, body_cid or cid)
+            if problem is not None:
+                return problem
         user = session.get('username') or ('anonymous' if not _AUTH_ENABLED else None)
         if sub == 'notices/mute':                    # who muted it is the session's user, not the body's
             payload['muted_by'] = user
