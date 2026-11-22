@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.7.0]
 
 ### Added
 - **Test restores.** A test plan per folder (Backup → Schedules → **Test restores**) restores the newest backup of
@@ -29,6 +29,12 @@ All notable changes to this project are documented here. The format follows
 - **Proxy deploy: Test VLAN** adds a second NIC for the network checks. Proxy **0.6.2**: job `netcheck`,
   `iproute2`, `iputils-ping` and `dnsmasq-base` in the image; proxies deployed from now on run with host networking
   (older ones show *network tests: redeploy*).
+- **Progress bars for running work** (like balenaEtcher): a running backup shows a green bar while copying
+  (GiB and device n of m), then a purple one while the proxy checks the image and reads it back for its checksum; a
+  running restore shows verifying (purple), preparing and importing, writing disks (green); a running test
+  restore shows its step: restoring (the restore's bar), booting (time waited against the timeout), network checks,
+  removing the test VM. The Runs tab now also refreshes every 20 s when nothing runs, so runs started by a
+  schedule or another user show up with their bar. Migration 054 stores the structured progress next to the text.
 
 ### Fixed
 - **A big full looked stuck at its last MiB.** After a disk is copied the proxy checks the image and reads it back
@@ -38,6 +44,11 @@ All notable changes to this project are documented here. The format follows
   interrupted runs runs shortly after every (re)start of the backup service and also deleted the clones of a run
   that had just begun (`No such file or directory: /dev/disk/by-id/virtio-…`). It now skips chains whose backup
   is running.
+- **A failed full no longer leaves its partial data on the share.** A full that failed before its first point
+  kept what it had copied, so repeated failures filled the share. An empty chain of a failed run is now removed.
+- **A Windows lock screen showing only the clock is recognised** by the console's screen check (a second OCR pass
+  for white text on a photo), so a booted BitLocker VM without a guest agent counts as up.
+- The proxy list says *guest agent unknown (source VM is off)* instead of *agent unknown*.
 
 ## [1.6.0]
 
@@ -57,12 +68,6 @@ All notable changes to this project are documented here. The format follows
   badge on the cluster card, and mailed to the closest administrator of the folder (the folder's admins, else the
   customer's, else the MSP's, else the installation's). A chain with a point not verified for twice the interval
   raises a warning badge and a mail of its own. One mail per folder gathers what failed within two minutes.
-- **Progress bars for running work** (like balenaEtcher): a running backup shows a green bar while copying
-  (GiB and disk n of m), then a purple one while the proxy checks the image and reads it back for its checksum; a
-  running restore shows verifying (purple), preparing and importing, writing disks (green); a running test
-  restore shows its step: restoring (the restore's bar), booting (time waited against the timeout), network checks,
-  removing the test VM. Migration 054 stores the structured progress next to the text.
-
 - Restore points show a **Verified** column per chain; Runs lists the verifications (proxy, size, duration).
 
 ### Changed
