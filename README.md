@@ -102,7 +102,7 @@ so clusters can be added, disabled or removed independently.
 - A Linux host or VM (Ubuntu 22.04+ tested) with **Docker Engine 24+** and **Docker Compose v2**.
   - Compose v2 is the `docker compose` (no hyphen) command. The legacy python `docker-compose` 1.29.x is **not supported** — it has known recreate bugs that break the in-app updater. On Debian/Ubuntu, install via `sudo apt install docker-compose-v2`.
 - HyperCore cluster management IP and a service account with read + migration permissions.
-- Outbound HTTPS access to the HyperCore REST API (or fully offline — see [Dark-Site Deployment](#dark-site--air-gapped-deployment)).
+- Outbound HTTPS (TCP 443) to every node of each cluster (or fully offline — see [Dark-Site Deployment](#dark-site--air-gapped-deployment)). Backups add proxies and a share; every port and direction is in [Connectivity](docs/manual/09-connectivity.md).
 - ~2 vCPU / 4 GB RAM minimum for the core stack; more for Foresight (see [Resource Requirements](#resource-requirements)).
 
 There are two supported installation paths. Both work equally well on a laptop with Docker Desktop for a trial run as on a dedicated Linux VM; Apple Silicon and other arm64 hosts are supported.
@@ -517,6 +517,7 @@ carries a `cluster_id` tag.
 |----------|----------|
 | [docs/manual/README.md](docs/manual/README.md) | User manual: one chapter per module (Infraviewer, Clusterbalancer, Foresight, Backup, Settings, Modules and Account) with screenshots |
 | [docs/manual/08-installing-and-updating.md](docs/manual/08-installing-and-updating.md) | Installing and updating: prerequisites, the installer, every `.env` variable, the backup proxy's host, hardening, backing up the installation, upgrading (including from 0.9.x), health checks, troubleshooting |
+| [docs/manual/09-connectivity.md](docs/manual/09-connectivity.md) | Connectivity: every connection between the HCM host, clusters, proxies, the backup share and browsers, with direction, ports and protocols for firewall planning |
 | [docs/administration.md](docs/administration.md) | Day-to-day administration: registering clusters, folders and members, users and roles, backup targets and layout |
 | [docs/hypercore-openapi-v1.json](docs/hypercore-openapi-v1.json) | Scale Computing HyperCore REST API v1 OpenAPI spec (the API every service uses); `tests/test_hypercore_spec_contract.py` checks our calls against it |
 | [docs/hypercore-openapi-v2.json](docs/hypercore-openapi-v2.json) | HyperCore REST API v2 (experimental) spec; adds task listing used for the planned activity feed |

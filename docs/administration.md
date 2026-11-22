@@ -345,6 +345,11 @@ never see a URI or a credential.
 | Username, password | For SMB. `user`, `DOMAIN\user` and `user@domain` are all accepted |
 | Prune path | NFS only: where the share is mounted inside the `backup` container, so retention can delete old copies |
 
+**Prefer SMB.** HyperCore imports and exports over SMB only. An NFS target takes incremental backups,
+verification and file-level restore (all done by the proxy), but no VM restore, test restore, export-mode
+plan or Import: HyperCore Manager refuses those on an NFS target, the target dialog warns when the URI
+starts with `nfs://`, and the targets list marks NFS targets. See [Connectivity](manual/09-connectivity.md).
+
 A target must live outside the cluster it protects. A share served by a VM on the same cluster
 is stored in the same Scribe pool as the VMs being backed up: it is a copy, not a backup, and
 every MiB written to it is written twice more as that VM's replicas. Use a NAS, a file server
@@ -385,7 +390,8 @@ by a **backup proxy**: a container that runs on a VM inside the cluster (the Hyp
 VM itself when the stack runs there, or a small dedicated VM per remote cluster). HyperCore
 attaches a read-only clone of the VM's snapshot to the proxy's VM; the proxy reads the changed
 blocks and writes them as a qcow2 chain onto the target. The [installing chapter](manual/08-installing-and-updating.md#the-backup-proxy)
-says what the proxy container needs on its host.
+says what the proxy container needs on its host; [Connectivity](manual/09-connectivity.md) lists the ports
+and directions between the host, the proxies, the clusters and the share.
 
 **Settings → Targets → Backup proxies → + Register proxy** (a dialog): pick the cluster, give the proxy a
 name, its URL (`http://proxy:8083` for the container in this stack, `https://<ip>:8083` for a

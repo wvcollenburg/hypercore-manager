@@ -169,10 +169,11 @@ done for them.
 (24.04 by default; the URL can point at a local mirror), uploads it to the cluster once as a
 virtual disk named `hcm-ubuntu-noble-cloudimg.img` and reuses it for later proxies. The backup
 container only needs to reach that URL and the cluster. The new VM needs DHCP or a correct
-static address on its VLAN, and that is all: it pulls nothing. Cloud-init installs Docker and a
-small receiver on port 8083, the backup service pushes this installation's own proxy image to
-it over that port, and the VM loads the image and starts the container. No registry, no
-internet from the VM, and the proxy is always the version the stack was built with. The
+static address on its VLAN, and on first boot the Ubuntu package archive (or an apt mirror):
+cloud-init installs Docker, the guest agent and lvm2, plus a small receiver on port 8083. The
+backup service pushes this installation's own proxy image to it over that port, and the VM loads
+the image and starts the container. No container registry, and the proxy is always the version
+the stack was built with. Every port and direction is listed in [Connectivity](09-connectivity.md). The
 receiver speaks TLS from the first byte: it generates the self-signed certificate the proxy
 container keeps serving afterwards, the backup service pins that certificate at first contact,
 and the same pin is checked on every later connection, so the token and the image never
@@ -285,6 +286,8 @@ Before the stack is reachable from anything but localhost, work through this lis
 - [ ] The dashboard (port 5000) behind a reverse proxy with TLS, never directly internet-facing
 - [ ] InfluxDB (8086), Sentinel (8081) and the backup API (8082) not reachable beyond the host;
       the proxy API (8083) reachable from the backup service only
+- [ ] Firewall rules between the host, clusters, proxies and the share as listed in
+      [Connectivity](09-connectivity.md)
 - [ ] Access reviewed under Settings → Access: every account has the narrowest role and scope it
       needs; nobody but the administrators holds Admin on the whole installation
 

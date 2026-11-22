@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Infraviewer** in the tab bar opens on the VM list instead of Nodes & Drives.
+- **NFS targets and HyperCore's SMB-only import/export.** HyperCore imports and exports over SMB only, so a VM
+  restore, a test restore, an export-mode plan or schedule and an Import on an NFS target could only fail
+  halfway on HyperCore. They are now refused up front with a clear message (and checked again when they run),
+  the target dialog warns as soon as the URI starts with `nfs://`, and the targets list marks NFS targets.
+  Backups, verification and file recovery on NFS are unchanged. The NFS **Test connection** no longer claims
+  that exports work without a mount path.
+
+### Documentation
+- New manual chapter **Connectivity**: every connection between the HCM host, the clusters, the backup proxies,
+  the backup share and browsers, with direction, ports and protocols, plus typical layouts (MSP sites, share on
+  another site, DR cluster, no internet). Linked from the installing chapter, the admin guide and the README.
+- Installing chapter corrected: a proxy VM deployed from the dashboard needs the Ubuntu package archive (or an apt
+  mirror) on first boot for Docker, the guest agent and lvm2; it still pulls no container image.
+- Admin guide and Connectivity: HyperCore imports and exports over SMB only, so an NFS target cannot be used for
+  VM restores, test restores, export mode or Import (backups, verification and file-level restore work).
+
 ## [1.7.1]
 
 ### Changed
