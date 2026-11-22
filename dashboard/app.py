@@ -487,6 +487,15 @@ def _hours_arg(default: int = 1) -> int:
         raise BadRequest(f'hours must be a whole number of hours, not {raw!r}')
 
 
+def _int_arg(name: str, default: int, lo: int, hi: int) -> int:
+    """?name= as a whole number clamped to lo..hi; anything else is the caller's mistake (400), not a 500."""
+    raw = request.args.get(name, str(default))
+    try:
+        return max(lo, min(int(raw), hi))
+    except (TypeError, ValueError):
+        raise BadRequest(f'{name} must be a whole number, not {raw!r}')
+
+
 @app.errorhandler(BadRequest)
 def _bad_request(e):
     return jsonify({'error': str(e)}), 400
@@ -827,11 +836,12 @@ def get_vms():
           |> last()
         '''
         current_result = client.query_api().query(org=INFLUX_ORG, query=current_query)
-        for table in current_result:
-            for record in table.records:
-                vid = record.values.get('vm_uuid', 'unknown')
-                if vid in vms:
-                    vms[vid]['current_cpu'] = record.get_value()
+        # a VM that migrated in the last 5 minutes has a last() on its old node too: the newest one counts
+        current = vm_rows.newest_per((record.get_time(), record.values, record.get_value())
+                                     for table in current_result for record in table.records)
+        for vid, cpu in current.items():
+            if vid in vms:
+                vms[vid]['current_cpu'] = cpu
 
         # filter out VMs that haven't reported recently (deleted/stopped)
         stale_secs = _stale_seconds()
@@ -929,34 +939,10 @@ def get_vsds():
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
         '''
         result = client.query_api().query(org=INFLUX_ORG, query=query)
-        
-        vsds = {}
-        for table in result:
-            for record in table.records:
-                vsd_uuid = record.values.get('vsd_uuid', 'unknown')
-                
-                if vsd_uuid not in vsds:
-                    vsds[vsd_uuid] = {
-                        'uuid': vsd_uuid,
-                        'name': record.values.get('vsd_name', 'unknown'),
-                        'type': record.values.get('vsd_type', 'unknown'),
-                        'vm_uuid': record.values.get('vm_uuid', 'unknown'),
-                        'vm_name': record.values.get('vm_name', 'Unknown'),
-                        'node_uuid': record.values.get('node_uuid', 'unknown'),
-                        'history': []
-                    }
-                
-                vsds[vsd_uuid]['history'].append({
-                    'time': record.get_time().isoformat(),
-                    'read_kbps': record.values.get('read_kbps'),
-                    'write_kbps': record.values.get('write_kbps'),
-                    'read_latency_us': record.values.get('read_latency_us'),
-                    'write_latency_us': record.values.get('write_latency_us'),
-                    'read_iops': record.values.get('read_iops'),
-                    'write_iops': record.values.get('write_iops'),
-                    'capacity_bytes': record.values.get('capacity_bytes'),
-                })
-        
+
+        # one row per disk, described as of its newest sample (its VM may have moved node: vm_rows.py)
+        vsds = vm_rows.fold_vsds((record.get_time(), record.values) for table in result for record in table.records)
+
         # filter out VSDs that haven't reported recently
         stale_secs = _stale_seconds()
         active = [v for v in vsds.values() if not is_stale(v['history'], stale_secs)]
@@ -3126,18 +3112,18 @@ def sentinel_summary():
 @requires('cluster.view')
 def sentinel_forecasts():
     """E1 — Latest forecast snapshots, optionally filtered by ?dimension= or ?horizon="""
+    limit = _int_arg('limit', 200, 1, 1000)
+    horizon = _int_arg('horizon', 0, 0, 3650) if request.args.get('horizon') else None
     try:
         cid       = _cluster_id()
         dimension = request.args.get('dimension')
-        horizon   = request.args.get('horizon')
-        limit     = max(1, min(int(request.args.get('limit', 200)), 1000))
 
         where  = ['cluster_id = %s', 'expires_at > NOW()']
         params: list = [cid]
         if dimension:
             where.append('resource_dimension = %s'); params.append(dimension)
         if horizon:
-            where.append('forecast_horizon_days = %s'); params.append(int(horizon))
+            where.append('forecast_horizon_days = %s'); params.append(horizon)
         params.append(limit)
 
         rows = _sentinel_query(
@@ -3159,10 +3145,10 @@ def sentinel_forecasts():
 @requires('cluster.view')
 def sentinel_rightsizing():
     """E2 — Right-sizing results (C1, C2)."""
+    limit = _int_arg('limit', 200, 1, 1000)
     try:
         cid       = _cluster_id()
         direction = request.args.get('direction')
-        limit     = max(1, min(int(request.args.get('limit', 200)), 1000))
 
         where  = ['cluster_id = %s', 'expires_at > NOW()']
         params: list = [cid]
@@ -3189,9 +3175,9 @@ def sentinel_rightsizing():
 @requires('cluster.view')
 def sentinel_resize():
     """E2 — Concrete resize advice (C3-C6)."""
+    limit = _int_arg('limit', 200, 1, 1000)
     try:
         cid   = _cluster_id()
-        limit = max(1, min(int(request.args.get('limit', 200)), 1000))
         rows  = _sentinel_query(
             '''SELECT id, vm_uuid, vm_name, node_uuid, sizing_direction,
                       current_vcpu, recommended_vcpu,
@@ -3212,9 +3198,9 @@ def sentinel_resize():
 @requires('cluster.view')
 def sentinel_exhaustion():
     """E4 — Resource exhaustion alerts, most urgent first."""
+    limit = _int_arg('limit', 100, 1, 500)
     try:
         cid   = _cluster_id()
-        limit = max(1, min(int(request.args.get('limit', 100)), 500))
         rows  = _sentinel_query(
             '''SELECT id, node_uuid, resource_dimension, days_until_exhaustion,
                       exhaustion_date, current_usage_pct, growth_rate_per_day,
@@ -3237,9 +3223,9 @@ def sentinel_exhaustion():
 @requires('cluster.view')
 def sentinel_cluster_health():
     """E3 — Cluster health score history."""
+    limit = _int_arg('limit', 50, 1, 500)
     try:
         cid   = _cluster_id()
-        limit = max(1, min(int(request.args.get('limit', 50)), 500))
         rows  = _sentinel_query(
             '''SELECT id, health_score, bottleneck_resource, growth_rates,
                       efficiency_index, component_scores, cluster_count,

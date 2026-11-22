@@ -56,3 +56,46 @@ def test_every_node_with_a_vm_gets_its_group():
 def test_defaults_when_tags_are_missing():
     vm = vm_rows.fold([(NOW, {'vm_uuid': 'x', 'node_uuid': 'n'})])['x']
     assert (vm['name'], vm['node_peer_id'], vm['tag'], vm['vlan']) == ('Unknown', 'unknown', '', '0')
+
+
+def test_current_cpu_is_the_newest_last_across_the_nodes_series():
+    """A VM that migrated in the last 5 minutes has a last() on its old node too; the first table seen (the
+    lowest node tag) gave its old node's CPU."""
+    recs = [(NOW - timedelta(minutes=4), {'vm_uuid': 'a', 'node_uuid': 'node-1'}, 90.0),
+            (NOW - timedelta(minutes=1), {'vm_uuid': 'a', 'node_uuid': 'node-3'}, 12.0),
+            (NOW - timedelta(minutes=2), {'vm_uuid': 'b', 'node_uuid': 'node-2'}, 50.0)]
+    assert vm_rows.newest_per(recs) == {'a': 12.0, 'b': 50.0}
+    assert vm_rows.newest_per(list(reversed(recs))) == {'a': 12.0, 'b': 50.0}
+
+
+def _vsd(minutes_ago, node, read=1.0):
+    return NOW - timedelta(minutes=minutes_ago), {'vsd_uuid': 'd1', 'vsd_name': 'disk0', 'vsd_type': 'VIRTIO_DISK',
+                                                  'vm_uuid': 'a', 'vm_name': 'alpha', 'node_uuid': node, 'read_kbps': read}
+
+
+def test_a_disk_is_attributed_to_the_node_of_its_newest_sample():
+    disk = vm_rows.fold_vsds([_vsd(120, 'node-1'), _vsd(60, 'node-1'), _vsd(30, 'node-3'), _vsd(5, 'node-3', 7.0)])['d1']
+    assert disk['node_uuid'] == 'node-3' and (disk['name'], disk['type'], disk['vm_name']) == ('disk0', 'VIRTIO_DISK', 'alpha')
+    times = [h['time'] for h in disk['history']]
+    assert times == sorted(times) and disk['history'][-1]['read_kbps'] == 7.0
+    assert set(disk['history'][0]) == {'time', 'read_kbps', 'write_kbps', 'read_latency_us', 'write_latency_us',
+                                       'read_iops', 'write_iops', 'capacity_bytes'}
+
+
+def test_bad_numbers_on_the_foresight_routes_are_a_400(dash, monkeypatch):
+    import rbac
+    from types import SimpleNamespace
+    cid = 'cccccccc-0000-0000-0000-0000000000dd'
+    grants = [rbac.Grant(rbac.expand(['cluster.view']), 'cluster', cluster_id=cid)]
+    monkeypatch.setattr(dash.access_db, 'access_for', lambda uid, superuser=False: rbac.Access(grants, rbac.Tree(), user_id=uid))
+    monkeypatch.setattr(dash.access_db, 'user_state', lambda uid: {'username': 'u@x', 'enabled': True})
+    monkeypatch.setattr(dash, '_enabled_clusters', lambda: [SimpleNamespace(cluster_id=cid)])
+    monkeypatch.setattr(dash, '_sentinel_query', lambda sql, params: [{'params': params}])
+    c = dash.app.test_client()
+    with c.session_transaction() as s:
+        s['user_id'], s['username'] = 'u1', 'u@x'
+    for path in ('forecasts?limit=x', 'forecasts?horizon=30d', 'rightsizing?limit=', 'resize?limit=1e3',
+                 'exhaustion?limit=many', 'cluster-health?limit=-'):
+        assert c.get(f'/api/sentinel/{path}').status_code == 400, path
+    r = c.get('/api/sentinel/forecasts?horizon=90&limit=5000')
+    assert r.status_code == 200 and r.get_json()[0]['params'][-2:] == [90, 1000]
