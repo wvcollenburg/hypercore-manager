@@ -49,6 +49,8 @@ COPY dashboard/forwarding.py .
 COPY dashboard/alerts.py .
 COPY dashboard/storage_summary.py .
 COPY dashboard/vm_rows.py .
+COPY dashboard/media.py .
+COPY dashboard/media_api.py .
 COPY dashboard/manual.py .
 COPY dashboard/cluster_registry.py .
 COPY dashboard/hypercore_tasks.py .

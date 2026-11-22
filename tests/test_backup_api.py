@@ -210,3 +210,64 @@ def test_the_verify_view_says_which_points_were_healed():
     entry = {'state': 'done', 'result': {'ok': True, 'failed': {}, 'bytes': 1, 'duration_s': 2, 'healed': ['base', 'delta-0005']}}
     assert api._verify_view(15, entry)['healed'] == ['base', 'delta-0005']
     assert api._verify_view(15, {'state': 'done', 'result': {'ok': True}})['healed'] == []
+
+
+# ---------------------------------------------------------------------- media (1.9.0)
+class _MediaHC:
+    """HyperCore's ISOs and disks, with the uploads that reach it."""
+    def __init__(self, fail_upload=False):
+        self.isos = [{'uuid': '11111111-1111-4111-8111-111111111111', 'name': 'have.iso', 'size': 5, 'readyForInsert': True,
+                      'path': 'scribe/11111111-1111-4111-8111-111111111111'}]
+        self.vms = [{'name': 'web01', 'blockDevs': [{'type': 'IDE_CDROM', 'path': 'scribe/11111111-1111-4111-8111-111111111111'}]}]
+        self.fail_upload, self.uploaded, self.deleted = fail_upload, [], []
+    def list_isos(self): return self.isos
+    def _request(self, method, path, **kw):
+        if path == '/VirtualDisk': return []
+        if path == '/VirDomain': return self.vms
+        return {}
+    def create_iso(self, name, size):
+        self.isos.append({'uuid': '22222222-2222-4222-8222-222222222222', 'name': name, 'size': size, 'path': 'scribe/2'})
+        return '22222222-2222-4222-8222-222222222222'
+    def upload_iso(self, uuid, stream, size):
+        data = b''.join(stream)
+        if self.fail_upload:
+            raise api.HyperCoreError('connection reset')
+        self.uploaded.append((uuid, data))
+    def ready_iso(self, uuid): return ''
+    def delete_iso(self, uuid):
+        self.deleted.append(uuid)
+        return ''
+
+
+@pytest.fixture
+def media_hc(client, monkeypatch):
+    hc = _MediaHC()
+    monkeypatch.setattr(api.jobs, 'client_for', lambda cid: hc)
+    return hc
+
+
+def test_media_list_says_which_vms_hold_an_iso(client, media_hc):
+    d = client.get(f'/api/v1/media?cluster={CID}').get_json()
+    assert d['isos'][0]['in_use'] == ['web01'] and d['disks'] == []
+
+
+def test_an_iso_upload_streams_into_the_cluster(client, media_hc):
+    r = client.put(f'/api/v1/media/upload?cluster={CID}&kind=iso&name=new.iso', data=b'abc', headers={'Content-Type': 'application/octet-stream'})
+    assert r.status_code == 201 and media_hc.uploaded == [('22222222-2222-4222-8222-222222222222', b'abc')]
+
+
+def test_a_name_already_on_the_cluster_is_refused(client, media_hc):
+    r = client.put(f'/api/v1/media/upload?cluster={CID}&kind=iso&name=HAVE.iso', data=b'abc')
+    assert r.status_code == 409 and media_hc.uploaded == []
+
+
+def test_a_failed_upload_leaves_no_half_iso_behind(client, monkeypatch):
+    hc = _MediaHC(fail_upload=True)
+    monkeypatch.setattr(api.jobs, 'client_for', lambda cid: hc)
+    r = client.put(f'/api/v1/media/upload?cluster={CID}&kind=iso&name=new.iso', data=b'abc')
+    assert r.status_code == 502 and hc.deleted == ['22222222-2222-4222-8222-222222222222']
+
+
+def test_an_iso_in_a_cdrom_is_not_deleted(client, media_hc):
+    r = client.delete(f'/api/v1/media?cluster={CID}&kind=iso&uuid=11111111-1111-4111-8111-111111111111')
+    assert r.status_code == 409 and 'web01' in r.get_json()['error'] and media_hc.deleted == []

@@ -1391,6 +1391,7 @@ window.LANG = {
   'perm.vm.delete': "Löschen",
   'perm.vm.tags.edit': "Tags ändern",
   'perm.vm.create': "VMs anlegen",
+  'perm.media.manage': "ISOs und Disk-Images verwalten",
   'perm.backup.view': "Backups sehen",
   'perm.backup.schedule': "Backup-Zeitpläne verwalten",
   'perm.backup.run': "Backup jetzt starten",

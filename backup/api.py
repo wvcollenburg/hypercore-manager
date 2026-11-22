@@ -345,6 +345,127 @@ def vmedit_cancel(change_id):
     return jsonify({'ok': True})
 
 
+# ---------------------------------------------------------------------- media
+# ISOs and uploaded disk images (VirtualDisk) on a cluster. The dashboard decides who sees and manages which
+# (dashboard/media.py, config.media); this service only talks to HyperCore.
+_MEDIA_KINDS = ('iso', 'disk')
+
+
+def _media_list(hc) -> dict:
+    """The cluster's ISOs (with the VMs whose CD-ROM holds each) and disk images."""
+    isos = hc.list_isos()
+    disks = hc._request('GET', '/VirtualDisk') or []
+    used: dict[str, list[str]] = {}
+    for vm in hc._request('GET', '/VirDomain') or []:
+        for d in vm.get('blockDevs') or []:
+            if d.get('type') == 'IDE_CDROM' and d.get('path'):
+                used.setdefault(str(d['path']), []).append(vm.get('name') or vm.get('uuid'))
+    return {
+        'isos': [{'uuid': i.get('uuid'), 'name': i.get('name'), 'size': i.get('size'), 'ready': i.get('readyForInsert'),
+                  'in_use': sorted(used.get(str(i.get('path') or ''), []))} for i in isos],
+        'disks': [{'uuid': d.get('uuid'), 'name': d.get('name'), 'size': d.get('capacityBytes') or d.get('capacity')}
+                  for d in disks],
+    }
+
+
+@app.get('/api/v1/media')
+@_require_token
+def media_list():
+    cid = _cluster_arg()
+    if not cid:
+        return _err('cluster required')
+    try:
+        return jsonify(_media_list(jobs.client_for(cid)))
+    except HyperCoreError as e:
+        return _err(str(e), 502)
+
+
+def _body_chunks(size: int, chunk: int = 1 << 20):
+    """The request body as it arrives, exactly `size` bytes; a body that ends early fails the upload."""
+    left = size
+    while left > 0:
+        data = request.stream.read(min(chunk, left))
+        if not data:
+            raise HyperCoreError(f'the upload ended after {size - left} of {size} bytes')
+        left -= len(data)
+        yield data
+
+
+@app.put('/api/v1/media/upload')
+@_require_token
+def media_upload():
+    """?cluster=&kind=iso|disk&name=  body: the file, with its Content-Length. Streams it into the cluster:
+    an ISO is created, filled and made ready for insert; a disk image becomes a VirtualDisk. The dashboard
+    has checked the name and the uploader's right; a name already on the cluster is refused here."""
+    cid, kind, name = _cluster_arg(), request.args.get('kind'), (request.args.get('name') or '').strip()
+    if not cid or kind not in _MEDIA_KINDS or not name:
+        return _err('cluster, kind (iso or disk) and name are required')
+    size = request.content_length or 0
+    if size <= 0:
+        return _err('the upload needs a Content-Length')
+    try:
+        hc = jobs.client_for(cid)
+        have = _media_list(hc)['isos' if kind == 'iso' else 'disks']
+        if any((m.get('name') or '').lower() == name.lower() for m in have):
+            return _err(f"'{name}' is already on this cluster", 409)
+        if kind == 'iso':
+            iso_uuid = hc.create_iso(name, size)
+            try:
+                hc.upload_iso(iso_uuid, _body_chunks(size), size)
+                tag = hc.ready_iso(iso_uuid)
+                if tag:
+                    incremental.wait_task(hc, tag, 'ISO ready', 600)
+            except Exception:
+                try:
+                    hc.delete_iso(iso_uuid)          # a half-uploaded ISO is not left behind
+                except HyperCoreError:
+                    log.warning('could not remove the half-uploaded ISO %s', iso_uuid)
+                raise
+            return jsonify({'ok': True, 'uuid': iso_uuid, 'name': name, 'size': size}), 201
+        from hypercore import LengthStream
+        import requests
+        try:
+            r = hc.http().put(f'{hc.base}/VirtualDisk/upload', params={'filename': name, 'filesize': size},
+                              data=LengthStream(_body_chunks(size), size), timeout=(900, 7200),
+                              headers={'Content-Type': 'application/octet-stream'})
+        except requests.exceptions.RequestException as e:
+            raise HyperCoreError(f'disk image upload failed: {e}') from e
+        if not r.ok:
+            raise HyperCoreError(f'disk image upload failed ({r.status_code}): {r.text[:200]}')
+        tag = (r.json() or {}).get('taskTag') if r.content else None
+        if tag:
+            incremental.wait_task(hc, tag, 'disk image upload', 3600)
+        img = next((d for d in _media_list(hc)['disks'] if d.get('name') == name), None)
+        if not img:
+            return _err('the upload finished but the disk image is not listed on the cluster', 502)
+        return jsonify({'ok': True, 'uuid': img['uuid'], 'name': name, 'size': img.get('size') or size}), 201
+    except (HyperCoreError, incremental.IncrementalError) as e:
+        return _err(str(e), 502)
+
+
+@app.delete('/api/v1/media')
+@_require_token
+def media_delete():
+    """?cluster=&kind=&uuid=  An ISO still in a CD-ROM is refused (eject it first)."""
+    cid, kind, uuid = _cluster_arg(), request.args.get('kind'), (request.args.get('uuid') or '').strip()
+    if not cid or kind not in _MEDIA_KINDS or not cluster_registry.is_uuid(uuid):
+        return _err('cluster, kind and uuid are required')
+    try:
+        hc = jobs.client_for(cid)
+        listed = _media_list(hc)
+        item = next((m for m in listed['isos' if kind == 'iso' else 'disks'] if m.get('uuid') == uuid), None)
+        if not item:
+            return _err('not on this cluster', 404)
+        if kind == 'iso' and item.get('in_use'):
+            return _err('this ISO is inserted in ' + ', '.join(item['in_use']) + '; eject it first', 409)
+        tag = hc.delete_iso(uuid) if kind == 'iso' else (hc._request('DELETE', f'/VirtualDisk/{uuid}') or {}).get('taskTag', '')
+        if tag:
+            incremental.wait_task(hc, tag, 'media delete', 600)
+        return jsonify({'ok': True})
+    except (HyperCoreError, incremental.IncrementalError) as e:
+        return _err(str(e), 502)
+
+
 # ---------------------------------------------------------------------- VMs
 @app.get('/api/v1/notices')
 @_require_token

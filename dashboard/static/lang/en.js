@@ -1392,6 +1392,7 @@ window.LANG = {
   'perm.vm.delete': "Delete",
   'perm.vm.tags.edit': "Edit tags",
   'perm.vm.create': "Create VMs",
+  'perm.media.manage': "Manage ISOs and disk images",
   'perm.backup.view': "See backups",
   'perm.backup.schedule': "Manage backup schedules",
   'perm.backup.run': "Start a backup now",

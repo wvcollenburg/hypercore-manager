@@ -2424,6 +2424,11 @@ def backup_proxy(sub):
             problem = _clean_plan_payload(payload, body_cid or cid)
             if problem is not None:
                 return problem
+        if request.method == 'POST' and sub in ('vmedit/new', 'vmedit/changes'):
+            # an ISO or disk image belongs to a layer of the tree (media.py): only one this user may see
+            problem = _media_check(sub, payload, body_cid or cid)
+            if problem is not None:
+                return problem
         user = session.get('username') or ('anonymous' if not _AUTH_ENABLED else None)
         if sub == 'notices/mute':                    # who muted it is the session's user, not the body's
             payload['muted_by'] = user
@@ -2465,12 +2470,15 @@ def backup_proxy(sub):
     except Exception as e:
         return jsonify({'error': f'Backup service unreachable: {e}'}), 503
     sees_targets = _access().can('backup.targets.manage')
-    if sees_targets and scope in (None, 'all'):
+    media_lists = request.method == 'GET' and sub in ('vmedit/vm', 'vmedit/options') and status == 200
+    if sees_targets and scope in (None, 'all') and not media_lists:
         return Response(raw, status=status, mimetype='application/json')
     try:
         data = json.loads(raw.decode() or 'null')
     except ValueError:
         return Response(raw, status=status, mimetype='application/json')
+    if media_lists:
+        data = _media_narrow(sub, data, cid)     # the ISOs and images offered: only those this user may see
     if scope not in (None, 'all'):
         data = _narrow_backup(sub, data, scope, cid)
     if any(k.encode() in raw for k in _BACKUP_NAME_KEYS):
@@ -4375,6 +4383,11 @@ from types import SimpleNamespace  # noqa: E402
 guest_api.register(app, sock, requires, public, SimpleNamespace(
     access=_access, can_vm=_can_vm, console_call=_console_call, console_binding=_console_binding, client_ip=_client_ip,
     relay_pipe=_relay_pipe, clusters=_enabled_clusters, vm_index_rows=_vm_index_rows))
+import media_api  # noqa: E402
+_media_narrow, _media_check = media_api.register(app, requires, SimpleNamespace(   # looked up per call (tests replace them)
+    access=lambda: _access(), cluster_id=lambda: _cluster_id(), backup_env=lambda: _backup_env(), pg=lambda: _pg(),
+    write_cluster_problem=lambda perm, need: _write_cluster_problem(perm, need),
+    audit=lambda *a, **k: _audit(*a, **k)))
 
 
 # =============================================================================
