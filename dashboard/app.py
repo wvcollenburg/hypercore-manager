@@ -597,9 +597,8 @@ def _vm_sizes(client, vms: dict) -> None:
     """Adds mem_bytes, num_vcpu, os, state and disk_bytes to each VM of the list, and the VMs that are
     not running (from vm_inventory, which lists every VM). Memory and vCPUs come from
     vm_inventory; a VM's disks from its per-disk I/O samples (vsd_metrics carry vm_uuid and vsd_uuid),
-    their sizes from block_device_metrics by vsd_uuid. CD-ROMs (mounted ISOs) do not count."""
-    if not vms:
-        return
+    their sizes from block_device_metrics by vsd_uuid. CD-ROMs (mounted ISOs) do not count.
+    Also when no VM is running (a passive DR cluster): the stopped ones are still listed."""
     q = client.query_api()
     # the inventory as of the last polls only: a deleted VM drops out as fast as a stopped one shows up
     fresh = max(60, int(_stale_seconds()))
