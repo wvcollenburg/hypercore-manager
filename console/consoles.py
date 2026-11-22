@@ -21,6 +21,7 @@ import asyncio
 import hmac
 import logging
 import os
+import re
 import secrets
 import time
 from dataclasses import dataclass, field
@@ -90,6 +91,22 @@ def consume(token: str, binding: str) -> Optional[Ticket]:
     return t
 
 
+_SESSION_RE = re.compile(r'(sessionID=)[^&\s\'"]*', re.I)
+
+
+def _upstream_failure(e: BaseException) -> str:
+    """What went wrong connecting to the cluster's console, never its URL: that carries HyperCore's
+    sessionID, and this text goes to the log, the check details on the dashboard and API errors.
+    aiohttp's WSServerHandshakeError (a ClientResponseError) renders as status, message and URL."""
+    if isinstance(e, aiohttp.ClientResponseError):
+        return f'the cluster answered HTTP {e.status}'
+    if isinstance(e, asyncio.TimeoutError):
+        return 'timed out'
+    if isinstance(e, OSError):                       # connect errors: host, port and the OS error
+        return _SESSION_RE.sub(r'\1***', str(e))
+    return type(e).__name__
+
+
 async def open_upstream(http: aiohttp.ClientSession, cluster_id: str, vm_uuid: str):
     """(websocket to HyperCore's console of this VM, target). Raises hc.ConsoleError."""
     target = await asyncio.to_thread(hc.console_target, cluster_id, vm_uuid)
@@ -98,7 +115,7 @@ async def open_upstream(http: aiohttp.ClientSession, cluster_id: str, vm_uuid: s
                                    max_msg_size=0, timeout=aiohttp.ClientWSTimeout(ws_close=5),
                                    autoping=True)
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
-        raise hc.ConsoleError(f'console connection to the cluster failed: {e}', 502) from None
+        raise hc.ConsoleError(f'console connection to the cluster failed: {_upstream_failure(e)}', 502) from None
     return ws, target
 
 
@@ -173,7 +190,7 @@ async def relay(request: web.Request, http: aiohttp.ClientSession) -> web.WebSoc
             try:
                 reason = t.result() or reason
             except Exception as e:  # noqa: BLE001 — a dropped socket mid-send
-                reason = f'connection error: {e}'[:200]
+                reason = _SESSION_RE.sub(r'\1***', f'connection error: {e}')[:200]
     finally:
         for t in tasks:
             t.cancel()

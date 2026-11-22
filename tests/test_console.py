@@ -228,6 +228,35 @@ def test_ticket_expires(consoles, monkeypatch):
     assert consoles.consume(t, 'b' * 64) is None
 
 
+def test_a_refused_console_connection_never_carries_the_hypercore_session(consoles, monkeypatch):
+    """aiohttp's WSServerHandshakeError renders as status, message and the full URL, sessionID included; that text
+    went to the log, the open-session check details on the dashboard and API error bodies."""
+    import types
+    from aiohttp import web
+
+    async def refuse(request):
+        return web.Response(status=403, text='no')
+
+    async def go():
+        port = _free_port()
+        app = web.Application(); app.router.add_get('/node/{node}/console', refuse)
+        runner = web.AppRunner(app); await runner.setup(); await web.TCPSite(runner, '127.0.0.1', port).start()
+        target = types.SimpleNamespace(url=f'ws://127.0.0.1:{port}/node/n1/console?sessionID=S3CRET-SESSION&vm=v1',
+                                       ssl=False, vm_name='dc01', node_uuid='n1')
+        monkeypatch.setattr(consoles.hc, 'console_target', lambda c, v: target, raising=False)
+        try:
+            async with aiohttp.ClientSession() as http:
+                with pytest.raises(consoles.hc.ConsoleError) as ei:
+                    await consoles.open_upstream(http, 'c', 'v1')
+                return ei.value
+        finally:
+            await runner.cleanup()
+    e = asyncio.run(go())
+    assert 'S3CRET-SESSION' not in str(e) and 'sessionID' not in str(e) and '127.0.0.1' not in str(e)
+    assert str(e) == 'console connection to the cluster failed: the cluster answered HTTP 403' and e.status == 502
+    assert consoles._upstream_failure(OSError('x sessionID=abc&vm=1')) == 'x sessionID=***&vm=1'
+
+
 def test_no_ticket_no_binding(consoles):
     assert consoles.consume('', '') is None
     t = consoles.mint('c', 'vm', 'vm', 'alice', 'b' * 64, None)
