@@ -1349,7 +1349,7 @@ def _rail_folders(acc, folders: list) -> list:
                         path=(tree.path(fid) if see_all else acc.path(fid))[:-1],   # never the layers above the user
                         can_manage_tree=acc.can('tree.manage', node_id=fid),
                         can_manage_clusters=acc.can('cluster.manage', node_id=fid),
-                        can_assign_share=acc.can('backup.targets.manage', node_id=fid)))
+                        can_assign_share=acc.can('backup.targets.manage')))   # targets are listed at root only
     return out
 
 
@@ -1730,16 +1730,27 @@ def api_folders_update(folder_id):
     if not acc.can('tree.manage', node_id=folder_id):
         return jsonify({'error': 'Access denied'}), 403
     body = request.get_json(silent=True) or {}
-    if 'share_id' in body and not acc.can('backup.targets.manage', node_id=folder_id):
-        return jsonify({'error': 'Access denied'}), 403
+    share = ...
+    if 'share_id' in body:
+        # a folder's backup target decides where its VMs' backups are written: targets are an installation
+        # matter (listed to root target managers only), so a folder admin may not pick one, not even by id
+        if not acc.can('backup.targets.manage'):
+            return jsonify({'error': 'Access denied'}), 403
+        share = body['share_id']
+        if share not in (None, '', 0):
+            try:
+                share = int(share)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'share_id must be a backup target id'}), 400
     try:
-        cluster_registry.update_folder(folder_id, name=body.get('name'), colour=body.get('colour'),
-                                       share_id=body['share_id'] if 'share_id' in body else ...)
+        cluster_registry.update_folder(folder_id, name=body.get('name'), colour=body.get('colour'), share_id=share)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
         if 'ux_folders_name' in str(e) or 'duplicate key' in str(e):
             return jsonify({'error': 'a folder with that name already exists'}), 409
+        if 'foreign key' in str(e).lower() and 'share' in str(e).lower():
+            return jsonify({'error': 'no such backup target'}), 404
         return jsonify({'error': str(e)}), 500
     _invalidate_registry_cache()
     return jsonify({'ok': True})
