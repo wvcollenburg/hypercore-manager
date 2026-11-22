@@ -252,3 +252,46 @@ def test_an_update_is_checked_like_a_new_cluster(monkeypatch, fields):
     monkeypatch.setattr(cr, '_connect', lambda: pytest.fail('nothing may be written'))
     with pytest.raises(ValueError):
         cr.update('11111111-1111-4111-8111-111111111111', **fields)
+
+
+class _RecordingConn:
+    def __init__(self, sql: list, rows=None):
+        self.sql, self.rows = sql, list(rows or [])
+
+    def cursor(self):
+        conn = self
+
+        class Cur:
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+            def execute(s, sql, params=None): conn.sql.append(sql)
+            def fetchone(s): return conn.rows.pop(0) if conn.rows else None
+            def fetchall(s): return []
+        return Cur()
+
+    def commit(self): pass
+    def rollback(self): pass
+    def close(self): pass
+
+
+def test_moving_an_entry_to_another_address_needs_the_password(monkeypatch):
+    """The stored HyperCore password followed a changed address: a folder admin could point the entry at a
+    server of their own and have 'Test' (and every service's next login) send them the credential."""
+    import cluster_registry as cr
+    if not hasattr(cr, '_connect'):
+        pytest.skip('the registry is stubbed in this run')
+    cid = '11111111-1111-4111-8111-111111111111'
+    current = cr.Cluster(cluster_id=cid, name='c', host='10.0.0.1', username='admin', verify_tls=False, enabled=True,
+                         is_template=False, hc_cluster_uuid=None, colour=None, last_seen_at=None, last_error=None,
+                         registered_at=None, updated_at=None)
+    monkeypatch.setattr(cr, 'get', lambda c: current)
+    written = []
+    monkeypatch.setattr(cr, '_connect', lambda: _RecordingConn(written))
+    monkeypatch.setattr(cr.hcm_crypto, 'encrypt', lambda pw: 'enc', raising=False)
+    for fields in ({'host': 'evil.example'}, {'username': 'other'}, {'host': 'evil.example', 'password': ''}):
+        with pytest.raises(ValueError, match='password'):
+            cr.update(cid, **fields)
+    assert written == []
+    cr.update(cid, host='10.0.0.1', username='admin', name='renamed')      # unchanged values: no password needed
+    cr.update(cid, host='evil.example', password='new-secret')
+    assert len(written) == 2

@@ -326,6 +326,13 @@ def update(cluster_id: str, *, name: Optional[str] = None, host: Optional[str] =
         if api_version not in API_VERSIONS:
             raise ValueError("api_version must be auto, v1 or v2")
         sets.append('api_version = %s'); params.append(api_version)
+    if (host is not None or username is not None) and not password:
+        # the stored password follows the entry: pointed at another address (or user) it would be sent there by
+        # the next connection test and by every service's next login. Whoever moves it supplies the password.
+        current = get(cluster_id)
+        if current and ((host is not None and normalize_host(host) != current.host)
+                        or (username is not None and username.strip() != current.username)):
+            raise ValueError('changing the address or the user name needs the password in the same request')
     if not sets:
         return
     sets.append('updated_at = NOW()')
