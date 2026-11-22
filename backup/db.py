@@ -759,6 +759,19 @@ def chain_folders(cluster_id: str) -> list[dict]:
                     WHERE cluster_id = %s AND target_id IS NOT NULL AND status <> 'deleted'""", (cluster_id,))
 
 
+def chains_on_target(target_id: int) -> int:
+    """Chains (not deleted) whose data lives on this target."""
+    r = _one("SELECT COUNT(*) AS n FROM backup.chains WHERE target_id = %s AND status <> 'deleted'", (target_id,))
+    return int(r['n']) if r else 0
+
+
+def chain_work(chain_id: int) -> dict:
+    """Running backups and restores that use this chain: {'runs': n, 'restores': n}."""
+    return _one("""SELECT (SELECT COUNT(*) FROM backup.runs WHERE chain_id = %s AND status = 'RUNNING') AS runs,
+                          (SELECT COUNT(*) FROM backup.restores WHERE chain_id = %s AND status = 'RUNNING') AS restores""",
+                (chain_id, chain_id)) or {'runs': 0, 'restores': 0}
+
+
 def chains_with_clones() -> list[dict]:
     return [_chain_row(r) for r in _all("SELECT * FROM backup.chains WHERE active_clones IS NOT NULL AND active_clones <> 'null'::jsonb AND jsonb_array_length(active_clones) > 0")]
 

@@ -1072,6 +1072,11 @@ def shares_update(sid):
 @app.delete('/api/v1/targets/<int:sid>')
 @_require_token
 def shares_delete(sid):
+    n = db.chains_on_target(sid)
+    if n:
+        # deleting it would set their target_id NULL: the catalogue loses where the data is, the data stays
+        return _err(f'{n} backup chain(s) still live on this target; delete them first (Restore points), '
+                    'or assign another target to the folder and let them expire', 409)
     db.delete_share(sid)          # folders referencing it fall back to no share (ON DELETE SET NULL)
     return jsonify({'ok': True})
 
@@ -1597,6 +1602,15 @@ def chain_delete(chain_id):
     ch = db.get_chain(chain_id)
     if not ch:
         return _err('chain not found', 404)
+    work = db.chain_work(chain_id)
+    if work['runs'] or (ch.get('status') == 'active' and db.plan_run_active(ch.get('plan_id'))):
+        return _err('a backup of this chain is running; delete it when the run has finished', 409)
+    if work['restores']:
+        return _err('a restore from this chain is running; delete it when the restore has finished', 409)
+    if any(m.get('chain_id') == chain_id for m in flr.list_mounts()):
+        return _err('a point of this chain is open for file recovery; close it first', 409)
+    if (incremental.verify_status(chain_id) or {}).get('state') == 'running':
+        return _err('this chain is being verified; delete it when the verification has finished', 409)
     share = db.get_share(ch['target_id'], with_secret=True) if ch.get('target_id') else None
     if share:
         try:

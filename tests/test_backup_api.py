@@ -111,6 +111,32 @@ def test_a_typed_source_outside_the_folder_target_needs_its_own_credentials(clie
     assert r.status_code == 201, 'the folder target itself needs nothing extra'
 
 
+def test_a_target_that_still_holds_chains_cannot_be_deleted(monkeypatch):
+    """Deleting it set chains.target_id NULL: the catalogue lost where the data was, the data stayed."""
+    monkeypatch.setitem(api.app.config, 'API_TOKEN', '')
+    deleted = []
+    monkeypatch.setattr(api, 'db', types.SimpleNamespace(chains_on_target=lambda sid: {3: 2}.get(sid, 0),
+                                                         delete_share=deleted.append))
+    c = api.app.test_client()
+    r = c.delete('/api/v1/targets/3')
+    assert r.status_code == 409 and '2 backup chain' in r.get_json()['error'] and deleted == []
+    assert c.delete('/api/v1/targets/4').status_code == 200 and deleted == [4]
+
+
+@pytest.mark.parametrize('busy, word', [('run', 'backup'), ('plan', 'backup'), ('restore', 'restore'), ('mount', 'file recovery')])
+def test_a_chain_in_use_cannot_be_deleted(monkeypatch, busy, word):
+    monkeypatch.setitem(api.app.config, 'API_TOKEN', '')
+    calls = []
+    monkeypatch.setattr(api, 'db', types.SimpleNamespace(
+        get_chain=lambda cid: {'id': cid, 'status': 'active', 'plan_id': 4, 'cluster_id': CID, 'target_id': None},
+        chain_work=lambda cid: {'runs': int(busy == 'run'), 'restores': int(busy == 'restore')},
+        plan_run_active=lambda pid: busy == 'plan',
+        get_points=lambda cid: [], update_chain=lambda *a, **k: calls.append('deleted')))
+    monkeypatch.setattr(api.flr, 'list_mounts', lambda cid=None: [{'chain_id': 5}] if busy == 'mount' else [])
+    r = api.app.test_client().delete('/api/v1/chains/5')
+    assert r.status_code == 409 and word in r.get_json()['error'] and calls == []
+
+
 def test_run_import_puts_the_folder_credentials_only_into_its_own_directory(monkeypatch):
     seen = []
 
