@@ -265,6 +265,32 @@ def test_customer_admin_cannot_escalate(admin, clusters):
     assert st == 404
 
 
+def test_handing_out_access_needs_user_management_on_that_scope(admin):
+    """Holding a role's permissions somewhere is not the right to hand them out there. contoso-admin, made a
+    Viewer at Fabrikam, could assign and invite people as Viewer at Fabrikam (2026-11-22)."""
+    o = admin.call('GET', '/api/access/overview')[1]
+    fabrikam = next(n['id'] for n in o['nodes'] if n['name'] == 'Fabrikam')
+    viewer = next(r['role_id'] for r in o['roles'] if r['builtin_key'] == 'viewer')
+    scope = {'kind': 'node', 'node_id': fabrikam}
+    st, d = admin.call('POST', '/api/access/assignments', {'user_id': _uid(admin, 'contoso-admin'), 'role_id': viewer, 'scope': scope})
+    assert st == 201, d
+    try:
+        _sessions.pop('contoso-admin', None)
+        c = as_user('contoso-admin')
+        st, d = c.call('POST', '/api/access/assignments', {'user_id': _uid(admin, 'contoso-viewer'), 'role_id': viewer, 'scope': scope})
+        assert st == 403 and 'manage' in d['error'], (st, d)
+        st, d = c.call('POST', '/api/access/invitations', {'email': 'someone@invited.example', 'role_id': viewer, 'scope': scope})
+        assert st in (403, 404), (st, d)
+        assert 'Fabrikam-Main' not in visible('contoso-viewer')
+    finally:
+        admin.call('DELETE', f"/api/access/assignments/{d.get('assignment_id')}") if isinstance(d, dict) and d.get('assignment_id') else None
+        uid = _uid(admin, 'contoso-admin')
+        for a in admin.call('GET', f'/api/access/users/{uid}')[1]['assignments']:
+            if a.get('node_id') == fabrikam:
+                admin.call('DELETE', f"/api/access/assignments/{a['assignment_id']}")
+        _sessions.pop('contoso-admin', None)
+
+
 def test_engineer_cannot_manage_users(admin):
     c = as_user('contoso-eng')
     st, _ = c.call('POST', '/api/access/assignments', {'user_id': _uid(admin, 'contoso-viewer'), 'role_id': _role(admin, 'viewer'),

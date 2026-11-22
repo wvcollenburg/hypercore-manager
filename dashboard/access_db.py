@@ -940,14 +940,14 @@ def node_label(node_id, tree: rbac.Tree, visible: set | None = None) -> str:
     return ' / '.join(tree.name.get(n, n) for n in chain) or str(node_id)
 
 
-def assignment_in_reach(acc: rbac.Access, a: dict) -> bool:
-    """May this reader manage people on the scope of assignment `a` (users.manage there)?"""
+def assignment_in_reach(acc: rbac.Access, a: dict, perm: str = 'users.manage') -> bool:
+    """May this reader manage people on the scope of assignment `a` (`perm` there, users.manage by default)?"""
     k = a['scope_kind']
     if k == 'node':
-        return acc.can('users.manage', node_id=a['node_id'])
+        return acc.can(perm, node_id=a['node_id'])
     if k in ('cluster', 'tag', 'vm'):
-        return acc.can('users.manage', a['cluster_id'])
-    return acc.can('users.manage')                   # root: the whole installation
+        return acc.can(perm, a['cluster_id'])
+    return acc.can(perm)                             # root: the whole installation
 
 
 def manageable_user_ids(acc: rbac.Access) -> set | None:

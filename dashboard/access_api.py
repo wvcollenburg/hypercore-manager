@@ -124,10 +124,17 @@ def register(app, requires, access, clusters, vm_index_rows):
             out['vm_name'] = name or str(s.get('vm_name') or '')[:200] or None
         return out
 
-    def grant_check(acc: rbac.Access, r: dict, scope: dict) -> None:
+    def grant_check(acc: rbac.Access, r: dict, scope: dict, perm: str = 'users.manage') -> None:
+        """May `acc` hand role `r` to someone on `scope`? Two conditions: they manage people there (`perm` on
+        the scope: users.manage, or groups.manage when the access comes with a group), and they hold every
+        permission of the role there themselves. The second alone is not enough: an Admin of customer A who
+        is a Viewer at customer B holds Viewer's permissions at B, but B's people are not theirs to manage."""
         tree = acc.tree
         if not role_usable_at(r, scope, tree):
             raise AccessError('that role is not defined for this part of the tree', 403)
+        if not access_db.assignment_in_reach(acc, {'scope_kind': scope['kind'], 'node_id': scope.get('node_id'),
+                                                   'cluster_id': scope.get('cluster_id')}, perm):
+            raise AccessError('you do not manage access on that scope', 403)
         tags = []
         if scope['kind'] == 'vm':
             tags = next((v.get('tags') or [] for v in vm_index_rows(scope['cluster_id']) if v.get('uuid') == scope['vm_uuid']), [])
@@ -528,7 +535,7 @@ def register(app, requires, access, clusters, vm_index_rows):
             for a in access_db.assignments(group_id=g['group_id']):
                 scope = {'kind': a['scope_kind'], 'node_id': a['node_id'], 'cluster_id': a['cluster_id'], 'tag': a['tag'],
                          'vm_uuid': a['vm_uuid']}
-                grant_check(acc, access_db.role(a['role_id']), scope)
+                grant_check(acc, access_db.role(a['role_id']), scope, 'groups.manage')
         access_db.set_group_member(g['group_id'], u['user_id'], bool(b.get('member', True)), actor())
         return jsonify({'ok': True})
 
