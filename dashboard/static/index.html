@@ -1161,9 +1161,9 @@
     <div class="nav-tab" data-tab="settings" onclick="switchTab('settings')" id="navTabSettings" data-i18n="nav.settings_short" hidden>Settings</div>
   </nav>
   <div class="header-right">
-    <div class="tb-status"><div class="status-dot" id="statusDot"></div><span class="status-text" id="statusText">Connecting...</span></div>
+    <div class="tb-status"><div class="status-dot" id="statusDot"></div><span class="status-text" id="statusText" data-i18n="header.connecting">Connecting...</span></div>
     <button class="tb-btn" data-i18n="header.refresh" onclick="vmIndexStale(); refreshAll()">↻ Refresh</button>
-    <button class="update-badge-btn" id="updateBadgeBtn" onclick="openUpdateModal()" title="Software update" hidden>Update</button>
+    <button class="update-badge-btn" id="updateBadgeBtn" onclick="openUpdateModal()" title="Software update" data-i18n-title="update.software_update" data-i18n="update.button" hidden>Update</button>
     <div class="lang-picker" id="langPicker">
       <button class="lang-btn tb-btn" id="langBtn" onclick="toggleLangDropdown(event)">
         <span id="langBtnCode">EN</span><span class="tb-caret">▾</span>
@@ -1195,7 +1195,7 @@
   <div id="clusterRailList" class="cluster-rail-list"></div>
 </aside>
 
-<div class="crumbs-line"><nav class="crumbs" id="crumbs" aria-label="breadcrumbs"></nav></div>
+<div class="crumbs-line"><nav class="crumbs" id="crumbs" aria-label="Breadcrumbs" data-i18n-aria-label="nav.breadcrumbs"></nav></div>
 
 <div class="main">
   <!-- ─── Infraviewer tab ─── -->
@@ -1211,8 +1211,8 @@
       <div class="group-controls">
         <span class="group-label" data-i18n="vm.group_by">Group by:</span>
         <button class="group-btn active" data-group="none" data-i18n="vm.group_none" onclick="setVmGroup('none')">None</button>
-        <button class="group-btn" data-group="tag"  onclick="setVmGroup('tag')">Tag</button>
-        <button class="group-btn" data-group="node" onclick="setVmGroup('node')">Node</button>
+        <button class="group-btn" data-group="tag"  onclick="setVmGroup('tag')" data-i18n="vm.group_label.tag">Tag</button>
+        <button class="group-btn" data-group="node" onclick="setVmGroup('node')" data-i18n="vm.group_label.node">Node</button>
         <button class="group-btn" data-group="vlan" onclick="setVmGroup('vlan')">VLAN</button>
         <input type="search" id="vmSearch" class="um-input vm-search" placeholder="Search VMs" data-i18n-placeholder="vm.search_ph"
                title="Name, tags, IP or MAC address, VLAN, mounted ISO, disk, OS, node" data-i18n-title="vm.search_hint"
@@ -1234,10 +1234,10 @@
         <button class="time-range-btn"        data-trpanel="nodes" data-hours="2"    onclick="setNodeTimeRange(2)">2hr</button>
         <button class="time-range-btn"        data-trpanel="nodes" data-hours="6"    onclick="setNodeTimeRange(6)">6hr</button>
         <button class="time-range-btn"        data-trpanel="nodes" data-hours="12"   onclick="setNodeTimeRange(12)">12hr</button>
-        <button class="time-range-btn active" data-trpanel="nodes" data-hours="24"   onclick="setNodeTimeRange(24)">1 day</button>
-        <button class="time-range-btn"        data-trpanel="nodes" data-hours="168"  onclick="setNodeTimeRange(168)">7 days</button>
-        <button class="time-range-btn"        data-trpanel="nodes" data-hours="720"  onclick="setNodeTimeRange(720)">1 month</button>
-        <button class="time-range-btn"        data-trpanel="nodes" data-hours="8760" onclick="setNodeTimeRange(8760)">1 year</button>
+        <button class="time-range-btn active" data-trpanel="nodes" data-hours="24"   onclick="setNodeTimeRange(24)" data-i18n="range.1d">1 day</button>
+        <button class="time-range-btn"        data-trpanel="nodes" data-hours="168"  onclick="setNodeTimeRange(168)" data-i18n="range.7d">7 days</button>
+        <button class="time-range-btn"        data-trpanel="nodes" data-hours="720"  onclick="setNodeTimeRange(720)" data-i18n="range.1mo">1 month</button>
+        <button class="time-range-btn"        data-trpanel="nodes" data-hours="8760" onclick="setNodeTimeRange(8760)" data-i18n="range.1y">1 year</button>
         <div class="fetch-spinner"></div>
       </div>
       <div class="charts-row">
@@ -1267,10 +1267,10 @@
         <button class="time-range-btn"        data-trpanel="vms" data-hours="2"    onclick="setVmTimeRange(2)">2hr</button>
         <button class="time-range-btn"        data-trpanel="vms" data-hours="6"    onclick="setVmTimeRange(6)">6hr</button>
         <button class="time-range-btn"        data-trpanel="vms" data-hours="12"   onclick="setVmTimeRange(12)">12hr</button>
-        <button class="time-range-btn active" data-trpanel="vms" data-hours="24"   onclick="setVmTimeRange(24)">1 day</button>
-        <button class="time-range-btn"        data-trpanel="vms" data-hours="168"  onclick="setVmTimeRange(168)">7 days</button>
-        <button class="time-range-btn"        data-trpanel="vms" data-hours="720"  onclick="setVmTimeRange(720)">1 month</button>
-        <button class="time-range-btn"        data-trpanel="vms" data-hours="8760" onclick="setVmTimeRange(8760)">1 year</button>
+        <button class="time-range-btn active" data-trpanel="vms" data-hours="24"   onclick="setVmTimeRange(24)" data-i18n="range.1d">1 day</button>
+        <button class="time-range-btn"        data-trpanel="vms" data-hours="168"  onclick="setVmTimeRange(168)" data-i18n="range.7d">7 days</button>
+        <button class="time-range-btn"        data-trpanel="vms" data-hours="720"  onclick="setVmTimeRange(720)" data-i18n="range.1mo">1 month</button>
+        <button class="time-range-btn"        data-trpanel="vms" data-hours="8760" onclick="setVmTimeRange(8760)" data-i18n="range.1y">1 year</button>
         <div class="fetch-spinner"></div>
       </div>
       <div class="charts-row">
@@ -1425,7 +1425,7 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;" id="brandingForm">
           <div style="display:flex;flex-direction:column;gap:6px;">
             <label for="brandingCompany" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);" data-i18n="reports.company_name">Company Name</label>
-            <input id="brandingCompany" type="text" placeholder="e.g. Acme Corp"
+            <input id="brandingCompany" type="text" placeholder="e.g. Acme Corp" data-i18n-placeholder="reports.company_ph"
               style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:7px 10px;border-radius:6px;font-size:13px;" />
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;">
@@ -1511,18 +1511,18 @@
           <div id="whatifNodeOptions" style="display:flex;gap:12px;flex-wrap:wrap;">
             <div style="display:flex;flex-direction:column;gap:6px;">
               <label for="whatifStorageTB" data-i18n="whatif.storage_per_node" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">Storage / node (TB, optional)</label>
-              <input id="whatifStorageTB" type="number" min="0" step="0.1" placeholder="cluster avg"
+              <input id="whatifStorageTB" type="number" min="0" step="0.1" placeholder="cluster avg" data-i18n-placeholder="whatif.cluster_avg_ph"
                 style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:160px;" />
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;">
               <label for="whatifRamGB" data-i18n="whatif.ram_per_node" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">RAM / node (GB, optional)</label>
-              <input id="whatifRamGB" type="number" min="0" step="1" placeholder="cluster avg"
+              <input id="whatifRamGB" type="number" min="0" step="1" placeholder="cluster avg" data-i18n-placeholder="whatif.cluster_avg_ph"
                 style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:160px;" />
             </div>
           </div>
           <div id="whatifVmLikeOptions" style="display:none;flex-direction:column;gap:6px;">
             <label for="whatifSourceVm" data-i18n="whatif.template_vm" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">Template VM</label>
-            <input id="whatifSourceVm" type="text" placeholder="Type or select a VM name"
+            <input id="whatifSourceVm" type="text" placeholder="Type or select a VM name" data-i18n-placeholder="whatif.source_vm_ph"
               list="whatifVmList"
               style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:260px;" />
             <datalist id="whatifVmList"></datalist>
@@ -1666,7 +1666,7 @@
   <div id="vmEditBackdrop" class="vm-modal-backdrop" onclick="closeVmEdit(event)">
     <div class="vm-modal ve-modal" role="dialog" aria-modal="true" aria-labelledby="veTitle">
       <div class="vm-modal-header">
-        <div class="vm-modal-title" id="veTitle">Edit</div>
+        <div class="vm-modal-title" id="veTitle" data-i18n="ve.edit">Edit</div>
         <button class="vm-modal-close" onclick="closeVmEdit()">✕</button>
       </div>
       <div id="veBody"></div>
@@ -1695,7 +1695,7 @@
     <div class="vm-modal" id="vmDetailModal">
       <div class="vm-modal-header">
         <div style="display:flex;align-items:center;gap:18px;min-width:0;">
-          <div class="vm-modal-title" id="vmDetailTitle">VM Details</div>
+          <div class="vm-modal-title" id="vmDetailTitle" data-i18n="vm.details_title">VM Details</div>
           <div class="vm-tabs">
             <button class="vm-tab active" data-vmtab="info" onclick="switchVmTab('info')" data-i18n="vm.tab_details">Details</button>
             <button class="vm-tab" data-vmtab="perf" onclick="switchVmTab('perf')" data-i18n="vm.tab_performance">Performance</button>
@@ -1718,10 +1718,10 @@
             <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="2"    onclick="setVmDetailTimeRange(2)">2hr</button>
             <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="6"    onclick="setVmDetailTimeRange(6)">6hr</button>
             <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="12"   onclick="setVmDetailTimeRange(12)">12hr</button>
-            <button class="time-range-btn active" data-trpanel="vmdetail" data-hours="24"   onclick="setVmDetailTimeRange(24)">1 day</button>
-            <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="168"  onclick="setVmDetailTimeRange(168)">7 days</button>
-            <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="720"  onclick="setVmDetailTimeRange(720)">1 month</button>
-            <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="8760" onclick="setVmDetailTimeRange(8760)">1 year</button>
+            <button class="time-range-btn active" data-trpanel="vmdetail" data-hours="24"   onclick="setVmDetailTimeRange(24)" data-i18n="range.1d">1 day</button>
+            <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="168"  onclick="setVmDetailTimeRange(168)" data-i18n="range.7d">7 days</button>
+            <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="720"  onclick="setVmDetailTimeRange(720)" data-i18n="range.1mo">1 month</button>
+            <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="8760" onclick="setVmDetailTimeRange(8760)" data-i18n="range.1y">1 year</button>
             <div class="fetch-spinner"></div>
       </div>
       <div class="vm-modal-charts">
@@ -1767,6 +1767,9 @@
  * Falls back to the key itself if the string is not found.
  * Supports simple {placeholder} substitution via the params object.
  */
+// dates and times in the interface language (en keeps the 24-hour day-month form it always had)
+function _hcmLocale() { return ({en: 'en-GB', nl: 'nl-NL', fr: 'fr-FR', de: 'de-DE'})[window._hcmLang] || 'en-GB'; }
+
 function t(key, params) {
   const lang = window.LANG || {};
   let str = Object.prototype.hasOwnProperty.call(lang, key) ? lang[key] : key;
@@ -1796,6 +1799,10 @@ function applyI18n() {
   document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
     const val = t(el.dataset.i18nPlaceholder);
     if (val !== el.dataset.i18nPlaceholder) el.placeholder = val;
+  });
+  document.querySelectorAll('[data-i18n-aria-label]').forEach(el => {
+    const val = t(el.dataset.i18nAriaLabel);
+    if (val !== el.dataset.i18nAriaLabel) el.setAttribute('aria-label', val);
   });
 }
 
@@ -1963,15 +1970,19 @@ function setVmTimeRange(h) {
 }
 
 const MODULE_META = {
-  'node_metrics':     { icon:'⬡', color:'var(--accent-blue)',   desc:'Physical node CPU & RAM' },
-  'vm_metrics':       { icon:'◫', color:'var(--accent-cyan)',   desc:'Virtual machine performance' },
-  'drive_metrics':    { icon:'◉', color:'var(--accent-green)',  desc:'Physical drive health & usage' },
-  'vsd_metrics':      { icon:'◈', color:'var(--accent-amber)',  desc:'Virtual storage device I/O' },
-  'migration_events':           { icon:'⇄', color:'var(--accent-purple)', desc:'Balancer migration log' },
-  'predictive_recommendations': { icon:'🔮', color:'var(--accent-purple)', desc:'Oracle queued recommendations' },
-  'predictive_runs':            { icon:'📊', color:'var(--accent-purple)', desc:'Oracle per-run summary' },
+  'node_metrics':     { icon:'⬡', color:'var(--accent-blue)'   },
+  'vm_metrics':       { icon:'◫', color:'var(--accent-cyan)'   },
+  'drive_metrics':    { icon:'◉', color:'var(--accent-green)'  },
+  'vsd_metrics':      { icon:'◈', color:'var(--accent-amber)'  },
+  'migration_events':           { icon:'⇄', color:'var(--accent-purple)' },
+  'predictive_recommendations': { icon:'🔮', color:'var(--accent-purple)' },
+  'predictive_runs':            { icon:'📊', color:'var(--accent-purple)' },
 };
-function getModuleMeta(n) { return MODULE_META[n] || { icon:'◻', color:'var(--text-secondary)', desc:t('module.auto_desc') }; }
+// the description of a known module is module.desc.<name> in lang/*.js
+function getModuleMeta(n) { return MODULE_META[n] ? {...MODULE_META[n], desc: t('module.desc.' + n)} : { icon:'◻', color:'var(--text-secondary)', desc:t('module.auto_desc') }; }
+function showModuleInfo(name) {
+  hcmAlert(t('module.alert', {name, query: `GET /api/query/${name}?hours=1&limit=100`}), {title: t('module.title')});
+}
 
 function switchTab(t) {
   document.querySelectorAll('.nav-tab, .rail-nav').forEach(e => e.classList.remove('active'));
@@ -1993,8 +2004,8 @@ function switchIvPanel(p) {
   document.getElementById(`ivpanel-${p}`).classList.add('active');
 }
 
-function formatTime(s) { return new Date(s).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }
-function formatDateTime(s) { return new Date(s).toLocaleDateString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); }
+function formatTime(s) { return new Date(s).toLocaleTimeString(_hcmLocale(),{hour:'2-digit',minute:'2-digit'}); }
+function formatDateTime(s) { return new Date(s).toLocaleDateString(_hcmLocale(),{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); }
 function formatBytes(b) {
   if(!b) return '0 B';
   const u=['B','KB','MB','GB','TB']; let i=0, v=b;
@@ -2137,7 +2148,7 @@ async function loadNodes() {
     return `
       <div class="card ${nodeCpuClass}">
         <div class="card-header">
-          <span class="card-title">Node ${node.peer_id}<span class="node-alert-badges" data-node="${node.uuid}"></span></span>
+          <span class="card-title">${t('chart.node', {n: node.peer_id})}<span class="node-alert-badges" data-node="${node.uuid}"></span></span>
           <span class="card-badge ${cpuBadgeClass(cpu)}">${avg_cpu.toFixed(1)}% CPU</span>
         </div>
         <div class="node-alerts" data-node="${node.uuid}"></div>
@@ -2173,7 +2184,7 @@ async function loadNodes() {
   nodeCpuChart = new Chart(ctx, {
     type: 'line',
     data: { datasets: nodeData.map((n,i) => ({
-      label: `Node ${n.peer_id}`,
+      label: t('chart.node', {n: n.peer_id}),
       data: n.history.map(pt => ({ x: new Date(pt.time), y: pt.cpu_usage })),
       borderColor: CHART_COLORS[i%CHART_COLORS.length],
       backgroundColor: CHART_COLORS[i%CHART_COLORS.length]+'20',
@@ -2223,7 +2234,7 @@ async function loadNodes() {
     type: 'line',
     data: { datasets: [
       {
-        label: 'Total IOPS',
+        label: t('chart.total_iops'),
         data: iopsPoints,
         borderColor: tok('--chart-3'),
         backgroundColor: tokA('--chart-3', 0.12),
@@ -2267,7 +2278,7 @@ async function loadNodes() {
   clusterRamChart = new Chart(ctx3, {
     type: 'line',
     data: { datasets: [{
-      label: 'RAM Used %',
+      label: t('chart.ram_used_pct'),
       data: ramPoints,
       borderColor: tok('--chart-4'),
       backgroundColor: tokA('--chart-4', 0.12),
@@ -2309,8 +2320,8 @@ async function loadNodes() {
   clusterStorageChart = new Chart(ctx4, {
     type: 'line',
     data: { datasets: [
-      { label: 'Total Capacity (GB)', data: storCapPts,  borderColor: tok('--warn'), backgroundColor: tokA('--warn', 0.08), borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false },
-      { label: 'Used (GB)',           data: storUsedPts, borderColor: tok('--bad'), backgroundColor: tokA('--bad', 0.12), borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true }
+      { label: t('chart.total_capacity_gb'), data: storCapPts,  borderColor: tok('--warn'), backgroundColor: tokA('--warn', 0.08), borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false },
+      { label: t('chart.used_gb'), data: storUsedPts, borderColor: tok('--bad'), backgroundColor: tokA('--bad', 0.12), borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true }
     ]},
     options: {
       animation: false, responsive: true, maintainAspectRatio: false,
@@ -3293,7 +3304,7 @@ async function renderVmDetailCharts() {
   }));
   vmDetailCharts.push(new Chart(document.getElementById('vmDetailIopsChart'), {
     type: 'line',
-    data: { datasets: iopsDatasets.length ? iopsDatasets : [{ label: 'No VSD data', data: [] }] },
+    data: { datasets: iopsDatasets.length ? iopsDatasets : [{ label: t('chart.no_vsd'), data: [] }] },
     options: { ...commonOpts, scales: { x: xAxis, y: { min: 0, ticks: { callback: v => v+' IOPS' }, grid: { color: chartGrid() } } } }
   }));
 
@@ -3306,7 +3317,7 @@ async function renderVmDetailCharts() {
   }));
   vmDetailCharts.push(new Chart(document.getElementById('vmDetailLatencyChart'), {
     type: 'line',
-    data: { datasets: latDatasets.length ? latDatasets : [{ label: 'No VSD data', data: [] }] },
+    data: { datasets: latDatasets.length ? latDatasets : [{ label: t('chart.no_vsd'), data: [] }] },
     options: { ...commonOpts, scales: { x: xAxis, y: { min: 0, ticks: { callback: v => v+' μs' }, grid: { color: chartGrid() } } } }
   }));
 }
@@ -3336,7 +3347,7 @@ async function loadMigrations() {
     </tr></thead><tbody>
     ${data.map(e=>`<tr>
       <td>${formatDateTime(e.time)}</td>
-      <td style="color:var(--text-primary)">${_clEsc(e.vm_name)}${e.dry_run==='true'?' <span class="dry-run-tag">DRY</span>':''}</td>
+      <td style="color:var(--text-primary)">${_clEsc(e.vm_name)}${e.dry_run==='true'?` <span class="dry-run-tag">${t('flog.dry')}</span>`:''}</td>
       <td>${_clEsc(e.source_ip)} <span class="arrow">→</span> ${_clEsc(e.target_ip)}</td>
       <td><span class="engine-tag engine-${_clEsc(e.engine)}">${_clEsc(e.engine)}</span></td>
       <td>${_clEsc(e.mode)}</td>
@@ -3352,12 +3363,12 @@ async function loadForecastRuns() {
   if (cid !== currentCluster) return;
   const container = document.getElementById('forecastRunsLog');
   if (!container) return;
-  if (!data||!data.length) { container.innerHTML=`<div class="empty-state">No Oracle runs in the selected window.</div>`; return; }
+  if (!data||!data.length) { container.innerHTML=`<div class="empty-state">${t('flog.no_runs')}</div>`; return; }
   data.sort((a, b) => new Date(b.time) - new Date(a.time));
   container.innerHTML = `
     <table class="log-table"><thead><tr>
-      <th>Time</th><th>Result</th><th>VMs forecast</th><th>Skipped (history)</th><th>Skipped (other)</th>
-      <th>Nodes flagged</th><th>Recs</th><th>Peak predicted</th><th>Threshold</th><th>Duration</th>
+      <th>${t('mig.time')}</th><th>${t('flog.result')}</th><th>${t('flog.vms_forecast')}</th><th>${t('flog.skipped_history')}</th><th>${t('flog.skipped_other')}</th>
+      <th>${t('flog.nodes_flagged')}</th><th>${t('flog.recs')}</th><th>${t('flog.peak_predicted')}</th><th>${t('flog.threshold')}</th><th>${t('flog.duration')}</th>
     </tr></thead><tbody>
     ${data.map(r=>{
       const ok = String(r.success).toLowerCase()==='true';
@@ -3370,7 +3381,7 @@ async function loadForecastRuns() {
       const errTitle = r.error ? ` title="${_clEsc(r.error)}"` : '';
       return `<tr${errTitle}>
         <td>${formatDateTime(r.time)}</td>
-        <td><span class="engine-tag" style="background:${ok?'var(--ok-bg)':'var(--bad-bg)'};color:${ok?'var(--ok)':'var(--bad)'}">${ok?'OK':'ERROR'}</span></td>
+        <td><span class="engine-tag" style="background:${ok?'var(--ok-bg)':'var(--bad-bg)'};color:${ok?'var(--ok)':'var(--bad)'}">${ok?t('flog.ok'):t('flog.error')}</span></td>
         <td style="color:var(--text-primary)">${r.vms_forecast||0}<span style="color:var(--text-muted);"> / ${r.vms_total||0}</span></td>
         <td>${r.vms_skipped_short_history||0}</td>
         <td>${r.vms_skipped_other||0}</td>
@@ -3391,18 +3402,18 @@ async function loadPredictions() {
   if (cid !== currentCluster) return;
   const container = document.getElementById('predictionsLog');
   if (!container) return;
-  if (!data||!data.length) { container.innerHTML=`<div class="empty-state">The Oracle has not queued any recommendations in the selected window.</div>`; return; }
+  if (!data||!data.length) { container.innerHTML=`<div class="empty-state">${t('flog.no_predictions')}</div>`; return; }
   data.sort((a, b) => new Date(b.time) - new Date(a.time));
   container.innerHTML = `
     <table class="log-table"><thead><tr>
-      <th>Queued at</th><th>VM</th><th>Move</th><th>Predicted peak</th><th>VM peak CPU</th><th>Lead time</th><th>Reason</th>
+      <th>${t('flog.queued_at')}</th><th>${t('mig.vm')}</th><th>${t('flog.move')}</th><th>${t('flog.predicted_peak')}</th><th>${t('flog.vm_peak_cpu')}</th><th>${t('flog.lead_time')}</th><th>${t('mig.reason')}</th>
     </tr></thead><tbody>
     ${data.map(p=>{
       const peakWhen = p.peak_time_unix ? formatDateTime(new Date(Number(p.peak_time_unix)*1000).toISOString()) : '—';
       const lead = Number(p.lead_seconds||0);
       const leadStr = lead<60 ? `${lead.toFixed(0)}s` : lead<3600 ? `${(lead/60).toFixed(0)}m` : `${(lead/3600).toFixed(1)}h`;
       return `<tr>
-        <td>${formatDateTime(p.time)}<div style="font-size:11px;color:var(--text-muted);">peak ${peakWhen}</div></td>
+        <td>${formatDateTime(p.time)}<div style="font-size:11px;color:var(--text-muted);">${t('flog.peak_at', {when: peakWhen})}</div></td>
         <td style="color:var(--text-primary)">${_clEsc(p.vm_name)}</td>
         <td>${_clEsc(p.source_ip)} <span class="arrow">→</span> ${_clEsc(p.target_ip)}</td>
         <td style="color:var(--accent-amber)">${Number(p.predicted_peak_load||0).toFixed(1)}%</td>
@@ -3421,7 +3432,7 @@ async function loadModules() {
   if (!data||!data.measurements||!data.measurements.length) { container.innerHTML=`<div class="empty-state">${t('empty.no_measurements')}</div>`; return; }
   container.innerHTML = data.measurements.map(name => {
     const m = getModuleMeta(name);
-    return `<div class="module-item" data-name="${_clEsc(name)}" onclick="hcmAlert('Module: ' + this.dataset.name + '\\nQuery: GET /api/query/' + this.dataset.name + '?hours=1&limit=100', {title: 'Module'})">
+    return `<div class="module-item" data-name="${_clEsc(name)}" onclick="showModuleInfo(this.dataset.name)">
       <div class="module-icon" style="background:${m.color}20;color:${m.color}">${m.icon}</div>
       <div><div class="module-name">${_clEsc(name)}</div><div class="module-desc">${m.desc}</div></div>
     </div>`;
@@ -3449,7 +3460,7 @@ async function loadActivity() {
   const active = tasks.filter(t => t.state === 'RUNNING' || t.state === 'QUEUED');
   const done = tasks.filter(t => !(t.state === 'RUNNING' || t.state === 'QUEUED')).slice(0, 30);
   document.getElementById('ivActivityNote').textContent = active.length ? t('iv.activity_running', {n: active.length}) : t('iv.activity_idle');
-  const fmt = iso => iso ? new Date(iso).toLocaleTimeString() : '';
+  const fmt = iso => iso ? new Date(iso).toLocaleTimeString(_hcmLocale()) : '';
   const row = (x, live) => `<div class="iv-task">
       <span class="engine-tag engine-external" style="min-width:64px;text-align:center;">${_clEsc(x.kind)}</span>
       <span style="flex:1;">${_clEsc(x.description)}</span>
@@ -4035,7 +4046,7 @@ async function loadSentinelOverview() {
           ${t('sentinel.warming_running')}<br><br>
           ${countdownStr}
         </div>
-        ${startTime ? `<div style="font-size:12px;color:var(--text-muted)">${t('sentinel.warming_started')} ${startTime.toLocaleString('en-GB')}</div>` : ''}
+        ${startTime ? `<div style="font-size:12px;color:var(--text-muted)">${t('sentinel.warming_started')} ${startTime.toLocaleString(_hcmLocale())}</div>` : ''}
       </div>`;
 
     // auto-refresh every 30 s while waiting (only while this cluster is still selected)
@@ -4145,7 +4156,7 @@ async function loadSentinelOverview() {
         </div>
         <div class="health-meta-row">
           <span class="health-meta-label">${t('sentinel.as_of')}</span>
-          <span class="health-meta-value" style="color:var(--text-muted)">${h.as_of ? new Date(h.as_of).toLocaleString('en-GB') : '—'}</span>
+          <span class="health-meta-value" style="color:var(--text-muted)">${h.as_of ? new Date(h.as_of).toLocaleString(_hcmLocale()) : '—'}</span>
         </div>
       </div>
     </div>
@@ -4414,7 +4425,7 @@ async function saveBranding() {
     msg.style.color  = 'var(--accent-green)';
     setTimeout(() => { msg.textContent = ''; }, 3000);
   } catch (e) {
-    msg.textContent = `Error: ${e.message}`;
+    msg.textContent = t('msg.error', {msg: e.message});
     msg.style.color = 'var(--accent-red)';
   }
 }
@@ -4453,7 +4464,7 @@ async function pdfBtnClick(btn) {
     URL.revokeObjectURL(url);
     if (msg) msg.textContent = '';
   } catch (e) {
-    if (msg) { msg.textContent = `Error: ${e.message}`; msg.style.color = 'var(--accent-red)'; }
+    if (msg) { msg.textContent = t('msg.error', {msg: e.message}); msg.style.color = 'var(--accent-red)'; }
     console.error('PDF download failed:', e);
   } finally {
     btn.classList.remove('loading');
@@ -4840,7 +4851,7 @@ async function _loadSharesPanel() {
   SHARES = (await apiFetch('/api/backup/targets')) || [];
   const rows = SHARES.map(sh => `
     <tr>
-      <td class="um-username">${_clEsc(sh.name)}${sh.default_for_unfiled ? ` <span class="um-badge um-badge-user" title="${_clEsc(t('shares.assign_unfiled_title'))}">no_folder</span>` : ''}<div style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted);">${_clEsc(sh.uri_base)}</div>${_isNfs(sh.uri_base) ? `<div class="sh-nfs-warn" style="font-size:12px;">${t('shares.nfs_badge')}</div>` : ''}</td>
+      <td class="um-username">${_clEsc(sh.name)}${sh.default_for_unfiled ? ` <span class="um-badge um-badge-user" title="${_clEsc(t('shares.assign_unfiled_title'))}">${t('folders.unfiled')}</span>` : ''}<div style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted);">${_clEsc(sh.uri_base)}</div>${_isNfs(sh.uri_base) ? `<div class="sh-nfs-warn" style="font-size:12px;">${t('shares.nfs_badge')}</div>` : ''}</td>
       <td>${_clEsc(sh.username || '—')}</td>
       <td>${_clEsc(sh.prune_path || '—')}</td>
       <td>${sh.folder_count}</td>
@@ -6549,7 +6560,7 @@ function _exCan(perm, row) {
 // policies, test restores and verification belong to the folder of the selected cluster
 const _exFolderCan = perm => can(perm, currentCluster);
 let _exLocation = null;
-const _exFmt = iso => iso ? new Date(iso).toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '—';
+const _exFmt = iso => iso ? new Date(iso).toLocaleString(_hcmLocale(), {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '—';
 function _exStatusBadge(status, message) {
   if (status === 'COMPLETE') return `<span class="ex-badge ok">${t('ex.status_ok')}</span>`;
   if (status === 'ERROR')    return `<span class="ex-badge err">${t('ex.status_failed')}</span>`;
@@ -6596,7 +6607,7 @@ async function exLoadSchedules() {
       <th>${t('ex.col_vm')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_retention')}</th><th>${t('ex.col_daily_at')}</th><th>${t('ex.col_last_run')}</th><th>${t('ex.col_next_run')}</th><th></th>
     </tr></thead><tbody>${rows.map(s => `
       <tr>
-        <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="qcow2 compression">zip</span>` : ''}${_exClusterHint(s)}<div><span class="ex-badge ${s.mode === 'incremental' ? 'run' : 'off'}" title="${_exEsc(t('ex.f_mode'))}">${t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')}</span></div></td>
+        <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="${_exEsc(t('ex.compress_hint'))}">zip</span>` : ''}${_exClusterHint(s)}<div><span class="ex-badge ${s.mode === 'incremental' ? 'run' : 'off'}" title="${_exEsc(t('ex.f_mode'))}">${t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')}</span></div></td>
         <td style="font-family:var(--font-ui);font-size:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_exLocation ? `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/` : _exEsc(s.effective_base || s.path_uri_base || '—')}</td>
         <td><span class="ex-slots">${'<i></i>'.repeat(Math.min(s.retention, 14))}</span><span style="font-size:12px;color:var(--text-muted)">×${s.retention}${s.retention_days ? ` / ${s.retention_days}d` : ''}${s.mode === 'incremental' ? ` · ${t('ex.full_every', {n: s.full_every_n})}` : ''}</span></td>
         <td style="font-family:var(--font-ui);">${s.policy_id ? `<span class="ex-badge run" title="${_exEsc(t('ex.pol_member_hint'))}">${t('ex.pol_member_of', {name: _exEsc(s.policy_name || '')})}</span>` : _exTimeLabel(s.run_time, s.timezone)}</td>
@@ -6663,8 +6674,8 @@ function _polDescribe(rule) {
 function _polWhen(iso, tz) {
   if (!iso) return '—';
   const d = new Date(iso);
-  const zone = d.toLocaleString('en-GB', {timeZone: tz, weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'});
-  return tz && tz !== _exViewerZone() ? `${_exEsc(zone)} <span style="opacity:0.7">(${t('ex.your_time', {time: d.toLocaleString('en-GB', {hour: '2-digit', minute: '2-digit'})})})</span>` : _exEsc(zone);
+  const zone = d.toLocaleString(_hcmLocale(), {timeZone: tz, weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'});
+  return tz && tz !== _exViewerZone() ? `${_exEsc(zone)} <span style="opacity:0.7">(${t('ex.your_time', {time: d.toLocaleString(_hcmLocale(), {hour: '2-digit', minute: '2-digit'})})})</span>` : _exEsc(zone);
 }
 function _polBlackoutText(b) {
   const days = b.days.length === 7 ? t('ex.pol_every_day') : b.days.map(d => _polDayName(d.slice(0, 2))).join(', ');
@@ -6703,7 +6714,7 @@ async function exLoadPolicies() {
   if (_polMembersOpen) exPolicyMembers(_polMembersOpen, true);
   if (_polNightOpen) exPolicyNight(_polNightOpen[0], _polNightOpen[1], true);
 }
-const _polHM = (iso, tz) => iso ? new Date(iso).toLocaleTimeString('en-GB', {timeZone: tz || undefined, hour: '2-digit', minute: '2-digit'}) : '—';
+const _polHM = (iso, tz) => iso ? new Date(iso).toLocaleTimeString(_hcmLocale(), {timeZone: tz || undefined, hour: '2-digit', minute: '2-digit'}) : '—';
 const _polDur = sec => sec == null ? '—' : sec < 90 ? `${Math.round(sec)} s` : sec < 5400 ? `${Math.round(sec / 60)} min` : `${(sec / 3600).toFixed(1)} h`;
 function _polNightLine(p) {
   const n = p.night;
@@ -7787,7 +7798,7 @@ function _applyUpdateState(d) {
   if (d.repo_url) { REPO_URL = d.repo_url; const l = document.getElementById('communityIssuesLink'); if (l) l.href = REPO_URL + '/issues'; }
   if (d.current_label || d.current_sha) currentSha.textContent = d.current_label || d.current_sha;
   if (d.remote_label  || d.remote_sha)  remoteSha.textContent  = d.remote_label  || d.remote_sha;
-  if (d.last_checked) lastChecked.textContent = 'checked ' + _timeAgo(new Date(d.last_checked));
+  if (d.last_checked) lastChecked.textContent = t('update.checked', {ago: _timeAgo(new Date(d.last_checked))});
 
   const appVersionEl = document.getElementById('appVersion');
   if (appVersionEl && d.current_version) {
@@ -7796,7 +7807,7 @@ function _applyUpdateState(d) {
 
   if (d.update_available && d.changelog && d.changelog.length) {
     changelogEl.innerHTML =
-      '<div class="update-changelog-title">What\'s in this update</div>' +
+      `<div class="update-changelog-title">${_escHtml(t('update.whats_in'))}</div>` +
       d.changelog.map(c => `<div class="update-changelog-entry">${_escHtml(c)}</div>`).join('');
     changelogEl.classList.add('visible');
   } else {
@@ -7804,7 +7815,7 @@ function _applyUpdateState(d) {
   }
 
   if (d.apply_in_progress) {
-    statusTxt.textContent = '⟳ Update in progress...';
+    statusTxt.textContent = '⟳ ' + t('update.in_progress');
     statusTxt.className = 'update-status-text checking';
     applyBtn.style.display = ''; applyBtn.disabled = true;
     badgeBtn.classList.add('has-update');
@@ -7817,22 +7828,22 @@ function _applyUpdateState(d) {
     badgeBtn.classList.add('has-update');
     badgeBtn.title = t('update.blocked_short');
   } else if (d.update_available) {
-    statusTxt.textContent = '● Update available';
+    statusTxt.textContent = '● ' + t('update.available');
     statusTxt.className = 'update-status-text available';
     applyBtn.style.display = ''; applyBtn.disabled = false;
     badgeBtn.classList.add('has-update');
-    badgeBtn.title = 'Update available — click to apply';
+    badgeBtn.title = t('update.available_click');
   } else if (d.error) {
-    statusTxt.textContent = '⚠ Check failed: ' + d.error;
+    statusTxt.textContent = '⚠ ' + t('update.check_failed', {error: d.error});
     statusTxt.className = 'update-status-text error';
     applyBtn.style.display = 'none';
     badgeBtn.classList.remove('has-update');
   } else {
-    statusTxt.textContent = '✓ Up to date';
+    statusTxt.textContent = '✓ ' + t('update.up_to_date');
     statusTxt.className = 'update-status-text uptodate';
     applyBtn.style.display = 'none';
     badgeBtn.classList.remove('has-update');
-    badgeBtn.title = 'Software update';
+    badgeBtn.title = t('update.software_update');
   }
 
   if (d.apply_log && d.apply_log.length) {
@@ -7844,10 +7855,10 @@ function _applyUpdateState(d) {
 
 function _timeAgo(date) {
   const s = Math.floor((Date.now() - date) / 1000);
-  if (s < 60)    return 'just now';
-  if (s < 3600)  return Math.floor(s / 60) + 'm ago';
-  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-  return Math.floor(s / 86400) + 'd ago';
+  if (s < 60)    return t('ago.now');
+  if (s < 3600)  return t('ago.m', {n: Math.floor(s / 60)});
+  if (s < 86400) return t('ago.h', {n: Math.floor(s / 3600)});
+  return t('ago.d', {n: Math.floor(s / 86400)});
 }
 
 function _escHtml(s) {
@@ -7870,7 +7881,7 @@ function closeUpdateModal(e) {
 
 async function checkUpdateNow() {
   const btn = document.getElementById('updateCheckNowBtn');
-  btn.disabled = true; btn.textContent = '⟳ Checking...';
+  btn.disabled = true; btn.textContent = '⟳ ' + t('update.checking');
   try {
     await fetch(API_BASE + '/api/update/check', { method: 'POST' });
     let attempts = 0;
@@ -7879,7 +7890,7 @@ async function checkUpdateNow() {
       if (++attempts >= 15) clearInterval(poll);
     }, 2000);
   } finally {
-    setTimeout(() => { btn.disabled = false; btn.textContent = '↻ Check now'; }, 4000);
+    setTimeout(() => { btn.disabled = false; btn.textContent = t('update.check_now'); }, 4000);
   }
 }
 
@@ -7892,7 +7903,7 @@ async function applyUpdate() {
     const r = await fetch(API_BASE + '/api/update/apply', { method: 'POST' });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
-      showToast(err.error || 'Update failed to start', 'err');
+      showToast(err.error || t('update.start_failed'), 'err');
       btn.disabled = false; return;
     }
     _startApplyPoll();
@@ -7969,19 +7980,19 @@ async function checkDataQuality() {
 <div class="update-modal-backdrop" id="updateModalBackdrop" onclick="closeUpdateModal(event)">
   <div class="update-modal">
     <div class="update-modal-header">
-      <span class="update-modal-title">HyperCore Update</span>
+      <span class="update-modal-title" data-i18n="update.title">Software update</span>
       <button class="update-modal-close" onclick="closeUpdateModal()">✕</button>
     </div>
     <div class="update-meta">
-      <span>Current: <span class="update-sha" id="updateCurrentSha">—</span></span>
-      <span>Remote: <span class="update-sha" id="updateRemoteSha">—</span></span>
-      <span id="updateLastChecked" style="margin-left:auto;">never checked</span>
+      <span><span data-i18n="update.current">Current:</span> <span class="update-sha" id="updateCurrentSha">—</span></span>
+      <span><span data-i18n="update.remote">Remote:</span> <span class="update-sha" id="updateRemoteSha">—</span></span>
+      <span id="updateLastChecked" style="margin-left:auto;" data-i18n="update.never_checked">never checked</span>
     </div>
     <div class="update-status-row">
       <span class="update-status-text" id="updateStatusText">—</span>
       <div class="update-actions">
-        <button class="refresh-btn" id="updateCheckNowBtn" onclick="checkUpdateNow()">↻ Check now</button>
-        <button class="update-apply-btn" id="updateApplyBtn" onclick="applyUpdate()" style="display:none;">⬆ Apply update</button>
+        <button class="refresh-btn" id="updateCheckNowBtn" onclick="checkUpdateNow()" data-i18n="update.check_now">↻ Check now</button>
+        <button class="update-apply-btn" id="updateApplyBtn" onclick="applyUpdate()" style="display:none;" data-i18n="update.apply">⬆ Apply update</button>
       </div>
     </div>
     <div class="update-changelog" id="updateChangelog"></div>
@@ -8037,7 +8048,7 @@ async function checkDataQuality() {
   <div class="update-modal flr-modal" role="dialog" aria-modal="true" aria-labelledby="flrTitle">
     <div class="update-modal-header">
       <span class="update-modal-title" id="flrTitle"></span>
-      <button class="update-modal-close" onclick="exFilesClose()" aria-label="Close">✕</button>
+      <button class="update-modal-close" onclick="exFilesClose()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
     </div>
     <div id="flrToolbar" class="flr-toolbar"></div>
     <div class="cl-msg" id="flrMsg"></div>

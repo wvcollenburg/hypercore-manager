@@ -20,7 +20,7 @@ function hcmModal({ title = '', body = '', buttons = [], closable = true, width 
     <div class="vm-modal hcm-modal ${cls}" role="dialog" aria-modal="true" style="width:${width}">
       <div class="vm-modal-header">
         <div class="vm-modal-title">${title}</div>
-        ${closable ? '<button class="vm-modal-close" data-x="1" aria-label="close">✕</button>' : ''}
+        ${closable ? `<button class="vm-modal-close" data-x="1" aria-label="${_esc(t('acc.close'))}">✕</button>` : ''}
       </div>
       <div class="hcm-modal-body"></div>
       <div class="hcm-modal-msg"></div>
@@ -385,12 +385,12 @@ function _acRenderUsers(keepFocus) {
     </div>
     <div id="acInvites"></div>
     ${users.length ? `<table class="um-table"><thead><tr><th>${_esc(t('acc.col_email'))}</th>
-        <th>${_esc(t('acc.col_state'))}</th><th>OTP</th><th></th></tr></thead><tbody>
+        <th>${_esc(t('acc.col_state'))}</th><th>${_esc(t('acc.col_otp'))}</th><th></th></tr></thead><tbody>
       ${users.map(u => `<tr>
         <td class="um-username">${_esc(u.username)}${u.username === me.username ? ` <span class="um-hint">(${_esc(t('users.you'))})</span>` : ''}
             ${u.display_name ? `<div class="um-hint">${_esc(u.display_name)}</div>` : ''}</td>
         <td>${state(u)}</td>
-        <td><span class="um-badge ${u.otp_enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${u.otp_enabled ? 'on' : 'off'}</span></td>
+        <td><span class="um-badge ${u.otp_enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${_esc(t(u.otp_enabled ? 'acc.otp_on' : 'acc.otp_off'))}</span></td>
         <td style="white-space:nowrap"><button class="um-action-btn" onclick="acOpenUser('${u.user_id}')">${_esc(t('acc.access_btn'))}</button></td>
       </tr>`).join('')}</tbody></table>`
       : `<div class="um-hint" style="padding:10px 0">${_esc(t('users.none'))}</div>`}`;
@@ -1145,7 +1145,7 @@ async function _acInvites() {
 }
 
 function _acInviteState(i) {
-  return i.state === 'expired' ? t('acc.inv_expired') : t('acc.inv_expires', { at: new Date(i.expires_at).toLocaleString() });
+  return i.state === 'expired' ? t('acc.inv_expired') : t('acc.inv_expires', { at: new Date(i.expires_at).toLocaleString(_hcmLocale()) });
 }
 
 async function _acRenderInvites() {
@@ -1434,7 +1434,7 @@ async function _acRenderAudit() {
   const rows = (d && d.rows) || [];
   body.innerHTML = rows.length ? `<table class="um-table"><thead><tr><th>${_esc(t('acc.col_when'))}</th><th>${_esc(t('acc.col_who'))}</th>
       <th>${_esc(t('acc.col_action'))}</th><th>${_esc(t('acc.col_what'))}</th></tr></thead><tbody>
-    ${rows.map(r => `<tr><td class="um-hint" style="white-space:nowrap">${_esc(new Date(r.at).toLocaleString())}</td><td>${r.actor_above ? `<span class="um-hint">${_esc(t('acc.actor_above'))}</span>` : _esc(r.actor || '')}</td>
+    ${rows.map(r => `<tr><td class="um-hint" style="white-space:nowrap">${_esc(new Date(r.at).toLocaleString(_hcmLocale()))}</td><td>${r.actor_above ? `<span class="um-hint">${_esc(t('acc.actor_above'))}</span>` : _esc(r.actor || '')}</td>
       <td><code>${_esc(r.action)}</code></td><td>${_esc(r.target || '')}${r.detail ? `<div class="um-hint">${_esc(_acDetail(r.detail))}</div>` : ''}</td></tr>`).join('')}
     </tbody></table>` : `<div class="um-hint" style="padding:10px 0">${_esc(t('acc.audit_empty'))}</div>`;
 }

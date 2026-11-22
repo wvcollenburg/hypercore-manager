@@ -153,7 +153,7 @@ def test_update_and_console_check_need_their_permission(repo):
     """The Update button led to Check now / Apply update (install.manage) for everyone, and the engineer role's
     Settings tab called /api/console/check (console_check.manage) and got 403 instead of its audit log."""
     src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
-    assert 'id="updateBadgeBtn"' in src and 'title="Software update" hidden>' in src
+    assert 'id="updateBadgeBtn"' in src and 'data-i18n="update.button" hidden>Update<' in src
     body = src[src.index('async function loadUpdateStatus()'):][:500]
     assert "badge.hidden = !can('install.manage')" in body
     panel = src[src.index('async function _loadConsolePanel()'):][:700]
