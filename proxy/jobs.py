@@ -427,40 +427,60 @@ class Engine:
             # it again once the chain has its final shape (once per file, not once per dropped point).
             base_changed: set[str] = set()
             rebased: tuple[str, set[str]] | None = None
+            # Crash safety: every step leaves chain.json and the manifests in a state a retry can continue
+            # from. The base manifest is replaced first, chain.json gets the new shape next, nxt's directory
+            # goes last; a retry that finds the base already holding nxt's manifest only finishes the
+            # bookkeeping (before, it read the vanished nxt's manifest as {} and wrote that over the base).
             while points and points[0]['seq'] < keep_min:
                 oldest, nxt = points[0], points[1] if len(points) > 1 else None
                 base_dir = os.path.join(chain_dir, oldest['dir'])
                 if nxt is None:
                     break
                 nxt_dir = os.path.join(chain_dir, nxt['dir'])
-                nxt_m = manifest.read_json(os.path.join(nxt_dir, manifest.POINT_FILE)) or {}
+                after = points[2] if len(points) > 2 else None
                 rebased = None                                          # the point rebased last time is the one folded in now
-                for d in nxt_m.get('devices', []):
-                    delta_file = os.path.join(nxt_dir, d['file']); base_file = os.path.join(base_dir, d['file'])
-                    if self.backend.name == 'file':
-                        shutil.copyfile(delta_file, base_file)          # raw files: the delta is complete
-                        base_changed.discard(d['file'])                 # ... and so is its checksum
-                    elif os.path.exists(base_file) and not d.get('full'):
-                        self.backend.commit(delta_file)                 # fold the delta into its base
-                        base_changed.add(d['file'])
-                    else:
-                        shutil.move(delta_file, base_file)              # device that got a full inside this delta
-                        base_changed.discard(d['file'])                 # the same file under another name
-                    after = points[2] if len(points) > 2 else None
-                    if after and self.backend.name != 'file':
-                        after_file = os.path.join(chain_dir, after['dir'], d['file'])
-                        if os.path.exists(after_file):
-                            self.backend.rebase(after_file, base_file)
-                            if rebased is None:
-                                rebased = (after['dir'], set())
-                            rebased[1].add(d['file'])
-                # the base directory now holds nxt's state: move nxt's manifest in, drop nxt's dir
-                nxt_m['dir'] = oldest['dir']
-                nxt_m['note'] = f"committed from {nxt['dir']} on {_now()}"
-                manifest.write_json(os.path.join(base_dir, manifest.POINT_FILE), nxt_m)
-                shutil.rmtree(nxt_dir, ignore_errors=True)
+                base_m = manifest.read_json(os.path.join(base_dir, manifest.POINT_FILE)) or {}
+                if base_m.get('seq') is not None and int(base_m['seq']) == int(nxt['seq']):
+                    # an earlier prune folded nxt in and stopped before chain.json said so
+                    log.warning('prune of %s: %s was already folded into %s; finishing that step', chain_dir, nxt['dir'], oldest['dir'])
+                    files = {d['file'] for d in base_m.get('devices', [])}
+                    if self.backend.name != 'file':
+                        base_changed |= files
+                        if after:
+                            rebased = (after['dir'], {f for f in files if os.path.exists(os.path.join(chain_dir, after['dir'], f))})
+                else:
+                    nxt_m = manifest.read_json(os.path.join(nxt_dir, manifest.POINT_FILE))
+                    if not nxt_m:
+                        raise RuntimeError(f'{nxt["dir"]} has no readable manifest; prune stopped, {oldest["dir"]} left as it is')
+                    for d in nxt_m.get('devices', []):
+                        delta_file = os.path.join(nxt_dir, d['file']); base_file = os.path.join(base_dir, d['file'])
+                        if self.backend.name == 'file':
+                            shutil.copyfile(delta_file, base_file)      # raw files: the delta is complete
+                            base_changed.discard(d['file'])             # ... and so is its checksum
+                        elif not os.path.exists(delta_file) and os.path.exists(base_file):
+                            base_changed.add(d['file'])                 # moved there by an attempt that stopped halfway
+                        elif os.path.exists(base_file) and not d.get('full'):
+                            self.backend.commit(delta_file)             # fold the delta into its base
+                            base_changed.add(d['file'])
+                        else:
+                            shutil.move(delta_file, base_file)          # device that got a full inside this delta
+                            base_changed.discard(d['file'])             # the same file under another name
+                        if after and self.backend.name != 'file':
+                            after_file = os.path.join(chain_dir, after['dir'], d['file'])
+                            if os.path.exists(after_file):
+                                self.backend.rebase(after_file, base_file)
+                                if rebased is None:
+                                    rebased = (after['dir'], set())
+                                rebased[1].add(d['file'])
+                    # the base directory now holds nxt's state: move nxt's manifest in
+                    nxt_m['dir'] = oldest['dir']
+                    nxt_m['note'] = f"committed from {nxt['dir']} on {_now()}"
+                    manifest.write_json(os.path.join(base_dir, manifest.POINT_FILE), nxt_m)
                 nxt['dir'] = oldest['dir']
                 points.pop(0)
+                chain['points'] = list(points)
+                manifest.save_chain(chain_dir, chain)
+                shutil.rmtree(nxt_dir, ignore_errors=True)
                 job.progress['dropped'] += 1
                 self._persist(job)
             stale = [(points[0]['dir'], base_changed)] if points and base_changed else []

@@ -320,11 +320,123 @@ def test_prune_commits_forward_and_delete_chain(stack):
     assert d['result'] == {'removed': True} and not os.path.exists(chain)
 
 
+def _three_point_chain(stack):
+    """base, delta-0001, delta-0002 of one 3 MiB disk on the file backend -> (chain dir, target, source files)."""
+    H = {'Authorization': 'Bearer t0k'}
+    disk = 'd0dd5d2c-9c7a-44ec-b6bc-d4ce06bb204d'
+    srcs = []
+    for i, seed in enumerate((31, 32, 33)):
+        cu = f'{i:08d}-0000-0000-0000-000000000000'; p = stack.dev / f'virtio-{cu[:8]}'; _random_file(str(p), 3, seed); srcs.append((cu, str(p)))
+    tgt = {'uri': 'smb://nas/share/hcm'}
+    for i, (cu, _) in enumerate(srcs):
+        point = {'kind': 'full', 'seq': 0} if i == 0 else {'kind': 'delta', 'seq': i, 'previous_seq': i - 1}
+        req = {'target': tgt, 'folder': 'F', 'vm': {'uuid': 'vm-1', 'name': 'v'}, 'point': point,
+               'devices': [{'uuid': disk, 'type': 'VIRTIO_DISK', 'clone_uuid': cu, 'size': 3 * MiB, 'map': [{'lower': 0, 'upper': 2}]}]}
+        j = _wait(stack, stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id']); assert j['state'] == 'done', j
+    return os.path.join(stack.mounter.root, P.targets.parse_uri(tgt['uri']).key, 'hcm', 'F', 'v_vm-1.chain'), tgt, [s for _, s in srcs]
+
+
+def test_a_prune_retried_after_a_crash_never_empties_the_base_manifest(stack):
+    """An older proxy saved chain.json only at the end: a crash after nxt's directory was removed left chain.json
+    naming it, and the retry read its missing manifest as {} and wrote that over the base. The point then
+    'verified OK' with no files and could not be restored."""
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, srcs = _three_point_chain(stack)
+    # the state such a crash leaves: base already holds delta-0001 (files and manifest), delta-0001 is gone,
+    # chain.json still lists it
+    import shutil
+    m1 = json.load(open(os.path.join(chain, 'delta-0001', 'manifest.json')))
+    for d in m1['devices']:
+        shutil.copyfile(os.path.join(chain, 'delta-0001', d['file']), os.path.join(chain, 'base', d['file']))
+    P.manifest.write_json(os.path.join(chain, 'base', 'manifest.json'), dict(m1, dir='base', note='committed from delta-0001 on t'))
+    shutil.rmtree(os.path.join(chain, 'delta-0001'))
+    j = _wait(stack, stack.client.post('/jobs/prune', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain', 'keep_min_seq': 1}, headers=H).get_json()['id'])
+    assert j['state'] == 'done', j
+    assert j['result']['dirs'] == {'1': 'base', '2': 'delta-0002'}
+    bm = json.load(open(os.path.join(chain, 'base', 'manifest.json')))
+    assert bm['seq'] == 1 and len(bm['devices']) == 1, bm
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
+    assert v['result']['ok'] and v['result']['points']['base']['checked'] == 1, v
+
+
+def test_a_prune_that_stops_at_any_step_can_be_run_again(stack, monkeypatch):
+    """chain.json is saved after every dropped point; a missing manifest stops the prune instead of being written as {}."""
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, srcs = _three_point_chain(stack)
+    real_save, calls = P.manifest.save_chain, []
+
+    def save_once_then_crash(d, c):                      # the second dropped point stops between manifest and chain.json
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError('share dropped')
+        real_save(d, c)
+    monkeypatch.setattr(P.manifest, 'save_chain', save_once_then_crash)
+    j = _wait(stack, stack.client.post('/jobs/prune', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain', 'keep_min_seq': 2}, headers=H).get_json()['id'])
+    assert j['state'] == 'failed'
+    assert [p['dir'] for p in json.load(open(os.path.join(chain, 'chain.json')))['points']] == ['base', 'delta-0002']
+    monkeypatch.setattr(P.manifest, 'save_chain', real_save)
+    j = _wait(stack, stack.client.post('/jobs/prune', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain', 'keep_min_seq': 2}, headers=H).get_json()['id'])
+    assert j['state'] == 'done' and j['result']['dirs'] == {'2': 'base'}, j
+    assert sorted(os.listdir(chain)) == ['base', 'chain.json']
+    assert open(os.path.join(chain, 'base', 'd0dd5d2c-9c7a-44ec-b6bc-d4ce06bb204d.qcow2'), 'rb').read() == open(srcs[2], 'rb').read()
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
+    assert v['result']['ok'] and v['result']['points']['base']['checked'] == 1, v
+
+
+def test_a_point_without_a_manifest_stops_the_prune_and_leaves_the_base_alone(stack):
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, _ = _three_point_chain(stack)
+    before = open(os.path.join(chain, 'base', 'manifest.json')).read()
+    os.unlink(os.path.join(chain, 'delta-0001', 'manifest.json'))
+    j = _wait(stack, stack.client.post('/jobs/prune', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain', 'keep_min_seq': 2}, headers=H).get_json()['id'])
+    assert j['state'] == 'failed' and 'no readable manifest' in j['error']
+    assert open(os.path.join(chain, 'base', 'manifest.json')).read() == before
+
+
 @pytest.mark.skipif(not (__import__('shutil').which('qemu-img') and __import__('shutil').which('qemu-io')), reason='qemu-img / qemu-io not installed')
 def test_prune_on_qcow2_leaves_checksums_that_verify(tmp_path):
     """Retention on the real backend: the commit rewrites the base and the rebase rewrites the next delta's
     header, so both manifests need fresh checksums. With the old ones every later verification reported
     'checksum differs' and a restore with verification refused the chain."""
+    chain_dir, fname, engine, qemu_io = _qcow2_chain(tmp_path)
+    job = P.jobs.Job('prune', {'target': {}, 'chain_dir': 'F/v.chain', 'keep_min_seq': 2})
+    out = P.jobs.Engine.run_prune(engine, job)
+    assert out == {'dirs': {'2': 'base', '3': 'delta-0003'}, 'dropped': 2}
+    assert sorted(os.listdir(chain_dir)) == ['base', 'chain.json', 'delta-0003']
+    for name in ('base', 'delta-0003'):
+        v = P.manifest.verify_point(str(chain_dir / name))
+        assert v['ok'], f'{name}: {v["mismatches"]}'
+    # and the content is still each point's own
+    qemu_io(chain_dir / 'base' / fname, 'read -P 0xaa 0 1M', 'read -P 0xbb 1M 1M', 'read -P 0xcc 2M 1M', 'read -P 0xaa 3M 1M', readonly=True)
+    qemu_io(chain_dir / 'delta-0003' / fname, 'read -P 0xbb 1M 1M', 'read -P 0xcc 2M 1M', 'read -P 0xdd 3M 1M', readonly=True)
+
+
+@pytest.mark.skipif(not (__import__('shutil').which('qemu-img') and __import__('shutil').which('qemu-io')), reason='qemu-img / qemu-io not installed')
+def test_prune_on_qcow2_stopped_between_manifest_and_chain_json_finishes_with_checksums_that_verify(tmp_path, monkeypatch):
+    chain_dir, fname, engine, qemu_io = _qcow2_chain(tmp_path)
+    real_save, calls = P.manifest.save_chain, []
+
+    def crash_on_second(d, c):
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError('share dropped')
+        real_save(d, c)
+    monkeypatch.setattr(P.manifest, 'save_chain', crash_on_second)
+    with pytest.raises(OSError):
+        P.jobs.Engine.run_prune(engine, P.jobs.Job('prune', {'target': {}, 'chain_dir': 'F/v.chain', 'keep_min_seq': 2}))
+    monkeypatch.setattr(P.manifest, 'save_chain', real_save)
+    out = P.jobs.Engine.run_prune(engine, P.jobs.Job('prune', {'target': {}, 'chain_dir': 'F/v.chain', 'keep_min_seq': 2}))
+    assert out == {'dirs': {'2': 'base', '3': 'delta-0003'}, 'dropped': 1}
+    assert sorted(os.listdir(chain_dir)) == ['base', 'chain.json', 'delta-0003']
+    for name in ('base', 'delta-0003'):
+        v = P.manifest.verify_point(str(chain_dir / name))
+        assert v['ok'], f'{name}: {v["mismatches"]}'
+    qemu_io(chain_dir / 'delta-0003' / fname, 'read -P 0xaa 0 1M', 'read -P 0xbb 1M 1M', 'read -P 0xcc 2M 1M', 'read -P 0xdd 3M 1M', readonly=True)
+
+
+def _qcow2_chain(tmp_path):
+    """base + delta-0001..0003 of one 4 MiB qcow2 disk with manifests as a backup leaves them, and an
+    engine stand-in for run_prune -> (chain dir, file name, engine, qemu_io)."""
     import subprocess
     be = P.images.NbdBackend(P.images.NbdPool(0, str(tmp_path)))
     root = tmp_path / 'target'; chain_dir = root / 'F' / 'v.chain'
@@ -353,16 +465,7 @@ def test_prune_on_qcow2_leaves_checksums_that_verify(tmp_path):
 
     engine = types.SimpleNamespace(backend=be, _with_target=lambda req: str(root), _release_target=lambda req: None,
                                    _persist=lambda job: None, _rehash=getattr(P.jobs.Engine, '_rehash', None))
-    job = P.jobs.Job('prune', {'target': {}, 'chain_dir': 'F/v.chain', 'keep_min_seq': 2})
-    out = P.jobs.Engine.run_prune(engine, job)
-    assert out == {'dirs': {'2': 'base', '3': 'delta-0003'}, 'dropped': 2}
-    assert sorted(os.listdir(chain_dir)) == ['base', 'chain.json', 'delta-0003']
-    for name in ('base', 'delta-0003'):
-        v = P.manifest.verify_point(str(chain_dir / name))
-        assert v['ok'], f'{name}: {v["mismatches"]}'
-    # and the content is still each point's own
-    qemu_io(chain_dir / 'base' / fname, 'read -P 0xaa 0 1M', 'read -P 0xbb 1M 1M', 'read -P 0xcc 2M 1M', 'read -P 0xaa 3M 1M', readonly=True)
-    qemu_io(chain_dir / 'delta-0003' / fname, 'read -P 0xbb 1M 1M', 'read -P 0xcc 2M 1M', 'read -P 0xdd 3M 1M', readonly=True)
+    return chain_dir, fname, engine, qemu_io
 
 
 def test_synthesize_builds_a_new_chain_from_a_point_without_touching_the_old_one(stack):
