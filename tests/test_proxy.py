@@ -1893,10 +1893,28 @@ def test_netcheck_binds_everything_to_the_test_nic_and_cleans_up(tmp_path):
                  ip_fn=lambda *a: calls.append(a), sys_net=sysnet)
     assert res['interface'] == 'ens4' and res['results'] == {'172.16.0.12': {'ping': False, 'ports': {3389: True, 445: False}}}
     assert all(p[-1] == 'ens4' for p in probes), 'never through the management NIC (a restored VM keeps its production IP)'
-    assert calls[:3] == [('link', 'set', 'ens4', 'up'), ('addr', 'add', '172.16.0.250/25', 'dev', 'ens4', 'noprefixroute'),
+    assert calls[:3] == [('link', 'set', 'ens4', 'up'), ('addr', 'replace', '172.16.0.250/25', 'dev', 'ens4', 'noprefixroute'),
                          ('route', 'replace', '172.16.0.12/32', 'dev', 'ens4', 'src', '172.16.0.250')]
     assert calls[-3:] == [('route', 'del', '172.16.0.12/32', 'dev', 'ens4'), ('addr', 'del', '172.16.0.250/25', 'dev', 'ens4'),
                           ('link', 'set', 'ens4', 'down')], 'the probe address and routes go again'
+
+
+def test_netcheck_cleans_up_when_setting_the_probe_address_fails(tmp_path):
+    """The link was brought up and the address added before the try: a failure there left the NIC up, and an
+    interrupted check left the address, after which 'ip addr add' failed ("Address already assigned") until reboot."""
+    nc = _netcheck()
+    sysnet = _sysnet(tmp_path, {'ens4': '7c:4c:58:00:00:99'})
+    calls = []
+
+    def ip_fn(*a):
+        calls.append(a)
+        if a[0] == 'addr' and a[1] != 'del':
+            raise nc.NetcheckError('ip addr: RTNETLINK answers: File exists')
+    with pytest.raises(nc.NetcheckError):
+        nc.run('7c:4c:58:00:00:99', '172.16.0.250/25', [{'ip': '172.16.0.12'}], settle_s=0, ip_fn=ip_fn, sys_net=sysnet,
+               ping_fn=lambda ip, dev: True, tcp_fn=lambda ip, port, dev: True)
+    assert calls[1][:2] == ('addr', 'replace')
+    assert calls[-2:] == [('addr', 'del', '172.16.0.250/25', 'dev', 'ens4'), ('link', 'set', 'ens4', 'down')]
 
 
 def test_netcheck_serves_dhcp_and_waits_until_the_vm_answers(tmp_path):
