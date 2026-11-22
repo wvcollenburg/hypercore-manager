@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **The Backup tab no longer disappears while a cluster answers slowly.** The backup service's status asked the
+  cluster live (update state and nodes) and so took as long as the HyperCore login: with a node down, or a newly
+  registered cluster whose nodes did not answer, that outlasted the dashboard's 3 s and the tab was hidden, for
+  everyone, just when a node was missing. The status now answers from the last known pre-flight and refreshes it in
+  the background (one refresh per cluster at a time); a status that times out keeps the tab (only a refused
+  connection, a stopped backup service, hides it); and a failed status request leaves the tab as it was.
+
 ## [1.7.3]
 
 ### Fixed
