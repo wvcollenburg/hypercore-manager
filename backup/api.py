@@ -492,7 +492,7 @@ def schedules_add():
     if not vm_uuid:
         return _err('vm_uuid is required')
     if not str(b.get('path_uri_base') or '').strip() and not jobs.location_for_cluster(cid):
-        return _err("no share is assigned to this cluster's folder; an admin can add one under Settings → Shares and assign it from the folder menu")
+        return _err("no backup target is assigned to this cluster's folder; an admin adds one under Settings → Targets and assigns it with Backup target in the folder's menu in the cluster switcher")
     try:
         retention = max(1, int(b.get('retention') or cfg_module.load().default_retention))
         full_every_n = max(1, int(b.get('full_every_n') or 14))
@@ -505,7 +505,7 @@ def schedules_add():
     if mode == 'export' and _target_is_nfs(cid, b.get('path_uri_base')):
         return _err(jobs.smb_only_error('Export mode'))
     if mode == 'incremental' and not any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)):
-        return _err('incremental plans need a registered backup proxy for this cluster (Settings → Clusters → Proxies)')
+        return _err('incremental plans need a registered backup proxy for this cluster (Settings → Targets → Backup proxies)')
     vm, err = _vm_of(cid, vm_uuid)
     if err:
         return err
@@ -837,9 +837,9 @@ def policies_add_member(pid):
     if not vm_uuid:
         return _err('vm_uuid is required')
     if not jobs.location_for_cluster(cid):
-        return _err("no share is assigned to this cluster's folder; an admin can add one under Settings → Shares and assign it from the folder menu")
+        return _err("no backup target is assigned to this cluster's folder; an admin adds one under Settings → Targets and assigns it with Backup target in the folder's menu in the cluster switcher")
     if pol['kind'] == 'incremental' and not any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)):
-        return _err('backup schedules need a registered backup proxy on the cluster (Settings → Clusters → Proxies)')
+        return _err('backup schedules need a registered backup proxy on the cluster (Settings → Targets → Backup proxies)')
     vm, err = _vm_of(cid, vm_uuid)
     if err:
         return err

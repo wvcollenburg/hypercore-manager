@@ -114,7 +114,7 @@ def location_for_schedule(sched) -> dict:
     if loc:
         return loc
     if not sched.get('path_uri_base'):
-        raise HyperCoreError("no share assigned to this cluster's folder (Settings → Shares, then the folder menu)")
+        raise HyperCoreError("no backup target is assigned to this cluster's folder (Settings → Targets, then Backup target in the folder's menu in the cluster switcher)")
     cluster = cluster_registry.get(sched['cluster_id'])
     tenant = tenant_slug(cluster)
     return {

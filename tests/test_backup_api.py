@@ -167,6 +167,21 @@ def test_a_missing_file_in_file_recovery_is_a_404(monkeypatch):
     assert c.get('/api/v1/flr/mounts/m1/ls?path=/nope').status_code == 404
 
 
+def test_error_texts_name_places_that_exist_in_the_ui():
+    """"Settings → Shares" and "Settings → Clusters → Proxies" are gone since 1.4.0; the labels named must exist."""
+    import glob
+    import re
+    root = os.path.join(os.path.dirname(__file__), '..')
+    own = ('cluster_registry.py', 'hcm_crypto.py', 'hypercore_session.py')          # synced copies, not ours
+    texts = ''.join(open(p, encoding='utf-8').read() for p in glob.glob(os.path.join(root, 'backup', '*.py'))
+                    if os.path.basename(p) not in own)
+    assert 'Settings → Shares' not in texts and 'Clusters → Proxies' not in texts
+    en = open(os.path.join(root, 'dashboard', 'static', 'lang', 'en.js'), encoding='utf-8').read()
+    for label in ('Targets', 'Backup target', 'Backup proxies'):
+        assert re.search(r':\s*"' + re.escape(label) + '"', en), label
+    assert 'Settings → Targets → Backup proxies' in texts and "Backup target in the folder's menu" in texts
+
+
 def test_run_import_puts_the_folder_credentials_only_into_its_own_directory(monkeypatch):
     seen = []
 
