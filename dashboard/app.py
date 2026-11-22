@@ -61,6 +61,7 @@ from influxdb_client import InfluxDBClient
 import config_db
 import user_db
 import backup_scope
+import vm_rows
 import rbac
 import access_db
 import cluster_registry
@@ -531,15 +532,22 @@ def get_nodes():
                 if 'num_threads' not in nodes[node_uuid]:
                     nodes[node_uuid]['num_threads'] = int(record.values.get('num_threads') or 0)
 
-        # fetch latest allocated vCPUs per node from vm_inventory
+        # fetch latest allocated vCPUs per node from vm_inventory. Node and state are tags, so a VM that
+        # migrated or stopped inside the hour has several series: only its newest one counts, or it would be
+        # added to every node it ran on
+        # (and only the last polls are read, as in _vm_sizes: a deleted VM stops counting when it stops reporting)
+        fresh = max(60, int(_stale_seconds()))
         vcpu_query = f'''
         from(bucket: "{INFLUX_BUCKET}")
-          |> range(start: -1h)
+          |> range(start: -{fresh}s)
           {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "vm_inventory")
           |> filter(fn: (r) => r["_field"] == "num_vcpu")
-          |> filter(fn: (r) => r["vm_state"] == "RUNNING")
           |> last()
+          |> group(columns: ["vm_uuid"])
+          |> sort(columns: ["_time"])
+          |> last()
+          |> filter(fn: (r) => r["vm_state"] == "RUNNING")
           |> group(columns: ["node_uuid"])
           |> sum()
         '''
@@ -657,35 +665,10 @@ def get_vms():
         '''
         result = client.query_api().query(org=INFLUX_ORG, query=query)
         
-        vms = {}
-        for table in result:
-            for record in table.records:
-                vm_uuid = record.values.get('vm_uuid', 'unknown')
-                vm_name = record.values.get('vm_name', 'Unknown')
-                node_uuid = record.values.get('node_uuid', 'unknown')
+        # one row per VM, described as of its newest sample: a VM that migrated inside the range has a
+        # series per node and belongs to the node it is on now (vm_rows.py)
+        vms = vm_rows.fold((record.get_time(), record.values) for table in result for record in table.records)
 
-                # skip records from in-flight migration state (no node assignment yet)
-                if node_uuid == 'unknown':
-                    continue
-
-                if vm_uuid not in vms:
-                    vms[vm_uuid] = {
-                        'uuid': vm_uuid,
-                        'name': vm_name,
-                        'node_uuid': node_uuid,
-                        'node_peer_id': record.values.get('node_peer_id', 'unknown'),
-                        'tag': record.values.get('vm_tag', ''),
-                        'vlan': record.values.get('vm_vlan', '0'),
-                        'history': []
-                    }
-
-                vms[vm_uuid]['history'].append({
-                    'time': record.get_time().isoformat(),
-                    'cpu_usage': record.values.get('cpu_usage'),
-                    'rx_bit_rate': record.values.get('rx_bit_rate'),
-                    'tx_bit_rate': record.values.get('tx_bit_rate')
-                })
-        
         # fetch true current CPU per VM (last measurement, independent of time range)
         current_query = f'''
         from(bucket: "{INFLUX_BUCKET}")

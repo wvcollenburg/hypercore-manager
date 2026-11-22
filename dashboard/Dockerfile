@@ -24,6 +24,7 @@ COPY dashboard/verify_mail.py .
 COPY dashboard/forwarding.py .
 COPY dashboard/alerts.py .
 COPY dashboard/storage_summary.py .
+COPY dashboard/vm_rows.py .
 COPY dashboard/manual.py .
 COPY dashboard/cluster_registry.py .
 COPY dashboard/hypercore_tasks.py .
