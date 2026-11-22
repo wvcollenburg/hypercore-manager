@@ -598,6 +598,51 @@ def test_pick_proxy_prefers_an_idle_proxy(monkeypatch):
         lock.release()
 
 
+def test_a_point_the_catalogue_never_recorded_starts_a_new_chain(world, monkeypatch):
+    """The proxy finished delta 1 but HCM did not record it (restart, Postgres stall): every later run submitted
+    delta 1 again and the proxy refused it ("already exists") for good."""
+    world.db.update_schedule = lambda pid, **f: world.db.plan.update(f)
+    inc.run_incremental(4)
+    real = world.pc.wait
+
+    def exists(job_id, on_progress=None, timeout=0, poll=0):
+        kind, body = world.pc.jobs[int(job_id.split('-')[1]) - 1]
+        if kind == 'backup' and body['point']['kind'] == 'delta':
+            raise inc.ProxyError('point delta-0001 already exists in /mnt/t/Amsterdam/exptest_vm-1_x.chain')
+        return real(job_id, on_progress, timeout, poll)
+    monkeypatch.setattr(world.pc, 'wait', exists)
+    run = _next_run(world)
+    assert run['status'] == 'ERROR' and 'new chain with a full' in run['message']
+    assert world.db.plan['force_full'] is True
+    run = _next_run(world)
+    assert run['status'] == 'COMPLETE' and run['point_kind'] == 'full', run
+    assert [c['status'] for c in world.db.chains.values()] == ['retired', 'active'] and world.db.plan['force_full'] is False
+    assert inc.chain_out_of_step(inc.ProxyError('previous point 3 not in chain'))
+    assert not inc.chain_out_of_step(inc.ProxyError('disk full on target'))
+
+
+def test_an_interrupted_delta_makes_the_next_run_a_full(monkeypatch):
+    sys.path.insert(0, _BACKUP)
+    try:
+        saved = {n: sys.modules.pop(n) for n in _CLASH if n in sys.modules}
+        sch = importlib.import_module('scheduler')
+    finally:
+        sys.path.remove(_BACKUP)
+        for n in _CLASH:
+            sys.modules.pop(n, None)
+        sys.modules.update(saved)
+    runs = [{'id': 1, 'schedule_id': 4, 'mode': 'incremental', 'point_kind': 'delta', 'blocks_changed': 12, 'task_tag': None},
+            {'id': 2, 'schedule_id': 5, 'mode': 'incremental', 'point_kind': 'delta', 'blocks_changed': None, 'task_tag': None}]
+    plans, msgs = {}, {}
+    monkeypatch.setattr(sch, 'db', types.SimpleNamespace(
+        get_active_runs=lambda: runs, update_run=lambda rid, **f: msgs.__setitem__(rid, f['message']),
+        update_schedule=lambda pid, **f: plans.__setitem__(pid, f), now_utc=lambda: NOW, get_deployments=lambda: [],
+        get_active_restores=lambda: [], get_active_imports=lambda: []))
+    sch.reconcile_interrupted()
+    assert plans == {4: {'force_full': True}}, 'only the delta that reached the copy'
+    assert 'new chain' in msgs[1] and 'continues the chain' in msgs[2]
+
+
 def test_the_proxy_lock_is_released_when_the_cleanup_itself_fails(world, monkeypatch):
     """A failed proxy job followed by a database error while recording the clones left the proxy locked until the
     service restarted: every later backup and restore on it waited for ever."""

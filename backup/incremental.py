@@ -417,12 +417,20 @@ def plan_point(chain: dict | None, plan: dict, prev_point: dict | None, full: st
     if not chain.get('anchor_snapshot_uuid'):
         return 'full', 0, None, 'reference snapshot missing: taking a full instead of an incremental'
     if plan.get('force_full'):
-        return 'full', 0, None, 'the last synthetic full could not be built: taking a real full'
+        return 'full', 0, None, ('a real full was asked for: the last synthetic full could not be built, or the chain '
+                                 'could not be continued')
     if full == 'real':
         return 'full', 0, None, 'full day of the backup schedule'
     if full is None and int(chain.get('runs_since_full') or 0) >= max(1, int(plan.get('full_every_n') or 14)):
         return 'full', 0, None, f'scheduled full after {chain.get("runs_since_full")} incrementals'
     return 'delta', int(chain['next_seq']), int(prev_point['seq']), None
+
+
+def chain_out_of_step(e: Exception) -> bool:
+    """The proxy refused a point because the chain on the target is not where the catalogue thinks it is: the
+    point exists already (the proxy finished one that was never recorded) or its predecessor is missing."""
+    text = str(e)
+    return ' already exists in ' in text or ('previous point ' in text and ' not in chain' in text)
 
 
 # ------------------------------------------------------------------ the run
@@ -612,7 +620,15 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_starte
                             db.update_run(run_id, message=backup_progress_text(kind, p), progress=backup_progress(p))
                         except Exception as e:                  # noqa: BLE001
                             log.warning('[run %s] progress update failed: %s', run_id, e)
-                result = pc.wait(job_id, on_progress, timeout=CFG.task_timeout_hours * 3600)['result']
+                try:
+                    result = pc.wait(job_id, on_progress, timeout=CFG.task_timeout_hours * 3600)['result']
+                except ProxyError as e:
+                    if not chain_out_of_step(e):
+                        raise
+                    # the target holds a point this catalogue never recorded (a restart or a database error after
+                    # the proxy finished): this chain cannot be continued, the next run starts a new one
+                    db.update_schedule(plan['id'], force_full=True)
+                    raise ProxyError(f'{e}; the next run starts a new chain with a full') from e
             leftover = _delete_clones(hc, clones)
             failed = False
         except Exception:

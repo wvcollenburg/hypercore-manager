@@ -138,9 +138,16 @@ def reconcile_interrupted() -> None:
     for r in db.get_active_runs():
         if r.get('mode') == 'incremental':
             # the proxy job may still be running, but its result is lost to us: fail the run, the
-            # sweep removes clones and the next run re-anchors (a full if the anchor is gone)
+            # sweep removes clones. A delta that reached the copy may exist on the target without being
+            # recorded; continuing would submit the same point again and the proxy refuses it every night,
+            # so that plan starts a new chain with a full (a lost full leaves a chain without points, which
+            # the next run replaces anyway)
+            copied = r.get('point_kind') == 'delta' and r.get('blocks_changed') is not None
+            if copied:
+                db.update_schedule(r['schedule_id'], force_full=True)
             db.update_run(r['id'], status='ERROR', finished_at=db.now_utc(),
-                          message='Interrupted by a restart; the next run continues the chain.')
+                          message='Interrupted by a restart; the next run '
+                                  + ('starts a new chain with a full.' if copied else 'continues the chain.'))
             continue
         if r['task_tag']:
             _scheduler.add_job(jobs.resume_export, args=[r['id']], id=f"resume-run-{r['id']}", replace_existing=True)
