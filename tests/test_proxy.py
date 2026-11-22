@@ -1012,6 +1012,44 @@ def test_idle_mounts_are_swept_and_api_routes_work(flr):
     assert flr.mm.sweep_idle() == 1 and c.get(f'/mounts/{mid}/ls', headers=H).status_code == 404
 
 
+@pytest.mark.parametrize('kind', ['zip', 'file', 'iso'])
+def test_a_mount_that_is_still_streaming_is_neither_swept_nor_unmounted(flr, monkeypatch, kind):
+    """last_used was only set when a download started: a zip, ISO or file that streamed longer than the idle limit
+    was unmounted under it and arrived cut off without an error. DELETE during a download did the same."""
+    import io, zipfile
+    app = P.api.create_app(flr.cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}), flr.mm)
+    c = app.test_client(); H = {'Authorization': 'Bearer t0k'}
+    mid = c.post('/mounts', json={'target': {'uri': 'smb://nas/share/hcm'}, 'chain_dir': 'F/v_vm-1.chain', 'seq': 0}, headers=H).get_json()['id']
+    mp = next(f['mountpoint'] for f in flr.mm.mounts[mid].filesystems if f['name'] == 'disk1-p2')
+    for i in range(3):
+        open(os.path.join(mp, 'etc', f'big{i}'), 'wb').write(os.urandom(3 * MiB))
+
+    class FakeProc:                                      # genisoimage stand-in that reads the mount as it streams
+        def __init__(self, cmd, **kw):
+            self.stdout = io.BytesIO(open(os.path.join(mp, 'etc', 'big0'), 'rb').read()); self.stderr = io.BytesIO(b'')
+        def wait(self, timeout=None): return 0
+    monkeypatch.setattr(P.mounts.MountManager.iter_iso, '__defaults__', (1 << 20, FakeProc))   # popen=
+    monkeypatch.setattr(flr.mm, 'iso_size', lambda m, p: 3 * MiB)
+    url = {'zip': f'/mounts/{mid}/zip?paths=/disk1-p2/etc', 'file': f'/mounts/{mid}/file?path=/disk1-p2/etc/big0',
+           'iso': f'/mounts/{mid}/iso?paths=/disk1-p2/etc'}[kind]
+    r = c.get(url, headers=H, buffered=False)
+    it = iter(r.response)
+    got = [next(it)]                                     # the download has started ...
+    flr.mm.mounts[mid].last_used -= 3600                 # ... and runs past the idle limit
+    assert flr.mm.sweep_idle() == 0 and mid in flr.mm.mounts
+    d = c.delete(f'/mounts/{mid}', headers=H)
+    assert d.status_code == 409 and 'still running' in d.get_json()['error'] and mid in flr.mm.mounts
+    got += list(it)
+    r.close()
+    data = b''.join(got)
+    if kind == 'zip':
+        assert len(zipfile.ZipFile(io.BytesIO(data)).namelist()) == 5
+    else:
+        assert data == open(os.path.join(mp, 'etc', 'big0'), 'rb').read()
+    # the refused unmount happens once the download has ended
+    assert flr.mm.mounts[mid].streams == 0 and flr.mm.sweep_idle() == 1 and mid not in flr.mm.mounts
+
+
 def test_iso_command_size_and_stream(flr, monkeypatch):
     m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
     cmd = flr.mm.iso_command(m.id, ['/disk1-p2/etc', '/disk1-p2/etc/hosts'])

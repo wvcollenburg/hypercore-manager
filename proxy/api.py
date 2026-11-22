@@ -204,7 +204,7 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
             return jsonify({'error': 'file not found'}), 404
 
         def gen():
-            with fh:
+            with fh, mounts.streaming(mid):
                 while True:
                     b = fh.read(1 << 20)
                     if not b:
@@ -251,7 +251,10 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
     def unmount_point(mid):
         if mounts is None or mid not in mounts.mounts:
             return jsonify({'error': 'mount not found'}), 404
-        mounts.unmount(mid)
+        try:
+            mounts.unmount(mid)
+        except mounts_mod.MountBusy as e:
+            return jsonify({'error': str(e)}), 409
         return jsonify({'ok': True})
 
     @app.delete('/jobs/<job_id>')
