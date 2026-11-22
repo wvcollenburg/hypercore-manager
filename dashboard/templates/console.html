@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Console</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f172a'/><rect x='5' y='8' width='22' height='14' rx='2' fill='none' stroke='%2338bdf8' stroke-width='2'/><path d='M10 13l3 2-3 2' fill='none' stroke='%2338bdf8' stroke-width='2'/></svg>">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <script>
 (function(){
   var supported = {en:'en', nl:'nl', fr:'fr', de:'de'};
@@ -19,51 +19,48 @@
   document.write('<scr'+'ipt src="{{ asset_base }}/lang/'+code+'.js"><\/scr'+'ipt>');
 })();
 </script>
+{% if mode != 'guest' %}<link rel="stylesheet" href="/static/vendor/fonts.css">{% endif %}
+{{ theme_inline() }}
 <style>
-  {% if mode != 'guest' %}@import url('/static/vendor/fonts.css');{% endif %}
-  :root {
-    --bg-primary: #0a0e14; --bg-secondary: #111820; --bg-card: #151c27; --border: #1e2a3a;
-    --border-active: #2d4a6f; --text-primary: #f4f7fa; --text-secondary: #c0d0e0; --text-muted: #7a9ab0;
-    --accent-blue: #3b82f6; --accent-green: #10b981; --accent-amber: #f59e0b; --accent-red: #ef4444;
-    --glow-blue: rgba(59, 130, 246, 0.15);
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
-  body { font-family: 'Space Grotesk', sans-serif; background: #000; color: var(--text-primary);
+  body { font-family: var(--font-ui); background: var(--screen); color: var(--ink);
          display: flex; flex-direction: column; overflow: hidden; }
-  .bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--bg-secondary);
-         border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-  .title { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; white-space: nowrap;
-           overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
-  .sub { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
-  .status { font-size: 12px; display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
-  .dot.ok { background: var(--accent-green); } .dot.warn { background: var(--accent-amber); } .dot.err { background: var(--accent-red); }
+  .bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--bar); color: var(--bar-ink);
+         flex-wrap: wrap; min-height: 44px; }
+  .title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+  .sub { font-size: 12px; color: var(--bar-ink-2); white-space: nowrap; }
+  .status { font-size: 12px; display: inline-flex; align-items: center; gap: 6px; color: var(--bar-ink-2); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bar-ink-2); }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.err { background: var(--bad); }
   .spacer { flex: 1; }
-  button, select { background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary);
-           padding: 5px 10px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; }
-  button:hover:not(:disabled) { border-color: var(--accent-blue); color: var(--accent-blue); background: var(--glow-blue); }
+  button, select { background: transparent; border: 1px solid var(--bar-line); color: var(--bar-ink-2);
+           padding: 5px 10px; border-radius: 6px; font-family: var(--font-ui); font-size: 12px; cursor: pointer; }
+  select option { background: var(--surface); color: var(--ink); }
+  button:hover:not(:disabled) { border-color: var(--bar-ink-2); color: var(--bar-ink); }
   button:disabled { opacity: .45; cursor: default; }
-  button.danger:hover:not(:disabled) { border-color: var(--accent-red); color: var(--accent-red); background: rgba(239,68,68,.12); }
-  #screen { flex: 1; min-height: 0; position: relative; background: #000; }
+  button.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
+  #screen { flex: 1; min-height: 0; position: relative; background: var(--screen); }
   .overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
-             background: rgba(10,14,20,.88); z-index: 5; }
+             background: var(--backdrop); z-index: 5; }
   .overlay.visible { display: flex; }
-  .panel { background: var(--bg-card); border: 1px solid var(--border-active); border-radius: 10px; padding: 20px 22px;
-           max-width: 460px; width: calc(100% - 32px); display: flex; flex-direction: column; gap: 12px; }
-  .panel h2 { font-size: 15px; font-weight: 600; }
-  .panel p { font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
-  .panel textarea { width: 100%; min-height: 70px; background: var(--bg-primary); color: var(--text-primary);
-           border: 1px solid var(--border-active); border-radius: 6px; padding: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+  .panel { background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-lg);
+           padding: 20px 22px; max-width: 460px; width: calc(100% - 32px); display: flex; flex-direction: column; gap: 12px; }
+  .panel h2 { font-size: 16px; font-weight: 600; }
+  .panel p { font-size: 14px; line-height: 1.55; color: var(--ink-2); }
+  .panel textarea { width: 100%; min-height: 70px; background: var(--surface); color: var(--ink);
+           border: 1px solid var(--border-strong); border-radius: 6px; padding: 8px; font-family: var(--font-mono); font-size: 13px; }
   .panel .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
-  .panel label { font-size: 12px; color: var(--text-secondary); display: inline-flex; gap: 6px; align-items: center; margin-right: auto; }
+  .panel label { font-size: 13px; color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; margin-right: auto; }
+  .panel button, .panel select { border-color: var(--border-strong); color: var(--ink); background: var(--surface); }
+  .panel button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-2); }
 </style>
 </head>
 <body>
   <div class="bar">
     <span class="title" id="vmName">{{ title }}</span>
     <span class="sub">{{ subtitle }}</span>
-    {% if view_only %}<span class="sub" style="color:var(--accent-amber)" data-i18n="console.view_only">read-only</span>{% endif %}
+    {% if view_only %}<span class="sub" style="color:var(--warn)" data-i18n="console.view_only">read-only</span>{% endif %}
     <span class="status"><span class="dot" id="dot"></span><span id="status"></span></span>
     <span class="spacer"></span>
     {% if not view_only %}<button id="btnCad" onclick="sendCad()" disabled data-i18n="console.ctrl_alt_del">Ctrl+Alt+Del</button>

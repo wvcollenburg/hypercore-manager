@@ -51,7 +51,7 @@ COPY docs/administration.md manual/extra/
 RUN mkdir -p static/vendor && \
     curl -sL "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" -o static/vendor/chart.umd.min.js && \
     curl -sL "https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js" -o static/vendor/chartjs-adapter-date-fns.bundle.min.js && \
-    curl -sL "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" -o static/vendor/fonts.css && \
+    curl -sL "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" -o static/vendor/fonts.css && \
     # Download the actual font files referenced in the CSS
     grep -oP 'url\(\K[^)]+' static/vendor/fonts.css | while read url; do \
         FILENAME=$(echo "$url" | sed 's/.*\///;s/?.*//' ); \

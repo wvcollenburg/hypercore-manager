@@ -1,0 +1,154 @@
+/* theme.css: every colour, font and shadow of the dashboard, per theme.
+
+   This is the only file that may contain colour literals (tests/test_theme_tokens.py checks it). Everything
+   else uses var(--token). A theme is one block of the same token names with other values: [data-theme="dark"]
+   below is the whole dark mode, and a new theme is a new block plus an entry in theme.js.
+
+   The light theme is IBM Plex on graphite and teal; the dark theme is warm charcoal with amber
+   (design/mockups, chosen 2026-11-22). Usage bars use --meter and turn --meter-hi from 60%: in the dark theme
+   amber is both the accent and the warning colour, so the accent never marks a value as high. */
+
+:root {
+  color-scheme: light;
+  /* type */
+  --font-ui: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* surfaces */
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #f8f9fa;
+  --surface-3: #eef1f4;
+  --row-hover: #f6f8fa;
+  --border: #dfe3e8;
+  --border-strong: #c5ccd5;
+  --row-line: #edf0f3;
+
+  /* ink */
+  --ink: #1d2329;
+  --ink-2: #4b5560;
+  --ink-3: #6b7682;
+  --on-accent: #ffffff;
+  --on-solid: #ffffff;              /* text on a solid status colour (red danger button, green pill) */
+
+  /* accent and states */
+  --accent: #0f766e;
+  --accent-2: #115e59;              /* accent as text on a light surface */
+  --accent-tint: #e6f4f2;
+  --ok: #1a7f37;      --ok-bg: #e7f5ec;
+  --warn: #9a6700;    --warn-bg: #fff4d6;
+  --bad: #b42318;     --bad-bg: #fdecea;
+  --info: #0b62a3;    --info-bg: #e3f0fb;
+  --purple: #6d3fc0;  --purple-bg: #f0eafb;    /* checks, checksums, predictive engine */
+  --neutral-fill: #eef1f4;
+  --meter: var(--accent);
+  --meter-hi: #c99415;
+  /* HyperCore's own condition colours, in its order: critical, warning, notice, info */
+  --alert-critical: #d92d20; --alert-warning: #f97316; --alert-notice: #facc15; --alert-info: #2e7bd6; --alert-ink: #1d2329;
+  --track: #e6eaee;
+
+  /* top bar */
+  --bar: #20262d;
+  --bar-2: #2c343c;
+  --bar-line: #3a434d;
+  --bar-ink: #e9edf1;
+  --bar-ink-2: #9aa5b1;
+  --bar-accent: #2dd4bf;
+
+  /* depth */
+  --shadow-color: #101828;
+  --shadow-sm: 0 1px 2px color-mix(in srgb, var(--shadow-color) 8%, transparent);
+  --shadow-md: 0 6px 16px color-mix(in srgb, var(--shadow-color) 12%, transparent);
+  --shadow-lg: 0 16px 40px color-mix(in srgb, var(--shadow-color) 20%, transparent);
+  --backdrop: color-mix(in srgb, #11181f 45%, transparent);
+  --focus-ring: color-mix(in srgb, var(--accent) 30%, transparent);
+
+  /* fixed colours that carry meaning on their own: the console's black screen, a user-picked folder colour
+     fallback and the chart series (charts read these through getComputedStyle) */
+  --screen: #000000;
+  --chart-1: #0f766e; --chart-2: #2563eb; --chart-3: #c2410c; --chart-4: #7c3aed; --chart-5: #be185d; --chart-6: #4d7c0f;
+  --chart-7: #0e7490; --chart-8: #b45309; --chart-9: #4338ca; --chart-10: #15803d;
+  --chart-tooltip: #20262d; --chart-tooltip-ink: #e9edf1;
+  --chart-grid: #e6eaee;
+  --chart-ink: #6b7682;
+
+  /* aliases: the names the dashboard used before the identity change. Kept so the ~1000 rules that read them
+     follow the theme; new code uses the names above. */
+  --bg-primary: var(--bg);
+  --bg-secondary: var(--surface);
+  --bg-card: var(--surface);
+  --bg-card-hover: var(--row-hover);
+  --bg-nested: var(--surface-2);
+  --border-active: var(--border-strong);
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink-2);
+  --text-muted: var(--ink-3);
+  --accent-blue: var(--accent);
+  --accent-cyan: var(--accent);
+  --accent-green: var(--ok);
+  --accent-amber: var(--warn);
+  --accent-red: var(--bad);
+  --accent-purple: var(--purple);
+  --glow-blue: var(--accent-tint);
+  --glow-green: var(--ok-bg);
+  --glow-red: var(--bad-bg);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #141517;
+  --surface: #1c1d20;
+  --surface-2: #232428;
+  --surface-3: #2a2c31;
+  --row-hover: #212226;
+  --border: #2e3035;
+  --border-strong: #3a3c42;
+  --row-line: #2a2c30;
+
+  --ink: #ececec;
+  --ink-2: #b4b6bb;
+  --ink-3: #8d9096;
+  --on-accent: #1a1305;
+  --on-solid: #ffffff;
+
+  --accent: #f0a030;
+  --accent-2: #f5b452;
+  --accent-tint: color-mix(in srgb, #f0a030 13%, transparent);
+  --ok: #4cc38a;      --ok-bg: color-mix(in srgb, #4cc38a 13%, transparent);
+  --warn: #f0a030;    --warn-bg: color-mix(in srgb, #f0a030 11%, transparent);
+  --bad: #f2555a;     --bad-bg: color-mix(in srgb, #f2555a 13%, transparent);
+  --info: #6ea8fe;    --info-bg: color-mix(in srgb, #6ea8fe 13%, transparent);
+  --purple: #a78bfa;  --purple-bg: color-mix(in srgb, #a78bfa 14%, transparent);
+  --neutral-fill: #2a2c31;
+  --meter: #b4b6bb;
+  --meter-hi: #f0a030;
+  --alert-critical: #f2555a; --alert-warning: #fb8c3c; --alert-notice: #facc15; --alert-info: #6ea8fe; --alert-ink: #141517;
+  --track: #3a3c42;
+
+  --bar: #0f1012;
+  --bar-2: #1c1d20;
+  --bar-line: #2e3035;
+  --bar-ink: #ececec;
+  --bar-ink-2: #8d9096;
+  --bar-accent: #f0a030;
+
+  --screen: #000000;
+  --shadow-color: #000000;
+  --shadow-sm: 0 1px 2px color-mix(in srgb, var(--shadow-color) 40%, transparent);
+  --shadow-md: 0 6px 16px color-mix(in srgb, var(--shadow-color) 45%, transparent);
+  --shadow-lg: 0 16px 40px color-mix(in srgb, var(--shadow-color) 55%, transparent);
+  --backdrop: color-mix(in srgb, #000000 60%, transparent);
+
+  --chart-1: #f0a030; --chart-2: #6ea8fe; --chart-3: #4cc38a; --chart-4: #a78bfa; --chart-5: #f472b6; --chart-6: #a3e635;
+  --chart-7: #22d3ee; --chart-8: #fb923c; --chart-9: #818cf8; --chart-10: #facc15;
+  --chart-tooltip: #2a2c31; --chart-tooltip-ink: #ececec;
+  --chart-grid: #2e3035;
+  --chart-ink: #8d9096;
+}
+
+/* a few element defaults every page shares */
+html { -webkit-font-smoothing: antialiased; }
+::selection { background: var(--accent-tint); }
+input, select, textarea, button { font-family: inherit; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+.num, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }

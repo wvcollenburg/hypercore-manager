@@ -553,6 +553,10 @@ window.LANG = {
 
   'nav.account': "Compte",
   'nav.manual': "Manuel",
+  'nav.sign_out': "Se déconnecter",
+  'theme.to_dark': "☾ Sombre",
+  'theme.to_light': "☀ Clair",
+  'clusters.alerts_elsewhere': "{n} alerte(s) critique(s) ou d’avertissement sur d’autres clusters",
 
   'settings.admin_only': "Les param\u00e8tres sont r\u00e9serv\u00e9s aux administrateurs.",
 

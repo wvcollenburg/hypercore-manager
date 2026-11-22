@@ -554,6 +554,10 @@ window.LANG = {
 
   'nav.account': "Account",
   'nav.manual': "Manual",
+  'nav.sign_out': "Sign out",
+  'theme.to_dark': "☾ Dark",
+  'theme.to_light': "☀ Light",
+  'clusters.alerts_elsewhere': "{n} critical or warning alert(s) on other clusters",
 
   'settings.admin_only': "Settings are available to administrators only.",
 

@@ -553,6 +553,10 @@ window.LANG = {
 
   'nav.account': "Account",
   'nav.manual': "Handleiding",
+  'nav.sign_out': "Afmelden",
+  'theme.to_dark': "☾ Donker",
+  'theme.to_light': "☀ Licht",
+  'clusters.alerts_elsewhere': "{n} kritieke of waarschuwingsmelding(en) op andere clusters",
 
   'settings.admin_only': "Instellingen zijn alleen beschikbaar voor beheerders.",
 
