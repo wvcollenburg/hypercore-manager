@@ -1828,6 +1828,25 @@ document.addEventListener('click', function(e) {
 // ──────────────────────────────────────────────────────────────────────────
 const API_BASE = window.location.origin;
 
+// A session that is gone (expired, signed out in another tab, account disabled) answers 401 on every
+// API call. Every fetch wrapper (apiFetch, _exCall, _acCall, _folderCall) and the direct fetches go
+// through window.fetch, so the check sits here: the first 401 from our own /api/ sends the page to the
+// login page, once.
+let _hcmSignedOut = false;
+const _hcmFetch = window.fetch.bind(window);
+window.fetch = async function (input, init) {
+  const r = await _hcmFetch(input, init);
+  if (r.status === 401 && !_hcmSignedOut && location.pathname !== '/login') {
+    let url;
+    try { url = new URL(typeof input === 'string' ? input : input.url, location.href); } catch (e) { url = null; }
+    if (url && url.origin === location.origin && url.pathname.startsWith('/api/')) {
+      _hcmSignedOut = true;
+      location.href = '/login';
+    }
+  }
+  return r;
+};
+
 // cluster selection state — declared here because _withCluster() is called by the very first
 // refreshAll() during script execution; a later `let` would still be in its temporal dead zone
 const CLUSTER_LS_KEY = 'hcm.cluster';

@@ -71,3 +71,16 @@ def test_irreversible_deletes_ask_for_the_name(repo):
     for key in ('ex.confirm_delete_data', 'proxies.confirm_remove_vm', 'shares.confirm_remove'):
         call = src[src.index(f"hcmConfirm(t('{key}'"):][:160]
         assert 'typeToConfirm: name' in call, f'{key} must ask for the name to be typed'
+
+
+def test_a_lost_session_goes_to_the_login_page(repo):
+    """The API answers 401 when the session is gone; no wrapper looked at it, so the page sat on empty
+    lists and 'HTTP 401' toasts until it was reloaded by hand."""
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
+    wrap = src.index('window.fetch = async function')
+    body = src[wrap:wrap + 700]
+    assert 'r.status === 401' in body and "location.href = '/login'" in body and '_hcmSignedOut = true' in body
+    main = src[src.index('<script>', 100):]          # the app script: nothing fetches before the wrapper is set
+    assert 'fetch(' not in main[:main.index('window.fetch = async function')]
+    for wrapper in ('async function apiFetch(', 'async function _exCall(', 'async function _folderCall('):
+        assert src.index(wrapper) > wrap, f'{wrapper} must be defined after the 401 check'
