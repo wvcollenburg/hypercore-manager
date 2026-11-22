@@ -2423,9 +2423,26 @@ def _console_binding(create: bool) -> str:
     return hashlib.sha256(f"{session.get('user_id') or ''}:{nonce}".encode()).hexdigest()
 
 
+def _trusted_proxies() -> int:
+    try:
+        return max(0, int(os.getenv('HCM_TRUSTED_PROXIES', '0') or 0))
+    except ValueError:
+        return 0
+
+
 def _client_ip() -> str:
-    fwd = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
-    return fwd or request.headers.get('X-Real-IP') or request.remote_addr or ''
+    """The client's address: the connecting peer, unless HCM_TRUSTED_PROXIES (how many reverse proxies stand
+    in front of HCM) says which X-Forwarded-For entry a proxy of ours wrote. The leftmost entry is whatever
+    the client sent, so it is never believed (it would let anyone pick the address that sign-in limits count
+    and the audit records)."""
+    peer = request.remote_addr or ''
+    n = _trusted_proxies()
+    if n <= 0:
+        return peer
+    hops = [h.strip() for h in (request.headers.get('X-Forwarded-For') or '').split(',') if h.strip()]
+    if not hops:
+        return peer
+    return hops[-n] if len(hops) >= n else hops[0]
 
 
 def _console_user() -> str:
@@ -3224,6 +3241,9 @@ def sentinel_trigger_trend_run():
 # auth routes
 # =============================================================================
 
+_OTP_PENDING_SECONDS = 300          # the code must follow the password within five minutes
+
+
 @app.route('/login', methods=['GET', 'POST'])
 @public('the login page')
 def login_page():
@@ -3236,24 +3256,45 @@ def login_page():
     error = None
 
     if request.method == 'POST':
+        client = _client_ip()
         if step == 'otp':
-            # guard: must have completed the password step first
+            # guard: must have completed the password step first, a few minutes ago at most
             pending_username = session.get('otp_pending')
-            if not pending_username:
+            pending_at = float(session.get('otp_pending_at') or 0)
+            if not pending_username or time.time() - pending_at > _OTP_PENDING_SECONDS:
+                session.pop('otp_pending', None)
+                session.pop('otp_pending_at', None)
                 return redirect(url_for('login_page'))
+            # wrong codes are counted in the database since this password step: replaying an older cookie
+            # (the session lives in the client) does not give more guesses
+            if user_db.otp_failures_since(pending_username, pending_at) >= user_db.MAX_OTP_FAILURES:
+                session.pop('otp_pending', None)
+                session.pop('otp_pending_at', None)
+                return _login_render('password', 'err_otp_restart', False)
             code = request.form.get('otp', '').strip()
             if user_db.verify_otp_code(pending_username, code):
                 u = user_db.get_by_username(pending_username)
                 session.pop('otp_pending', None)
+                session.pop('otp_pending_at', None)
+                user_db.clear_login_failures(pending_username)
                 dest = _after_login(session.pop('next', None))
                 session['user_id']  = str(u['user_id'])
                 session['username'] = u['username']
                 session['role']     = u['role']
                 return redirect(dest)
+            user_db.record_login_failure(pending_username, client, 'otp')
+            if user_db.otp_failures_since(pending_username, pending_at) >= user_db.MAX_OTP_FAILURES:
+                session.pop('otp_pending', None)
+                session.pop('otp_pending_at', None)
+                return _login_render('password', 'err_otp_restart', False)
             error = 'err_otp'
         else:
-            found = user_db.get_by_login(request.form.get('username', ''))
-            username = found['username'] if found else request.form.get('username', '').strip()
+            typed = request.form.get('username', '')
+            if user_db.login_locked(typed, client):
+                # counted by what was typed and by address, so the answer is the same for an unknown account
+                return _login_render('password', 'err_locked', False)
+            found = user_db.get_by_login(typed)
+            username = found['username'] if found else typed.strip()
             password = request.form.get('password', '')
             if found and user_db.verify_password(username, password):
                 u = found
@@ -3265,12 +3306,15 @@ def login_page():
                     return _login_render('password', error, False)
                 if u['otp_enabled']:
                     session['otp_pending'] = username
+                    session['otp_pending_at'] = time.time()
                     return redirect(url_for('login_page', step='otp'))
+                user_db.clear_login_failures(typed)
                 dest = _after_login(session.pop('next', None))
                 session['user_id']  = str(u['user_id'])
                 session['username'] = u['username']
                 session['role']     = u['role']
                 return redirect(dest)
+            user_db.record_login_failure(typed, client, 'password')
             error = 'err_login'
 
     # pass otp_enabled=True only when on the OTP step (drives login.html hint text)

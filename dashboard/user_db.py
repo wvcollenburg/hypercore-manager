@@ -267,12 +267,56 @@ def get_or_create_otp_secret(username: str) -> str:
     return secret
 
 
+def totp_counter(secret: str, code: str, now: float | None = None) -> int | None:
+    """The time step (counter) a TOTP code belongs to, within one step either side of now; None when it fits none."""
+    import hmac
+    import time as _time
+    code = (code or '').strip()
+    if not code.isdigit() or len(code) > 10:
+        return None
+    totp = pyotp.TOTP(secret)
+    step = int((now if now is not None else _time.time()) // totp.interval)
+    for counter in (step, step - 1, step + 1):
+        if hmac.compare_digest(str(totp.generate_otp(counter)), code):
+            return counter
+    return None
+
+
+def _claim_otp_counter(username: str, counter: int) -> bool:
+    """Record `counter` as the user's last accepted TOTP step, only when it is newer than the last one: a code
+    is accepted once, also when four workers see it at the same moment. Before migration 057 (no column) every
+    valid code is accepted, as before."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute('''UPDATE config.users SET otp_last_counter = %s
+                                WHERE username = %s AND (otp_last_counter IS NULL OR otp_last_counter < %s)
+                                RETURNING 1''', (counter, username, counter))
+                ok = cur.fetchone() is not None
+            except psycopg2.Error as exc:
+                if getattr(exc, 'pgcode', None) != '42703':
+                    raise
+                conn.rollback()
+                logger.warning('user_db: otp_last_counter missing (migration 057 not applied yet): codes not single-use')
+                return True
+        conn.commit()
+        return ok
+    finally:
+        conn.close()
+
+
 def verify_otp_code(username: str, code: str) -> bool:
-    """Verify a TOTP code during login (OTP must already be enabled for the user)."""
+    """Verify a TOTP code during login (OTP must already be enabled for the user). A code is used once: a code
+    whose time step is not newer than the last accepted one is refused (a code seen over a shoulder or in a
+    proxy log cannot be replayed within its window)."""
     user = get_by_username(username)
     if not user or not user['otp_enabled'] or not user['otp_secret']:
         return False
-    return pyotp.TOTP(user['otp_secret']).verify(code, valid_window=1)
+    counter = totp_counter(user['otp_secret'], code)
+    if counter is None:
+        return False
+    return _claim_otp_counter(username, counter)
 
 
 def enable_otp(username: str, code: str) -> bool:
@@ -280,7 +324,8 @@ def enable_otp(username: str, code: str) -> bool:
     user = get_by_username(username)
     if not user or not user['otp_secret']:
         return False
-    if not pyotp.TOTP(user['otp_secret']).verify(code, valid_window=1):
+    counter = totp_counter(user['otp_secret'], code)
+    if counter is None:
         return False
     conn = _connect()
     try:
@@ -292,7 +337,74 @@ def enable_otp(username: str, code: str) -> bool:
         conn.commit()
     finally:
         conn.close()
+    _claim_otp_counter(username, counter)           # the code used to switch it on does not also sign in
     return True
+
+
+# ---------------------------------------------------------------------------
+# failed sign-ins (config.login_failures, migration 057)
+# ---------------------------------------------------------------------------
+# Counted in the database: the dashboard runs four gunicorn workers, and the session is a cookie the client
+# holds (a counter in it can be reset by sending an older cookie). `login` is what was typed (lowercased), so
+# an unknown address is limited exactly like a known one and the answer never tells which it is.
+LOGIN_WINDOW_MINUTES = 15
+MAX_FAILURES_PER_LOGIN = 10
+MAX_FAILURES_PER_CLIENT = 30         # an office behind one address shares it
+MAX_OTP_FAILURES = 5                 # per password step: then the password again
+
+
+def _login_key(login: str) -> str:
+    return (login or '').strip().lower()[:254]
+
+
+def _failures_query(sql: str, params: tuple, fetch: bool = False):
+    try:
+        conn = _connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                row = cur.fetchone() if fetch else None
+            conn.commit()
+            return row
+        finally:
+            conn.close()
+    except psycopg2.Error as exc:
+        if getattr(exc, 'pgcode', None) == '42P01':           # before migration 057: no limit yet
+            logger.warning('user_db: config.login_failures missing (migration 057 not applied yet)')
+            return None
+        raise
+
+
+def login_locked(login: str, client: str) -> bool:
+    """Too many failed sign-ins in the window, for this login or from this client address."""
+    row = _failures_query(
+        f'''SELECT COUNT(*) FILTER (WHERE login = %s) AS by_login, COUNT(*) FILTER (WHERE client = %s) AS by_client
+              FROM config.login_failures WHERE at > NOW() - INTERVAL '{LOGIN_WINDOW_MINUTES} minutes'
+               AND (login = %s OR client = %s)''',
+        (_login_key(login), client or '', _login_key(login), client or ''), fetch=True)
+    if not row:
+        return False
+    return row['by_login'] >= MAX_FAILURES_PER_LOGIN or row['by_client'] >= MAX_FAILURES_PER_CLIENT
+
+
+def otp_failures_since(login: str, since_epoch: float) -> int:
+    """Wrong codes for this login since its password step (the time in the session)."""
+    row = _failures_query('''SELECT COUNT(*) AS n FROM config.login_failures
+                              WHERE login = %s AND step = 'otp' AND at > to_timestamp(%s)''',
+                          (_login_key(login), float(since_epoch or 0)), fetch=True)
+    return int(row['n']) if row else 0
+
+
+def record_login_failure(login: str, client: str, step: str) -> None:
+    _failures_query(
+        '''WITH old AS (DELETE FROM config.login_failures WHERE at < NOW() - INTERVAL '1 day')
+           INSERT INTO config.login_failures (login, client, step) VALUES (%s, %s, %s)''',
+        (_login_key(login), (client or '')[:100], step))
+
+
+def clear_login_failures(login: str) -> None:
+    """A complete sign-in: the typos before it no longer count against the account (the client's stay)."""
+    _failures_query('DELETE FROM config.login_failures WHERE login = %s', (_login_key(login),))
 
 
 def set_community_ack(username: str) -> None:
