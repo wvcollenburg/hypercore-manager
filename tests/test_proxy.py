@@ -1095,6 +1095,18 @@ def test_idle_mounts_are_swept_and_api_routes_work(flr):
     assert flr.mm.sweep_idle() == 1 and c.get(f'/mounts/{mid}/ls', headers=H).status_code == 404
 
 
+def test_what_is_missing_is_named_in_the_404(flr):
+    app = P.api.create_app(flr.cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}), flr.mm)
+    c = app.test_client(); H = {'Authorization': 'Bearer t0k'}
+    mid = c.post('/mounts', json={'target': {'uri': 'smb://nas/share/hcm'}, 'chain_dir': 'F/v_vm-1.chain', 'seq': 0}, headers=H).get_json()['id']
+    r = c.get(f'/mounts/{mid}/file?path=/disk1-p2/etc/gone.txt', headers=H)
+    assert r.status_code == 404 and r.get_json()['error'] == 'file not found in this restore point: /disk1-p2/etc/gone.txt'
+    r = c.get(f'/mounts/{mid}/ls?path=/disk1-p2/nope', headers=H)
+    assert r.status_code == 404 and r.get_json()['error'] == 'directory not found in this restore point: /disk1-p2/nope'
+    r = c.get('/mounts/0123abcd/file?path=/x', headers=H)
+    assert r.status_code == 404 and r.get_json()['error'].startswith('mount 0123abcd not found: it was unmounted')
+
+
 def test_a_file_named_outside_latin1_downloads_with_its_name(flr):
     """The raw name went into Content-Disposition; an HTTP header is Latin-1, so 'Rapport – Q3.docx' or
     'prijs €.txt' killed the response."""

@@ -194,15 +194,24 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
     def list_mounts():
         return jsonify([m.public() for m in (mounts.mounts.values() if mounts else [])])
 
+    def mount_gone(mid):
+        # the backup service shows this text; 'not found' stays in it (it maps that to a 404 of its own)
+        idle = getattr(mounts, 'idle_seconds', 1800) // 60
+        return jsonify({'error': f'mount {mid} not found: it was unmounted (on request, after {idle} minutes '
+                                 'without use, or by a restart of the proxy); open the restore point again'}), 404
+
+    def path_gone(what, path):
+        return jsonify({'error': f'{what} not found in this restore point: {path or "/"}'}), 404
+
     @app.get('/mounts/<mid>/ls')
     @require_token
     def mount_ls(mid):
         try:
             return jsonify(mounts.ls(mid, request.args.get('path') or '/'))
         except KeyError:
-            return jsonify({'error': 'mount not found'}), 404
+            return mount_gone(mid)
         except (FileNotFoundError, NotADirectoryError):
-            return jsonify({'error': 'path not found'}), 404
+            return path_gone('directory', request.args.get('path'))
 
     @app.get('/mounts/<mid>/file')
     @require_token
@@ -211,9 +220,9 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
         try:
             fh, size, name = mounts.open_file(mid, request.args.get('path') or '')
         except KeyError:
-            return jsonify({'error': 'mount not found'}), 404
+            return mount_gone(mid)
         except (FileNotFoundError, IsADirectoryError):
-            return jsonify({'error': 'file not found'}), 404
+            return path_gone('file', request.args.get('path'))
 
         def gen():
             with fh, mounts.streaming(mid):
@@ -235,7 +244,7 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
         try:
             mounts.get(mid)
         except KeyError:
-            return jsonify({'error': 'mount not found'}), 404
+            return mount_gone(mid)
         name = request.args.get('name') or 'recovered-files.zip'
         return Response(stream_with_context(mounts.iter_zip(mid, paths)), mimetype='application/zip',
                         headers={'Content-Disposition': attachment(name)})
@@ -250,7 +259,7 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
         try:
             size = mounts.iso_size(mid, paths)
         except KeyError:
-            return jsonify({'error': 'mount not found'}), 404
+            return mount_gone(mid)
         except (FileNotFoundError, RuntimeError) as e:
             return jsonify({'error': str(e)}), 400
         if request.args.get('size'):
@@ -262,7 +271,7 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
     @require_token
     def unmount_point(mid):
         if mounts is None or mid not in mounts.mounts:
-            return jsonify({'error': 'mount not found'}), 404
+            return mount_gone(mid)
         try:
             mounts.unmount(mid)
         except mounts_mod.MountBusy as e:
