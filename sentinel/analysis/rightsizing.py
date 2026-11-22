@@ -124,8 +124,12 @@ def _cpu_signal(vm: VMTimeSeries, cfg: cfg_module.Config, direction: str) -> tup
 
     if direction == 'over_provisioned':
         threshold = cfg.cpu_over_provisioned_threshold
-        if mean >= threshold:
+        if mean >= threshold or threshold <= 0:
             return 0.0, {'reason': 'not_over_provisioned', 'mean': round(mean, 2)}
+        # a low average with peaks at the under-provisioned level is a bursty VM, not an idle
+        # one: 8 vCPU at 100 % for 90 min a night averages 8 % and must keep its vCPUs
+        if p95 >= cfg.cpu_under_provisioned_p95_threshold:
+            return 0.0, {'reason': 'peaks_too_high', 'mean': round(mean, 2), 'p95': round(p95, 2)}
         # score = how far below threshold, normalised to [0,1]
         score = min(1.0, (threshold - mean) / threshold)
         return round(score, 4), {'mean': round(mean, 2), 'threshold': threshold, 'n': n}
@@ -361,7 +365,9 @@ def run_rightsizing(
                     vm_name=vm.vm_name,
                     node_uuid=vm.node_uuid,
                     sizing_direction='over_provisioned',
-                    severity=_severity(composite),
+                    # spare capacity is never an emergency: an idle VM (avg <= 4 %) scored CRITICAL
+                    # and set off the CRITICAL webhook
+                    severity='WARNING' if _severity(composite) == 'CRITICAL' else _severity(composite),
                     analysis_window_days=cfg.analysis_window_days,
                     cpu_signal_score=cpu_score,
                     cpu_avg_usage_pct=round(cpu_mean, 2),
@@ -394,7 +400,9 @@ def run_rightsizing(
                 (s3_score or 0.0, s3_weight),
             ])
 
-            if composite > 0.0:
+            # a VM is under-provisioned only when its CPU says so; latency or spikes alone (avg 24 %,
+            # p95 50 %) produced advice to shrink it
+            if composite > 0.0 and s1_score:
                 results.append(RightSizingResult(
                     cluster_id=cfg.cluster_id,
                     vm_uuid=vm.vm_uuid,
