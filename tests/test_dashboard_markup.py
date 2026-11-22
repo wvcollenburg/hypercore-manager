@@ -171,3 +171,19 @@ def test_data_quality_banner_waits_for_the_clusters_and_leaves_room(repo):
     check = src[src.index('async function checkDataQuality()'):][:2600]
     assert 'if (!name) return;' in check
     assert "classList.toggle('has-dq-banner'" in check and 'body.has-dq-banner { padding-bottom:' in src
+
+
+def test_small_frontend_regressions_stay_fixed(repo):
+    """Module icons appended a hex alpha to var(--…) (invalid CSS, no tint); restore point dates had no year; the
+    guest link and code, shown once, could be closed by Escape or the backdrop before they were copied; a VM
+    deleted from the edit dialog was reopened 2.5 s later; Escape on VM details skipped closeVmModal()."""
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
+    assert 'background:${m.color}20' not in src and 'color-mix(in srgb, ${m.color} 12%, transparent)' in src
+    fmt = src[src.index('const _exFmt = iso =>'):][:400]
+    assert "o.year = 'numeric'" in fmt
+    submit = src[src.index('async function _veSubmit('):][:1800]
+    assert "kind === 'delete' && !when.run_at" in submit and 'closeVmEdit()' in submit
+    assert "classList.contains('visible')) closeVmModal();" in src
+    acc = (repo / 'dashboard' / 'static' / 'access.js').read_text()
+    secrets = acc[acc.index('function _gcShowSecrets('):][:300]
+    assert 'closable: false' in secrets

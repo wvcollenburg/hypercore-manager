@@ -1664,7 +1664,7 @@ async function gcForm(kind, preset) {
 
 function _gcShowSecrets(r, guest) {
   hcmModal({
-    title: _esc(t('gc.secrets_title')), width: 'min(640px, 96vw)', closable: true,
+    title: _esc(t('gc.secrets_title')), width: 'min(640px, 96vw)', closable: false,   // shown once: only Done closes it
     body: `<p class="hcm-text">${_esc(t('gc.secrets_intro', { guest: guest || '' }))}</p>
       <div class="um-section-title">${_esc(t('gc.link'))}</div>
       <div class="hcm-guest-link" id="gcLink">${_esc(r.link)}</div>

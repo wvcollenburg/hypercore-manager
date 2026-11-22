@@ -2965,6 +2965,8 @@ async function _veSubmit(kind, ops, confirmName) {
   msg.style.color = 'var(--accent-green)';
   msg.textContent = when.run_at ? t('ve.scheduled_ok', {when: _exFmt(when.run_at)}) : t('ve.started_ok');
   vmIndexStale();
+  // a VM deleted now is gone: close the dialog and reload the list rather than reopening it
+  if (kind === 'delete' && !when.run_at) { setTimeout(() => { closeVmEdit(); vmIndexStale(); loadVMs(); }, 2500); return true; }
   setTimeout(async () => { if (_ve) await openVmEdit(_ve.uuid); vmIndexStale(); loadVMs(); }, when.run_at ? 600 : 2500);
   return true;
 }
@@ -3330,7 +3332,7 @@ function closeVmModal(evt) {
 
 // close modal on Escape key
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') document.getElementById('vmDetailBackdrop')?.classList.remove('visible');
+  if (e.key === 'Escape' && document.getElementById('vmDetailBackdrop')?.classList.contains('visible')) closeVmModal();
 });
 
 // ─── migration log ───
@@ -3433,7 +3435,7 @@ async function loadModules() {
   container.innerHTML = data.measurements.map(name => {
     const m = getModuleMeta(name);
     return `<div class="module-item" data-name="${_clEsc(name)}" onclick="showModuleInfo(this.dataset.name)">
-      <div class="module-icon" style="background:${m.color}20;color:${m.color}">${m.icon}</div>
+      <div class="module-icon" style="background:color-mix(in srgb, ${m.color} 12%, transparent);color:${m.color}">${m.icon}</div>
       <div><div class="module-name">${_clEsc(name)}</div><div class="module-desc">${m.desc}</div></div>
     </div>`;
   }).join('');
@@ -6560,7 +6562,13 @@ function _exCan(perm, row) {
 // policies, test restores and verification belong to the folder of the selected cluster
 const _exFolderCan = perm => can(perm, currentCluster);
 let _exLocation = null;
-const _exFmt = iso => iso ? new Date(iso).toLocaleString(_hcmLocale(), {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '—';
+// day, month and time; the year too when it is not this year (restore points kept over a year apart collided)
+const _exFmt = iso => {
+  if (!iso) return '—';
+  const d = new Date(iso), o = {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'};
+  if (d.getFullYear() !== new Date().getFullYear()) o.year = 'numeric';
+  return d.toLocaleString(_hcmLocale(), o);
+};
 function _exStatusBadge(status, message) {
   if (status === 'COMPLETE') return `<span class="ex-badge ok">${t('ex.status_ok')}</span>`;
   if (status === 'ERROR')    return `<span class="ex-badge err">${t('ex.status_failed')}</span>`;
