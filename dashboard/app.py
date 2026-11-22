@@ -1353,7 +1353,7 @@ def api_clusters_create():
     hc_uuid = probe.get('hc_cluster_uuid') or None
     probe_nodes = probe.get('nodes') or []
     if hc_uuid:
-        dup = next((c for c in cluster_registry.list_all() if c.hc_cluster_uuid == hc_uuid), None)
+        dup = cluster_registry.registered_as(hc_uuid)          # a removed entry does not count
         if dup is None:
             # a cluster whose uuid we never learned (registered with force) still lists its nodes
             owner = cluster_registry.node_owner([n.get('node_uuid') for n in probe_nodes])

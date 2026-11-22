@@ -690,6 +690,27 @@ def test_customer_admin_registers_a_cluster_in_their_own_folder(admin, clusters)
         assert ca.call('DELETE', f'/api/clusters/{cid}?purge=1')[0] == 200
 
 
+def test_a_removed_cluster_can_be_registered_again(admin, clusters):
+    """Remove keeps the row (renamed '(removed ...)') for history; registering the same HyperCore cluster again
+    is a plain new entry, not a duplicate of the removed one (found by walking the getting-started chapter)."""
+    _reachable_spare(admin)
+    prod = _node(admin, 'Production')
+    st, d = admin.call('POST', '/api/clusters', _spare(folder_id=prod))
+    assert st == 201, d
+    first = d['cluster']['cluster_id']
+    second = None
+    try:
+        assert admin.call('DELETE', f'/api/clusters/{first}')[0] == 200          # remove, not purge
+        st, d = admin.call('POST', '/api/clusters', _spare(folder_id=prod))
+        assert st == 201, d
+        second = d['cluster']['cluster_id']
+        assert second != first
+    finally:
+        for cid in (first, second):
+            if cid:
+                admin.call('DELETE', f'/api/clusters/{cid}?purge=1')
+
+
 def test_a_cluster_registered_elsewhere_is_not_named(admin, clusters):
     """Registering a HyperCore cluster another tenant already has: refused without its name, and only an
     administrator of the whole installation may force a second entry."""

@@ -175,6 +175,22 @@ def list_all(include_template: bool = False) -> list[Cluster]:
         conn.close()
 
 
+def registered_as(hc_cluster_uuid: str) -> Optional[Cluster]:
+    """The registered entry for a HyperCore cluster uuid, or None. A removed cluster (Remove keeps its row,
+    renamed '(removed ...)', so history stays valid) does not count: registering it again is a new entry."""
+    if not hc_cluster_uuid:
+        return None
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f'SELECT {_COLUMNS} {_FROM} WHERE c.is_template = FALSE AND c.is_active = TRUE '
+                        'AND c.hc_cluster_uuid = %s ORDER BY c.registered_at LIMIT 1', (hc_cluster_uuid,))
+            r = cur.fetchone()
+            return _row_to_cluster(r) if r else None
+    finally:
+        conn.close()
+
+
 def list_enabled() -> list[Cluster]:
     return [c for c in list_all() if c.enabled]
 
@@ -626,7 +642,8 @@ def node_owner(node_uuids: list[str]) -> Optional[dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute('''SELECT n.cluster_id::text AS cluster_id, c.cluster_name, n.peer_id, n.lan_ip
                            FROM config.cluster_nodes n JOIN config.clusters c ON c.cluster_id = n.cluster_id
-                           WHERE n.node_uuid = ANY(%s) ORDER BY c.registered_at LIMIT 1''', (ids,))
+                           WHERE n.node_uuid = ANY(%s) AND c.is_active = TRUE   -- a removed cluster does not own its nodes
+                           ORDER BY c.registered_at LIMIT 1''', (ids,))
             r = cur.fetchone()
             return dict(r) if r else None
     finally:
