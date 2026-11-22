@@ -765,7 +765,7 @@ def post_whatif():
                 # latest forecast snapshots (30d horizon — for growth rates)
                 cur.execute(
                     '''
-                    SELECT resource_dimension, forecast_horizon_days,
+                    SELECT node_uuid, entity_label, resource_dimension, forecast_horizon_days,
                            current_usage, current_capacity, model_metadata
                     FROM recommendations.forecast_snapshots
                     WHERE cluster_id = %s AND expires_at > NOW()
@@ -779,7 +779,7 @@ def post_whatif():
                 # latest resource exhaustion rows
                 cur.execute(
                     '''
-                    SELECT resource_dimension, exhaustion_date,
+                    SELECT node_uuid, resource_dimension, exhaustion_date,
                            days_until_exhaustion, severity
                     FROM recommendations.resource_exhaustion
                     WHERE cluster_id = %s AND expires_at > NOW()
