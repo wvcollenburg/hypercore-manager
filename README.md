@@ -102,8 +102,29 @@ so clusters can be added, disabled or removed independently.
 - A Linux host or VM (Ubuntu 22.04+ tested) with **Docker Engine 24+** and **Docker Compose v2**.
   - Compose v2 is the `docker compose` (no hyphen) command. The legacy python `docker-compose` 1.29.x is **not supported** — it has known recreate bugs that break the in-app updater. On Debian/Ubuntu, install via `sudo apt install docker-compose-v2`.
 - HyperCore cluster management IP and a service account with read + migration permissions.
-- Outbound HTTPS (TCP 443) to every node of each cluster (or fully offline — see [Dark-Site Deployment](#dark-site--air-gapped-deployment)). Backups add proxies and a share; every port and direction is in [Connectivity](docs/manual/09-connectivity.md).
+- Outbound HTTPS (TCP 443) to every node of each cluster (or fully offline — see [Dark-Site Deployment](#dark-site--air-gapped-deployment)). Backups add proxies and a share; see [Network requirements](#network-requirements).
 - ~2 vCPU / 4 GB RAM minimum for the core stack; more for Foresight (see [Resource Requirements](#resource-requirements)).
+
+### Network requirements
+
+The HCM host calls out; clusters and proxies never connect to it. Only browsers connect in. Open each
+connection in the direction listed (a stateful firewall allows the replies).
+
+| From | To | Port | What for |
+|---|---|---|---|
+| Browsers | HCM host | TCP 443 (reverse proxy) or 5000 | Dashboard, VM console (websocket), manual; guests only `/guest/` |
+| HCM host | Every cluster node's LAN IP | TCP 443 | REST API and VM console (all nodes: the services fail over between them) |
+| HCM host | Backup proxies | TCP 8083 | Backup, restore and verify jobs; proxy image push (HTTPS, pinned certificate) |
+| HCM host | Backup share | TCP 445 | Test connection, folder directories, Import list, pruning (SMB) |
+| HCM host | Mail server | TCP 587 / 465 / 25 | Invitations, password resets, alerts |
+| HCM host | github.com, Docker Hub, PyPI, Debian mirrors, CDNs | TCP 443 | Only for install, update check and updates |
+| Backup proxy | Backup share | TCP 445 (SMB) or 2049 (NFS v4) | Writing and reading backups |
+| Backup proxy | Ubuntu archive or apt mirror | TCP 80 / 443 | Only on the first boot of a proxy deployed from the dashboard |
+| Cluster nodes | Backup share | TCP 445 | Restores, test restores, export mode, Import (HyperCore imports and exports over SMB only) |
+
+Block 8081, 8082 and 8086 from outside the host: the dashboard reaches those containers internally.
+DNS and NTP are needed as usual. The full table, the test-restore VLAN and typical layouts (MSP sites,
+a share on another site, a DR cluster, no internet) are in [Connectivity](docs/manual/09-connectivity.md).
 
 There are two supported installation paths. Both work equally well on a laptop with Docker Desktop for a trial run as on a dedicated Linux VM; Apple Silicon and other arm64 hosts are supported.
 
