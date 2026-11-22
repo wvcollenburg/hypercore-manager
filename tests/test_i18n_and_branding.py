@@ -97,7 +97,11 @@ def test_no_personal_contact_email(repo):
 def test_license_is_apache_2(repo):
     text = (repo / 'LICENSE').read_text()
     assert 'Apache License' in text and 'Version 2.0, January 2004' in text
-    assert 'Copyright 2026 Scale Computing' in text
+    assert 'Copyright 2026 William David van Collenburg' in text
+    for rel in ('LICENSE', 'NOTICE', 'README.md'):
+        assert 'Copyright 2026 William David van Collenburg' in (repo / rel).read_text(), rel
+        assert 'Copyright 2026 Scale Computing' not in (repo / rel).read_text(), rel
+        assert 'Copyright (c) 2026 Scale Computing' not in (repo / rel).read_text(), rel
     assert 'All rights reserved' not in text
     assert (repo / 'NOTICE').exists()
 
