@@ -72,7 +72,7 @@ class _FakeHC:
     def import_vm(self, uri, name=None, description=None, tags=None, definition_file=None):
         self.calls.append(('import', definition_file, name, tags))
         self.new_vm = {'uuid': 'new-vm', 'name': name, 'blockDevs': [{'uuid': 'new-nv', 'type': 'NVRAM'}, {'uuid': 'new-tpm', 'type': 'VTPM'}, {'uuid': 'new-cd', 'type': 'IDE_CDROM'}],
-                       'netDevs': [{'uuid': 'new-nic', 'macAddress': '02:00:5E:AA:AA:AA', 'connected': True}]}
+                       'netDevs': [{'uuid': 'new-nic', 'type': 'VIRTIO', 'macAddress': '02:00:5E:AA:AA:AA', 'connected': True}]}
         self.vms.append(self.new_vm); return 'task', 'new-vm'
     def get_vm(self, u): return self.new_vm
     def create_block_device(self, vm, cap, dev_type='VIRTIO_DISK', tiering=None):
@@ -171,6 +171,18 @@ def test_fast_restore_end_to_end(world):
     nic = [c for c in world.hc.calls if c[0] == 'patch_nic'][0]
     assert nic[2] == {'connected': False, 'vlan': 7, 'macAddress': '02:00:5E:4B:5C:5E'}, 'original MAC on request'
     assert ('action', 'new-vm', 'START') in world.hc.calls and r['created_uuid'] == 'new-vm' and 'MAC original' in r['message']
+
+
+def test_nic_type_and_disk_cache_mode_come_back_as_recorded(world):
+    """The template always renders a virtio NIC and the clone gets HyperCore's default cache mode: an E1000 guest
+    came back as VIRTIO, without network."""
+    world.db.point['definition'] = dict(DEF, blockDevs=[dict(b, cacheMode='WRITEBACK') if b['uuid'] == 'disk-1' else b for b in DEF['blockDevs']],
+                                        netDevs=[dict(DEF['netDevs'][0], type='INTEL_E1000')])
+    rs.run_restore(9)
+    assert world.db.restore['status'] == 'COMPLETE', world.db.restore
+    nic = [c for c in world.hc.calls if c[0] == 'patch_nic'][0]
+    assert nic[2]['type'] == 'INTEL_E1000'
+    assert ('patch_dev', world.hc.new_devs[0], {'tieringPriorityFactor': 8, 'cacheMode': 'WRITEBACK'}) in world.hc.calls
 
 
 def test_disks_come_back_on_their_original_bus(world):

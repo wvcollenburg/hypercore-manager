@@ -292,6 +292,8 @@ def _run(r: dict) -> None:
                 # the clone inherits the staging disk's tiering (0) whatever the template says: put the
                 # source's factor back, or the restored VM runs from an uncached disk
                 fields = {'tieringPriorityFactor': tiering}
+                if d.get('cacheMode'):
+                    fields['cacheMode'] = d['cacheMode']       # recorded in the point; the clone gets HyperCore's default
                 if d.get('name'):
                     fields['name'] = d['name']                 # an orchestrator's identity for the volume (CSI)
                 t = jobs.retry_transient(lambda: hc.patch_block_device(new_dev, **fields), 'disk settings')
@@ -314,6 +316,9 @@ def _run(r: dict) -> None:
     connected = bool(params.get('nic_connected', not source_exists))
     for new_nic, old_nic in zip(new_vm.get('netDevs', []), definition.get('netDevs', [])):
         fields = {'connected': connected}
+        if old_nic.get('type') and old_nic['type'] != new_nic.get('type'):
+            # the restore template always renders a virtio NIC: an E1000 or RTL8139 guest would come back without network
+            fields['type'] = old_nic['type']
         if params.get('vlan') is not None:
             fields['vlan'] = int(params['vlan'])         # a test restore on the network level: the isolated test VLAN
         elif old_nic.get('vlan') is not None:
