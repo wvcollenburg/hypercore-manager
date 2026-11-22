@@ -978,6 +978,9 @@ def verify_chain(chain: dict, share: dict, pc: ProxyClient, upto_seq: int | None
     if upto_seq is not None:
         body['upto_seq'] = int(upto_seq)
     res = pc.wait(pc.submit('verify', body), on_progress=on_progress, timeout=timeout)['result'] or {}
+    if res.get('healed'):
+        # a prune by a proxy before 0.6.3 left stale checksums in these points; 0.6.5 re-took them once
+        log.info('chain %s: checksums re-taken after a prune by an older proxy: %s', chain['id'], ', '.join(res['healed']))
     ok, failed = record_verify_result(chain['id'], res)
     res['ok'] = ok
     res['failed'] = failed

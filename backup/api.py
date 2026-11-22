@@ -1643,6 +1643,8 @@ def _verify_view(chain_id, entry):
     if entry.get('result') is not None:
         r = entry['result']
         out['ok'] = r.get('ok'); out['failed'] = r.get('failed') or {}; out['bytes'] = r.get('bytes'); out['duration_s'] = r.get('duration_s')
+        # points whose checksums a proxy from 0.6.5 on re-took once: written by a prune of an older proxy
+        out['healed'] = r.get('healed') or []
     return out
 
 

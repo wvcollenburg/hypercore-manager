@@ -202,3 +202,11 @@ def test_run_import_puts_the_folder_credentials_only_into_its_own_directory(monk
     for i in (1, 2, 3):
         jobs.run_import(i)
     assert seen == ['smb://svc:pw@nas/backups/Prod/dc01_x', 'smb://evil/share/dc01_x', 'smb://nas/backups/Prod/../Other/dc01_x']
+
+
+def test_the_verify_view_says_which_points_were_healed():
+    """Proxy 0.6.5 re-takes, once, the checksums a prune by an older proxy left stale, and reports the points
+    as `healed`; the view dropped the key, so nothing showed that the chain had been healed."""
+    entry = {'state': 'done', 'result': {'ok': True, 'failed': {}, 'bytes': 1, 'duration_s': 2, 'healed': ['base', 'delta-0005']}}
+    assert api._verify_view(15, entry)['healed'] == ['base', 'delta-0005']
+    assert api._verify_view(15, {'state': 'done', 'result': {'ok': True}})['healed'] == []
