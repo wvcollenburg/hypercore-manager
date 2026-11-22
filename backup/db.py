@@ -257,6 +257,19 @@ def folder_name(folder_id: str) -> Optional[str]:
     return r['name'] if r else None
 
 
+def folder_backup_dir(folder_id: str, new_dir: str) -> Optional[str]:
+    """The folder's directory on its target (migration 055). A folder without one gets new_dir, stored
+    once (COALESCE: a parallel first use keeps whichever was written first). None = no such folder."""
+    r = _one('SELECT backup_dir FROM config.folders WHERE folder_id = %s', (folder_id,))
+    if r is None:
+        return None
+    if r['backup_dir']:
+        return r['backup_dir']
+    r = _one('UPDATE config.folders SET backup_dir = COALESCE(backup_dir, %s) WHERE folder_id = %s RETURNING backup_dir',
+             (new_dir, folder_id))
+    return r['backup_dir'] if r else None
+
+
 def _policy_row(r):
     if r is None:
         return None

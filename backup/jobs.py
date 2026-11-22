@@ -69,11 +69,23 @@ def build_path_uri(base: str, user: str | None, password: str | None) -> str:
 
 
 def tenant_slug(cluster) -> str:
-    """Share subfolder for a cluster: its HyperCore Manager folder name made filesystem-safe
-    (spaces and other awkward characters become underscores). Clusters without a folder share
-    one `no_folder` subfolder."""
+    """Share subfolder for a cluster: the directory stored on its HyperCore Manager folder
+    (config.folders.backup_dir, migration 055). Folders that existed before 055 keep their old
+    name-derived directory; a newer folder gets `<name slug>-<first 8 of its id>` on first use,
+    because folder names are unique per parent only and two tenants' "Production" folders must not
+    share one directory. A rename never moves it. Clusters without a folder share one `no_folder`
+    subfolder."""
     name = getattr(cluster, 'folder_name', None) if cluster is not None else None
-    return safe_name(name) if name else 'no_folder'
+    legacy = safe_name(name) if name else 'no_folder'
+    folder_id = getattr(cluster, 'folder_id', None) if cluster is not None else None
+    if not folder_id:
+        return legacy
+    try:
+        stored = db.folder_backup_dir(str(folder_id), f'{legacy}-{str(folder_id)[:8]}')
+    except Exception as e:                  # noqa: BLE001 -- database before migration 055: the old directory
+        log.warning('backup directory of folder %s not readable, using its name: %s', folder_id, e)
+        return legacy
+    return stored or legacy
 
 
 def location_for_cluster(cluster_id: str) -> dict | None:
