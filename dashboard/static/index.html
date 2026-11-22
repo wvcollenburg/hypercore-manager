@@ -2057,8 +2057,8 @@ function renderVsdsForVm(vmUuid) {
         return `
           <div class="sub-item">
             <div class="sub-item-header">
-              <span class="sub-item-name">${v.name}</span>
-              <span style="font-family:var(--font-ui);font-size:11px;padding:2px 6px;border-radius:3px;background:var(--accent-tint);color:var(--accent-2);">${v.type}</span>
+              <span class="sub-item-name">${_clEsc(v.name)}</span>
+              <span style="font-family:var(--font-ui);font-size:11px;padding:2px 6px;border-radius:3px;background:var(--accent-tint);color:var(--accent-2);">${_clEsc(v.type)}</span>
             </div>
             <div class="sub-item-row">
               <span class="sub-item-label">${t('vsd.read')}</span>
@@ -2843,19 +2843,20 @@ function _veIsCycle(o) {
 }
 function _veOpText(o) {
   const {vm} = _ve.data;
-  const dv = u => { const d = (vm.blockDevs || []).find(x => x.uuid === u); return d ? _veDevLabel(d) : u; };
-  const nc = u => ((vm.netDevs || []).find(x => x.uuid === u) || {}).macAddress || u;
+  const dv = u => { const d = (vm.blockDevs || []).find(x => x.uuid === u); return _clEsc(d ? _veDevLabel(d) : u); };
+  const nc = u => _clEsc(((vm.netDevs || []).find(x => x.uuid === u) || {}).macAddress || u);
+  const kv = fields => Object.entries(fields).map(([k, v]) => `${_clEsc(k)} ${_clEsc(v)}`).join(', ');
   switch (o.op) {
     case 'vm': return Object.entries(o.fields).map(([k, v]) => k === 'mem' ? `${t('vmi.memory')} ${+(v / GIB).toFixed(2)} GB` : k === 'numVCPU' ? `${t('vmi.vcpus')} ${v}`
       : k === 'bootDevices' ? t('vmi.boot_order') : k === 'affinityStrategy' ? t('vmi.affinity') : k === 'snapshotScheduleUUID' ? t('vmi.schedule')
-      : k === 'operatingSystem' ? t('vmi.os') : `${k}: ${v}`).join(', ');
+      : k === 'operatingSystem' ? t('vmi.os') : `${_clEsc(k)}: ${_clEsc(v)}`).join(', ');
     case 'disk_resize': return `${t('ve.op_grow')} ${dv(o.device)} → ${+(o.capacity / GIB).toFixed(1)} GB`;
-    case 'disk_set': return `${dv(o.device)}: ${Object.entries(o.fields).map(([k, v]) => `${k} ${v}`).join(', ')}`;
-    case 'disk_add': return `${t('ve.add_disk')} ${o.type}${o.type !== 'IDE_CDROM' ? ' ' + +(o.capacity / GIB).toFixed(1) + ' GB' : ''}`;
-    case 'disk_remove': return `<b style="color:var(--accent-red)">${t('ve.op_remove_disk')} ${_clEsc(dv(o.device))}</b>`;
+    case 'disk_set': return `${dv(o.device)}: ${kv(o.fields)}`;
+    case 'disk_add': return `${t('ve.add_disk')} ${_clEsc(o.type)}${o.type !== 'IDE_CDROM' ? ' ' + +(o.capacity / GIB).toFixed(1) + ' GB' : ''}`;
+    case 'disk_remove': return `<b style="color:var(--accent-red)">${t('ve.op_remove_disk')} ${dv(o.device)}</b>`;
     case 'iso': return `${dv(o.device)}: ${o.iso_uuid ? _clEsc(o.iso_name) : t('ve.iso_none')}`;
-    case 'nic_set': return `NIC ${nc(o.device)}: ${Object.entries(o.fields).map(([k, v]) => `${k} ${v}`).join(', ')}`;
-    case 'nic_add': return `${t('ve.add_nic')} ${o.type} VLAN ${o.vlan}`;
+    case 'nic_set': return `NIC ${nc(o.device)}: ${kv(o.fields)}`;
+    case 'nic_add': return `${t('ve.add_nic')} ${_clEsc(o.type)} VLAN ${_clEsc(o.vlan)}`;
     case 'nic_remove': return `<b style="color:var(--accent-red)">${t('ve.op_remove_nic')} ${nc(o.device)}</b>`;
     case 'replication': return `${t('ve.replication')}: ${_clEsc(o.text || '')}`;
   }
@@ -3276,11 +3277,11 @@ async function loadMigrations() {
     </tr></thead><tbody>
     ${data.map(e=>`<tr>
       <td>${formatDateTime(e.time)}</td>
-      <td style="color:var(--text-primary)">${e.vm_name}${e.dry_run==='true'?' <span class="dry-run-tag">DRY</span>':''}</td>
-      <td>${e.source_ip} <span class="arrow">→</span> ${e.target_ip}</td>
-      <td><span class="engine-tag engine-${e.engine}">${e.engine}</span></td>
-      <td>${e.mode}</td>
-      <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e.reason}">${e.reason}</td>
+      <td style="color:var(--text-primary)">${_clEsc(e.vm_name)}${e.dry_run==='true'?' <span class="dry-run-tag">DRY</span>':''}</td>
+      <td>${_clEsc(e.source_ip)} <span class="arrow">→</span> ${_clEsc(e.target_ip)}</td>
+      <td><span class="engine-tag engine-${_clEsc(e.engine)}">${_clEsc(e.engine)}</span></td>
+      <td>${_clEsc(e.mode)}</td>
+      <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_clEsc(e.reason)}">${_clEsc(e.reason)}</td>
     </tr>`).join('')}
     </tbody></table>`;
 }
@@ -3305,7 +3306,7 @@ async function loadForecastRuns() {
       const peakIp = r.peak_node_ip||'';
       const peakColor = Number(r.peak_node_load_percent||0) > Number(r.threshold_used||0)
         ? 'var(--accent-amber)' : 'var(--text-secondary)';
-      const errTitle = r.error ? ` title="${String(r.error).replace(/"/g,'&quot;')}"` : '';
+      const errTitle = r.error ? ` title="${_clEsc(r.error)}"` : '';
       return `<tr${errTitle}>
         <td>${formatDateTime(r.time)}</td>
         <td><span class="engine-tag" style="background:${ok?'var(--ok-bg)':'var(--bad-bg)'};color:${ok?'var(--ok)':'var(--bad)'}">${ok?'OK':'ERROR'}</span></td>
@@ -3314,7 +3315,7 @@ async function loadForecastRuns() {
         <td>${r.vms_skipped_other||0}</td>
         <td>${r.nodes_flagged||0}</td>
         <td style="color:var(--text-primary)">${r.recommendations||0}</td>
-        <td style="color:${peakColor}">${peakLoad}%${peakIp?` <span style="color:var(--text-muted);">(${peakIp})</span>`:''}</td>
+        <td style="color:${peakColor}">${peakLoad}%${peakIp?` <span style="color:var(--text-muted);">(${_clEsc(peakIp)})</span>`:''}</td>
         <td>${thr}%</td>
         <td>${dur}s</td>
       </tr>`;
@@ -3339,12 +3340,12 @@ async function loadPredictions() {
       const leadStr = lead<60 ? `${lead.toFixed(0)}s` : lead<3600 ? `${(lead/60).toFixed(0)}m` : `${(lead/3600).toFixed(1)}h`;
       return `<tr>
         <td>${formatDateTime(p.time)}<div style="font-size:11px;color:var(--text-muted);">peak ${peakWhen}</div></td>
-        <td style="color:var(--text-primary)">${p.vm_name}</td>
-        <td>${p.source_ip} <span class="arrow">→</span> ${p.target_ip}</td>
+        <td style="color:var(--text-primary)">${_clEsc(p.vm_name)}</td>
+        <td>${_clEsc(p.source_ip)} <span class="arrow">→</span> ${_clEsc(p.target_ip)}</td>
         <td style="color:var(--accent-amber)">${Number(p.predicted_peak_load||0).toFixed(1)}%</td>
         <td>${Number(p.vm_predicted_cpu||0).toFixed(1)}%</td>
         <td>${leadStr}</td>
-        <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(p.reason||'').replace(/"/g,'&quot;')}">${p.reason||''}</td>
+        <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_clEsc(p.reason)}">${_clEsc(p.reason)}</td>
       </tr>`;
     }).join('')}
     </tbody></table>`;
@@ -3792,7 +3793,7 @@ function _renderControl(def, value, readOnly = false) {
   }
 
   if (def.type === 'text') {
-    const safeVal = (value || '').toString().replace(/"/g, '&quot;');
+    const safeVal = _clEsc(value || '');
     return `
       <div class="ctrl-strip ${def.wide ? 'ctrl-strip-wide' : ''}">
         ${labelRow}
@@ -4183,7 +4184,7 @@ async function loadSentinelForecasts() {
         <tr>
           <td>${dimLabel(f.resource_dimension)}</td>
           <td>${f.forecast_horizon_days}d</td>
-          <td style="color:var(--text-muted)">${f.entity_label || shortUuid(f.node_uuid) || '—'}</td>
+          <td style="color:var(--text-muted)">${_clEsc(f.entity_label || shortUuid(f.node_uuid) || '—')}</td>
           <td>${fmtMetricVal(f.current_usage, f.resource_dimension)}</td>
           <td>${fmtMetricVal(f.forecast_value, f.resource_dimension)}</td>
           <td>${f.confidence_score != null ? (f.confidence_score*100).toFixed(0)+'%' : '—'}</td>
@@ -4216,7 +4217,7 @@ async function loadSentinelRightsizing() {
     </tr></thead>
     <tbody>${rezData.map(a => `
       <tr>
-        <td class="vm-name">${a.vm_name || '—'}</td>
+        <td class="vm-name">${_clEsc(a.vm_name || '—')}</td>
         <td class="${a.sizing_direction === 'over_provisioned' ? 'direction-over' : 'direction-under'}">
           ${a.sizing_direction === 'over_provisioned' ? t('rs.reduce') : t('rs.increase')}
         </td>
@@ -4252,7 +4253,7 @@ async function loadSentinelExhaustion() {
         <td style="color:${severityColor(e.severity)};font-weight:600;">
           ${e.days_until_exhaustion != null ? e.days_until_exhaustion + 'd' : '—'}
         </td>
-        <td>${e.exhaustion_date || '—'}</td>
+        <td>${_clEsc(e.exhaustion_date || '—')}</td>
         <td style="color:var(--text-muted)">${e.growth_rate_per_day != null ? parseFloat(e.growth_rate_per_day).toFixed(3) : '—'}</td>
         <td>${sevBadge(e.severity)}</td>
       </tr>`).join('')}
@@ -4404,7 +4405,7 @@ async function _loadWhatifVmList() {
     _whatifVmData = await resp.json();
     const dl = document.getElementById('whatifVmList');
     if (!dl) return;
-    dl.innerHTML = _whatifVmData.map(v => `<option value="${v.vm_name}">`).join('');
+    dl.innerHTML = _whatifVmData.map(v => `<option value="${_clEsc(v.vm_name)}">`).join('');
   } catch (_) {}
 }
 
@@ -4508,13 +4509,13 @@ function _renderWhatIfResult(d) {
     <div style="background:var(--bg-nested);border:1px solid var(--border);border-radius:8px;padding:16px;">
       <div style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted);margin-bottom:8px;">${t('whatif.baseline')}</div>
       <div style="font-size:28px;font-weight:700;color:var(--text-primary);">${(bl.health_score||0).toFixed(1)}</div>
-      <div style="font-size:12px;margin-top:4px;">${_sevBadge(bl.severity)} &nbsp;·&nbsp; ${t('whatif.bottleneck')} <span style="color:var(--text-secondary)">${bl.bottleneck||t('whatif.none')}</span></div>
+      <div style="font-size:12px;margin-top:4px;">${_sevBadge(bl.severity)} &nbsp;·&nbsp; ${t('whatif.bottleneck')} <span style="color:var(--text-secondary)">${_clEsc(bl.bottleneck||t('whatif.none'))}</span></div>
       <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${bl.node_count ?? '?'} ${t('whatif.nodes_label')} · ${bl.vm_count ?? '?'} ${t('whatif.vms_label')}</div>
     </div>
     <div style="background:var(--bg-nested);border:1px solid var(--accent-purple);border-radius:8px;padding:16px;">
-      <div style="font-family:var(--font-ui);font-size:12px;color:var(--accent-purple);margin-bottom:8px;">${t('whatif.simulated')} (+${d.count} ${d.scenario === 'add_nodes' ? t('whatif.nodes') : (d.scenario === 'add_vms_like' && sm.source_vm ? t('whatif.vms_like') + ' ' + sm.source_vm : t('whatif.vms'))})</div>
+      <div style="font-family:var(--font-ui);font-size:12px;color:var(--accent-purple);margin-bottom:8px;">${t('whatif.simulated')} (+${d.count} ${d.scenario === 'add_nodes' ? t('whatif.nodes') : (d.scenario === 'add_vms_like' && sm.source_vm ? t('whatif.vms_like') + ' ' + _clEsc(sm.source_vm) : t('whatif.vms'))})</div>
       <div style="font-size:28px;font-weight:700;color:var(--text-primary);">${(sm.health_score||0).toFixed(1)} <span style="font-size:14px;">${scoreDelta}</span></div>
-      <div style="font-size:12px;margin-top:4px;">${_sevBadge(sm.severity)} &nbsp;·&nbsp; ${t('whatif.bottleneck')} <span style="color:var(--text-secondary)">${sm.bottleneck||t('whatif.none')}</span>${dt.bottleneck_changed ? ` <span style="color:var(--accent-amber)">${t('whatif.bottleneck_changed')}</span>` : ''}</div>
+      <div style="font-size:12px;margin-top:4px;">${_sevBadge(sm.severity)} &nbsp;·&nbsp; ${t('whatif.bottleneck')} <span style="color:var(--text-secondary)">${_clEsc(sm.bottleneck||t('whatif.none'))}</span>${dt.bottleneck_changed ? ` <span style="color:var(--accent-amber)">${t('whatif.bottleneck_changed')}</span>` : ''}</div>
       <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${sm.node_count != null ? sm.node_count+' '+t('whatif.nodes_label') : ''} ${sm.vm_count != null ? '· '+sm.vm_count+' '+t('whatif.vms_label') : ''}</div>
     </div>`;
 
@@ -5543,7 +5544,7 @@ async function loadSentinelSettings() {
         </div>`;
     }).join('');
   } catch(e) {
-    el.innerHTML = `<div class="empty-state">${t('empty.settings_load_failed', {msg: e.message})}</div>`;
+    el.innerHTML = `<div class="empty-state">${t('empty.settings_load_failed', {msg: _clEsc(e.message)})}</div>`;
   }
 }
 
@@ -5948,7 +5949,7 @@ function _clusterFormHtml(prefix, c) {
         <option value="v2" ${c.api_version === 'v2' ? 'selected' : ''}>${t('clusters.api_v2')}</option></select>
         <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">${t('clusters.api_hint')}</div></div>
       <div><label>${t('clusters.timezone')}</label><input type="text" id="${prefix}-timezone" value="${c.timezone_override ? _clEsc(c.timezone || '') : ''}" placeholder="${_clEsc(c.timezone || t('clusters.timezone_unknown'))}" list="tz-list" autocomplete="off">
-        <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">${c.timezone && !c.timezone_override ? t('clusters.timezone_detected', {tz: c.timezone}) : t('clusters.timezone_hint')}</div></div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">${c.timezone && !c.timezone_override ? t('clusters.timezone_detected', {tz: _clEsc(c.timezone)}) : t('clusters.timezone_hint')}</div></div>
       <div><label>${t('folders.folder')}</label><select id="${prefix}-folder" style="width:100%;padding:7px 9px;border-radius:6px;font-size:12px;background:var(--bg-input, var(--bg-primary));border:1px solid var(--border);color:var(--text-primary);">
         <option value="">${t('folders.unfiled')}</option>
         ${FOLDERS.map(f => `<option value="${f.folder_id}" ${c.folder_id === f.folder_id ? 'selected' : ''}>${_clEsc(f.name)}</option>`).join('')}
@@ -6932,7 +6933,7 @@ async function exLoadVms() {
         <td style="white-space:nowrap;">${vm.schedule && vm.schedule.policy_id
           ? `<span class="ex-badge run">${t('ex.pol_member_of', {name: _exEsc(vm.schedule.policy_name || '')})}</span>`
           : vm.schedule
-          ? `<span class="ex-badge run" title="${_exEsc(vm.schedule.timezone || '')}">${t('ex.daily_at', {time: vm.schedule.run_time + (vm.schedule.timezone && vm.schedule.timezone !== _exViewerZone() ? ' ' + vm.schedule.timezone : '')})}</span>`
+          ? `<span class="ex-badge run" title="${_exEsc(vm.schedule.timezone || '')}">${_exEsc(t('ex.daily_at', {time: vm.schedule.run_time + (vm.schedule.timezone && vm.schedule.timezone !== _exViewerZone() ? ' ' + vm.schedule.timezone : '')}))}</span>`
           : (admin ? `<button class="um-action-btn" onclick="exToggleForm(${i})">${t('ex.schedule_export')}</button>` : `<span style="color:var(--text-muted);font-size:12px;">—</span>`)}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;

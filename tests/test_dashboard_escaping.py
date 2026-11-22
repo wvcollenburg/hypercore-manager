@@ -74,3 +74,27 @@ def test_the_scanner_sees_the_old_sinks():
     found = [e for _, v in _inline_handlers(old) for e in _interpolations(v)]
     assert found == ['encodeURIComponent(gk)', '_exEsc(full)']
     assert not any(_ID.match(e) or _CHOICE.match(e) or e in _CODE for e in found)
+
+
+# fields that carry text from HyperCore, the balancer or Foresight: VM names, IPs, reasons, labels
+_SERVER_TEXT = re.compile(r"\$\{\s*[a-z]+\.(?:vm_name|reason|source_ip|target_ip|entity_label|source_vm|bottleneck|engine|mode)"
+                          r"\s*(?:\|\|[^}]*)?\}")
+
+
+def test_server_text_is_escaped_in_html_templates(repo):
+    """The migration log, forecast runs, predictions, right-sizing and What-If put VM names, IPs and reasons
+    into innerHTML as they came (a VM named <img src=x onerror=...> ran in every admin's browser)."""
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text(encoding='utf-8')
+    raw = [f'line {src.count(chr(10), 0, m.start()) + 1}: {m.group(0)}' for m in _SERVER_TEXT.finditer(src)]
+    assert not raw, 'wrap these in _clEsc():\n' + '\n'.join(raw)
+    for sink in ("value=\"${v.vm_name}\"", "' ' + sm.source_vm", '{tz: c.timezone}', '{msg: e.message})}',
+                 '<span class="sub-item-name">${v.name}</span>', "'operatingSystem' ? t('vmi.os') : `${k}: ${v}`"):
+        assert sink not in src, f'unescaped: {sink}'
+
+
+@pytest.mark.parametrize('rel', FILES)
+def test_no_quote_only_escaping(repo, rel):
+    """Replacing only " leaves < and & live: a title or value built that way is still HTML."""
+    src = (repo / rel).read_text(encoding='utf-8')
+    hits = [l for l in src.splitlines() if ".replace(/\"/g" in l and "&amp;" not in l]
+    assert not hits, 'use _clEsc():\n' + '\n'.join(h.strip()[:120] for h in hits)
