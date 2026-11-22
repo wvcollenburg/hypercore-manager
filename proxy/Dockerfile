@@ -9,8 +9,9 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt constraints.txt ./
+# constraints.txt: every transitive package at the version this release was tested with
+RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 COPY . .
 
 # runs as root on purpose: hot-added block devices, nbd and mounts need it (container is privileged)

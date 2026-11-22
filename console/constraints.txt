@@ -1,0 +1,25 @@
+# Every package of the working console image, transitive ones included (pip freeze, 2026-11-22, release 1.8.1).
+# requirements.txt says what the service needs; this file keeps a rebuild months from now on the
+# versions it was tested with (the Dockerfile installs with -c). Regenerate after changing requirements:
+#   docker run --rm --entrypoint pip <image> freeze
+aiohappyeyeballs==2.7.1
+aiohttp==3.12.15
+aiosignal==1.4.0
+attrs==26.1.0
+certifi==2026.10.23
+cffi==2.1.1
+charset-normalizer==3.5.2
+cryptography==42.0.8
+frozenlist==1.8.0
+idna==3.20
+multidict==6.9.1
+pillow==13.0.0
+propcache==0.5.4
+psycopg2-binary==2.9.13
+pycparser==3.12
+python-json-logger==4.1.0
+requests==2.34.2
+typing_extensions==4.16.0
+tzdata==2025.2
+urllib3==2.8.0
+yarl==1.25.1
