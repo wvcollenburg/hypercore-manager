@@ -5643,6 +5643,9 @@ async function loadClusters() {
   _renderClusterRail(enabled);
   _renderOnboarding(enabled.length === 0, d.secret_key_configured !== false);
   _updateBreadcrumbs();
+  // the Backup tab depends on the selected cluster: the first probe (0.8 s after load) can run before
+  // there is one, which hid the tab for two minutes from anyone without backup rights on the whole installation
+  if (typeof _exProbe === 'function') _exProbe();
   if (!window._alertsPrimed && enabled.length) { window._alertsPrimed = true; loadClusterAlerts(); }
   return d;
 }
@@ -5957,6 +5960,7 @@ function _reloadClusterScopedViews() {
   }
   if (document.getElementById('tab-clusterbalancer')?.classList.contains('active') && typeof loadBalancerSettings === 'function') loadBalancerSettings();
   if (document.getElementById('tab-exports')?.classList.contains('active') && typeof loadExports === 'function') loadExports();
+  else if (typeof _exProbe === 'function') _exProbe();          // the Backup tab shows per cluster
 }
 
 function _clusterFormHtml(prefix, c) {
