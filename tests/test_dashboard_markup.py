@@ -32,3 +32,14 @@ def test_tab_containers_are_not_nested():
     assert len(p.tabs) >= 6, p.tabs
     nested = {tab: above for tab, above in p.tabs.items() if above}
     assert not nested, f'tab containers nested inside another tab: {nested}'
+
+
+def test_staged_settings_do_not_outlive_their_form(repo):
+    """An unapplied 'Dry run off' on cluster A was posted to cluster B by the next Apply of that group there:
+    the staged edits were only cleared after a successful Apply. Every settings loader drops them."""
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
+    for loader, marker in (('async function loadSettings()', '_dropStaged(groups);'),
+                           ('async function loadBalancerSettings()', '_dropStaged(groups);'),
+                           ('async function loadSentinelSettings()', 'delete _sStagedSent[k]')):
+        body = src[src.index(loader):][:1600]
+        assert marker in body, f'{loader} must drop the edits staged on the previous form'

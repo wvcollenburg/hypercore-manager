@@ -3642,6 +3642,14 @@ function _markDirty(groupId) {
   if (btn)   btn.classList.add('dirty');
 }
 
+// A settings form that is rendered again shows the server's values for whatever is selected now. Edits
+// staged on the previous form (another cluster, or the defaults) are dropped with it: left in place they
+// were sent with the next Apply of that group, to a cluster whose form never showed them (an unapplied
+// "Dry run off" on cluster A went live on cluster B).
+function _dropStaged(groups) {
+  groups.forEach(g => { delete _staged[g.id]; });
+}
+
 function _clearDirty(groupId) {
   const badge = document.getElementById(`dirty-${groupId}`);
   const btn   = document.getElementById(`apply-${groupId}`);
@@ -4590,6 +4598,7 @@ async function loadSettings() {
   const vals = {};
   data.forEach(item => { vals[item.key] = item.value; });
   const groups = CTRL_GROUPS.filter(g => g.tab === 'general');
+  _dropStaged(groups);
   _accSet(me);
   const isAdmin = can('cluster.settings', currentCluster) || (_settingsTarget === 'defaults' && can('install.manage'));
 
@@ -5499,6 +5508,7 @@ async function loadSentinelSettings() {
   const el = document.getElementById('sentSettingsContent');
   try {
     const data = await apiFetch('/api/sentinel/tunables');
+    Object.keys(_sStagedSent).forEach(k => { delete _sStagedSent[k]; });   // as _dropStaged: the form is rendered anew
     if (!data) { el.innerHTML = `<div class="empty-state">${t('empty.sentinel_settings_unavail')}</div>`; return; }
 
     // index by key
@@ -5544,6 +5554,7 @@ async function loadBalancerSettings() {
   const vals = {};
   data.forEach(item => { vals[item.key] = item.value; });
   const groups = CTRL_GROUPS.filter(g => g.tab === 'balancer');
+  _dropStaged(groups);
   const isAdmin = can('cluster.settings', currentCluster) || (_settingsTarget === 'defaults' && can('install.manage'));
   document.getElementById('balancerSettingsContent').innerHTML = _settingsTargetBar(isAdmin) + _renderGroups(groups, vals, isAdmin);
 }
