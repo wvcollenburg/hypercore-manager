@@ -232,7 +232,7 @@ def pruning_loop(cfg: config.Config, stop: threading.Event, reader) -> None:
     """
     from writer import Writer
     writer  = Writer(cfg)
-    interval = cfg.vm_prune_interval_seconds
+    interval = max(tunables.MIN_PRUNE_INTERVAL_SECONDS, cfg.vm_prune_interval_seconds)
 
     while not stop.is_set():
         stop.wait(interval)
@@ -240,7 +240,7 @@ def pruning_loop(cfg: config.Config, stop: threading.Event, reader) -> None:
             break
 
         live_cfg = tunables.apply_live(cfg)
-        interval = live_cfg.vm_prune_interval_seconds
+        interval = max(tunables.MIN_PRUNE_INTERVAL_SECONDS, live_cfg.vm_prune_interval_seconds)
         window_minutes = max(interval * 2 // 60, 10)
 
         try:

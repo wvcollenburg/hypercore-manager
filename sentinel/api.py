@@ -874,6 +874,8 @@ def put_tunables():
                 raise ValueError('Must be >= 1')
             if key == 'SENTINEL_OUTCOME_CHECK_DELAY_HOURS' and val < 0:
                 raise ValueError('Must be >= 0')
+            if key == 'SENTINEL_VM_PRUNE_INTERVAL_SECONDS' and val < _tunables.MIN_PRUNE_INTERVAL_SECONDS:
+                raise ValueError(f'Must be >= {_tunables.MIN_PRUNE_INTERVAL_SECONDS}')   # 0 made the pruning loop spin
             validated[key] = val
         except (ValueError, TypeError) as e:
             errors[key] = str(e)

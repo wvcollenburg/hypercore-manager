@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 
 TEMPLATE_CLUSTER_ID = '00000000-0000-0000-0000-000000000001'
+MIN_PRUNE_INTERVAL_SECONDS = 60     # SENTINEL_VM_PRUNE_INTERVAL_SECONDS of 0 made the pruning loop spin
 # the cluster whose tunables this process reads and writes; sentinel.py sets it once the
 # registry has yielded a cluster. Until then the Defaults template is used.
 DEFAULT_CLUSTER_ID = TEMPLATE_CLUSTER_ID

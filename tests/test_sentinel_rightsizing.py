@@ -73,6 +73,16 @@ def test_latency_alone_does_not_make_a_vm_under_provisioned():
     assert all(a.recommended_vcpu >= 4 for a in advice if a.sizing_direction == 'under_provisioned')
 
 
+@pytest.mark.parametrize('cfg', [{'cpu_under_provisioned_p95_threshold': 100.0},
+                                 {'cpu_under_provisioned_avg_threshold': 100.0},
+                                 {'cpu_over_provisioned_threshold': 0.0}])
+def test_thresholds_at_the_ends_of_their_range_do_not_stop_the_analysis(cfg):
+    """An under-provisioned threshold of 100 % (the settings allow 0..100) divided by zero and the whole
+    analysis cycle stopped writing anything, every hour."""
+    for values in ([100.0] * 100, [50.0] * 100, [1.0] * 100):
+        _run(_vm(values), **cfg)
+
+
 def test_under_provisioned_advice_follows_the_configured_p95_threshold():
     vm = _vm([70.0] * 90 + [85.0] * 10, vcpu=4)          # p95 85 %: under-provisioned only at a lower threshold
     rs, advice = _run(vm, cpu_under_provisioned_p95_threshold=80.0)
