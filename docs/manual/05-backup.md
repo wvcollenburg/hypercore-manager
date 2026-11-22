@@ -2,8 +2,9 @@
 
 The Backup tab protects the VMs of the selected cluster: plans say what to back up and when,
 restore points are what a plan produced, and from a restore point you bring back a whole VM or
-single files. Administrators define where backups go (targets) and the proxy that does the
-work; users work with plans and restore points without seeing a path or a credential.
+single files. Whoever manages the installation defines where backups go (targets) and the proxy
+that does the work; everyone else works with schedules, plans and restore points without seeing a
+path or a credential.
 
 Two modes exist. **Incremental** backups go through a backup proxy on the cluster: HyperCore's
 changed-block tracking tells the proxy which blocks changed since the last run, only those are
@@ -16,7 +17,8 @@ registered proxy defaults to incremental.
 
 ![Schedules](img/backup-policies.png)
 
-A schedule backs up many VMs on one timetable: create the schedule first, then add VMs to it.
+A schedule backs up many VMs on one timetable: create the schedule first (**New schedule** opens the
+schedule dialog; **Edit** on a schedule opens the same dialog), then add VMs to it with **VMs (n)**.
 Schedules belong to the folder of the selected cluster and can hold VMs of every cluster in that
 folder; select another cluster of the folder in the sidebar to add its VMs. **Backup schedules**
 run incremental backups and **export schedules** run exports; a schedule never mixes the two.
@@ -57,7 +59,7 @@ counts when the schedule runs that day (the preview marks those windows *full*).
 
 When a window opens, the members start one after the other: at most one backup per proxy of a
 cluster at a time (one export per cluster). A VM is taken only once per occurrence. **Preview** in
-the form lists the next windows.
+the dialog lists the next windows before you save.
 
 **Run now** backs up every VM of the schedule once, straight away, regardless of its window and its
 blackouts, and also when the schedule is paused. It still runs one backup per proxy at a time, so a
@@ -102,7 +104,8 @@ its synthetic full.
 
 ### Verification
 
-Below the backup schedules, **Verification** says how the folder's restore points are checked. A proxy
+Below the backup schedules, **Verification** says how the folder's restore points are checked (**Edit**
+opens its settings in a dialog). A proxy
 re-reads every file of a point and compares it with the checksums written when the point was made: that
 proves the backup is still what was written, without restoring anything. Every restore point (also of
 retired chains, which can still be restored) is checked once per interval, one point at a time:
@@ -134,7 +137,8 @@ Verification proves the backup's bytes are what was written; a **test restore** 
 It restores the VM's newest point as a temporary VM (`<vm>-hcmtest-<n>`, tagged `hcm-testrestore`, new MAC
 addresses), starts it, waits for a sign of life, keeps a screenshot of its console, and deletes it again.
 
-A **test plan** (Backup → Schedules → **Test restores**) belongs to the folder:
+A **test plan** (Backup → Schedules → **Test restores**; **New test plan** and **Edit** open a dialog, and
+VMs are added to a plan on its card as **always test** or **never test**) belongs to the folder:
 
 - **A round every** N days: the plan's fixed VMs (**always test**) plus **Random VMs per round** picked from the
   folder's backed-up VMs, longest untested first. A tested VM rests a number of weeks before it can be picked
@@ -158,12 +162,14 @@ A **test plan** (Backup → Schedules → **Test restores**) belongs to the fold
   probing until the VM answers or the time is up. Restored
   VMs keep their addresses and names, so HCM refuses a VLAN that any other VM on the target cluster uses; whether
   the VLAN is routed elsewhere it cannot see, so keep it isolated on the switches too. The proxy needs to be
-  deployed with 1.7.0 or later (it runs with host networking) and with a **Test VLAN** NIC (Settings → Backup →
-  Deploy a proxy VM); the plan card warns when no proxy can run the checks.
+  deployed with 1.7.0 or later (it runs with host networking) and with a **Test VLAN** NIC (Settings → Targets →
+  **+ Deploy a proxy VM**); the plan card warns when no proxy can run the checks.
 - Options, off by default: **Keep a failed test VM for inspection** (hours), and a **Byte budget per round** (a
   test writes the whole VM: tests that would pass the budget are skipped in that round).
 
-**Run now** queues a round at once (it still waits for a moment the target may take it). Results appear under
+**Run now** queues a round at once (it still waits for a moment the target may take it). While a test runs, its
+row under **Runs → Test restores** shows the step it is in: restoring (with the restore's own bar), booting (the
+time waited against the timeout), the network checks, removing the test VM. Results appear under
 **Runs → Test restores** (how it passed or failed, the target, the age of the point used, restore and boot time,
 network checks, the screenshot) and as a **Tested** column on the restore points. A failed test is a red badge on
 the cluster card and a mail to the closest administrator; a fixed VM without a passed test for twice the plan's
@@ -187,8 +193,9 @@ schedule without deleting anything, History opens the plan's runs.
 
 Every VM of the cluster with its plan, if any, and the **Changed** column: how many blocks
 changed between the VM's two newest snapshots, which is what the next incremental would copy.
-Schedule a VM from here: pick the mode, the daily time, retention in points and optionally in
-days, and how many runs between fulls. The form says which time zone the time is in.
+**Add backup plan** on a VM opens a dialog: pick the mode, the daily time, retention in points and
+optionally in days, and how many runs between fulls. The dialog says which time zone the time is in.
+For more than a few VMs a schedule is usually the better fit.
 
 ## Restore points
 
@@ -208,18 +215,21 @@ them were verified; the planned verification (see *Verification* under Schedules
 
 ![Restore form](img/backup-restore-form.png)
 
-Press **Restore** on a point. The form asks for the name of the new VM, whether to keep the
-original MAC addresses (by default the copy gets new ones; HyperCore refuses to start a VM whose
-MAC is in use by a running one), whether to connect its network interfaces, whether to start it,
-and whether to verify the chain first. Leave the verification on: it re-hashes every file the
+Press **Restore** on a point. A dialog opens over the restore points and asks for the name of the
+new VM, the cluster to restore onto (**Restore onto**, when the folder has more clusters: the VM's own cluster by
+default, or another cluster of the folder with a backup proxy, such as a DR cluster), whether to
+keep the original MAC addresses (by default the copy gets new ones; HyperCore refuses to start a VM
+whose MAC is in use by a running one), whether to connect its network interfaces, whether to start
+it, and whether to verify the chain first. Leave the verification on: it re-hashes every file the
 restore depends on before anything is created, and stops with the failing files named if they do
-not match; the form shows when the point was last verified so you can judge whether to skip it
-when time matters.
+not match; the dialog shows when the point was last verified so you can judge whether to skip it
+when time matters. Once the restore has started the dialog and the restore points window close and
+the Runs panel opens.
 
 The restore creates a new VM; the original is never touched. The vTPM and firmware state travel
 with the backup, so keys sealed in the TPM unseal on the copy. Disks come back on their original
-bus and tiering. The entry under Runs follows the progress: verifying, importing the definition,
-writing the disks, attaching them.
+bus and tiering. The entry under Runs follows the progress with a bar: verifying the chain (purple),
+preparing and importing the definition, writing the disks (green, in GiB), attaching them.
 
 ### Recovering single files
 
@@ -265,7 +275,13 @@ runs on the cluster and is followed under Runs.
 
 The history of runs, test restores, restores, imports and verifications for the cluster with their state and detail:
 what kind of point a run produced, how much it copied, why a run was skipped or deferred, which proxy
-verified a point, how much it read and how long it took. A run is
+verified a point, how much it read and how long it took.
+
+Running work shows a progress bar instead of only *Running*. A backup is **green** while it copies (GiB done
+of the total, and *device n of m*: disks, NVRAM and vTPM each count as a device), then **purple** while the proxy
+checks the copied image and reads it back for its checksum, which takes minutes on a large disk. A sliding bar
+means a step without a measurable size. The panel refreshes every 5 seconds while something runs and every
+20 seconds otherwise, so work started by a schedule or someone else appears on its own. A run is
 **deferred** when the cluster is updating itself or a node is missing; HyperCore cannot snapshot
 then, and the next scheduled run tries again. A banner at the top of the tab says so while it
 lasts.

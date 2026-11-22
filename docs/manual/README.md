@@ -12,13 +12,19 @@ users, backup targets and proxies) are in [administration.md](../administration.
 | [Infraviewer](02-infraviewer.md) | nodes, drives, VMs and storage performance; the cluster activity panel |
 | [Clusterbalancer](03-clusterbalancer.md) | the migration log, the balancer's settings, the Oracle's forecast log, placement tags |
 | [Foresight](04-foresight.md) | capacity forecasts, right-sizing, exhaustion alerts, reports, what-if |
-| [Backup](05-backup.md) | plans, restore points, restoring a VM, recovering files, imports, runs |
-| [Settings](06-settings.md) | clusters, tunables, users, the open console session check and console log, targets and proxies (overview; details in the administration guide) |
+| [Backup](05-backup.md) | schedules, verification, test restores, plans, restore points, restoring a VM, recovering files, imports, runs |
+| [Settings](06-settings.md) | clusters (in the tenant tree), tunables, access (users, groups, roles, tenants, guest console, audit), the open console session check and console log, mail, targets and proxies (overview; details in the administration guide) |
 | [Modules and Account](07-modules-and-account.md) | the data-module view and your own account |
 
-**Two roles.** Administrators see every cluster and manage the installation. Users see the
-clusters in the folders they are members of and operate them: settings, backup plans, restores.
-Where a chapter says "administrators only", a user does not see that panel or button.
+**Roles decide what you see.** Access is given per role and per place: the whole installation, an
+MSP, a customer, a folder, a cluster, the VMs with a tag, or one VM (Settings → Access). You see the
+clusters and VMs your roles reach, and only the panels and buttons your roles allow. Where a chapter
+says "administrators only", it means someone holding that permission there; the built-in **Admin**
+role holds all of them.
+
+**A page shows state, a dialog changes it.** Adding or editing something (a target, a proxy, a
+schedule, a test plan, a restore) opens a dialog over the page; Escape, ✕ or **Cancel** closes it
+without saving.
 
 **Everything is per cluster.** The cluster selected in the rail on the left drives every tab.
 The breadcrumb in the header tells you which folder, cluster and tab you are looking at.
