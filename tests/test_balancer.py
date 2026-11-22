@@ -327,3 +327,34 @@ def test_a_healthy_thread_is_left_alone_and_a_removed_cluster_stopped():
     assert threads['c1'][0] is t
     hb.reconcile(threads, {}, set(), backoff, lambda cl, ev: pytest.fail('restarted'), 120.0)
     assert threads == {} and ev.is_set() and backoff == {}
+
+
+# ── a migration task the cluster never reports on ──
+
+def test_a_task_without_status_is_given_up_after_repeated_unknowns():
+    """get_task_status answers UNKNOWN on any error and UNINITIALIZED for a tag the cluster does not know;
+    such a task blocked the cluster's balancer forever."""
+    client = _Client([node('n1', '10.0.0.241', 10.0, 8)], [])
+    lb = _balancer(client)
+    lb.active_task = {'tag': 't9', 'vm': 'a', 'started': time.time()}
+    client.task_states = ['UNKNOWN'] * (hb.TASK_MAX_UNKNOWN - 1)
+    for _ in range(hb.TASK_MAX_UNKNOWN - 1):
+        assert lb._cycle() == 10
+    assert lb.active_task is not None, 'a few unknowns are tolerated'
+    client.task_states = ['RUNNING', 'UNINITIALIZED']
+    lb._cycle()
+    assert lb.active_task['unknown'] == 0, 'a real answer resets the count'
+    client.task_states = ['UNINITIALIZED'] * hb.TASK_MAX_UNKNOWN
+    for _ in range(hb.TASK_MAX_UNKNOWN):
+        lb._cycle()
+    assert lb.active_task is None
+    assert lb.last_migration_time > 0, 'the cooldown starts, then placement is read afresh'
+
+
+def test_a_task_running_past_the_deadline_is_given_up():
+    client = _Client([node('n1', '10.0.0.241', 10.0, 8)], [])
+    lb = _balancer(client)
+    lb.active_task = {'tag': 't9', 'vm': 'a', 'started': time.time() - hb.TASK_DEADLINE_SECONDS - 1}
+    client.task_states = ['RUNNING']
+    lb._cycle()
+    assert lb.active_task is None

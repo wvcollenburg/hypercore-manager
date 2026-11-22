@@ -51,6 +51,9 @@ REGISTRY_POLL_SECONDS = 60
 # every half hour: each restart is a new login, and HyperCore limits logins per hour
 RESTART_BACKOFF_MAX_SECONDS = 1800
 HEALTHY_RUN_SECONDS = 900           # a thread that ran this long before dying starts the backoff afresh
+# a migration task the cluster no longer reports on must not hold the balancer forever
+TASK_DEADLINE_SECONDS = 1800
+TASK_MAX_UNKNOWN = 30               # consecutive UNKNOWN/UNINITIALIZED answers (~5 min at 10 s)
 
 # influxdb target for migration events — configurables
 INFLUX_URL = get_config('INFLUX_URL', "http://influxdb:8086")
@@ -549,9 +552,21 @@ class LoadBalancer:
             self._last_config_check = now_ts
 
         if self.active_task:
-            status = self.client.get_task_status(self.active_task['tag'])
+            task = self.active_task
+            status = self.client.get_task_status(task['tag'])
             if status in ["COMPLETE", "ERROR"]:
-                self.log(0, f"Migration {status} for {self.active_task['vm']}")
+                self.log(0, f"Migration {status} for {task['vm']}")
+                self.active_task = None
+                self.last_migration_time = time.time()
+                return 10
+            # UNKNOWN: the status could not be read; UNINITIALIZED: the cluster does not know the tag
+            task['unknown'] = task.get('unknown', 0) + 1 if status in ("UNKNOWN", "UNINITIALIZED") else 0
+            age = time.time() - task.setdefault('started', time.time())
+            if age > TASK_DEADLINE_SECONDS or task['unknown'] >= TASK_MAX_UNKNOWN:
+                why = (f"no status for {task['unknown']} checks" if task['unknown'] >= TASK_MAX_UNKNOWN
+                       else f"still {status} after {int(age // 60)} min")
+                self.log(0, f"[TASK] Giving up on migration task {task['tag']} for {task['vm']} ({why}); "
+                            f"re-reading placement.")
                 self.active_task = None
                 self.last_migration_time = time.time()
             return 10
@@ -580,7 +595,7 @@ class LoadBalancer:
                 self.log(0, f"[AFFINITY ACTION] {info}")
                 try:
                     task = self.client.migrate(aff_vm['uuid'], aff_tgt['uuid'])
-                    self.active_task = {"tag": task['taskTag'], "vm": aff_vm['name']}
+                    self.active_task = {"tag": task['taskTag'], "vm": aff_vm['name'], "started": time.time()}
                     self.vm_cooldowns[aff_vm['uuid']] = time.time()
                     self.last_migration_time = time.time()
                 except Exception as e:
@@ -674,7 +689,7 @@ class LoadBalancer:
                     self.log(0, f"[PREDICTIVE ACTION] Migrating {info}")
                     try:
                         task = self.client.migrate(rec.vm_uuid, rec.target_node)
-                        self.active_task = {"tag": task['taskTag'], "vm": rec.vm_name}
+                        self.active_task = {"tag": task['taskTag'], "vm": rec.vm_name, "started": time.time()}
                         self.vm_cooldowns[rec.vm_uuid] = time.time()
                         self.last_migration_time = time.time()
                     except Exception as e:
@@ -743,7 +758,7 @@ class LoadBalancer:
                 self.log(0, f"[REACTIVE ACTION] Migrating {info}")
                 try:
                     task = self.client.migrate(vm['uuid'], tgt['uuid'])
-                    self.active_task = {"tag": task['taskTag'], "vm": vm['name']}
+                    self.active_task = {"tag": task['taskTag'], "vm": vm['name'], "started": time.time()}
                     self.vm_cooldowns[vm['uuid']] = time.time()
                 except Exception as e:
                     self.log(0, f"[REACTIVE ERROR] Migration request rejected for {vm['name']}: {e}")
