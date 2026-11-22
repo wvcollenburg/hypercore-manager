@@ -333,6 +333,32 @@ def test_iso_name_and_hypercore_iso_calls():
     client.ready_iso('iso-1'); assert calls[-1] == ('PATCH', '/ISO/iso-1', {'readyForInsert': True})
 
 
+def test_file_downloads_check_the_pinned_proxy_certificate(monkeypatch):
+    """flr.stream talked to the proxy with verify=False and never checked the pin: anything answering at the
+    proxy's address received the bearer token and could serve any file."""
+    sys.path.insert(0, _BACKUP)
+    try:
+        saved = {n: sys.modules.pop(n) for n in _CLASH if n in sys.modules}
+        flr = importlib.import_module('flr')
+        pcm = importlib.import_module('proxy_client')
+    finally:
+        sys.path.remove(_BACKUP)
+        for n in _CLASH:
+            sys.modules.pop(n, None)
+        sys.modules.update(saved)
+    pc = pcm.ProxyClient('https://10.0.0.5:8083', 'secret', tls_fingerprint='ab' * 32)
+    monkeypatch.setattr(flr, 'client_for_mount', lambda mid: ({'id': mid}, pc))
+    monkeypatch.setattr(pcm, 'certificate_fingerprint', lambda url, timeout=10: 'cd' * 32)
+    import requests
+    monkeypatch.setattr(requests, 'get', lambda *a, **k: pytest.fail('the request must not be sent'))
+    with pytest.raises(pcm.ProxyError, match='does not match'):
+        flr.stream('m1', 'file', {'path': '/x'})
+    unpinned = pcm.ProxyClient('https://10.0.0.5:8083', 'secret')
+    monkeypatch.setattr(flr, 'client_for_mount', lambda mid: ({'id': mid}, unpinned))
+    with pytest.raises(flr.ProxyError, match='pinned'):
+        flr.stream('m1', 'file', {'path': '/x'})
+
+
 def test_length_stream_reads_exactly_and_reports_len():
     ls = hcm.LengthStream(iter([b'abc', b'defg', b'h']), 8)
     assert len(ls) == 8 and ls.read(2) == b'ab' and ls.read(4) == b'cdef' and ls.read(10) == b'gh' and ls.read(1) == b''
