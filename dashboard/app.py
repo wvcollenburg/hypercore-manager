@@ -1209,11 +1209,17 @@ def get_config():
 @app.route('/api/config', methods=['POST'])
 @requires('cluster.settings', 'any')
 def post_config():
-    """Update one or more tunables. Accepts {key: value, ...} JSON body."""
+    """Update one or more tunables. Accepts {key: value, ...} JSON body. Every value is cast and
+    range-checked before anything is stored: one value no reader can cast (an emptied number
+    field arrived as null and was stored as 'None') cost the cluster all its settings."""
     try:
-        updates = request.get_json(force=True)
+        updates = request.get_json(force=True, silent=True)
         if not isinstance(updates, dict):
             return jsonify({'error': 'Expected a JSON object'}), 400
+        try:
+            updates = {k: config_db.validate(k, v) for k, v in updates.items()}
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
         acc = _access()
         if request.args.get('cluster') == 'defaults':
             if not acc.can('install.manage'):

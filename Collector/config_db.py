@@ -15,8 +15,9 @@ Canonical copy: shared/config_db.py — run tools/sync_shared.py after editing.
 Connection: PG_HOST / PG_PORT / PG_DB / PG_USER / PG_PASSWORD env vars.
 
 Graceful degradation: if PostgreSQL is unreachable, all reads fall back to
-the env var value for that key (or the hardcoded default). Writes are
-silently dropped with a warning log. The service continues operating normally.
+the env var value for that key (or the hardcoded default), and a stored value
+that cannot be cast falls back for that key only. save() drops a write with a
+warning; save_many() (the settings API) raises so the caller can report it.
 
 On first run, values are seeded from environment variables (falling back to
 hardcoded defaults). After that, env vars are ignored for keys the user has
@@ -74,14 +75,48 @@ TUNABLES = {
     'STALE_SECONDS':                  ('SC_DASHBOARD_STALE_SECONDS',         120,    'int'),
 }
 
+# key → (min, max) a stored value must lie within; the same ranges as the settings sliders
+# (CTRL_GROUPS in dashboard/static/index.html), checked again by validate() on every write
+RANGES = {
+    'VERBOSITY':                      (0, 3),
+    'AVG_WINDOW_MINUTES':             (1, 30),
+    'SAMPLE_INTERVAL_SECONDS':        (10, 300),
+    'RAM_LIMIT_PERCENT':              (50, 100),
+    'RAM_UPPER_THRESHOLD_PERCENT':    (10, 100),
+    'CPU_UPPER_THRESHOLD_PERCENT':    (10, 100),
+    'MAX_VCPU_RATIO':                 (0.5, 8.0),
+    'VM_MOVE_COOLDOWN_MINUTES':       (0, 120),
+    'MIGRATION_COOLDOWN_MINUTES':     (0, 60),
+    'CPU_TARGET_TOLERANCE_PERCENT':   (1, 20),
+    'PREDICTIVE_INTERVAL_SECONDS':    (3600, 86400),
+    'PREDICTIVE_LEAD_TIME_HOURS':     (1, 24),
+    'PREDICTIVE_THRESHOLD':           (50, 100),
+    'PREDICTIVE_MIN_HISTORY_HOURS':   (24, 720),
+    'PREDICTIVE_LOOKBACK_DAYS':       (7, 365),
+    'PREDICTIVE_MAX_WORKERS':         (1, 16),
+    'PREDICTIVE_RESERVATION_MINUTES': (0, 120),
+    'POLL_INTERVAL':                  (10, 120),
+    'SLOW_POLL_INTERVAL':             (60, 3600),
+    'INFLUX_WRITE_RETRIES':           (1, 10),
+    'INFLUX_RETRY_DELAY':             (1, 30),
+    'STALE_SECONDS':                  (30, 600),
+}
+
+_TRUE, _FALSE = ('true', '1', 'yes', 'y'), ('false', '0', 'no', 'n', '')
+
 
 # ---------------------------------------------------------------------------
 # type helpers
 # ---------------------------------------------------------------------------
 
 def _cast(value: str, type_hint: str) -> Any:
+    """Stored text → Python value. Raises ValueError for text that is not a value of the type
+    (an emptied number field once stored 'None'; a bool reading 'None' was silently false)."""
     if type_hint == 'bool':
-        return str(value).lower() in ('true', '1', 'yes', 'y')
+        v = str(value).strip().lower()
+        if v in _TRUE or v in _FALSE:
+            return v in _TRUE
+        raise ValueError(f'not a boolean: {value!r}')
     if type_hint == 'int':
         return int(float(value))  # float() first handles "30.0" edge case
     if type_hint == 'float':
@@ -95,8 +130,45 @@ def _serialize(value: Any, type_hint: str) -> str:
     if type_hint == 'list':
         return ','.join(str(v) for v in value) if isinstance(value, list) else str(value)
     if type_hint == 'bool':
+        if isinstance(value, str):          # the string 'false' is truthy: it was stored as true
+            value = _cast(value, 'bool')
         return 'true' if value else 'false'
     return str(value)
+
+
+def validate(key: str, value: Any) -> Any:
+    """The typed value `value` stands for, or ValueError: unknown key, null, not castable to the
+    key's type, not a finite number, or outside RANGES. Run on every value before it is stored,
+    since one value no reader can cast used to cost the whole cluster its settings."""
+    if key not in TUNABLES:
+        raise ValueError(f'unknown setting {key}')
+    if value is None:
+        raise ValueError(f'{key}: a value is required')
+    type_hint = TUNABLES[key][2]
+    if type_hint in ('int', 'float') and (isinstance(value, bool) or (isinstance(value, str) and not value.strip())):
+        raise ValueError(f'{key}: a number is required')
+    if type_hint == 'list' and not isinstance(value, (str, list)):
+        raise ValueError(f'{key}: a comma-separated list is required')
+    try:
+        typed = _cast(_serialize(value, type_hint), type_hint)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError(f'{key}: {value!r} is not a valid {type_hint}') from None
+    if type_hint in ('int', 'float'):
+        if typed != typed or typed in (float('inf'), float('-inf')):
+            raise ValueError(f'{key}: {value!r} is not a valid {type_hint}')
+        lo, hi = RANGES.get(key, (None, None))
+        if (lo is not None and typed < lo) or (hi is not None and typed > hi):
+            raise ValueError(f'{key}: {typed} is outside {lo}..{hi}')
+    return typed
+
+
+def _read(key: str, raw: str, type_hint: str) -> Any:
+    """One stored row, cast; a value that cannot be read falls back for that key only."""
+    try:
+        return _cast(raw, type_hint)
+    except (TypeError, ValueError, OverflowError):
+        logger.warning('config_db: stored value %r for %s is not a valid %s, using the default', raw, key, type_hint)
+        return _env_fallback(key)
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +193,10 @@ def _env_fallback(key: str) -> Any:
         return None
     env_var, default, type_hint = entry
     raw = os.getenv(env_var)
-    return _cast(raw, type_hint) if raw else default
+    try:
+        return _cast(raw, type_hint) if raw else default
+    except (TypeError, ValueError):
+        return default
 
 
 # ---------------------------------------------------------------------------
@@ -144,8 +219,7 @@ def seed_from_env() -> None:
             try:
                 with conn.cursor() as cur:
                     for key, (env_var, default, type_hint) in TUNABLES.items():
-                        raw_env = os.getenv(env_var) or None
-                        value = _cast(raw_env, type_hint) if raw_env is not None else default
+                        value = _env_fallback(key)
                         cur.execute(
                             '''INSERT INTO config.tunables (cluster_id, key, value, type)
                                VALUES (%s, %s, %s, %s)
@@ -196,7 +270,7 @@ def get(key: str, cluster_id: str = TEMPLATE_CLUSTER_ID) -> Any:
                 conn.close()
             if row is None:
                 return _env_fallback(key)
-            return _cast(row[0], row[1])
+            return _read(key, row[0], row[1])
         except Exception as exc:
             logger.warning('config_db: PostgreSQL unavailable for get(%s), using env fallback: %s', key, exc)
             return _env_fallback(key)
@@ -216,7 +290,7 @@ def get_all(cluster_id: str = TEMPLATE_CLUSTER_ID) -> dict:
                     rows = cur.fetchall()
             finally:
                 conn.close()
-            return {r[0]: _cast(r[1], r[2]) for r in rows}
+            return {r[0]: _read(r[0], r[1], r[2]) for r in rows}
         except Exception as exc:
             logger.warning('config_db: PostgreSQL unavailable for get_all(), using env fallback: %s', exc)
             return {k: _env_fallback(k) for k in TUNABLES}
@@ -247,28 +321,29 @@ def save(key: str, value: Any, cluster_id: str = TEMPLATE_CLUSTER_ID) -> None:
 
 
 def save_many(updates: dict, cluster_id: str = TEMPLATE_CLUSTER_ID) -> None:
-    """Upsert multiple tunables in one transaction. Unknown keys are silently skipped."""
+    """Upsert multiple tunables in one transaction. Unknown keys are skipped; callers validate()
+    first. Raises when the write fails, so nobody answers 'saved' for a change that was dropped."""
     with _lock:
+        conn = _connect()
         try:
-            conn = _connect()
-            try:
-                with conn.cursor() as cur:
-                    for key, value in updates.items():
-                        if key not in TUNABLES:
-                            continue
-                        _, _, type_hint = TUNABLES[key]
-                        cur.execute(
-                            '''INSERT INTO config.tunables (cluster_id, key, value, type, updated_at)
-                               VALUES (%s, %s, %s, %s, NOW())
-                               ON CONFLICT (cluster_id, key) DO UPDATE
-                                   SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at''',
-                            (cluster_id, key, _serialize(value, type_hint), type_hint),
-                        )
-                conn.commit()
-            finally:
-                conn.close()
-        except Exception as exc:
-            logger.warning('config_db: PostgreSQL unavailable for save_many(), changes dropped: %s', exc)
+            with conn.cursor() as cur:
+                for key, value in updates.items():
+                    if key not in TUNABLES:
+                        continue
+                    _, _, type_hint = TUNABLES[key]
+                    cur.execute(
+                        '''INSERT INTO config.tunables (cluster_id, key, value, type, updated_at)
+                           VALUES (%s, %s, %s, %s, NOW())
+                           ON CONFLICT (cluster_id, key) DO UPDATE
+                               SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at''',
+                        (cluster_id, key, _serialize(value, type_hint), type_hint),
+                    )
+            conn.commit()
+        except Exception:
+            logger.warning('config_db: save_many() for %s failed, nothing stored', cluster_id, exc_info=True)
+            raise
+        finally:
+            conn.close()
 
 
 def get_with_meta(cluster_id: str = TEMPLATE_CLUSTER_ID) -> list:
@@ -289,7 +364,7 @@ def get_with_meta(cluster_id: str = TEMPLATE_CLUSTER_ID) -> list:
             finally:
                 conn.close()
             return [
-                {'key': r[0], 'value': _cast(r[1], r[2]), 'type': r[2], 'updated_at': str(r[3])}
+                {'key': r[0], 'value': _read(r[0], r[1], r[2]), 'type': r[2], 'updated_at': str(r[3])}
                 for r in rows
             ]
         except Exception as exc:
