@@ -58,6 +58,15 @@
   /* the bar gives way from the outside in: status text, then the wordmark and the path, the module tabs last */
   @media (max-width: 1700px) { .status-text { display: none; } }
   @media (max-width: 1360px) { .tb-word, .tb-switch-path { display: none; } }
+  /* phones: two rows, the module tabs scroll on their own row and the cluster list spans the screen */
+  @media (max-width: 760px) {
+    .topbar { height: auto; flex-wrap: wrap; padding: 8px 12px 0; gap: 8px; }
+    .tb-switch { flex: 1 1 0; max-width: none; }
+    .header-right { gap: 6px; }
+    .header-right [data-i18n="header.refresh"], .tb-status { display: none; }
+    .nav-tabs { order: 3; width: 100%; height: 40px; margin: 0 -12px; padding: 0 4px; }
+    .cluster-rail { left: 8px !important; right: 8px; width: auto; top: 96px; }
+  }
   .tb-switch-alerts { display: flex; gap: 4px; flex-shrink: 0; }
   .tb-switch-alerts .alert-badge { cursor: default; }
   .tb-caret { color: var(--bar-ink-2); font-size: 12px; }
