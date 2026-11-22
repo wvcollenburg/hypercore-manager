@@ -4960,7 +4960,7 @@ async function pxRemove(id, name, vmUuid, kind) {
   if (!await hcmConfirm(t('proxies.confirm_remove', {name}), {danger: true})) return;
   // a deployed proxy's VM goes with it unless the admin keeps it; the stack's own container has no VM
   const vm = vmUuid ? vmUuid.slice(0, 8) : '';
-  const withVm = !!vmUuid && kind !== 'local' && await hcmConfirm(t('proxies.confirm_remove_vm', {vm}), {danger: true});
+  const withVm = !!vmUuid && kind !== 'local' && await hcmConfirm(t('proxies.confirm_remove_vm', {vm}), {danger: true, typeToConfirm: name});
   try {
     const r = await _exCall('DELETE', `/api/backup/proxies/${id}${withVm ? '?vm=delete' : ''}`);
     if (r && r.vm === 'deleted') showToast(t('proxies.removed_vm', {vm}), 'ok');
@@ -5021,7 +5021,7 @@ async function shTest(id) {
   catch (e) { _shMsg(`sh-${id}-msg`, e.message, 'err'); }
 }
 async function shRemove(id, name) {
-  if (!await hcmConfirm(t('shares.confirm_remove', {name}), {danger: true})) return;
+  if (!await hcmConfirm(t('shares.confirm_remove', {name}), {danger: true, typeToConfirm: name})) return;
   try { await _exCall('DELETE', `/api/backup/targets/${id}`); await _loadSharesPanel(); await loadClusters(); } catch (e) { hcmAlert(e.message); }
 }
 
@@ -7615,7 +7615,7 @@ async function exVerifyChain(id) {
   } catch (e) { _shMsg(`ch-${id}-msg`, e.message, 'err'); }
 }
 async function exDeleteChain(id, name) {
-  if (!await hcmConfirm(t('ex.confirm_delete_data', {name}), {danger: true})) return;
+  if (!await hcmConfirm(t('ex.confirm_delete_data', {name}), {danger: true, typeToConfirm: name})) return;
   try { await _exCall('DELETE', `/api/backup/chains/${id}`); exLoadPoints(); } catch (e) { showToast(e.message, 'err'); }
 }
 

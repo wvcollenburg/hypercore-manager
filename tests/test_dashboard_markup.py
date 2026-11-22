@@ -53,3 +53,21 @@ def test_staged_settings_do_not_outlive_their_form(repo):
                            ('async function loadSentinelSettings()', 'delete _sStagedSent[k]')):
         body = src[src.index(loader):][:1600]
         assert marker in body, f'{loader} must drop the edits staged on the previous form'
+
+
+def test_enter_in_a_confirmation_does_not_press_the_danger_button_from_cancel(repo):
+    """Enter anywhere in hcmConfirm clicked the last (confirm/danger) button, also with focus on Cancel; a dialog
+    without a field left focus on the button behind the backdrop, so Enter or Space opened a second dialog."""
+    src = (repo / 'dashboard' / 'static' / 'access.js').read_text()
+    confirm = src[src.index('function hcmConfirm('):src.index('function hcmPrompt(')]
+    assert "e.target.tagName === 'BUTTON'" in confirm
+    modal = src[src.index('function hcmModal('):src.index('function hcmConfirm(')]
+    assert "back.querySelector('.hcm-modal-foot button')" in modal and 'activeElement?.blur' in modal
+
+
+def test_irreversible_deletes_ask_for_the_name(repo):
+    """Deleting every restore point of a VM, a proxy's VM or a backup target was one click on OK."""
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
+    for key in ('ex.confirm_delete_data', 'proxies.confirm_remove_vm', 'shares.confirm_remove'):
+        call = src[src.index(f"hcmConfirm(t('{key}'"):][:160]
+        assert 'typeToConfirm: name' in call, f'{key} must ask for the name to be typed'

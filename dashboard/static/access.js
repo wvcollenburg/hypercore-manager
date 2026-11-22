@@ -66,7 +66,11 @@ function hcmModal({ title = '', body = '', buttons = [], closable = true, width 
   }
   document.body.appendChild(back);
   _hcmModals.push(handle);
-  setTimeout(() => back.querySelector('input:not([type=hidden]):not([type=checkbox]), select, textarea')?.focus(), 30);
+  // focus moves into the dialog: the first field, else the first footer button (Cancel in a confirmation).
+  // Left on the button that opened it, Enter or Space pressed that button again behind the backdrop.
+  document.activeElement?.blur?.();
+  setTimeout(() => { if (!back.contains(document.activeElement)) (back.querySelector('input:not([type=hidden]):not([type=checkbox]), select, textarea')
+                    || back.querySelector('.hcm-modal-foot button'))?.focus(); }, 30);
   return handle;
 }
 document.addEventListener('keydown', e => {
@@ -92,7 +96,12 @@ function hcmConfirm(message, { title = t('acc.confirm'), confirmLabel = t('acc.o
         } },
       ],
     });
-    m.el.addEventListener('keydown', e => { if (e.key === 'Enter') m.el.querySelector('.hcm-modal-foot button:last-child').click(); });
+    // Enter in the typed-confirmation field confirms; on a focused button Enter presses that button (Cancel stays Cancel)
+    m.el.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' || e.target.tagName === 'BUTTON') return;
+      e.preventDefault();
+      m.el.querySelector('.hcm-modal-foot button:last-child').click();
+    });
   });
 }
 
