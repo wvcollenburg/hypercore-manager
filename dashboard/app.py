@@ -1577,7 +1577,8 @@ def api_clusters_update(cluster_id):
     if role is not None and role not in ('production', 'dr'):
         return jsonify({'error': "role must be 'production' or 'dr'"}), 400
     try:
-        cluster_registry.update(cluster_id, **fields)
+        if cluster_registry.update(cluster_id, **fields) == 0:
+            return jsonify({'error': 'cluster not found'}), 404      # removed: not changed, not enabled again
         if role is not None:
             _set_cluster_role(cluster_id, role)
     except ValueError as e:
@@ -1604,6 +1605,18 @@ def api_clusters_update(cluster_id):
     return jsonify({'ok': True, 'cluster': _cluster_payload(cluster_registry.get(cluster_id))})
 
 
+def _backup_chain_count(cluster_id: str) -> int:
+    """Backup chains in the catalogue for this cluster (0 before the backup schema exists)."""
+    try:
+        with _pg() as conn, conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) AS n FROM backup.chains WHERE cluster_id = %s', (cluster_id,))
+            return int(cur.fetchone()['n'])
+    except psycopg2.Error as exc:
+        if getattr(exc, 'pgcode', None) == '42P01':
+            return 0
+        raise
+
+
 @app.route('/api/clusters/<cluster_id>', methods=['DELETE'])
 @requires('cluster.manage', 'any')
 def api_clusters_delete(cluster_id):
@@ -1611,6 +1624,11 @@ def api_clusters_delete(cluster_id):
     if not c or not _access().can('cluster.manage', cluster_id):
         return jsonify({'error': 'cluster not found'}), 404
     purge = request.args.get('purge') == '1'
+    if purge and _backup_chain_count(cluster_id):
+        # purging cascades to the backup catalogue (chains, points): the data would stay on the target with
+        # nothing left that knows it is there
+        return jsonify({'error': 'this cluster still has backups in the catalogue: delete its backup chains first '
+                                 '(Backup -> Restore points), or remove the cluster without purging'}), 409
     try:
         cluster_registry.delete(cluster_id, purge=purge)
     except Exception as e:

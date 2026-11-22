@@ -45,6 +45,7 @@ def test_cluster_changes_are_audited(dash, monkeypatch, audited):
     monkeypatch.setattr(dash.cluster_registry, 'delete', lambda cid, purge=False: None)
     monkeypatch.setattr(dash, '_invalidate_registry_cache', lambda: None)
     monkeypatch.setattr(dash, '_cluster_payload', lambda c, extras=None: {})
+    monkeypatch.setattr(dash, '_backup_chain_count', lambda cid: 0)
     c = dash.app.test_client()
     with c.session_transaction() as s:
         s['user_id'], s['username'] = 'u-root', 'root@x'

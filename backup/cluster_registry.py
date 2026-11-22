@@ -177,9 +177,11 @@ def _row_to_cluster(r: dict) -> Cluster:
 # ---------------------------------------------------------------------------
 
 def list_all(include_template: bool = False) -> list[Cluster]:
-    sql = f'SELECT {_COLUMNS} {_FROM}'
+    """The registered clusters. A removed one (Remove keeps its row, renamed '(removed ...)', so history stays
+    valid) is not registered any more and is left out: it showed up with an Enable button."""
+    sql = f'SELECT {_COLUMNS} {_FROM} WHERE c.is_active = TRUE'
     if not include_template:
-        sql += ' WHERE c.is_template = FALSE'
+        sql += ' AND c.is_template = FALSE'
     sql += ' ORDER BY c.is_template DESC, lower(c.cluster_name)'
     conn = _connect()
     try:
@@ -288,10 +290,11 @@ def update(cluster_id: str, *, name: Optional[str] = None, host: Optional[str] =
            username: Optional[str] = None, password: Optional[str] = None,
            verify_tls: Optional[bool] = None, colour: Optional[str] = None,
            enabled: Optional[bool] = None, folder_id: Optional[str] = ..., api_version: Optional[str] = None,
-           timezone: Optional[str] = None) -> None:
+           timezone: Optional[str] = None) -> Optional[int]:
     """Update the given fields; password is re-encrypted only when provided (non-empty).
     folder_id: a folder uuid to move the cluster, None to unfile it, omitted to leave it.
-    timezone: an IANA name to override what the cluster reports, '' to follow the cluster again."""
+    timezone: an IANA name to override what the cluster reports, '' to follow the cluster again.
+    Returns the number of rows changed (0: no such registered cluster), None when nothing was asked."""
     sets, params = [], []
     if timezone is not None:
         tz = timezone.strip()
@@ -343,11 +346,15 @@ def update(cluster_id: str, *, name: Optional[str] = None, host: Optional[str] =
     conn = _connect()
     try:
         with conn.cursor() as cur:
+            # a removed cluster is not changed (enabling one, with no password left, made every service try an
+            # empty-password login each poll)
             cur.execute(f'UPDATE config.clusters SET {", ".join(sets)} '
-                        f'WHERE cluster_id = %s AND is_template = FALSE', params)
+                        f'WHERE cluster_id = %s AND is_template = FALSE AND is_active = TRUE', params)
+            changed = cur.rowcount
         conn.commit()
     finally:
         conn.close()
+    return changed
 
 
 def delete(cluster_id: str, purge: bool = False) -> None:
@@ -364,20 +371,26 @@ def delete(cluster_id: str, purge: bool = False) -> None:
             cur.execute('DELETE FROM config.module_toggles WHERE cluster_id = %s', (cluster_id,))
             cur.execute('DELETE FROM config.branding WHERE cluster_id = %s', (cluster_id,))
             if purge:
+                # children before the rows they reference: webhook deliveries and the action log point at
+                # recommendation events, resize advice at right-sizing rows
+                events = 'SELECT id FROM audit.recommendation_events WHERE cluster_id = %s'
+                for table in ('audit.webhook_deliveries', 'audit.action_log'):
+                    cur.execute(f'DELETE FROM {table} WHERE cluster_id = %s OR recommendation_event_id IN ({events})',
+                                (cluster_id, cluster_id))
                 for table in ('recommendations.resize_recommendations', 'recommendations.right_sizing',
                               'recommendations.forecast_snapshots', 'recommendations.resource_exhaustion',
-                              'recommendations.cluster_health_scores', 'audit.recommendation_events',
-                              'audit.action_log', 'audit.webhook_deliveries'):
+                              'recommendations.cluster_health_scores', 'audit.recommendation_events'):
                     cur.execute(f'DELETE FROM {table} WHERE cluster_id = %s', (cluster_id,))
                 cur.execute('DELETE FROM config.clusters WHERE cluster_id = %s AND is_template = FALSE',
                             (cluster_id,))
             else:
-                # keep the row so FK-bound history stays valid, but take it out of service
+                # keep the row so FK-bound history stays valid, but take it out of service (once: removing it
+                # again would append a second '(removed ...)')
                 cur.execute('''UPDATE config.clusters
                                   SET enabled = FALSE, is_active = FALSE, hc_password_enc = NULL,
                                       cluster_name = cluster_name || ' (removed ' || to_char(NOW(), 'YYYY-MM-DD HH24:MI') || ')',
                                       updated_at = NOW()
-                                WHERE cluster_id = %s AND is_template = FALSE''', (cluster_id,))
+                                WHERE cluster_id = %s AND is_template = FALSE AND is_active = TRUE''', (cluster_id,))
         conn.commit()
     finally:
         conn.close()

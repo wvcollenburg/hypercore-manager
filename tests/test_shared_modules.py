@@ -262,6 +262,7 @@ class _RecordingConn:
         conn = self
 
         class Cur:
+            rowcount = 1
             def __enter__(s): return s
             def __exit__(s, *a): return False
             def execute(s, sql, params=None): conn.sql.append(sql)
@@ -295,3 +296,36 @@ def test_moving_an_entry_to_another_address_needs_the_password(monkeypatch):
     cr.update(cid, host='10.0.0.1', username='admin', name='renamed')      # unchanged values: no password needed
     cr.update(cid, host='evil.example', password='new-secret')
     assert len(written) == 2
+
+
+def test_a_removed_cluster_is_not_listed_changed_or_removed_again(monkeypatch):
+    """A removed (not purged) cluster stayed in list_all(): '/api/clusters' showed 'X (removed ...)' with an
+    Enable button, Enable set enabled=TRUE on a row without a password (every service then tried an
+    empty-password login each poll), and a second remove appended another '(removed ...)'."""
+    import cluster_registry as cr
+    if not hasattr(cr, '_connect'):
+        pytest.skip('the registry is stubbed in this run')
+    sql = []
+    monkeypatch.setattr(cr, '_connect', lambda: _RecordingConn(sql))
+    cr.list_all()
+    assert 'c.is_active = TRUE' in sql[-1]
+    cr.update('11111111-1111-4111-8111-111111111111', enabled=True)
+    assert 'is_active = TRUE' in sql[-1]
+    cr.delete('11111111-1111-4111-8111-111111111111')
+    assert 'is_active = TRUE' in sql[-1] and '(removed' in sql[-1]
+
+
+def test_purge_deletes_rows_before_the_rows_they_reference(monkeypatch):
+    """audit.webhook_deliveries and audit.action_log reference audit.recommendation_events: deleting the events
+    first failed on the foreign key (500) for a cluster with webhook rows."""
+    import cluster_registry as cr
+    if not hasattr(cr, '_connect'):
+        pytest.skip('the registry is stubbed in this run')
+    sql = []
+    monkeypatch.setattr(cr, '_connect', lambda: _RecordingConn(sql))
+    cr.delete('11111111-1111-4111-8111-111111111111', purge=True)
+    first = lambda table: next(i for i, s in enumerate(sql) if s.startswith(f'DELETE FROM {table} '))   # noqa: E731
+    assert first('audit.webhook_deliveries') < first('audit.recommendation_events')
+    assert first('audit.action_log') < first('audit.recommendation_events')
+    assert first('recommendations.resize_recommendations') < first('recommendations.right_sizing')
+    assert sql[-1].startswith('DELETE FROM config.clusters')
