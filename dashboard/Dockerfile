@@ -38,6 +38,8 @@ RUN mkdir -p static/vendor && \
 COPY dashboard/requirements.txt dashboard/constraints.txt ./
 # constraints.txt: every transitive package at the version this release was tested with
 RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
+# the version this image was built from: what the updater reports as installed (the checkout may be newer)
+COPY VERSION .
 COPY dashboard/app.py .
 COPY dashboard/config_db.py .
 COPY dashboard/user_db.py .

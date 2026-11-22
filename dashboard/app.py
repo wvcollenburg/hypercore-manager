@@ -3855,12 +3855,29 @@ def _restore_ownership(log=None) -> None:
 
 
 def _read_version_file() -> str:
-    """Return the project version from <repo>/VERSION, or '' if unreadable."""
+    """Return the version of the checkout (<repo>/VERSION), or '' if unreadable."""
     try:
         with open(os.path.join(_REPO_PATH, 'VERSION')) as f:
             return f.read().strip()
     except (FileNotFoundError, OSError):
         return ''
+
+
+def _image_version() -> str:
+    """The version this dashboard image was built from (VERSION copied in by the Dockerfile), or '' for an
+    image from before 1.8.1. This, not the checkout, is what runs: a checkout moved to a release whose build
+    failed (or was never built) showed the new number for a day while the old containers ran."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'VERSION')) as f:
+            return f.read().strip()
+    except OSError:
+        return ''
+
+
+def _versions() -> tuple[str, str]:
+    """(running, checkout): the image's version, else the checkout's; and the checkout's."""
+    checkout = _read_version_file()
+    return (_image_version() or checkout), checkout
 
 
 def _latest_remote_tag() -> str:
@@ -3881,12 +3898,13 @@ def _changelog_between(local_tag: str, remote_tag: str) -> list[str]:
 
 
 def _check_for_update():
-    # the running version comes from the local VERSION file and must be published even
-    # when the remote check fails, so the footer always shows what is installed
-    current_version = _read_version_file()
+    # the running version is the image's and must be published even when the remote check fails, so the
+    # footer always shows what is installed (not what the checkout says)
+    current_version, checkout_version = _versions()
     _write_update_patch({
         'current_version': current_version or None,
         'current_label':   f'v{current_version}' if current_version else None,
+        'checkout_version': checkout_version or None,
     })
     try:
         r = subprocess.run(
@@ -3909,15 +3927,23 @@ def _check_for_update():
         local_tag       = f'v{current_version}' if current_version else ''
 
         update_available = is_newer(remote_version, current_version)
+        # the checkout is ahead of what runs (an apply whose build or restart failed, or a manual git pull
+        # without a rebuild): Apply builds and restarts it
+        rebuild = is_newer(checkout_version, current_version)
+        if rebuild and not update_available:
+            update_available, remote_version = True, checkout_version
+            remote_tag = remote_tag or f'v{checkout_version}'
 
         changelog = _changelog_between(local_tag, remote_tag) if update_available else []
         # applying moves the checkout to exactly that tag: say now if it would refuse (another branch,
         # local commits, an inconsistent release) instead of after the administrator presses Apply
-        blocked = resolve_apply(_REPO_PATH, remote_tag)['error'] if update_available else None
+        blocked = resolve_apply(_REPO_PATH, _latest_remote_tag())['error'] if update_available else None
 
         _write_update_patch({
             'update_available': update_available,
+            'rebuild_needed':   rebuild,
             'current_version':  current_version or None,
+            'checkout_version': checkout_version or None,
             'remote_version':   remote_version  or None,
             # rendered by the existing frontend; keep populated for back-compat
             'current_label':    f'v{current_version}' if current_version else None,
@@ -4135,6 +4161,8 @@ def api_update_status():
         'apply_log':         state.get('apply_log', []),
         'apply_blocked':     state.get('apply_blocked'),
         'apply_failed':      state.get('apply_failed'),
+        'checkout_version':  state.get('checkout_version'),
+        'rebuild_needed':    state.get('rebuild_needed', False),
     })
 
 
