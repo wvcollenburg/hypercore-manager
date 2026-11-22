@@ -1801,7 +1801,7 @@ window.LANG = {
   'pb.copy': "Kopieren",
   'pb.check': "Prüfen: Image wird geprüft",
   'pb.checksum': "Prüfen: Prüfsumme",
-  'pb.disk_of': "Disk {n} von {total}",
+  'pb.device_of': "Gerät {n} von {total}",
   'pb.verify_chain': "Kette prüfen",
   'pb.prepare': "VM-Definition vorbereiten",
   'pb.import': "VM importieren",

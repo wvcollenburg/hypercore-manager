@@ -7039,10 +7039,10 @@ function _pbAmount(pr) { return pr.total ? `${_pbGiB(pr.done)} / ${_pbGiB(pr.tot
 /** A running backup: copying (green), then per disk checking and checksum read-back (purple). */
 function _pbBackup(pr) {
   if (!pr || !pr.phase) return '';
-  const disk = pr.devices > 1 ? ` · ${t('pb.disk_of', {n: pr.device, total: pr.devices})}` : '';
-  if (pr.phase === 'check') return _pbar(pr, `<b>${t('pb.check')}</b>${disk}`);
-  if (pr.phase === 'checksum') return _pbar(pr, `<b>${t('pb.checksum')}</b> ${_pbAmount(pr)}${disk}`);
-  return _pbar(pr, `<b>${t('pb.copy')}</b> ${_pbAmount(pr)}${disk}`);
+  const dev = pr.devices > 1 ? ` · ${t('pb.device_of', {n: pr.device, total: pr.devices})}` : '';
+  if (pr.phase === 'check') return _pbar(pr, `<b>${t('pb.check')}</b>${dev}`);
+  if (pr.phase === 'checksum') return _pbar(pr, `<b>${t('pb.checksum')}</b> ${_pbAmount(pr)}${dev}`);
+  return _pbar(pr, `<b>${t('pb.copy')}</b> ${_pbAmount(pr)}${dev}`);
 }
 /** A running restore: verifying the chain (purple), preparing and importing (green, sliding), writing disks (green). */
 function _pbRestore(pr) {

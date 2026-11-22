@@ -1801,7 +1801,7 @@ window.LANG = {
   'pb.copy': "Kopiëren",
   'pb.check': "Controleren: image nakijken",
   'pb.checksum': "Controleren: controlesom",
-  'pb.disk_of': "schijf {n} van {total}",
+  'pb.device_of': "apparaat {n} van {total}",
   'pb.verify_chain': "Keten controleren",
   'pb.prepare': "VM-definitie voorbereiden",
   'pb.import': "VM importeren",

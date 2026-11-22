@@ -1802,7 +1802,7 @@ window.LANG = {
   'pb.copy': "Copying",
   'pb.check': "Verifying: checking the image",
   'pb.checksum': "Verifying: checksum",
-  'pb.disk_of': "disk {n} of {total}",
+  'pb.device_of': "device {n} of {total}",
   'pb.verify_chain': "Verifying the chain",
   'pb.prepare': "Preparing the VM definition",
   'pb.import': "Importing the VM",
