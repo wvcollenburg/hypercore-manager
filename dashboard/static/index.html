@@ -57,8 +57,9 @@
   .tb-switch-path { color: var(--bar-ink-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 2 auto; }
   .tb-switch-alerts { display: flex; gap: 4px; flex-shrink: 0; }
   .tb-switch-alerts .alert-badge { cursor: default; }
-  .tb-caret { color: var(--bar-ink-2); font-size: 10px; }
-  .crumbs-line { padding: 14px 32px 0; }
+  .tb-caret { color: var(--bar-ink-2); font-size: 12px; }
+  .crumbs-line { padding: 12px 32px 0; }
+  .crumbs-line + .main { padding-top: 10px; }
   .crumbs { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-3); min-width: 0; overflow: hidden; white-space: nowrap; }
   .crumbs .crumb-sep { color: var(--ink-3); flex-shrink: 0; }
   .crumbs .crumb { display: inline-block; min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
@@ -160,15 +161,15 @@
   }
   .sub-item {
     background: var(--bg-nested); border: 1px solid var(--border); border-radius: 6px;
-    padding: 10px 12px; margin-bottom: 6px; font-size: 11px;
+    padding: 10px 12px; margin-bottom: 6px; font-size: 12px;
   }
   .sub-item-header {
     display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
   }
   .sub-item-name { font-family: var(--font-ui); font-weight: 500; font-size: 12px; }
   .sub-item-row { display: flex; justify-content: space-between; padding: 2px 0; }
-  .sub-item-label { color: var(--text-secondary); font-size: 10px; }
-  .sub-item-value { font-family: var(--font-mono); font-size: 10px; font-weight: 500; }
+  .sub-item-label { color: var(--text-secondary); font-size: 12px; }
+  .sub-item-value { font-family: var(--font-mono); font-size: 12px; font-weight: 500; }
   .health-dot {
     display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px;
   }
@@ -211,7 +212,7 @@
   .iv-task:last-child { border-bottom:none; }
   .iv-task-bar { flex:0 0 120px; height:6px; border-radius:3px; background:var(--bg-primary); overflow:hidden; }
   .iv-task-bar > div { height:100%; background:var(--accent-amber); }
-  .dry-run-tag { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: 600; background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--accent-amber); }
+  .dry-run-tag { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--accent-amber); }
   .arrow { color: var(--accent-cyan); margin: 0 4px; }
   .log-scroll { max-height: 500px; overflow-y: auto; }
 
@@ -227,7 +228,7 @@
     display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0;
   }
   .module-name { font-family: var(--font-ui); font-size: 12px; font-weight: 500; }
-  .module-desc { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+  .module-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 
   .loading, .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); font-size: 13px; }
 
@@ -300,10 +301,7 @@
     display: flex; align-items: center; gap: 10px;
     margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--border);
   }
-  .settings-group-title { white-space: nowrap;
-    font-family: var(--font-ui); font-size: 12px;
-    font-weight: 600; letter-spacing: 0.05em; flex: 1;
-  }
+  .settings-group-title { white-space: nowrap; font-family: var(--font-ui); font-size: 15px; font-weight: 600; flex: 1; }
   .dirty-badge {
     font-family: var(--font-ui); font-size: 12px;
     color: var(--accent-amber); background: color-mix(in srgb, var(--warn) 12%, transparent);
@@ -334,7 +332,7 @@
   .ctrl-strip-bool { min-width: 120px; }
 
   .ctrl-label {
-    font-family: var(--font-ui); font-size: 11px;
+    font-family: var(--font-ui); font-size: 12px;
     color: var(--text-primary); text-align: center; white-space: nowrap;
   }
   .ctrl-unit {
@@ -352,14 +350,13 @@
   .ctrl-range::-webkit-slider-thumb {
     -webkit-appearance: none; width: 18px; height: 18px;
     border-radius: 50%; background: var(--accent-blue);
-    cursor: pointer; box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 50%, transparent);
+    cursor: pointer;
     transition: box-shadow 0.15s;
   }
-  .ctrl-range::-webkit-slider-thumb:hover { box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 80%, transparent); }
+  .ctrl-range::-webkit-slider-thumb:hover { }
   .ctrl-range::-moz-range-thumb {
     width: 18px; height: 18px; border-radius: 50%;
     background: var(--accent-blue); cursor: pointer; border: none;
-    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 50%, transparent);
   }
 
   /* number input under slider */
@@ -401,9 +398,9 @@
     border-radius: 50%; background: var(--text-muted); transition: all 0.25s;
   }
   .toggle-switch input:checked + .toggle-track { background: color-mix(in srgb, var(--accent) 20%, transparent); border-color: var(--accent-blue); }
-  .toggle-switch input:checked + .toggle-track .toggle-thumb { left: 25px; background: var(--accent-blue); box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent); }
+  .toggle-switch input:checked + .toggle-track .toggle-thumb { left: 25px; background: var(--accent-blue); }
   .toggle-switch input:checked + .toggle-slider { background: color-mix(in srgb, var(--accent) 20%, transparent); border-color: var(--accent-blue); }
-  .toggle-switch input:checked + .toggle-slider::after { left: 25px; background: var(--accent-blue); box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent); }
+  .toggle-switch input:checked + .toggle-slider::after { left: 25px; background: var(--accent-blue); }
   .toggle-state-label {
     font-family: var(--font-ui); font-size: 12px; font-weight: 600;
   }
@@ -426,7 +423,7 @@
   }
   .info-btn {
     background: none; border: none; cursor: pointer;
-    color: var(--text-muted); font-size: 11px; line-height: 1;
+    color: var(--text-muted); font-size: 12px; line-height: 1;
     padding: 0 1px; border-radius: 3px; transition: color 0.15s;
     flex-shrink: 0; font-family: sans-serif;
   }
@@ -447,7 +444,7 @@
   .info-section { margin-bottom: 10px; }
   .info-section:last-child { margin-bottom: 0; }
   .info-section-label {
-    font-family: var(--font-ui); font-size: 11px;
+    font-family: var(--font-ui); font-size: 12px;
     font-weight: 700;
     margin-bottom: 4px;
   }
@@ -458,13 +455,13 @@
 
   /* ─── VM detail modal ─── */
   .vm-detail-btn {
-    background: color-mix(in srgb, var(--accent) 8%, transparent); border: 1px solid var(--accent-cyan);
-    cursor: pointer; color: var(--accent-cyan);
-    font-family: var(--font-ui); font-size: 12px; font-weight: 600;
+    background: var(--surface); border: 1px solid var(--border-strong);
+    cursor: pointer; color: var(--ink);
+    font-family: var(--font-ui); font-size: 13px; font-weight: 500;
     padding: 4px 10px; border-radius: 5px; transition: all 0.15s;
     flex-shrink: 0; line-height: 1.4;
   }
-  .vm-detail-btn:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 30%, transparent); }
+  .vm-detail-btn:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
   .vm-modal-backdrop {
     display: none; position: fixed; inset: 0; z-index: 10100;
     background: color-mix(in srgb, var(--shadow-color) 70%, transparent); backdrop-filter: blur(2px);
@@ -525,18 +522,18 @@
   .vm-meter { display: flex; align-items: center; gap: 8px; min-width: 150px; }
   .vm-meter-bar { flex: 1; height: 6px; background: var(--bg-nested); border-radius: 3px; overflow: hidden; min-width: 60px; }
   .vm-meter-fill { height: 100%; border-radius: 3px; }
-  .vm-meter-val { font-family: var(--font-mono); font-size: 11px; min-width: 64px; text-align: right; color: var(--text-primary); }
+  .vm-meter-val { font-family: var(--font-mono); font-size: 12px; min-width: 64px; text-align: right; color: var(--text-primary); }
   .vm-list .mono { font-family: var(--font-mono); font-size: 12px; color: var(--text-primary); }
   .vm-list .acts { white-space: nowrap; text-align: right; }
   /* VM edit window */
   .ve-modal { width: min(1080px, 96vw); }
-  .ve-tag-access { display: block; font-size: 10px; color: var(--accent-amber); margin-top: 3px; font-weight: 400; }
+  .ve-tag-access { display: block; font-size: 12px; color: var(--accent-amber); margin-top: 3px; font-weight: 400; }
   .ve-tag-access:empty { display: none; }
   .ve-power { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
   .ve-sec { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
   .ve-sec h3 { font-family: var(--font-ui); font-size: 12px; color: var(--text-muted); font-weight: 500; margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
   .ve-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 16px; }
-  .ve-grid label, .ve-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-muted); }
+  .ve-grid label, .ve-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted); }
   .ve-sec input[type=text], .ve-sec input[type=number], .ve-sec input[type=datetime-local], .ve-sec select, .ve-foot input[type=text], .ve-foot input[type=number], .ve-foot input[type=datetime-local] {
     background: var(--bg-nested); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px; padding: 5px 8px; font-size: 12px; }
   .ve-sec input.changed, .ve-sec select.changed { border-color: var(--accent-amber); }
@@ -643,12 +640,12 @@
     cursor: pointer; user-select: none; color: var(--text-primary);
     font-family: var(--font-ui); font-size: 12px; font-weight: 600; }
   .cluster-folder:hover { filter: brightness(1.15); }
-  .folder-chevron { display: inline-block; width: 10px; color: var(--fc, var(--text-muted)); transition: transform 0.15s; font-size: 10px; }
+  .folder-chevron { display: inline-block; width: 10px; color: var(--fc, var(--text-muted)); transition: transform 0.15s; font-size: 12px; }
   .cluster-folder.collapsed .folder-chevron { transform: rotate(-90deg); }
   .folder-glyph { width: 13px; height: 10px; border-radius: 2px; background: var(--fc, var(--text-muted)); position: relative; flex-shrink: 0; opacity: 0.9; }
   .folder-glyph::before { content: ''; position: absolute; left: 0; top: -3px; width: 6px; height: 3px; border-radius: 2px 2px 0 0; background: inherit; }
   .cluster-folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .folder-count { font-size: 10px; font-weight: 500; color: var(--text-muted); background: var(--bg-primary); padding: 1px 7px; border-radius: 10px; letter-spacing: 0; }
+  .folder-count { font-size: 12px; font-weight: 500; color: var(--text-muted); background: var(--bg-primary); padding: 1px 7px; border-radius: 10px; letter-spacing: 0; }
   .folder-children { margin-left: 10px; padding-left: 6px; border-left: 1px dashed var(--border); display: flex; flex-direction: column; gap: 4px; }
   .folder-children.collapsed { display: none; }
   .folder-empty { font-size: 12px; color: var(--text-muted); font-family: var(--font-ui); padding: 4px 10px 6px; }
@@ -667,11 +664,11 @@
   .popmenu-search { width: 100%; box-sizing: border-box; margin: 2px 0 6px; font-size: 12px; }
   .popmenu-scroll { max-height: 40vh; overflow-y: auto; }
   .ex-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 10px 0; }
-  .ex-form label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+  .ex-form label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
   .ex-form input[type=text], .ex-form input[type=password], .ex-form input[type=number], .ex-form input[type=time], .ex-form select {
     width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 6px; font-size: 12px;
     background: var(--bg-input, var(--bg-primary)); border: 1px solid var(--border); color: var(--text-primary); }
-  .ex-hint { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
+  .ex-hint { font-size: 12px; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
   .sh-nfs-warn { color: var(--accent-amber); }
   .sh-nfs-warn[hidden] { display: none; }
   .ex-slots { display: inline-flex; gap: 2px; vertical-align: middle; margin-right: 6px; }
@@ -696,17 +693,17 @@
   .pol-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: var(--bg-nested); }
   .pol-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .pol-name { font-weight: 600; font-size: 14px; color: var(--text-primary); }
-  .pol-meta { font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.6; }
+  .pol-meta { font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.6; }
   .pol-meta b { color: var(--text-secondary); font-weight: 500; }
   .pol-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px; }
   .pol-days { display: inline-flex; flex-wrap: wrap; gap: 4px; }
-  .pol-days label { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; margin: 0; color: var(--text-secondary); }
+  .pol-days label { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; margin: 0; color: var(--text-secondary); }
   .pol-blackout { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
   .pol-blackout input[type=time] { padding: 5px 8px; border-radius: 6px; font-size: 12px;
     background: var(--bg-input, var(--bg-primary)); border: 1px solid var(--border); color: var(--text-primary); }
   .pol-preview { font-family: var(--font-ui); font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.7; }
   .pol-tl { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
-  .pol-tl-row { display: grid; grid-template-columns: 180px 1fr 150px; gap: 10px; align-items: center; font-size: 11px; padding: 3px 0; }
+  .pol-tl-row { display: grid; grid-template-columns: 180px 1fr 150px; gap: 10px; align-items: center; font-size: 12px; padding: 3px 0; }
   .pol-tl-track { position: relative; height: 14px; background: var(--bg-primary); border-radius: 3px; }
   .pol-tl-bar { position: absolute; top: 2px; bottom: 2px; min-width: 3px; border-radius: 2px; background: var(--accent-cyan); opacity: 0.85; }
   .pol-tl-bar.learning { background: var(--accent-purple); }
@@ -716,7 +713,7 @@
   .pol-tl-mark.target { background: var(--accent-amber); }
   .pol-tl-mark.finish { background: var(--accent-red); opacity: 0.7; }
   .pol-tl-mark.now { background: var(--text-secondary); opacity: 0.6; }
-  .pol-tl-axis { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+  .pol-tl-axis { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
   @media (max-width: 760px) { .pol-tl-row { grid-template-columns: 1fr; } }
   .ex-scope { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 0 12px; font-size: 12px; color: var(--text-muted); }
   .ex-scope:empty { display: none; }
@@ -735,18 +732,18 @@
   .um-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
   .um-toolbar .um-input { width: 220px; }
   .um-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-  .um-seg button { background: none; border: none; color: var(--text-secondary); padding: 6px 10px; font-size: 11px; cursor: pointer; }
+  .um-seg button { background: none; border: none; color: var(--text-secondary); padding: 6px 10px; font-size: 12px; cursor: pointer; }
   .um-seg button.active { background: var(--bg-card); color: var(--accent-blue); }
   .um-group { margin-bottom: 6px; }
   .um-group .cluster-folder { margin: 8px 0 0; }
   .um-group .folder-children { margin-left: 0; padding-left: 0; border-left: none; }
-  .um-chip { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 10px; margin: 1px 3px 1px 0; border: 1px solid var(--border); color: var(--text-secondary); }
+  .um-chip { display: inline-block; font-size: 12px; padding: 1px 7px; border-radius: 10px; margin: 1px 3px 1px 0; border: 1px solid var(--border); color: var(--text-secondary); }
   .fm-list { display: flex; flex-direction: column; gap: 1px; max-height: 50vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px; }
   .fm-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; color: var(--text-secondary); }
   .fm-row:hover { background: var(--bg-card); }
   .fm-row.member { color: var(--text-primary); }
   .fm-row.member .fm-name { font-weight: 500; }
-  .fm-tag { margin-left: auto; font-size: 10px; opacity: 0.7; }
+  .fm-tag { margin-left: auto; font-size: 12px; opacity: 0.7; }
   .rail-add { margin-top: auto; padding-top: 10px; }
   .rail-add button { width: 100%; }
   .cl-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -754,7 +751,7 @@
   .cl-table td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
   .cl-table tr:last-child td { border-bottom: none; }
   .cl-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
-  .cl-form label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+  .cl-form label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
   .cl-form input[type=text], .cl-form input[type=password] {
     width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 6px; font-size: 12px;
     background: var(--bg-input, var(--bg-primary)); border: 1px solid var(--border); color: var(--text-primary);
@@ -763,9 +760,9 @@
   .cl-msg { font-size: 12px; margin-top: 8px; min-height: 16px; }
   .cl-msg.ok { color: var(--accent-green); } .cl-msg.err { color: var(--accent-red); }
   .cl-status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-  .cl-nodes { display: flex; flex-wrap: wrap; gap: 3px 14px; margin-top: 5px; font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary); }
+  .cl-nodes { display: flex; flex-wrap: wrap; gap: 3px 14px; margin-top: 5px; font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
   .cl-node { white-space: nowrap; } .cl-node.gone { opacity: 0.5; }
-  .cl-node em { font-style: normal; font-size: 9px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; margin-left: 4px; }
+  .cl-node em { font-style: normal; font-size: 11px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; margin-left: 4px; }
   .cl-node a { color: var(--text-muted); text-decoration: none; margin-left: 2px; } .cl-node a:hover { color: var(--accent-red); }
 
   /* community-support notice (shown once per user) */
@@ -792,7 +789,7 @@
   .alerts-scroll { overflow-y: auto; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
   .alerts-group-title { font-family: var(--font-ui); font-size: 12px;
                         color: var(--text-muted); display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-  .alert-dot { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; font-size: 10px; font-weight: 700; color: var(--alert-ink); flex-shrink: 0; }
+  .alert-dot { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; font-size: 12px; font-weight: 700; color: var(--alert-ink); flex-shrink: 0; }
   .alert-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; padding: 8px 10px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; }
   .alert-row-main { flex: 1 1 280px; min-width: 0; font-size: 13px; line-height: 1.45; color: var(--text-primary); }
   .alert-row-meta { font-size: 12px; color: var(--text-muted); font-family: var(--font-ui); margin-top: 2px; }
@@ -804,13 +801,13 @@
   .alerts-hist-filters select { background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-active); border-radius: 6px; padding: 3px 6px; font-size: 12px; }
   .alerts-hist-filters[hidden] { display: none; }
   .alerts-hist-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  .alerts-hist-table th { text-align: left; color: var(--text-muted); font-weight: 500; font-size: 11px; padding: 6px; border-bottom: 1px solid var(--border); }
+  .alerts-hist-table th { text-align: left; color: var(--text-muted); font-weight: 500; font-size: 12px; padding: 6px; border-bottom: 1px solid var(--border); }
   .alerts-hist-table td { padding: 6px; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--text-secondary); }
   .cc-state { font-family: var(--font-ui); font-size: 12px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--border); white-space: nowrap; }
   .cc-state.open { color: var(--alert-warning); border-color: var(--alert-warning); } .cc-state.locked { color: var(--accent-green); border-color: var(--accent-green); }
   .cc-state.blank, .cc-state.unknown, .cc-state.pending, .cc-state.stopped { color: var(--text-muted); } .cc-state.error { color: var(--accent-red); border-color: var(--accent-red); }
   .cc-refs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-  .cc-refs figure { display: flex; flex-direction: column; gap: 3px; font-size: 10px; color: var(--text-muted); }
+  .cc-refs figure { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-muted); }
   .cc-refs img { width: 160px; border: 1px solid var(--border); border-radius: 4px; }
   .update-modal-backdrop {
     display: none; position: fixed; inset: 0; z-index: 10200;
@@ -878,13 +875,13 @@
     color: var(--accent-amber); transition: all 0.2s;
   }
   .update-apply-btn:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--warn) 20%, transparent); box-shadow: 0 0 8px color-mix(in srgb, var(--warn) 25%, transparent);
+    background: color-mix(in srgb, var(--warn) 20%, transparent);
   }
   .update-apply-btn:disabled { opacity: 0.5; cursor: default; }
   .update-log {
     background: var(--bg-primary); border: 1px solid var(--border);
     border-radius: 6px; padding: 12px; font-family: var(--font-mono);
-    font-size: 11px; color: var(--text-secondary); max-height: 180px;
+    font-size: 12px; color: var(--text-secondary); max-height: 180px;
     overflow-y: auto; display: none; line-height: 1.7;
   }
   .update-log.visible { display: block; }
@@ -933,47 +930,25 @@
   .settings-toast.err { border-color: var(--accent-red); color: var(--accent-red); }
 
   /* ─── Infraviewer tab ─── */
-  .iv-sub-nav {
-    display: flex; gap: 0; border-bottom: 1px solid var(--border);
-    margin-bottom: 20px; background: var(--bg-secondary);
-    margin-left: -32px; margin-right: -32px; padding: 0 32px;
+  /* sub-tabs of every module: plain underline tabs inside the page (one rule for all five modules) */
+  .iv-sub-nav, .cb-sub-nav, .sentinel-sub-nav, .settings-sub-nav, .exports-sub-nav {
+    display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 18px; overflow-x: auto; scrollbar-width: none;
   }
-  .iv-sub-tab {
-    padding: 10px 20px; font-size: 12px; font-weight: 500; color: var(--text-secondary);
-    cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; user-select: none;
+  .iv-sub-tab, .cb-sub-tab, .sentinel-sub-tab, .settings-sub-tab, .exports-sub-tab {
+    padding: 9px 14px; font-size: 14px; color: var(--ink-2); white-space: nowrap; margin-bottom: -1px;
+    cursor: pointer; border-bottom: 2px solid transparent; transition: color .15s; user-select: none;
   }
-  .iv-sub-tab:hover { color: var(--text-primary); }
-  .iv-sub-tab.active { color: var(--accent-green); border-bottom-color: var(--accent-green); }
+  .iv-sub-tab:hover, .cb-sub-tab:hover, .sentinel-sub-tab:hover, .settings-sub-tab:hover, .exports-sub-tab:hover { color: var(--ink); }
+  .iv-sub-tab.active, .cb-sub-tab.active, .sentinel-sub-tab.active, .settings-sub-tab.active, .exports-sub-tab.active {
+    color: var(--accent-2); border-bottom-color: var(--accent); font-weight: 500; }
   .iv-panel { display: none; }
   .iv-panel.active { display: block; }
 
   /* ─── Clusterbalancer tab ─── */
-  .cb-sub-nav {
-    display: flex; gap: 0; border-bottom: 1px solid var(--border);
-    margin-bottom: 20px; background: var(--bg-secondary);
-    margin-left: -32px; margin-right: -32px; padding: 0 32px;
-  }
-  .cb-sub-tab {
-    padding: 10px 20px; font-size: 12px; font-weight: 500; color: var(--text-secondary);
-    cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; user-select: none;
-  }
-  .cb-sub-tab:hover { color: var(--text-primary); }
-  .cb-sub-tab.active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); }
   .cb-panel { display: none; }
   .cb-panel.active { display: block; }
 
   /* ─── Foresight tab ─── */
-  .sentinel-sub-nav, .settings-sub-nav, .exports-sub-nav {
-    display: flex; gap: 0; border-bottom: 1px solid var(--border);
-    margin-bottom: 20px; background: var(--bg-secondary);
-    margin-left: -32px; margin-right: -32px; padding: 0 32px;
-  }
-  .sentinel-sub-tab, .settings-sub-tab, .exports-sub-tab {
-    padding: 10px 20px; font-size: 12px; font-weight: 500; color: var(--text-secondary);
-    cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; user-select: none;
-  }
-  .sentinel-sub-tab:hover, .settings-sub-tab:hover, .exports-sub-tab:hover { color: var(--text-primary); }
-  .sentinel-sub-tab.active, .settings-sub-tab.active, .exports-sub-tab.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
   .sentinel-panel, .settings-panel, .exports-panel { display: none; }
   .sentinel-panel.active, .settings-panel.active, .exports-panel.active { display: block; }
 
@@ -1001,7 +976,7 @@
     padding: 16px; text-align: center;
   }
   .sentinel-tile-val { font-family: var(--font-mono); font-size: 24px; font-weight: 700; margin-bottom: 4px; }
-  .sentinel-tile-label { font-size: 11px; color: var(--text-secondary); }
+  .sentinel-tile-label { font-size: 12px; color: var(--text-secondary); }
 
   /* severity badges */
   .sev-emergency { color: var(--accent-red); }
@@ -1073,8 +1048,8 @@
     text-align: center;
   }
   #dataQualityBanner.visible { display: block; }
-  #dataQualityBanner.info { background: var(--info-bg); border-top-color: var(--info); color: var(--info); }
-  #dataQualityBanner.warn { background: var(--warn-bg); border-top-color: var(--warn); color: var(--warn); }
+  #dataQualityBanner.info { background: linear-gradient(var(--info-bg), var(--info-bg)), var(--surface); border-top-color: var(--info); color: var(--info); }
+  #dataQualityBanner.warn { background: linear-gradient(var(--warn-bg), var(--warn-bg)), var(--surface); border-top-color: var(--warn); color: var(--warn); }
 
   /* ── user manager ─────────────────────────────────────────────────────── */
   .um-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -1098,13 +1073,14 @@
   .um-badge-user   { background: var(--bg-nested); color: var(--text-muted); border: 1px solid var(--border); }
   .um-badge-otp-on { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent); }
   .um-badge-otp-off{ background: var(--bg-nested); color: var(--text-muted); border: 1px solid var(--border); }
+  /* buttons: secondary (um-action-btn, refresh-btn), primary (um-primary-btn, solid accent), danger (.danger) */
   .um-action-btn {
-    background: var(--bg-nested); border: 1px solid var(--border); color: var(--text-muted);
-    padding: 4px 10px; border-radius: 5px; font-size: 11px; cursor: pointer; transition: all 0.15s;
+    background: var(--surface); border: 1px solid var(--border-strong); color: var(--ink);
+    padding: 4px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; transition: border-color .15s, color .15s;
   }
-  .um-action-btn:hover { border-color: var(--border-active); color: var(--text-primary); }
+  .um-action-btn:hover { border-color: var(--accent); color: var(--accent-2); }
   .um-action-btn.danger:hover { border-color: color-mix(in srgb, var(--bad) 50%, transparent); color: var(--bad); background: var(--bad-bg); }
-  .um-action-btn:disabled, .um-action-btn:disabled:hover { opacity: 0.45; cursor: not-allowed; border-color: var(--border); color: var(--text-muted); background: var(--bg-nested); }
+  .um-action-btn:disabled, .um-action-btn:disabled:hover { opacity: 0.45; cursor: not-allowed; border-color: var(--border-strong); color: var(--ink-3); background: var(--surface); }
   .um-add-row {
     display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     padding: 12px 0 4px; border-top: 1px solid var(--border); margin-top: 12px;
@@ -1120,10 +1096,10 @@
     border-radius: 6px; padding: 6px 10px; font-size: 12px; outline: none; cursor: pointer;
   }
   .um-primary-btn {
-    background: color-mix(in srgb, var(--accent) 15%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent-blue);
-    padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+    background: var(--accent); border: 1px solid var(--accent); color: var(--on-accent); font-weight: 500;
+    padding: 6px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; transition: filter .15s; white-space: nowrap;
   }
-  .um-primary-btn:hover { background: color-mix(in srgb, var(--accent) 25%, transparent); border-color: var(--accent-blue); }
+  .um-primary-btn:hover { filter: brightness(1.08); }
   .um-primary-btn:disabled { opacity: 0.4; pointer-events: none; }
   .um-error { color: var(--bad); font-size: 12px; margin-top: 4px; }
   .um-success { color: var(--ok); font-size: 12px; margin-top: 4px; }
@@ -1141,7 +1117,7 @@
     padding: 8px 12px; font-family: var(--font-mono); font-size: 12px;
     color: var(--text-secondary); word-break: break-all; max-width: 260px;
   }
-  .um-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+  .um-hint { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
   .um-dev-notice {
     display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 12px;
     font-family: var(--font-ui);
@@ -1261,7 +1237,7 @@
           <div class="chart-wrapper"><canvas id="nodeCpuChart"></canvas></div>
         </div>
         <div class="chart-container">
-          <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-green)"></div><span data-i18n="chart.cluster_iops">Total Cluster IOPS Over Time</span><span style="margin-left:auto;display:flex;gap:14px;font-size:11px;font-family:var(--font-ui);"><span id="iopsMinLabel" style="color:var(--accent-blue);"></span><span id="iopsMaxLabel" style="color:var(--accent-red);"></span><span id="iopsP95Label" style="color:var(--accent-amber);"></span></span></div>
+          <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-green)"></div><span data-i18n="chart.cluster_iops">Total Cluster IOPS Over Time</span><span style="margin-left:auto;display:flex;gap:14px;font-size:12px;font-family:var(--font-ui);"><span id="iopsMinLabel" style="color:var(--accent-blue);"></span><span id="iopsMaxLabel" style="color:var(--accent-red);"></span><span id="iopsP95Label" style="color:var(--accent-amber);"></span></span></div>
           <div class="chart-wrapper"><canvas id="vsdIopsChart"></canvas></div>
         </div>
         <div class="chart-container">
@@ -1307,7 +1283,7 @@
     <div class="iv-panel" id="ivpanel-events">
       <div class="chart-container" id="ivActivityCard" style="margin-bottom:12px;">
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-amber)"></div><span data-i18n="iv.activity">Cluster activity</span>
-          <span id="ivActivityNote" style="font-size:11px;color:var(--text-muted);margin-left:8px;font-weight:normal;"></span></div>
+          <span id="ivActivityNote" style="font-size:12px;color:var(--text-muted);margin-left:8px;font-weight:normal;"></span></div>
         <div id="ivActivityBody"><div class="loading"><div class="spinner"></div></div></div>
       </div>
     </div>
@@ -1335,7 +1311,7 @@
         <div class="chart-title">
           <div class="chart-title-dot" style="background:var(--accent-purple)"></div>
           <span data-i18n="chart.forecast_runs">Oracle Run Summary</span>
-          <div style="margin-left:auto;font-size:11px;color:var(--text-muted);font-family:var(--font-ui);font-weight:400;">
+          <div style="margin-left:auto;font-size:12px;color:var(--text-muted);font-family:var(--font-ui);font-weight:400;">
             One row per Oracle forecast cycle.
           </div>
         </div>
@@ -1347,7 +1323,7 @@
         <div class="chart-title">
           <div class="chart-title-dot" style="background:var(--accent-cyan)"></div>
           <span data-i18n="chart.predictions">Queued Recommendations</span>
-          <div style="margin-left:auto;font-size:11px;color:var(--text-muted);font-family:var(--font-ui);font-weight:400;">
+          <div style="margin-left:auto;font-size:12px;color:var(--text-muted);font-family:var(--font-ui);font-weight:400;">
             One row per VM the Oracle queued for migration. Cross-reference with the Migration Log to see which actually fired.
           </div>
         </div>
@@ -1388,7 +1364,7 @@
         <div class="chart-title"><div class="chart-title-dot" style="background:var(--accent-blue)"></div>
           <span data-i18n="section.capacity_forecasts">Capacity Forecasts</span>
           <div style="margin-left:auto;display:flex;gap:8px;">
-            <select id="forecastDimFilter" onchange="loadSentinelForecasts()" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);padding:4px 8px;border-radius:4px;font-size:11px;">
+            <select id="forecastDimFilter" onchange="loadSentinelForecasts()" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);padding:4px 8px;border-radius:4px;font-size:12px;">
               <option value="" data-i18n="forecast.all_dimensions">All dimensions</option>
               <option value="cpu" data-i18n="dim.cpu">CPU</option>
               <option value="ram" data-i18n="dim.ram">RAM</option>
@@ -1396,7 +1372,7 @@
               <option value="storage_latency" data-i18n="dim.latency">Latency</option>
               <option value="network" data-i18n="dim.network">Network</option>
             </select>
-            <select id="forecastHorizonFilter" onchange="loadSentinelForecasts()" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);padding:4px 8px;border-radius:4px;font-size:11px;">
+            <select id="forecastHorizonFilter" onchange="loadSentinelForecasts()" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-secondary);padding:4px 8px;border-radius:4px;font-size:12px;">
               <option value="" data-i18n="forecast.all_horizons">All horizons</option>
               <option value="30" selected>30d</option>
               <option value="90">90d</option>
@@ -1406,7 +1382,7 @@
           </div>
         </div>
         <div id="sentinelForecastTable"><div class="loading"><div class="spinner"></div><span data-i18n="loading.forecasts">Loading forecasts...</span></div></div>
-        <div style="margin-top:8px;font-size:11px;color:var(--text-secondary);text-align:right;opacity:0.7;">
+        <div style="margin-top:8px;font-size:12px;color:var(--text-secondary);text-align:right;opacity:0.7;">
           Deleted VMs are automatically removed from this list within 30 minutes.
         </div>
       </div>
@@ -1439,12 +1415,12 @@
         </p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;" id="brandingForm">
           <div style="display:flex;flex-direction:column;gap:6px;">
-            <label for="brandingCompany" style="font-size:11px;color:var(--text-secondary);font-family:var(--font-ui);" data-i18n="reports.company_name">Company Name</label>
+            <label for="brandingCompany" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);" data-i18n="reports.company_name">Company Name</label>
             <input id="brandingCompany" type="text" placeholder="e.g. Acme Corp"
               style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:7px 10px;border-radius:6px;font-size:13px;" />
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;">
-            <label for="brandingColorHex" style="font-size:11px;color:var(--text-secondary);font-family:var(--font-ui);" data-i18n="reports.accent_colour">Accent Colour</label>
+            <label for="brandingColorHex" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);" data-i18n="reports.accent_colour">Accent Colour</label>
             <div style="display:flex;gap:8px;align-items:center;">
               <input id="brandingColorPicker" type="color" value="#3b82f6" data-note="token-ok: report accent default"
                 style="width:40px;height:36px;border:none;background:none;cursor:pointer;padding:0;" />
@@ -1454,12 +1430,12 @@
             </div>
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;">
-            <label for="brandingLogoFile" style="font-size:11px;color:var(--text-secondary);font-family:var(--font-ui);" data-i18n="reports.logo">Logo (PNG or JPG, max 500 KB)</label>
+            <label for="brandingLogoFile" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);" data-i18n="reports.logo">Logo (PNG or JPG, max 500 KB)</label>
             <input id="brandingLogoFile" type="file" accept="image/png,image/jpeg"
               style="font-size:12px;color:var(--text-secondary);" onchange="brandingLogoSelected(this)" />
             <div id="brandingLogoPreview" style="display:none;margin-top:6px;">
               <img id="brandingLogoImg" style="max-height:40px;border:1px solid var(--border);border-radius:4px;" />
-              <button onclick="brandingClearLogo()" data-i18n="reports.logo_remove" style="margin-left:8px;background:none;border:1px solid var(--border);color:var(--text-secondary);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;">✕ Remove</button>
+              <button onclick="brandingClearLogo()" data-i18n="reports.logo_remove" style="margin-left:8px;background:none;border:1px solid var(--border);color:var(--text-secondary);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:12px;">✕ Remove</button>
             </div>
           </div>
         </div>
@@ -1467,7 +1443,7 @@
           <button onclick="saveBranding()" data-i18n="reports.save_branding" style="padding:8px 20px;background:var(--accent-blue);border:none;border-radius:6px;color:var(--on-accent);font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;">
             Save Branding
           </button>
-          <span id="brandingSaveMsg" style="font-size:11px;font-family:var(--font-ui);color:var(--accent-green);"></span>
+          <span id="brandingSaveMsg" style="font-size:12px;font-family:var(--font-ui);color:var(--accent-green);"></span>
         </div>
       </div>
 
@@ -1482,10 +1458,10 @@
           <button class="pdf-btn" id="pdfDownloadBtn" data-i18n="reports.download_pdf" onclick="pdfBtnClick(this)">
             ↓ Download PDF Report
           </button>
-          <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-ui);" id="pdfStatusMsg"></span>
+          <span style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);" id="pdfStatusMsg"></span>
         </div>
         <div style="margin-top:24px;padding:16px;background:var(--bg-nested);border:1px solid var(--border);border-radius:8px;">
-          <div data-i18n="reports.contents" style="font-family:var(--font-ui);font-size:11px;color:var(--text-secondary);margin-bottom:8px;">Report Contents</div>
+          <div data-i18n="reports.contents" style="font-family:var(--font-ui);font-size:12px;color:var(--text-secondary);margin-bottom:8px;">Report Contents</div>
           <ul style="font-size:12px;color:var(--text-secondary);list-style:none;padding:0;line-height:2;">
             <li data-i18n="reports.contents_summary">◆ Executive summary with cluster health score</li>
             <li data-i18n="reports.contents_exhaustion">◆ Resource exhaustion alerts (ordered by urgency)</li>
@@ -1511,7 +1487,7 @@
         <!-- scenario controls -->
         <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:20px;">
           <div style="display:flex;flex-direction:column;gap:6px;">
-            <label for="whatifScenario" data-i18n="whatif.scenario" style="font-size:11px;color:var(--text-secondary);font-family:var(--font-ui);">Scenario</label>
+            <label for="whatifScenario" data-i18n="whatif.scenario" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">Scenario</label>
             <select id="whatifScenario" style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;min-width:160px;">
               <option value="add_nodes" data-i18n="whatif.add_nodes">Add Nodes</option>
               <option value="add_vms" data-i18n="whatif.add_vms">Add VMs</option>
@@ -1519,29 +1495,29 @@
             </select>
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;">
-            <label for="whatifCount" data-i18n="whatif.count" style="font-size:11px;color:var(--text-secondary);font-family:var(--font-ui);">Count</label>
+            <label for="whatifCount" data-i18n="whatif.count" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">Count</label>
             <input id="whatifCount" type="number" min="1" max="100" value="1"
               style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:90px;" />
           </div>
           <div id="whatifNodeOptions" style="display:flex;gap:12px;flex-wrap:wrap;">
             <div style="display:flex;flex-direction:column;gap:6px;">
-              <label for="whatifStorageTB" data-i18n="whatif.storage_per_node" style="font-size:11px;color:var(--text-secondary);font-family:var(--font-ui);">Storage / node (TB, optional)</label>
+              <label for="whatifStorageTB" data-i18n="whatif.storage_per_node" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">Storage / node (TB, optional)</label>
               <input id="whatifStorageTB" type="number" min="0" step="0.1" placeholder="cluster avg"
                 style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:160px;" />
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;">
-              <label for="whatifRamGB" data-i18n="whatif.ram_per_node" style="font-size:11px;color:var(--text-secondary);font-family:var(--font-ui);">RAM / node (GB, optional)</label>
+              <label for="whatifRamGB" data-i18n="whatif.ram_per_node" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">RAM / node (GB, optional)</label>
               <input id="whatifRamGB" type="number" min="0" step="1" placeholder="cluster avg"
                 style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:160px;" />
             </div>
           </div>
           <div id="whatifVmLikeOptions" style="display:none;flex-direction:column;gap:6px;">
-            <label for="whatifSourceVm" data-i18n="whatif.template_vm" style="font-size:11px;color:var(--text-secondary);font-family:var(--font-ui);">Template VM</label>
+            <label for="whatifSourceVm" data-i18n="whatif.template_vm" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">Template VM</label>
             <input id="whatifSourceVm" type="text" placeholder="Type or select a VM name"
               list="whatifVmList"
               style="background:var(--bg-primary);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:260px;" />
             <datalist id="whatifVmList"></datalist>
-            <div id="whatifVmHint" style="font-size:11px;color:var(--text-muted);font-family:var(--font-ui);"></div>
+            <div id="whatifVmHint" style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);"></div>
           </div>
           <button onclick="runWhatIf()" data-i18n="whatif.run_simulation" style="padding:8px 20px;background:var(--accent-purple);border:none;border-radius:6px;color:var(--on-solid);font-size:13px;cursor:pointer;font-family:'Space Grotesk',sans-serif;white-space:nowrap;">
             ▶ Run Simulation
@@ -1552,10 +1528,10 @@
         <div id="whatifResults" style="display:none;">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;" id="whatifScoreCards"></div>
           <div style="background:var(--bg-nested);border:1px solid var(--border);border-radius:8px;padding:16px;">
-            <div data-i18n="whatif.exhaustion_changes" style="font-family:var(--font-ui);font-size:11px;color:var(--text-secondary);margin-bottom:10px;">EXHAUSTION DATE CHANGES</div>
+            <div data-i18n="whatif.exhaustion_changes" style="font-family:var(--font-ui);font-size:12px;color:var(--text-secondary);margin-bottom:10px;">EXHAUSTION DATE CHANGES</div>
             <div id="whatifExhaustionTable"></div>
           </div>
-          <div id="whatifAssumptions" style="margin-top:12px;font-size:11px;color:var(--text-muted);font-family:var(--font-ui);line-height:1.8;"></div>
+          <div id="whatifAssumptions" style="margin-top:12px;font-size:12px;color:var(--text-muted);font-family:var(--font-ui);line-height:1.8;"></div>
         </div>
         <div id="whatifError" style="display:none;color:var(--accent-red);font-size:12px;margin-top:12px;"></div>
         <div id="whatifLoading" style="display:none;"><div class="loading"><div class="spinner"></div><span data-i18n="loading.simulation">Running simulation...</span></div></div>
@@ -1568,7 +1544,7 @@
         <div class="loading"><div class="spinner"></div><span data-i18n="loading.settings">Loading settings...</span></div>
       </div>
       <!-- restart-required note -->
-      <div style="margin-top:8px;padding:12px 16px;background:var(--bg-nested);border:1px solid var(--border);border-radius:8px;font-family:var(--font-ui);font-size:10px;color:var(--text-muted);line-height:1.8;">
+      <div style="margin-top:8px;padding:12px 16px;background:var(--bg-nested);border:1px solid var(--border);border-radius:8px;font-family:var(--font-ui);font-size:12px;color:var(--text-muted);line-height:1.8;">
         <span data-i18n="settings.restart_required" style="color:var(--text-secondary)">Restart-required settings</span><span data-i18n="settings.restart_note"> — collection interval, trend interval, outcome check interval, ports, InfluxDB / PostgreSQL / HyperCore credentials, webhook URL, secret and delivery parameters must be set via environment variables in docker-compose and require a container restart.</span>
       </div>
     </div>
@@ -2075,7 +2051,7 @@ function renderVsdsForVm(vmUuid) {
           <div class="sub-item">
             <div class="sub-item-header">
               <span class="sub-item-name">${v.name}</span>
-              <span style="font-family:var(--font-ui);font-size:9px;padding:2px 6px;border-radius:3px;background:var(--accent-tint);color:var(--accent-2);">${v.type}</span>
+              <span style="font-family:var(--font-ui);font-size:11px;padding:2px 6px;border-radius:3px;background:var(--accent-tint);color:var(--accent-2);">${v.type}</span>
             </div>
             <div class="sub-item-row">
               <span class="sub-item-label">${t('vsd.read')}</span>
@@ -2733,11 +2709,11 @@ function _veRender() {
       <b>${E(c.run_at ? _exFmt(c.run_at) : t('ve.now'))}</b> · ${E(c.summary || c.kind)} · ${E(c.created_by || '?')}
       ${c.status === 'scheduled' ? ` <button class="um-action-btn" onclick="veCancel(${c.id})">${t('ve.cancel_change')}</button>` : ''}
       ${c.error ? `<div style="color:var(--accent-red);margin-top:3px;">${E(c.error)}</div>` : ''}
-      ${(c.result || []).length ? `<details style="margin-top:3px;"><summary style="cursor:pointer;color:var(--text-muted);">${t('ve.steps')}</summary>${c.result.map(x => `<div style="font-family:var(--font-ui);font-size:11px;color:${x.ok ? 'var(--text-secondary)' : 'var(--accent-red)'}">${_exFmt(x.at)} ${x.ok ? '✓' : '✕'} ${E(x.step)}${x.detail ? ' — ' + E(x.detail) : ''}</div>`).join('')}</details>` : ''}</div>`).join('');
+      ${(c.result || []).length ? `<details style="margin-top:3px;"><summary style="cursor:pointer;color:var(--text-muted);">${t('ve.steps')}</summary>${c.result.map(x => `<div style="font-family:var(--font-ui);font-size:12px;color:${x.ok ? 'var(--text-secondary)' : 'var(--accent-red)'}">${_exFmt(x.at)} ${x.ok ? '✓' : '✕'} ${E(x.step)}${x.detail ? ' — ' + E(x.detail) : ''}</div>`).join('')}</details>` : ''}</div>`).join('');
   document.getElementById('veBody').innerHTML = `
     ${pending ? `<div class="ve-sec" style="border-color:var(--accent-amber);font-size:12px;color:var(--accent-amber);">${t('ve.has_pending')}</div>` : ''}
     <div class="ve-power">
-      <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-ui);text-transform:uppercase;letter-spacing:.05em;margin-right:6px;">${t('ve.power')}</span>
+      <span style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);text-transform:uppercase;letter-spacing:.05em;margin-right:6px;">${t('ve.power')}</span>
       <button class="um-action-btn" ${on ? 'disabled' : ''} onclick="vePower('START')">${t('ve.p_start')}</button>
       <button class="um-action-btn" ${on ? '' : 'disabled'} onclick="vePower('SHUTDOWN')" title="${E(t('ve.p_shutdown_hint'))}">${t('ve.p_shutdown')}</button>
       <button class="um-action-btn" ${on ? '' : 'disabled'} onclick="vePower('REBOOT')">${t('ve.p_reboot')}</button>
@@ -2758,7 +2734,7 @@ function _veRender() {
     </div>
     <div class="ve-field" style="margin-top:12px;">${t('vmi.boot_order')} <span class="ve-cyc">⟳</span><ol class="ve-boot">${bootList}</ol>
       ${notInBoot.length ? `<div>${sel('ve-boot-add', [['', t('ve.boot_add')], ...notInBoot.map(dv => [dv.uuid, _veDevLabel(dv)])])} <button class="um-action-btn" onclick="_veBootAdd()">+</button></div>` : ''}</div>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">⟳ ${t('ve.cycle_hint')}</div></div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">⟳ ${t('ve.cycle_hint')}</div></div>
     <div class="ve-sec"><h3>${t('vmi.disks')} <button class="um-action-btn" onclick="_ve.adds.push({type:'VIRTIO_DISK',cap:50,cache:'WRITETHROUGH'});_veRender()">+ ${t('ve.add_disk')}</button></h3>
       <table class="ve-tbl"><thead><tr><th>${t('vmi.d_name')}</th><th>${t('vmi.d_type')}</th><th>${t('vmi.d_slot')}</th><th>${t('ve.size_or_iso')}</th><th>${t('vmi.d_cache')} ⟳</th><th>${t('vmi.d_tier')}</th><th>${t('vmi.d_snap_off')}</th><th></th></tr></thead><tbody>${diskRows}</tbody></table></div>
     <div class="ve-sec"><h3>${t('vmi.nics')} ⟳ <button class="um-action-btn" onclick="_ve.nicAdds.push({type:'VIRTIO',vlan:0});_veRender()">+ ${t('ve.add_nic')}</button></h3>
@@ -2769,7 +2745,7 @@ function _veRender() {
             <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="ve-rep-pause" ${rp.enable ? '' : 'checked'} onchange="_veSummary()"> ${t('ve.rep_pause')}</label>`)(replications[0])
           : sel('ve-rep', [['', t('ve.rep_none')], ...(_ve.data.connections || []).map(c => [c.uuid, c.cluster + (c.status && c.status !== 'ESTABLISHED' ? ` (${c.status.toLowerCase()})` : '')])], '')}
         <span id="ve-rep-hint" style="color:var(--text-muted);"></span>
-      </div>${replications.length ? `<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t('ve.rep_end_note')}</div>` : ''}</div>` : ''}
+      </div>${replications.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">${t('ve.rep_end_note')}</div>` : ''}</div>` : ''}
     <div class="ve-sec"><h3>${t('ve.changes')}</h3>${chg || `<div style="font-size:12px;color:var(--text-muted);">${t('ve.no_changes_yet')}</div>`}</div>
     <div class="ve-sec ve-danger"><h3 style="color:var(--accent-red)">${t('ve.danger')}</h3>
       <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--text-secondary);"><button class="um-action-btn danger" onclick="veDelete()">${t('ve.delete_vm')}</button> ${t('ve.delete_hint')}</div></div>`;
@@ -2996,7 +2972,7 @@ function _vnRender() {
       </div></div>
     <div class="ve-sec"><h3>${t('vmi.nics')} <button class="um-action-btn" onclick="_vnSync();_vn.nics.push({type:'VIRTIO',vlan:0});_vnRender()">+ ${t('ve.add_nic')}</button></h3>
       <table class="ve-tbl"><thead><tr><th>${t('vmi.n_type')}</th><th>VLAN</th><th></th></tr></thead><tbody>${nics}</tbody></table></div>
-    ${fromImage ? `<div class="ve-sec"><h3>cloud-init user-data</h3><div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">${t('vn.ci_hint')}</div>
+    ${fromImage ? `<div class="ve-sec"><h3>cloud-init user-data</h3><div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">${t('vn.ci_hint')}</div>
       <textarea id="vn-ci" spellcheck="false" style="width:100%;min-height:120px;background:var(--bg-nested);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:8px;font-family:var(--font-ui);font-size:12px;">${E(f['vn-ci'] || '#cloud-config\n')}</textarea></div>` : ''}
     <label style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text-secondary);"><input type="checkbox" id="vn-start" ${f['vn-start'] ? 'checked' : ''}> ${t('vn.start_after')}</label>
     <div id="vnProgress"></div>`;
@@ -3035,7 +3011,7 @@ async function _vnWatch(id) {
     const c = ((d && d.changes) || []).find(x => x.id === id);
     if (c && box) {
       box.innerHTML = `<div class="ve-sec"><h3>${t('vn.progress')} · <span class="vm-state-off">${t('ve.st_' + c.status)}</span></h3>${(c.result || []).map(x =>
-        `<div style="font-family:var(--font-ui);font-size:11px;color:${x.ok ? 'var(--text-secondary)' : 'var(--accent-red)'}">${_exFmt(x.at)} ${x.ok ? '✓' : '✕'} ${_clEsc(x.step)}</div>`).join('')}
+        `<div style="font-family:var(--font-ui);font-size:12px;color:${x.ok ? 'var(--text-secondary)' : 'var(--accent-red)'}">${_exFmt(x.at)} ${x.ok ? '✓' : '✕'} ${_clEsc(x.step)}</div>`).join('')}
         ${c.error ? `<div style="color:var(--accent-red);font-size:12px;margin-top:4px;">${_clEsc(c.error)}</div>` : ''}
         ${c.status === 'done' && c.vm_uuid ? `<div style="margin-top:8px;display:flex;gap:6px;"><button class="um-action-btn" onclick="closeNewVm();openVmEdit('${c.vm_uuid}')">${t('ve.edit')}</button><button class="um-action-btn" onclick="openVmConsole(currentCluster,'${c.vm_uuid}')">${t('console.open')}</button></div>` : ''}</div>`;
       box.scrollIntoView({block: 'nearest'});
@@ -3105,7 +3081,7 @@ async function openVmAct(kind, uuid) {
         <label>${t('vmi.tags')}<input type="text" id="va-tags" value="${E(vm.tags)}"></label>
         <label>${t('va.source')}<select id="va-snap"><option value="">${t('va.current_state')}</option>${snaps.map(x => `<option value="${E(x.uuid)}">${E(x.label || x.uuid)} · ${ts(x.timestamp)}</option>`).join('')}</select></label>
         <label style="flex-direction:row;align-items:center;gap:6px;margin-top:16px;"><input type="checkbox" id="va-start"> ${t('va.start_clone')}</label>
-      </div><div style="font-size:11px;color:var(--text-muted);margin-top:8px;">${t('va.clone_hint')}</div></div><div id="vaProgress"></div>`;
+      </div><div style="font-size:12px;color:var(--text-muted);margin-top:8px;">${t('va.clone_hint')}</div></div><div id="vaProgress"></div>`;
   }
   document.getElementById('vaFoot').hidden = false;
 }
@@ -3139,7 +3115,7 @@ async function vaGo() {
     const c = ((l && l.changes) || []).find(x => x.id === d.id);
     if (c && box) {
       box.innerHTML = `<div class="ve-sec"><h3>${t('vn.progress')} · <span class="vm-state-off">${t('ve.st_' + c.status)}</span></h3>${(c.result || []).map(x =>
-        `<div style="font-family:var(--font-ui);font-size:11px;color:${x.ok ? 'var(--text-secondary)' : 'var(--accent-red)'}">${_exFmt(x.at)} ${x.ok ? '✓' : '✕'} ${_clEsc(x.step)}${x.detail ? ' — ' + _clEsc(x.detail) : ''}</div>`).join('')}
+        `<div style="font-family:var(--font-ui);font-size:12px;color:${x.ok ? 'var(--text-secondary)' : 'var(--accent-red)'}">${_exFmt(x.at)} ${x.ok ? '✓' : '✕'} ${_clEsc(x.step)}${x.detail ? ' — ' + _clEsc(x.detail) : ''}</div>`).join('')}
         ${c.error ? `<div style="color:var(--accent-red);font-size:12px;margin-top:4px;">${_clEsc(c.error)}</div>` : ''}</div>`;
       if (['done', 'failed', 'cancelled'].includes(c.status)) { vmIndexStale(); if (typeof loadVMs === 'function') loadVMs(); return; }
     }
@@ -3355,7 +3331,7 @@ async function loadPredictions() {
       const lead = Number(p.lead_seconds||0);
       const leadStr = lead<60 ? `${lead.toFixed(0)}s` : lead<3600 ? `${(lead/60).toFixed(0)}m` : `${(lead/3600).toFixed(1)}h`;
       return `<tr>
-        <td>${formatDateTime(p.time)}<div style="font-size:9px;color:var(--text-muted);">peak ${peakWhen}</div></td>
+        <td>${formatDateTime(p.time)}<div style="font-size:11px;color:var(--text-muted);">peak ${peakWhen}</div></td>
         <td style="color:var(--text-primary)">${p.vm_name}</td>
         <td>${p.source_ip} <span class="arrow">→</span> ${p.target_ip}</td>
         <td style="color:var(--accent-amber)">${Number(p.predicted_peak_load||0).toFixed(1)}%</td>
@@ -3404,12 +3380,12 @@ async function loadActivity() {
   const row = (x, live) => `<div class="iv-task">
       <span class="engine-tag engine-external" style="min-width:64px;text-align:center;">${_clEsc(x.kind)}</span>
       <span style="flex:1;">${_clEsc(x.description)}</span>
-      ${live ? `<div class="iv-task-bar"><div style="width:${Math.max(2, x.progress || 0)}%"></div></div><span style="font-family:var(--font-ui);font-size:11px;min-width:34px;text-align:right;">${x.progress || 0}%</span>`
-             : `<span style="font-size:11px;color:${x.state === 'ERROR' ? 'var(--accent-red)' : 'var(--text-muted)'};">${x.state === 'ERROR' ? t('iv.activity_failed') : fmt(x.completed_at || x.modified_at)}</span>`}
+      ${live ? `<div class="iv-task-bar"><div style="width:${Math.max(2, x.progress || 0)}%"></div></div><span style="font-family:var(--font-ui);font-size:12px;min-width:34px;text-align:right;">${x.progress || 0}%</span>`
+             : `<span style="font-size:12px;color:${x.state === 'ERROR' ? 'var(--accent-red)' : 'var(--text-muted)'};">${x.state === 'ERROR' ? t('iv.activity_failed') : fmt(x.completed_at || x.modified_at)}</span>`}
     </div>`;
   document.getElementById('ivActivityBody').innerHTML =
     (active.map(x => row(x, true)).join('') || '') +
-    (done.length ? `<div style="font-size:10px;color:var(--text-muted);margin:8px 0 2px;text-transform:uppercase;letter-spacing:.04em;">${t('iv.activity_recent')}</div>` + done.map(x => row(x, false)).join('') : '') ||
+    (done.length ? `<div style="font-size:12px;color:var(--text-muted);margin:8px 0 2px;text-transform:uppercase;letter-spacing:.04em;">${t('iv.activity_recent')}</div>` + done.map(x => row(x, false)).join('') : '') ||
     `<div style="font-size:12px;color:var(--text-muted);">${t('iv.activity_none')}</div>`;
 }
 
@@ -3590,51 +3566,51 @@ const CTRL_GROUPS = [
   {
     id: 'master', label: 'Master Controls', color: 'var(--accent-red)', tab: 'balancer',
     controls: [
-      { key: 'DRY_RUN',   label: 'DRY RUN',   type: 'bool', hint: 'Simulate only — no actual migrations' },
-      { key: 'VERBOSITY', label: 'VERBOSITY',  type: 'seg',  options: [0,1,2,3], hint: 'Log detail level' },
+      { key: 'DRY_RUN',   label: 'Dry run',   type: 'bool', hint: 'Simulate only — no actual migrations' },
+      { key: 'VERBOSITY', label: 'Verbosity',  type: 'seg',  options: [0,1,2,3], hint: 'Log detail level' },
     ]
   },
   {
     id: 'reactive', label: 'Reactive Balancer', color: 'var(--accent-blue)', tab: 'balancer',
     controls: [
-      { key: 'CPU_UPPER_THRESHOLD_PERCENT',  label: 'CPU THRESHOLD',  type: 'range', min:10,  max:100, step:0.5, unit:'%'   },
-      { key: 'RAM_UPPER_THRESHOLD_PERCENT',  label: 'RAM THRESHOLD',  type: 'range', min:10,  max:100, step:0.5, unit:'%'   },
-      { key: 'RAM_LIMIT_PERCENT',            label: 'RAM HARD LIMIT', type: 'range', min:50,  max:100, step:0.5, unit:'%'   },
+      { key: 'CPU_UPPER_THRESHOLD_PERCENT',  label: 'CPU threshold',  type: 'range', min:10,  max:100, step:0.5, unit:'%'   },
+      { key: 'RAM_UPPER_THRESHOLD_PERCENT',  label: 'RAM threshold',  type: 'range', min:10,  max:100, step:0.5, unit:'%'   },
+      { key: 'RAM_LIMIT_PERCENT',            label: 'RAM hard limit', type: 'range', min:50,  max:100, step:0.5, unit:'%'   },
       { key: 'MAX_VCPU_RATIO',               label: 'vCPU RATIO',     type: 'range', min:0.5, max:8.0, step:0.1, unit:'×'   },
-      { key: 'SAMPLE_INTERVAL_SECONDS',      label: 'SAMPLE INTERVAL',type: 'range', min:10,  max:300, step:5,   unit:'s'   },
-      { key: 'AVG_WINDOW_MINUTES',           label: 'AVG WINDOW',     type: 'range', min:1,   max:30,  step:1,   unit:'min' },
-      { key: 'VM_MOVE_COOLDOWN_MINUTES',     label: 'VM COOLDOWN',    type: 'range', min:0,   max:120, step:1,   unit:'min' },
-      { key: 'MIGRATION_COOLDOWN_MINUTES',   label: 'GLOBAL COOLDOWN',type: 'range', min:0,   max:60,  step:1,   unit:'min' },
-      { key: 'CPU_TARGET_TOLERANCE_PERCENT',  label: 'CPU TOLERANCE',  type: 'range', min:1,   max:20,  step:0.5, unit:'%'   },
+      { key: 'SAMPLE_INTERVAL_SECONDS',      label: 'Sample interval',type: 'range', min:10,  max:300, step:5,   unit:'s'   },
+      { key: 'AVG_WINDOW_MINUTES',           label: 'Avg window',     type: 'range', min:1,   max:30,  step:1,   unit:'min' },
+      { key: 'VM_MOVE_COOLDOWN_MINUTES',     label: 'VM cooldown',    type: 'range', min:0,   max:120, step:1,   unit:'min' },
+      { key: 'MIGRATION_COOLDOWN_MINUTES',   label: 'Global cooldown',type: 'range', min:0,   max:60,  step:1,   unit:'min' },
+      { key: 'CPU_TARGET_TOLERANCE_PERCENT',  label: 'CPU tolerance',  type: 'range', min:1,   max:20,  step:0.5, unit:'%'   },
       { key: 'EXCLUDE_NODE_IPS',             label: 'EXCLUDE NODE IPs', type: 'text', hint: 'Comma-separated IPs', wide: true },
     ]
   },
   {
     id: 'predictive', label: 'Predictive Engine  ·  The Oracle', color: 'var(--accent-purple)', tab: 'balancer',
     controls: [
-      { key: 'PREDICTIVE_BALANCING_ENABLED', label: 'ENABLED',        type: 'bool', hint: 'Enable Oracle forecasting' },
-      { key: 'PREDICTIVE_THRESHOLD',         label: 'DANGER THRESHOLD',type: 'range', min:50,   max:100,  step:0.5, unit:'%'     },
-      { key: 'PREDICTIVE_LEAD_TIME_HOURS',   label: 'LEAD TIME',       type: 'range', min:1,    max:24,   step:1,   unit:'h'     },
-      { key: 'PREDICTIVE_MIN_HISTORY_HOURS', label: 'MIN HISTORY',     type: 'range', min:24,   max:720,  step:24,  unit:'h'     },
-      { key: 'PREDICTIVE_LOOKBACK_DAYS',     label: 'LOOKBACK',        type: 'range', min:7,    max:365,  step:7,   unit:'days'  },
-      { key: 'PREDICTIVE_MAX_WORKERS',          label: 'MAX WORKERS',      type: 'range', min:1,  max:16,  step:1,  unit:''    },
-      { key: 'PREDICTIVE_INTERVAL_SECONDS',     label: 'RUN INTERVAL',     type: 'range', min:3600, max:86400, step:3600, unit:'s' },
-      { key: 'PREDICTIVE_RESERVATION_MINUTES',  label: 'NODE RESERVE',     type: 'range', min:0,  max:120, step:5,  unit:'min' },
+      { key: 'PREDICTIVE_BALANCING_ENABLED', label: 'Enabled',        type: 'bool', hint: 'Enable Oracle forecasting' },
+      { key: 'PREDICTIVE_THRESHOLD',         label: 'Danger threshold',type: 'range', min:50,   max:100,  step:0.5, unit:'%'     },
+      { key: 'PREDICTIVE_LEAD_TIME_HOURS',   label: 'Lead time',       type: 'range', min:1,    max:24,   step:1,   unit:'h'     },
+      { key: 'PREDICTIVE_MIN_HISTORY_HOURS', label: 'Min history',     type: 'range', min:24,   max:720,  step:24,  unit:'h'     },
+      { key: 'PREDICTIVE_LOOKBACK_DAYS',     label: 'Lookback',        type: 'range', min:7,    max:365,  step:7,   unit:'days'  },
+      { key: 'PREDICTIVE_MAX_WORKERS',          label: 'Max workers',      type: 'range', min:1,  max:16,  step:1,  unit:''    },
+      { key: 'PREDICTIVE_INTERVAL_SECONDS',     label: 'Run interval',     type: 'range', min:3600, max:86400, step:3600, unit:'s' },
+      { key: 'PREDICTIVE_RESERVATION_MINUTES',  label: 'Node reserve',     type: 'range', min:0,  max:120, step:5,  unit:'min' },
     ]
   },
   {
     id: 'collector', label: 'Collector', color: 'var(--accent-cyan)', tab: 'general',
     controls: [
-      { key: 'POLL_INTERVAL',       label: 'FAST POLL',    type: 'range', min:10, max:120, step:5,  unit:'s' },
-      { key: 'SLOW_POLL_INTERVAL',  label: 'SLOW POLL',    type: 'range', min:60, max:3600,step:30, unit:'s' },
-      { key: 'INFLUX_WRITE_RETRIES',label: 'WRITE RETRIES',type: 'range', min:1,  max:10,  step:1,  unit:''  },
-      { key: 'INFLUX_RETRY_DELAY',  label: 'RETRY DELAY',  type: 'range', min:1,  max:30,  step:1,  unit:'s' },
+      { key: 'POLL_INTERVAL',       label: 'Fast poll',    type: 'range', min:10, max:120, step:5,  unit:'s' },
+      { key: 'SLOW_POLL_INTERVAL',  label: 'Slow poll',    type: 'range', min:60, max:3600,step:30, unit:'s' },
+      { key: 'INFLUX_WRITE_RETRIES',label: 'Write retries',type: 'range', min:1,  max:10,  step:1,  unit:''  },
+      { key: 'INFLUX_RETRY_DELAY',  label: 'Retry delay',  type: 'range', min:1,  max:30,  step:1,  unit:'s' },
     ]
   },
   {
     id: 'dashboard', label: 'Dashboard', color: 'var(--accent-green)', tab: 'general',
     controls: [
-      { key: 'STALE_SECONDS', label: 'STALE THRESHOLD', type: 'range', min:30, max:600, step:10, unit:'s' },
+      { key: 'STALE_SECONDS', label: 'Stale threshold', type: 'range', min:30, max:600, step:10, unit:'s' },
     ]
   },
 ];
@@ -3971,7 +3947,7 @@ async function loadSentinelOverview() {
           ${t('sentinel.warming_running')}<br><br>
           ${countdownStr}
         </div>
-        ${startTime ? `<div style="font-size:11px;color:var(--text-muted)">${t('sentinel.warming_started')} ${startTime.toLocaleString('en-GB')}</div>` : ''}
+        ${startTime ? `<div style="font-size:12px;color:var(--text-muted)">${t('sentinel.warming_started')} ${startTime.toLocaleString('en-GB')}</div>` : ''}
       </div>`;
 
     // auto-refresh every 30 s while waiting (only while this cluster is still selected)
@@ -4089,8 +4065,8 @@ async function loadSentinelOverview() {
     ${breakdownDims.length ? `
     <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin:12px 0;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:12px;">
-        <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);">${t('sentinel.health_breakdown')}</span>
-        ${h.daily_aggregate ? `<span style="font-size:10px;color:var(--text-muted);">${t('sentinel.based_on')} <code style="background:var(--bg-primary);padding:2px 6px;border-radius:3px;color:var(--accent-cyan);font-family:monospace;">${h.daily_aggregate}</code></span>` : ''}
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);">${t('sentinel.health_breakdown')}</span>
+        ${h.daily_aggregate ? `<span style="font-size:12px;color:var(--text-muted);">${t('sentinel.based_on')} <code style="background:var(--bg-primary);padding:2px 6px;border-radius:3px;color:var(--accent-cyan);font-family:monospace;">${h.daily_aggregate}</code></span>` : ''}
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;">
         ${breakdownDims.map(d => {
@@ -4107,13 +4083,13 @@ async function loadSentinelOverview() {
                   <div style="height:100%;width:${w}%;background:${color};transition:width 0.3s ease;"></div>
                 </div>
                 <span style="min-width:36px;text-align:right;color:${color};font-weight:600;">${Math.round(s)}</span>
-                <span style="min-width:190px;text-align:right;color:var(--text-muted);font-size:11px;font-variant-numeric:tabular-nums;">${growthStr}</span>
+                <span style="min-width:190px;text-align:right;color:var(--text-muted);font-size:12px;font-variant-numeric:tabular-nums;">${growthStr}</span>
               </div>
-              ${reasonStr ? `<div style="margin-left:152px;font-size:10px;color:var(--text-muted);">${reasonStr}</div>` : ''}
+              ${reasonStr ? `<div style="margin-left:152px;font-size:12px;color:var(--text-muted);">${reasonStr}</div>` : ''}
             </div>`;
         }).join('')}
       </div>
-      <div style="font-size:10px;color:var(--text-muted);margin-top:10px;line-height:1.5;">${t('sentinel.health_breakdown_hint')}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:10px;line-height:1.5;">${t('sentinel.health_breakdown_hint')}</div>
     </div>` : ''}
 
     <div class="sentinel-tiles">
@@ -4201,7 +4177,7 @@ async function loadSentinelForecasts() {
         </tr>`).join('')}
       </tbody>
     </table>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">
+    <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">
       ${t('forecast.showing', {n: visible.length, total: data.length})}
     </div>
     </div>`;
@@ -4515,16 +4491,16 @@ function _renderWhatIfResult(d) {
 
   document.getElementById('whatifScoreCards').innerHTML = `
     <div style="background:var(--bg-nested);border:1px solid var(--border);border-radius:8px;padding:16px;">
-      <div style="font-family:var(--font-ui);font-size:10px;color:var(--text-muted);margin-bottom:8px;">${t('whatif.baseline')}</div>
+      <div style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted);margin-bottom:8px;">${t('whatif.baseline')}</div>
       <div style="font-size:28px;font-weight:700;color:var(--text-primary);">${(bl.health_score||0).toFixed(1)}</div>
-      <div style="font-size:11px;margin-top:4px;">${_sevBadge(bl.severity)} &nbsp;·&nbsp; ${t('whatif.bottleneck')} <span style="color:var(--text-secondary)">${bl.bottleneck||t('whatif.none')}</span></div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${bl.node_count ?? '?'} ${t('whatif.nodes_label')} · ${bl.vm_count ?? '?'} ${t('whatif.vms_label')}</div>
+      <div style="font-size:12px;margin-top:4px;">${_sevBadge(bl.severity)} &nbsp;·&nbsp; ${t('whatif.bottleneck')} <span style="color:var(--text-secondary)">${bl.bottleneck||t('whatif.none')}</span></div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${bl.node_count ?? '?'} ${t('whatif.nodes_label')} · ${bl.vm_count ?? '?'} ${t('whatif.vms_label')}</div>
     </div>
     <div style="background:var(--bg-nested);border:1px solid var(--accent-purple);border-radius:8px;padding:16px;">
-      <div style="font-family:var(--font-ui);font-size:10px;color:var(--accent-purple);margin-bottom:8px;">${t('whatif.simulated')} (+${d.count} ${d.scenario === 'add_nodes' ? t('whatif.nodes') : (d.scenario === 'add_vms_like' && sm.source_vm ? t('whatif.vms_like') + ' ' + sm.source_vm : t('whatif.vms'))})</div>
+      <div style="font-family:var(--font-ui);font-size:12px;color:var(--accent-purple);margin-bottom:8px;">${t('whatif.simulated')} (+${d.count} ${d.scenario === 'add_nodes' ? t('whatif.nodes') : (d.scenario === 'add_vms_like' && sm.source_vm ? t('whatif.vms_like') + ' ' + sm.source_vm : t('whatif.vms'))})</div>
       <div style="font-size:28px;font-weight:700;color:var(--text-primary);">${(sm.health_score||0).toFixed(1)} <span style="font-size:14px;">${scoreDelta}</span></div>
-      <div style="font-size:11px;margin-top:4px;">${_sevBadge(sm.severity)} &nbsp;·&nbsp; ${t('whatif.bottleneck')} <span style="color:var(--text-secondary)">${sm.bottleneck||t('whatif.none')}</span>${dt.bottleneck_changed ? ` <span style="color:var(--accent-amber)">${t('whatif.bottleneck_changed')}</span>` : ''}</div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${sm.node_count != null ? sm.node_count+' '+t('whatif.nodes_label') : ''} ${sm.vm_count != null ? '· '+sm.vm_count+' '+t('whatif.vms_label') : ''}</div>
+      <div style="font-size:12px;margin-top:4px;">${_sevBadge(sm.severity)} &nbsp;·&nbsp; ${t('whatif.bottleneck')} <span style="color:var(--text-secondary)">${sm.bottleneck||t('whatif.none')}</span>${dt.bottleneck_changed ? ` <span style="color:var(--accent-amber)">${t('whatif.bottleneck_changed')}</span>` : ''}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${sm.node_count != null ? sm.node_count+' '+t('whatif.nodes_label') : ''} ${sm.vm_count != null ? '· '+sm.vm_count+' '+t('whatif.vms_label') : ''}</div>
     </div>`;
 
   // exhaustion table
@@ -4549,7 +4525,7 @@ function _renderWhatIfResult(d) {
             : `<span style="color:var(--text-muted)">${t('whatif.unchanged')}</span>`;
       }
       return `<tr>
-        <td style="padding:6px 12px;font-family:var(--font-ui);font-size:11px;color:var(--text-secondary);">${dim}</td>
+        <td style="padding:6px 12px;font-family:var(--font-ui);font-size:12px;color:var(--text-secondary);">${dim}</td>
         <td style="padding:6px 12px;font-size:12px;">${blVal}</td>
         <td style="padding:6px 12px;font-size:12px;">${smVal}</td>
         <td style="padding:6px 12px;font-size:12px;">${gCell}</td>
@@ -4560,10 +4536,10 @@ function _renderWhatIfResult(d) {
       <table style="width:100%;border-collapse:collapse;">
         <thead>
           <tr style="border-bottom:1px solid var(--border);">
-            <th style="padding:6px 12px;text-align:left;font-size:10px;color:var(--text-muted);font-family:var(--font-ui);font-weight:400;">${t('whatif.dimension')}</th>
-            <th style="padding:6px 12px;text-align:left;font-size:10px;color:var(--text-muted);font-family:var(--font-ui);font-weight:400;">${t('whatif.baseline_col')}</th>
-            <th style="padding:6px 12px;text-align:left;font-size:10px;color:var(--accent-purple);font-family:var(--font-ui);font-weight:400;">${t('whatif.simulated_col')}</th>
-            <th style="padding:6px 12px;text-align:left;font-size:10px;color:var(--text-muted);font-family:var(--font-ui);font-weight:400;">${t('whatif.gained')}</th>
+            <th style="padding:6px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-family:var(--font-ui);font-weight:400;">${t('whatif.dimension')}</th>
+            <th style="padding:6px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-family:var(--font-ui);font-weight:400;">${t('whatif.baseline_col')}</th>
+            <th style="padding:6px 12px;text-align:left;font-size:12px;color:var(--accent-purple);font-family:var(--font-ui);font-weight:400;">${t('whatif.simulated_col')}</th>
+            <th style="padding:6px 12px;text-align:left;font-size:12px;color:var(--text-muted);font-family:var(--font-ui);font-weight:400;">${t('whatif.gained')}</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -4655,9 +4631,9 @@ async function _loadConsolePanel() {
   const rows = vms.map(v => `
     <tr>
       <td class="um-username">${_clEsc(v.vm_name || v.vm_uuid)}</td>
-      <td>${stateBadge(v)}<div style="font-size:10px;color:var(--text-muted);">${_exEsc(v.detail || '')}</div></td>
-      <td style="font-size:11px;">${v.state === 'open' && v.first_open_at ? _exFmt(v.first_open_at) : '—'}</td>
-      <td style="font-size:11px;">${_exFmt(v.last_check_at)}</td>
+      <td>${stateBadge(v)}<div style="font-size:12px;color:var(--text-muted);">${_exEsc(v.detail || '')}</div></td>
+      <td style="font-size:12px;">${v.state === 'open' && v.first_open_at ? _exFmt(v.first_open_at) : '—'}</td>
+      <td style="font-size:12px;">${_exFmt(v.last_check_at)}</td>
       <td>${v.refs}</td>
       <td><div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;max-width:420px;margin-left:auto;">
         <button class="um-action-btn" onclick="openVmConsole(currentCluster, '${_clEsc(v.vm_uuid)}')" ${v.state === 'stopped' ? 'disabled' : ''}>${t('console.open')}</button>
@@ -4673,9 +4649,9 @@ async function _loadConsolePanel() {
   const sessions = (log && log.sessions) || [];
   const dur = s => { if (!s.ended_at) return s.live ? `<strong style="color:var(--accent-green)">${t('cc.live')}</strong>` : '—';
     const sec = (new Date(s.ended_at) - new Date(s.started_at)) / 1000; return sec < 90 ? Math.round(sec) + 's' : sec < 5400 ? Math.round(sec / 60) + 'm' : (sec / 3600).toFixed(1) + 'h'; };
-  const logRows = sessions.map(s => `<tr><td style="font-size:11px;">${_exFmt(s.started_at)}</td><td>${(s.hidden || []).includes('username') ? `<span style="color:var(--text-muted)">${_clEsc(t('acc.actor_above'))}</span>` : _clEsc(s.username)}</td><td>${_clEsc(s.vm_name || s.vm_uuid)}</td>
+  const logRows = sessions.map(s => `<tr><td style="font-size:12px;">${_exFmt(s.started_at)}</td><td>${(s.hidden || []).includes('username') ? `<span style="color:var(--text-muted)">${_clEsc(t('acc.actor_above'))}</span>` : _clEsc(s.username)}</td><td>${_clEsc(s.vm_name || s.vm_uuid)}</td>
       <td>${s.kind === 'screenshot' ? t('cc.kind_screenshot') : t('cc.kind_interactive')}</td><td>${dur(s)}</td>
-      <td style="font-size:11px;color:var(--text-muted);">${_clEsc(s.end_reason || '')}</td><td style="font-size:11px;color:var(--text-muted);">${_clEsc(s.client_ip || '')}</td></tr>`).join('');
+      <td style="font-size:12px;color:var(--text-muted);">${_clEsc(s.end_reason || '')}</td><td style="font-size:12px;color:var(--text-muted);">${_clEsc(s.client_ip || '')}</td></tr>`).join('');
   el.innerHTML = `
     <div class="settings-group">
       <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--chart-3)"></div>
@@ -4765,7 +4741,7 @@ async function _loadSharesPanel() {
   SHARES = (await apiFetch('/api/backup/targets')) || [];
   const rows = SHARES.map(sh => `
     <tr>
-      <td class="um-username">${_clEsc(sh.name)}${sh.default_for_unfiled ? ` <span class="um-badge um-badge-user" title="${_clEsc(t('shares.assign_unfiled_title'))}">no_folder</span>` : ''}<div style="font-family:var(--font-ui);font-size:10px;color:var(--text-muted);">${_clEsc(sh.uri_base)}</div>${_isNfs(sh.uri_base) ? `<div class="sh-nfs-warn" style="font-size:10px;">${t('shares.nfs_badge')}</div>` : ''}</td>
+      <td class="um-username">${_clEsc(sh.name)}${sh.default_for_unfiled ? ` <span class="um-badge um-badge-user" title="${_clEsc(t('shares.assign_unfiled_title'))}">no_folder</span>` : ''}<div style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted);">${_clEsc(sh.uri_base)}</div>${_isNfs(sh.uri_base) ? `<div class="sh-nfs-warn" style="font-size:12px;">${t('shares.nfs_badge')}</div>` : ''}</td>
       <td>${_clEsc(sh.username || '—')}</td>
       <td>${_clEsc(sh.prune_path || '—')}</td>
       <td>${sh.folder_count}</td>
@@ -4797,10 +4773,10 @@ async function _loadProxiesPanel() {
   _pxList = proxies; _pxClusterOpts = clusterOpts;
   const rows = proxies.map(p => `
     <tr>
-      <td class="um-username">${_clEsc(p.name)}<div style="font-family:var(--font-ui);font-size:10px;color:var(--text-muted);">${_clEsc(p.url)}</div></td>
+      <td class="um-username">${_clEsc(p.name)}<div style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted);">${_clEsc(p.url)}</div></td>
       <td>${_clEsc(p.cluster_name)}</td>
-      <td><span class="ex-badge ${p.status === 'ok' ? 'ok' : (p.status === 'updating' ? 'off' : 'err')}">${_clEsc(p.status === 'updating' ? t('proxies.updating') : (p.status || '—'))}</span>${p.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}<div style="font-size:10px;color:var(--text-muted);">${p.vm_uuid ? t('proxies.vm_detected') : t('proxies.vm_missing')}${p.status_detail ? ' · ' + _clEsc(p.status_detail) : ''}</div></td>
-      <td style="font-size:11px;">${_clEsc(p.version || '—')}${_pxUpdateCell(p, stackImage)}${p.kind !== 'local' && p.capabilities ? `<div class="ex-hint" style="margin-top:2px;">${t(p.capabilities.host_network ? 'proxies.net_tests_ready' : 'proxies.net_tests_redeploy')}</div>` : ''}<div style="font-size:10px;color:var(--text-muted);font-family:var(--font-ui);">${_exFmt(p.last_seen_at)}</div></td>
+      <td><span class="ex-badge ${p.status === 'ok' ? 'ok' : (p.status === 'updating' ? 'off' : 'err')}">${_clEsc(p.status === 'updating' ? t('proxies.updating') : (p.status || '—'))}</span>${p.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}<div style="font-size:12px;color:var(--text-muted);">${p.vm_uuid ? t('proxies.vm_detected') : t('proxies.vm_missing')}${p.status_detail ? ' · ' + _clEsc(p.status_detail) : ''}</div></td>
+      <td style="font-size:12px;">${_clEsc(p.version || '—')}${_pxUpdateCell(p, stackImage)}${p.kind !== 'local' && p.capabilities ? `<div class="ex-hint" style="margin-top:2px;">${t(p.capabilities.host_network ? 'proxies.net_tests_ready' : 'proxies.net_tests_redeploy')}</div>` : ''}<div style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);">${_exFmt(p.last_seen_at)}</div></td>
       <td style="white-space:nowrap;">
         <button class="um-action-btn" onclick="pxTest(${p.id})">${t('clusters.test')}</button>
         <button class="um-action-btn" title="${_clEsc(t('folders.menu'))}" aria-label="${_clEsc(t('folders.menu'))}" onclick="event.stopPropagation(); pxMenu(event, ${p.id})">⋯</button>
@@ -4873,8 +4849,8 @@ async function _loadDeployments() {
   if (!rows.length) { el.innerHTML = ''; return; }
   const finished = rows.filter(d => d.status !== 'RUNNING').length;
   el.innerHTML = `<div class="um-section-title">${t('proxies.deployments')}</div>` + (finished ? `<div style="display:flex;justify-content:flex-end;margin-bottom:4px;"><button class="um-action-btn" onclick="pxClearDeployments()" title="${_clEsc(t('proxies.deploy_clear_hint'))}">${t('proxies.deploy_clear')}</button><div class="cl-msg" id="pxd-clear-msg"></div></div>` : '') + `<table class="um-table"><thead><tr><th>${t('proxies.d_name')}</th><th>${t('proxies.cluster')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead><tbody>${rows.map(d => `
-    <tr><td class="um-username">${_clEsc(d.name)}</td><td>${_clEsc(d.cluster_name)}</td><td style="font-family:var(--font-ui);font-size:11px;">${_exFmt(d.started_at)}</td>
-    <td>${_exStatusBadge(d.status, d.message)}</td><td style="font-size:11px;color:var(--text-muted);max-width:420px;">${d.status === 'RUNNING' ? '' : _clEsc(d.message || '')}</td></tr>`).join('')}</tbody></table>`;
+    <tr><td class="um-username">${_clEsc(d.name)}</td><td>${_clEsc(d.cluster_name)}</td><td style="font-family:var(--font-ui);font-size:12px;">${_exFmt(d.started_at)}</td>
+    <td>${_exStatusBadge(d.status, d.message)}</td><td style="font-size:12px;color:var(--text-muted);max-width:420px;">${d.status === 'RUNNING' ? '' : _clEsc(d.message || '')}</td></tr>`).join('')}</tbody></table>`;
   if (rows.some(d => d.status === 'RUNNING')) setTimeout(() => { if (document.getElementById('pxd-list')) _loadDeployments(); }, 8000);
 }
 async function pxClearDeployments() {
@@ -5105,7 +5081,7 @@ function _renderMyAccountCard(me) {
         <div class="chart-title-dot" style="background:var(--accent-cyan)"></div>
         <span class="settings-group-title">${_esc(t('acct.title'))}</span>
         <span style="font-size:12px;color:var(--text-muted);">${_esc(me.username)}${devBadge}</span>
-        <a href="/logout" style="margin-left:auto;font-size:11px;color:var(--text-muted);text-decoration:none;"
+        <a href="/logout" style="margin-left:auto;font-size:12px;color:var(--text-muted);text-decoration:none;"
            onmouseover="this.style.color='var(--accent-blue)'" onmouseout="this.style.color='var(--text-muted)'">${_esc(t('acct.sign_out'))}</a>
       </div>
       ${profileSection}${pwSection}${otpSection}
@@ -5227,37 +5203,37 @@ function switchCbPanel(p) {
 
 const SENT_INFO = {
   SENTINEL_CPU_OVER_PROVISIONED_THRESHOLD: {
-    label: 'OVER-PROV CPU THRESHOLD',
+    label: 'Over-prov CPU threshold',
     what: 'VMs consistently using less than this % of allocated CPU over the analysis window are flagged as over-provisioned.',
     benefits: 'Identifies VMs with too many vCPUs allocated, freeing up capacity that can be reassigned to under-provisioned VMs or allow higher VM density on the same hardware.',
     careful: 'Set too high and intentionally reserved VMs (standby servers, batch jobs with variable load) get incorrectly flagged. Consider your workload mix before lowering below 20%.',
   },
   SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD: {
-    label: 'UNDER-PROV CPU AVG',
+    label: 'Under-prov CPU avg',
     what: 'Average CPU usage above this % over the analysis window triggers Signal 1 of the under-provisioned model. Either avg or P95 threshold can fire independently.',
     benefits: 'Catches VMs that are consistently near capacity — sustained high utilisation is the strongest indicator that a VM needs more vCPUs.',
     careful: 'Set too low and VMs with occasional spikes but healthy averages will be missed. This signal works best alongside the P95 threshold, which catches burst patterns the average smooths out.',
   },
   SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD: {
-    label: 'UNDER-PROV CPU P95',
+    label: 'Under-prov CPU P95',
     what: 'P95 CPU usage above this % triggers burst-pattern under-provisioning (Signal 1). Catches VMs that spike to near-capacity even when their average looks healthy.',
     benefits: 'Surfaces VMs that look fine on average but regularly starve for CPU during busy periods — a common source of end-user performance complaints that average metrics hide.',
     careful: 'P95 at 90% is aggressive. Brief spikes are normal on shared HyperCore clusters. Raise this threshold if you see too many false positives on workloads with short, predictable bursts.',
   },
   SENTINEL_ANALYSIS_WINDOW_DAYS: {
-    label: 'ANALYSIS WINDOW',
+    label: 'Analysis window',
     what: 'How many days of InfluxDB metric history are used for right-sizing analysis and recurring spike detection. Minimum 7 days.',
     benefits: 'A longer window captures more complete usage patterns including weekday/weekend variation. The default 14 days covers two full weekly cycles — the recommended minimum for pattern detection.',
     careful: 'Shortening below 7 days risks recommendations based on atypical data (e.g. a single busy week). Extending beyond 30 days means the analysis is slower to react to genuine workload changes.',
   },
   SENTINEL_RECURRING_SPIKE_MIN_OCCURRENCES: {
-    label: 'MIN SPIKE OCCURRENCES',
+    label: 'Min spike occurrences',
     what: 'Minimum number of times a CPU spike must recur at the same weekday and hour bucket before Sentinel flags it as a recurring pattern.',
     benefits: 'Prevents a one-off incident from triggering a right-sizing recommendation. Requiring 3 or more occurrences means the pattern is genuinely repeating, not a fluke.',
     careful: 'Raising too high means real daily patterns need many days to appear (at 5, a daily spike needs 5 days of data). Lowering to 1 means any single spike at an hour triggers the signal.',
   },
   SENTINEL_ANOMALY_FILTER_ENABLED: {
-    label: 'ANOMALY FILTER',
+    label: 'Anomaly filter',
     what: 'Applies an IQR-fence outlier removal pass to each time series before fitting the linear regression forecast model. Outliers beyond 1.5× IQR are excluded from the regression.',
     benefits: 'Prevents a brief outage, maintenance window, or traffic spike from skewing the regression line and producing an inaccurate long-term forecast.',
     careful: 'Disabling makes forecasts more sensitive to anomalies. Useful only if you specifically want unusual events to influence predictions. In most production environments, leave this on.',
@@ -5269,55 +5245,55 @@ const SENT_INFO = {
     careful: 'Raising too high (e.g. 0.9) hides real but gradual trends — you may miss a genuine exhaustion runway. Setting to 0 disables the gate so any positive slope produces an exhaustion date regardless of fit quality.',
   },
   SENTINEL_FORECAST_DAILY_AGGREGATE: {
-    label: 'DAILY AGGREGATE',
+    label: 'Daily aggregate',
     what: 'How sub-day samples roll up into the daily data point used by cluster CPU / RAM / storage forecasts. mean = time-weighted average across the day. p95 = the 95th-percentile sample (roughly the busiest 1.2 hours). max = single highest sample of the day.',
     benefits: 'mean suits steady workloads where load is roughly constant. p95 captures sustained peak — best for VDI, batch-jobs, or any environment with a strong day/night pattern; the daily mean understates peak in those cases. max gives worst-case visibility but is sensitive to brief spikes (backup jobs, deploy/teardown) so use it deliberately.',
     careful: 'Switching to p95 or max makes growth rates look higher because daytime peaks count more than off-hours idle — that is the correct signal for capacity planning, but expect the absolute numbers to shift after the change. The choice does not affect per-VM right-sizing or per-VSD latency forecasts; it only changes how the cluster aggregates are built.',
   },
   SENTINEL_FORECAST_30D_ENABLED: {
-    label: '30D FORECAST',
+    label: '30-day forecast',
     what: 'Enables the 30-day short-term capacity forecast for all tracked resource dimensions: CPU, RAM, storage capacity, storage latency, and network.',
     benefits: 'Tactical view for immediate capacity decisions — are we about to run out of something in the next month? Drives the most urgent exhaustion alerts.',
     careful: 'Disabling suppresses all 30-day exhaustion alerts across the dashboard and API. Only turn off if you are deliberately reducing analysis scope or troubleshooting unexpected behaviour.',
   },
   SENTINEL_FORECAST_90D_ENABLED: {
-    label: '90D FORECAST',
+    label: '90-day forecast',
     what: 'Enables the 90-day quarterly capacity forecast. Aligned with typical IT planning and budget cycles.',
     benefits: "Answers 'do we need to act this quarter?' — the primary horizon for procurement planning and workload-growth conversations.",
     careful: 'Disabling removes all 90-day exhaustion alerts. Only disable if you want to reduce PostgreSQL write volume and are confident 30-day coverage is sufficient.',
   },
   SENTINEL_FORECAST_180D_ENABLED: {
-    label: '180D FORECAST',
+    label: '180-day forecast',
     what: 'Enables the 6-month strategic capacity forecast.',
     benefits: 'Identifies the next hardware purchase window before it becomes urgent. Reveals growth trends that are invisible at the 30 and 90-day horizons.',
     careful: 'Confidence scores for 180-day forecasts are typically lower — less data relative to the horizon. The dashboard automatically suppresses forecasts with confidence below 10%.',
   },
   SENTINEL_FORECAST_365D_ENABLED: {
-    label: '365D FORECAST',
+    label: '365-day forecast',
     what: 'Enables the 12-month strategic capacity forecast. The longest supported horizon.',
     benefits: 'Used for annual capacity planning and pre-sales growth conversations. Shows the full year trajectory for each resource dimension.',
     careful: 'Forecast confidence at 365 days is the lowest of all horizons and should be treated as directional only. The data-coverage confidence penalty suppresses very uncertain forecasts automatically.',
   },
   SENTINEL_RETENTION_MONTHS: {
-    label: 'RETENTION',
+    label: 'Retention',
     what: 'How many months forecast snapshots and right-sizing records are kept before the automated cleanup job removes them. Audit records (recommendation_events) are kept indefinitely regardless.',
     benefits: 'Prevents the PostgreSQL database from growing unboundedly. 12 months is sufficient for trend analysis and historical report generation.',
     careful: 'Lowering aggressively (e.g. 1–2 months) removes older recommendations from the dashboard and API, limiting historical comparison. Raising it increases database storage proportionally.',
   },
   SENTINEL_OUTCOME_TRACKER_ENABLED: {
-    label: 'OUTCOME TRACKER',
+    label: 'Outcome tracker',
     what: 'When enabled, Sentinel polls HyperCore every 6 hours to detect whether VMs that received a right-sizing recommendation were subsequently resized. Results are written back to the audit table.',
     benefits: "Closes the feedback loop on recommendations — shows whether advice was acted on and what the before/after spec looks like. Powers the 'Outcomes' view in the API.",
     careful: 'Requires SC_HOST, SC_USERNAME, and SC_PASSWORD to be set (HyperCore API credentials — env vars, restart required). Disable here if those are not configured or if HyperCore API polling is a concern.',
   },
   SENTINEL_OUTCOME_CHECK_DELAY_HOURS: {
-    label: 'OUTCOME CHECK DELAY',
+    label: 'Outcome check delay',
     what: 'How many hours after a right-sizing recommendation is issued before Sentinel first checks whether the VM was actually resized. Default 48 hours.',
     benefits: "Gives operators enough time to act on a recommendation before the check runs, avoiding premature 'no_action' outcomes being logged.",
     careful: "Setting too low (e.g. 1 hour) means most checks log 'no_action' before the operator has had time to act. Setting very high delays outcome visibility in the history view.",
   },
   SENTINEL_WEBHOOK_ENABLED: {
-    label: 'WEBHOOK ENABLED',
+    label: 'Webhook enabled',
     what: 'Master switch for the outbound webhook dispatcher. When enabled, Sentinel fires signed HTTP POST alerts to SENTINEL_WEBHOOK_URL for new CRITICAL and EMERGENCY events.',
     benefits: 'Pushes critical capacity alerts to external systems (Slack, PagerDuty, ticketing tools) in real time without polling the API. Each request is signed with HMAC-SHA256 for verification.',
     careful: 'Has no effect unless SENTINEL_WEBHOOK_URL is also set (environment variable — restart required). Toggling this off suppresses all outbound alerts without a restart.',
@@ -5527,7 +5503,7 @@ async function loadSentinelSettings() {
     const triggerBanner = isAdmin ? `
       <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:14px;">
         <button class="apply-btn" style="white-space:nowrap;" onclick="triggerSentinelAnalysisRun(this)">${t('sentinel.analysis_run_now')}</button>
-        <div style="font-size:11px;color:var(--text-secondary);line-height:1.5;">${t('sentinel.analysis_run_hint')}</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">${t('sentinel.analysis_run_hint')}</div>
       </div>` : '';
 
     el.innerHTML = triggerBanner + SENT_GROUPS.map(group => {
@@ -5854,7 +5830,7 @@ function openFolderMenu(ev, folderId) {
   const manage = f && f.can_manage_tree;
   _openMenu(ev, `
     ${can('users.manage') ? `<div class="popmenu-item" onclick="acFolderAccess('${folderId}')">👥 ${t('acc.access_btn')}</div>` : ''}
-    ${_exAvailable && f && f.can_assign_share ? `<div class="popmenu-item" onclick="openFolderShareMenu(event, '${folderId}')">🗄 ${t('shares.assign')}${f && f.share_id ? '' : ` <span style="color:var(--accent-amber);font-size:10px;">${t('shares.none_assigned')}</span>`}</div>` : ''}
+    ${_exAvailable && f && f.can_assign_share ? `<div class="popmenu-item" onclick="openFolderShareMenu(event, '${folderId}')">🗄 ${t('shares.assign')}${f && f.share_id ? '' : ` <span style="color:var(--accent-amber);font-size:12px;">${t('shares.none_assigned')}</span>`}</div>` : ''}
     ${manage ? `<div class="popmenu-item" onclick="renameFolderPrompt('${folderId}')">✎ ${t('folders.rename')}</div>
     <div class="popmenu-sep"></div>
     <div class="popmenu-item danger" onclick="deleteFolder('${folderId}')">🗑 ${t('folders.delete')}</div>` : ''}`);
@@ -5937,7 +5913,7 @@ function _clusterFormHtml(prefix, c) {
     <div class="cl-form">
       <div><label>${t('clusters.name')}</label><input type="text" id="${prefix}-name" value="${_clEsc(c.name)}" placeholder="prod-amsterdam"></div>
       <div><label>${t('clusters.host')}</label><input type="text" id="${prefix}-host" value="${_clEsc(c.host)}" placeholder="10.0.0.241">
-        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${t('clusters.host_hint')}</div></div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">${t('clusters.host_hint')}</div></div>
       <div><label>${t('clusters.username')}</label><input type="text" id="${prefix}-username" value="${_clEsc(c.username)}" autocomplete="off"></div>
       <div><label>${t('clusters.password')}</label><input type="password" id="${prefix}-password" autocomplete="new-password" placeholder="${c.cluster_id ? _clEsc(t('clusters.password_keep')) : ''}"></div>
       <div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="${prefix}-verify" ${c.verify_tls ? 'checked' : ''}><label for="${prefix}-verify" style="margin:0;">${t('clusters.verify_tls')}</label></div>
@@ -5946,9 +5922,9 @@ function _clusterFormHtml(prefix, c) {
         <option value="auto" ${(c.api_version || 'auto') === 'auto' ? 'selected' : ''}>${t('clusters.api_auto')}</option>
         <option value="v1" ${c.api_version === 'v1' ? 'selected' : ''}>${t('clusters.api_v1')}</option>
         <option value="v2" ${c.api_version === 'v2' ? 'selected' : ''}>${t('clusters.api_v2')}</option></select>
-        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${t('clusters.api_hint')}</div></div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">${t('clusters.api_hint')}</div></div>
       <div><label>${t('clusters.timezone')}</label><input type="text" id="${prefix}-timezone" value="${c.timezone_override ? _clEsc(c.timezone || '') : ''}" placeholder="${_clEsc(c.timezone || t('clusters.timezone_unknown'))}" list="tz-list" autocomplete="off">
-        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${c.timezone && !c.timezone_override ? t('clusters.timezone_detected', {tz: c.timezone}) : t('clusters.timezone_hint')}</div></div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">${c.timezone && !c.timezone_override ? t('clusters.timezone_detected', {tz: c.timezone}) : t('clusters.timezone_hint')}</div></div>
       <div><label>${t('folders.folder')}</label><select id="${prefix}-folder" style="width:100%;padding:7px 9px;border-radius:6px;font-size:12px;background:var(--bg-input, var(--bg-primary));border:1px solid var(--border);color:var(--text-primary);">
         <option value="">${t('folders.unfiled')}</option>
         ${FOLDERS.map(f => `<option value="${f.folder_id}" ${c.folder_id === f.folder_id ? 'selected' : ''}>${_clEsc(f.name)}</option>`).join('')}
@@ -5956,7 +5932,7 @@ function _clusterFormHtml(prefix, c) {
       ${c.cluster_id ? `<div><label>${t('clusters.role')}</label><select id="${prefix}-role" style="width:100%;padding:7px 9px;border-radius:6px;font-size:12px;background:var(--bg-input, var(--bg-primary));border:1px solid var(--border);color:var(--text-primary);">
         <option value="production" ${(c.role || 'production') === 'production' ? 'selected' : ''}>${t('clusters.role_production')}</option>
         <option value="dr" ${c.role === 'dr' ? 'selected' : ''}>${t('clusters.role_dr')}</option></select>
-        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${t('clusters.role_hint')}</div></div>` : ''}
+        <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">${t('clusters.role_hint')}</div></div>` : ''}
     </div>
     <div class="cl-actions">
       <button class="refresh-btn" onclick="clTest('${prefix}')">${t('clusters.test')}</button>
@@ -5989,7 +5965,7 @@ const _exViewerZone = () => { try { return Intl.DateTimeFormat().resolvedOptions
 // "03:00 US/Eastern (09:00 your time)" — omitted when the cluster's zone is the viewer's
 function _exTimeLabel(hhmm, tz) {
   if (!tz || tz === _exViewerZone()) return _exEsc(hhmm);
-  return `${_exEsc(hhmm)} <span style="color:var(--text-muted);font-size:10px;">${_exEsc(tz)} · ${t('ex.your_time', {time: _exZoneToLocal(hhmm, tz)})}</span>`;
+  return `${_exEsc(hhmm)} <span style="color:var(--text-muted);font-size:12px;">${_exEsc(tz)} · ${t('ex.your_time', {time: _exZoneToLocal(hhmm, tz)})}</span>`;
 }
 function _clRead(prefix) {
   const g = id => document.getElementById(`${prefix}-${id}`);
@@ -6168,7 +6144,8 @@ function _updateClusterSwitch() {
   const f = FOLDERS.find(x => x.folder_id === cur.folder_id);
   document.getElementById('tbSwitchDot').style.background = _clColour(cur, enabled.indexOf(cur));
   document.getElementById('tbSwitchName').textContent = cur.name;
-  document.getElementById('tbSwitchPath').textContent = f ? [...(f.path || []), f.name].join(' › ') : '';
+  const multi = new Set(FOLDERS.map(x => x.customer_id || '')).size > 1;
+  document.getElementById('tbSwitchPath').textContent = f ? [...(multi ? (f.path || []) : []), f.name].join(' › ') : '';
   let crit = 0, warn = 0;
   for (const c of enabled) {
     if (c.cluster_id === currentCluster) continue;
@@ -6490,7 +6467,7 @@ async function exLoadSchedules() {
   try { rows = await _exCall('GET', '/api/backup/plans'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
   const admin = _exIsAdmin();
   if (!rows.length) {
-    el.innerHTML = _exLocationLine(null) + `<div class="empty-state">${t('ex.no_schedules')}<br><span style="font-size:11px;color:var(--text-muted)">${t('ex.no_schedules_hint')}</span></div>`;
+    el.innerHTML = _exLocationLine(null) + `<div class="empty-state">${t('ex.no_schedules')}<br><span style="font-size:12px;color:var(--text-muted)">${t('ex.no_schedules_hint')}</span></div>`;
     return;
   }
   el.innerHTML = _exLocationLine(null) + `<div class="settings-group"><table class="um-table"><thead><tr>
@@ -6498,11 +6475,11 @@ async function exLoadSchedules() {
     </tr></thead><tbody>${rows.map(s => `
       <tr>
         <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="qcow2 compression">zip</span>` : ''}${_exClusterHint(s)}<div><span class="ex-badge ${s.mode === 'incremental' ? 'run' : 'off'}" title="${_exEsc(t('ex.f_mode'))}">${t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')}</span></div></td>
-        <td style="font-family:var(--font-ui);font-size:11px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_exLocation ? `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/` : _exEsc(s.effective_base || s.path_uri_base || '—')}</td>
-        <td><span class="ex-slots">${'<i></i>'.repeat(Math.min(s.retention, 14))}</span><span style="font-size:11px;color:var(--text-muted)">×${s.retention}${s.retention_days ? ` / ${s.retention_days}d` : ''}${s.mode === 'incremental' ? ` · ${t('ex.full_every', {n: s.full_every_n})}` : ''}</span></td>
+        <td style="font-family:var(--font-ui);font-size:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_exLocation ? `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/` : _exEsc(s.effective_base || s.path_uri_base || '—')}</td>
+        <td><span class="ex-slots">${'<i></i>'.repeat(Math.min(s.retention, 14))}</span><span style="font-size:12px;color:var(--text-muted)">×${s.retention}${s.retention_days ? ` / ${s.retention_days}d` : ''}${s.mode === 'incremental' ? ` · ${t('ex.full_every', {n: s.full_every_n})}` : ''}</span></td>
         <td style="font-family:var(--font-ui);">${s.policy_id ? `<span class="ex-badge run" title="${_exEsc(t('ex.pol_member_hint'))}">${t('ex.pol_member_of', {name: _exEsc(s.policy_name || '')})}</span>` : _exTimeLabel(s.run_time, s.timezone)}</td>
-        <td>${s.last_run ? `${_exStatusBadge(s.last_run.status, s.last_run.message)}${s.last_run.notice ? ' ' + _exNoticeBadge(s.last_run.notice) : ''}<div style="font-size:10px;color:var(--text-muted);font-family:var(--font-ui);">${_exFmt(s.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
-        <td style="font-family:var(--font-ui);font-size:11px;color:var(--text-muted)">${_exFmt(s.next_run)}</td>
+        <td>${s.last_run ? `${_exStatusBadge(s.last_run.status, s.last_run.message)}${s.last_run.notice ? ' ' + _exNoticeBadge(s.last_run.notice) : ''}<div style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);">${_exFmt(s.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:12px;">${t('ex.never')}</span>`}</td>
+        <td style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted)">${_exFmt(s.next_run)}</td>
         <td style="white-space:nowrap;">${admin ? `
           <button class="um-action-btn" onclick="exRunNow(${s.id})" ${s.enabled ? '' : 'disabled'}>${t('ex.run_now')}</button>
           <button class="um-action-btn" onclick="exToggle(${s.id})">${s.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
@@ -6638,14 +6615,14 @@ async function exPolicyNight(id, which, keep) {
     const status = r ? `${_exStatusBadge(r.status, '')}${r.notice ? ' ' + _exNoticeBadge(r.notice) : ''}`
       : i.learned ? t('ex.pol_tl_planned', {start: _polHM(i.planned_start, tz), dur: _polDur(i.seconds)})
       : t('ex.pol_tl_learning', {n: i.samples, of: i.needed || 5});
-    return `<div class="pol-tl-row"><div class="um-username" title="${_exEsc(i.cluster_name || '')}">${_exEsc(i.vm_name)} <span style="color:var(--text-muted);font-size:10px;">${_exEsc(i.cluster_name || '')} · ${t('ex.pol_tl_slot', {n: i.slot + 1})}</span></div>
+    return `<div class="pol-tl-row"><div class="um-username" title="${_exEsc(i.cluster_name || '')}">${_exEsc(i.vm_name)} <span style="color:var(--text-muted);font-size:12px;">${_exEsc(i.cluster_name || '')} · ${t('ex.pol_tl_slot', {n: i.slot + 1})}</span></div>
       <div class="pol-tl-track">${marks}<div class="pol-tl-bar ${cls}" style="left:${pct(start)}%;width:${Math.max(0.4, pct(end) - pct(start))}%" title="${_exEsc(_polHM(start, tz) + ' – ' + _polHM(end, tz))}"></div></div>
       <div style="color:var(--text-muted);">${status}</div></div>`;
   }).join('');
   box.innerHTML = `<div class="pol-tl">
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px;font-size:12px;">
       <b>${_polIsHourly(p) ? (n.open ? t('ex.pol_occ_now') : t('ex.pol_occ_next', {time: _polOcc(n.occurrence, p)})) : n.open ? t('ex.pol_night_tonight') : t('ex.pol_night_next', {date: _polOcc(n.occurrence, p)})}</b>
-      <span style="color:var(--text-muted);font-size:11px;">${t('ex.pol_tl_legend', {target: _polHM(n.target, tz), finish: _polHM(n.finish, tz), end: _polHM(n.end, tz)})}</span>
+      <span style="color:var(--text-muted);font-size:12px;">${t('ex.pol_tl_legend', {target: _polHM(n.target, tz), finish: _polHM(n.finish, tz), end: _polHM(n.end, tz)})}</span>
       <span style="margin-left:auto;display:flex;gap:4px;">
         <button class="um-action-btn" onclick="exPolicyNight(${id}, 'current', true)" ${which === 'current' ? 'disabled' : ''}>${t('ex.pol_tl_current')}</button>
         <button class="um-action-btn" onclick="exPolicyNight(${id}, 'next', true)" ${which === 'next' ? 'disabled' : ''}>${t('ex.pol_tl_next')}</button></span></div>
@@ -6738,7 +6715,7 @@ function _polForm(p, kind) {
       <div><label>${t('ex.pol_f_timezone')}</label><input type="text" id="${f}-timezone" list="polf-zones" value="${_exEsc(v.timezone)}"><datalist id="polf-zones">${zones}</datalist>
         <div class="ex-hint">${t('ex.pol_f_timezone_hint')}</div></div>
     </div>
-    <div style="margin:6px 0;"><label style="font-size:11px;color:var(--text-muted);">${t('ex.pol_blackouts')}</label>
+    <div style="margin:6px 0;"><label style="font-size:12px;color:var(--text-muted);">${t('ex.pol_blackouts')}</label>
       <div class="ex-hint">${t('ex.pol_f_blackouts_hint')}</div>
       <div id="${f}-blackouts">${(v.blackouts || []).map(_polBlackoutRow).join('')}</div>
       <button class="um-action-btn" onclick="_polAddBlackout()">${t('ex.pol_f_add_blackout')}</button></div>
@@ -6869,13 +6846,13 @@ async function exPolicyMembers(id, keepOpen) {
   box.innerHTML = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
     ${p.members.length ? `<table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.pol_col_cluster')}</th><th>${t('ex.pol_col_duration')}</th><th>${t('ex.col_last_run')}</th><th></th></tr></thead><tbody>
       ${p.members.map(m => `<tr><td class="um-username">${_exEsc(m.vm_name)}${m.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}</td>
-        <td style="font-size:11px;">${_exEsc(m.cluster_name)}</td>
-        <td style="font-size:11px;">${!m.prediction ? '—' : m.prediction.learned ? `<span title="${_exEsc(t('ex.pol_tl_planned', {start: _polHM(m.prediction.planned_start, p.timezone), dur: _polDur(m.prediction.seconds)}))}">~${_polDur(m.prediction.seconds)}</span>` : `<span class="ex-badge off" title="${_exEsc(t('ex.pol_learning_hint'))}">${t('ex.pol_tl_learning', {n: m.prediction.samples, of: m.prediction.needed || 5})}</span>`}</td>
-        <td>${m.last_run ? `${_exStatusBadge(m.last_run.status, m.last_run.message)}${m.last_run.notice ? ' ' + _exNoticeBadge(m.last_run.notice) : ''}<div style="font-size:10px;color:var(--text-muted);font-family:var(--font-ui);">${_exFmt(m.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:11px;">${t('ex.never')}</span>`}</td>
+        <td style="font-size:12px;">${_exEsc(m.cluster_name)}</td>
+        <td style="font-size:12px;">${!m.prediction ? '—' : m.prediction.learned ? `<span title="${_exEsc(t('ex.pol_tl_planned', {start: _polHM(m.prediction.planned_start, p.timezone), dur: _polDur(m.prediction.seconds)}))}">~${_polDur(m.prediction.seconds)}</span>` : `<span class="ex-badge off" title="${_exEsc(t('ex.pol_learning_hint'))}">${t('ex.pol_tl_learning', {n: m.prediction.samples, of: m.prediction.needed || 5})}</span>`}</td>
+        <td>${m.last_run ? `${_exStatusBadge(m.last_run.status, m.last_run.message)}${m.last_run.notice ? ' ' + _exNoticeBadge(m.last_run.notice) : ''}<div style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);">${_exFmt(m.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:12px;">${t('ex.never')}</span>`}</td>
         <td style="white-space:nowrap;">${m.cluster_id === currentCluster ? `<button class="um-action-btn" onclick="exToggle(${m.id}).then(exLoadPolicies)">${m.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
           <button class="um-action-btn danger" onclick="exPolicyRemoveMember(${id}, ${m.id}, '${_exEsc(m.vm_name)}')">${t('ex.pol_remove_member')}</button></td></tr>`).join('')}
     </tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.pol_no_members')}</div>`}
-    <div style="margin-top:10px;"><label style="font-size:11px;color:var(--text-muted);">${t('ex.pol_add_from', {cluster: _exEsc(cur ? cur.name : '')})}</label>
+    <div style="margin-top:10px;"><label style="font-size:12px;color:var(--text-muted);">${t('ex.pol_add_from', {cluster: _exEsc(cur ? cur.name : '')})}</label>
       <div class="ex-hint">${t('ex.pol_add_hint')}</div>
       ${candidates.length ? `<div class="ex-folder-list">${candidates.map(vm => {
         const s = vm.schedule;
@@ -6923,16 +6900,16 @@ async function exLoadVms() {
       return `
       <tr>
         <td class="um-username">${_exEsc(vm.name)}${tags.length ? `<div>${tags.map(x => `<span class="um-chip">${_exEsc(x)}</span>`).join('')}</div>` : ''}
-            ${vm.description ? `<div style="font-size:10px;color:var(--text-muted)">${_exEsc(vm.description)}</div>` : ''}</td>
+            ${vm.description ? `<div style="font-size:12px;color:var(--text-muted)">${_exEsc(vm.description)}</div>` : ''}</td>
         <td><span class="ex-badge ${vm.state === 'RUNNING' ? 'ok' : 'off'}">${_exEsc((vm.state || '').toLowerCase())}</span></td>
         <td>${vm.numVCPU}</td>
         <td>${(vm.mem / 1024 ** 3).toFixed(0)} GiB</td>
-        <td style="font-size:11px;white-space:nowrap;">${vm.churn && vm.churn.mib != null ? `${_exMiB(vm.churn.mib)}<div style="font-size:10px;color:var(--text-muted);">${_exFmt(new Date(vm.churn.at * 1000).toISOString())}</div>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+        <td style="font-size:12px;white-space:nowrap;">${vm.churn && vm.churn.mib != null ? `${_exMiB(vm.churn.mib)}<div style="font-size:12px;color:var(--text-muted);">${_exFmt(new Date(vm.churn.at * 1000).toISOString())}</div>` : '<span style="color:var(--text-muted)">—</span>'}</td>
         <td style="white-space:nowrap;">${vm.schedule && vm.schedule.policy_id
           ? `<span class="ex-badge run">${t('ex.pol_member_of', {name: _exEsc(vm.schedule.policy_name || '')})}</span>`
           : vm.schedule
           ? `<span class="ex-badge run" title="${_exEsc(vm.schedule.timezone || '')}">${t('ex.daily_at', {time: vm.schedule.run_time + (vm.schedule.timezone && vm.schedule.timezone !== _exViewerZone() ? ' ' + vm.schedule.timezone : '')})}</span>`
-          : (admin ? `<button class="um-action-btn" onclick="exToggleForm(${i})">${t('ex.schedule_export')}</button>` : `<span style="color:var(--text-muted);font-size:11px;">—</span>`)}</td>
+          : (admin ? `<button class="um-action-btn" onclick="exToggleForm(${i})">${t('ex.schedule_export')}</button>` : `<span style="color:var(--text-muted);font-size:12px;">—</span>`)}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
 }
@@ -7048,12 +7025,12 @@ async function exLoadRuns() {
       ${rows.length ? `<table class="um-table"><thead><tr>
         <th>${kind === 'imp' ? t('ex.col_source') : t('ex.col_vm')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead>
         <tbody>${rows.map(r => `<tr>
-          <td class="um-username">${_exEsc(kind === 'imp' ? r.source_uri : r.vm_name)}${(kind === 'imp' || kind === 'rst') && r.target_name ? ` → ${_exEsc(r.target_name)}` : ''}${_exClusterHint(r)}${kind === 'run' && r.export_path ? `<div style="font-size:10px;color:var(--text-muted);font-family:var(--font-ui);">${_exEsc(r.export_path)}</div>` : ''}</td>
-          <td style="font-family:var(--font-ui);font-size:11px;white-space:nowrap;">${_exFmt(r.started_at)}</td>
+          <td class="um-username">${_exEsc(kind === 'imp' ? r.source_uri : r.vm_name)}${(kind === 'imp' || kind === 'rst') && r.target_name ? ` → ${_exEsc(r.target_name)}` : ''}${_exClusterHint(r)}${kind === 'run' && r.export_path ? `<div style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);">${_exEsc(r.export_path)}</div>` : ''}</td>
+          <td style="font-family:var(--font-ui);font-size:12px;white-space:nowrap;">${_exFmt(r.started_at)}</td>
           <td>${r.status === 'RUNNING' && kind === 'run' && r.progress ? _pbBackup(r.progress)
                : r.status === 'RUNNING' && kind === 'rst' && r.progress ? _pbRestore(r.progress)
                : _exStatusBadge(r.status, r.message)}${kind === 'run' && r.notice ? ' ' + _exNoticeBadge(r.notice) : ''}</td>
-          <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${kind === 'run' && r.mode ? `<span class="ex-badge ${r.mode === 'incremental' ? 'run' : 'off'}">${r.mode === 'incremental' ? t(r.point_kind === 'full' ? 'ex.point_full' : 'ex.point_delta') : t('ex.mode_export')}</span> ` : ''}${kind === 'rst' && r.kind === 'files' ? `<span class="ex-badge off">${t('ex.files')}</span> ` : ''}${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${kind === 'rst' && r.kind === 'files' && r.created_uuid && r.status === 'COMPLETE' ? ` <button class="um-action-btn" onclick="exEjectIso(${r.id})">${t('ex.flr_eject')}</button>` : ''}${r.task_tag ? `<div style="font-family:var(--font-ui);font-size:10px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
+          <td style="font-size:12px;color:var(--text-muted);max-width:420px;">${kind === 'run' && r.mode ? `<span class="ex-badge ${r.mode === 'incremental' ? 'run' : 'off'}">${r.mode === 'incremental' ? t(r.point_kind === 'full' ? 'ex.point_full' : 'ex.point_delta') : t('ex.mode_export')}</span> ` : ''}${kind === 'rst' && r.kind === 'files' ? `<span class="ex-badge off">${t('ex.files')}</span> ` : ''}${r.status === 'RUNNING' ? '' : _exEsc(r.message || '')}${kind === 'rst' && r.kind === 'files' && r.created_uuid && r.status === 'COMPLETE' ? ` <button class="um-action-btn" onclick="exEjectIso(${r.id})">${t('ex.flr_eject')}</button>` : ''}${r.task_tag ? `<div style="font-family:var(--font-ui);font-size:12px;opacity:0.7;">task ${_exEsc(r.task_tag)}</div>` : ''}</td>
         </tr>`).join('')}</tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.no_runs')}</div>`}
     </div>`;
   let tests = [];
@@ -7089,7 +7066,7 @@ function _vfSection() {
     `<span class="ex-badge ok">${t('vf.n_current', {n: sm.current || 0, total: sm.points})}</span>`,
     sm.never ? `<span class="ex-badge off">${t('vf.n_never', {n: sm.never})}</span>` : '',
   ].join(' ');
-  const proxies = (d.proxies || []).map(p => `<div style="font-size:11px;padding:2px 0;">
+  const proxies = (d.proxies || []).map(p => `<div style="font-size:12px;padding:2px 0;">
       <strong>${_exEsc(p.name || '#' + p.id)}</strong> · ${_exEsc(p.cluster_name)}
       ${p.role === 'dr' ? `<span class="ex-badge ok">${t('vf.proxy_dr')}</span>` : `<span class="ex-badge ${p.state === 'in_hours' ? 'run' : 'off'}">${t(p.state === 'in_hours' ? 'vf.proxy_in_hours' : 'vf.proxy_waiting')}</span>`}
       ${p.busy ? `<span class="ex-badge run">${t('vf.proxy_busy')}</span>` : ''} <span style="color:var(--text-muted)">${_vfRate(p.rate)}</span></div>`).join('')
@@ -7148,9 +7125,9 @@ function _vfHistory(rows) {
     ${rows.length ? `<table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead>
       <tbody>${rows.map(r => `<tr>
         <td class="um-username">${_exEsc(r.vm_name || '?')} <span style="color:var(--text-muted)">#${r.seq ?? '?'}</span>${_exClusterHint(r)}</td>
-        <td style="font-family:var(--font-ui);font-size:11px;white-space:nowrap;">${_exFmt(r.started_at)}</td>
+        <td style="font-family:var(--font-ui);font-size:12px;white-space:nowrap;">${_exFmt(r.started_at)}</td>
         <td>${badge(r.status)}</td>
-        <td style="font-size:11px;color:var(--text-muted);max-width:420px;">${t('vf.on_proxy', {proxy: _exEsc(r.proxy_name || '?')})}${r.proxy_role === 'dr' ? ' (DR)' : ''}${r.bytes != null ? ` · ${_exMiB(Math.round(r.bytes / 1048576))}` : ''}${r.duration_s ? ` · ${_polDur(r.duration_s)}` : ''}${r.message ? `<div>${_exEsc(r.message)}</div>` : ''}</td></tr>`).join('')}</tbody></table>`
+        <td style="font-size:12px;color:var(--text-muted);max-width:420px;">${t('vf.on_proxy', {proxy: _exEsc(r.proxy_name || '?')})}${r.proxy_role === 'dr' ? ' (DR)' : ''}${r.bytes != null ? ` · ${_exMiB(Math.round(r.bytes / 1048576))}` : ''}${r.duration_s ? ` · ${_polDur(r.duration_s)}` : ''}${r.message ? `<div>${_exEsc(r.message)}</div>` : ''}</td></tr>`).join('')}</tbody></table>`
       : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('vf.history_none')}</div>`}</div>`;
 }
 
@@ -7339,11 +7316,11 @@ function _trHistory(rows) {
     <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-amber)"></div><span class="settings-group-title">${t('tr.history_title')}</span></div>
     ${rows.length ? `<table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead>
       <tbody>${rows.map(r => `<tr>
-        <td class="um-username">${_exEsc(r.vm_name || '?')}${_exClusterHint(r)}<div style="font-size:10px;color:var(--text-muted);">${_exEsc(r.plan_name || '')}${r.picked === 'random' ? ' · ' + t('tr.picked_random') : ''}</div></td>
-        <td style="font-family:var(--font-ui);font-size:11px;white-space:nowrap;">${_exFmt(r.started_at || r.queued_at)}</td>
+        <td class="um-username">${_exEsc(r.vm_name || '?')}${_exClusterHint(r)}<div style="font-size:12px;color:var(--text-muted);">${_exEsc(r.plan_name || '')}${r.picked === 'random' ? ' · ' + t('tr.picked_random') : ''}</div></td>
+        <td style="font-family:var(--font-ui);font-size:12px;white-space:nowrap;">${_exFmt(r.started_at || r.queued_at)}</td>
         <td>${_trStatusBadge(r)}${r.status === 'running' ? _pbTest(r) : ''}${r.verdict === 'agent' ? ` <span class="ex-badge ok">${t('tr.v_agent')}</span>` : r.verdict === 'screen' ? ` <span class="ex-badge off">${t('tr.v_screen')}</span>` : ''}
           ${r.agent === 'unavailable' ? `<div><span class="ex-badge warn" title="${_exEsc(t('tr.agentless_hint'))}">${t('tr.agentless')}</span></div>` : r.agent === 'unknown' ? `<div><span class="ex-badge off">${t('tr.agent_unknown')}</span></div>` : ''}</td>
-        <td style="font-size:11px;color:var(--text-muted);max-width:460px;">
+        <td style="font-size:12px;color:var(--text-muted);max-width:460px;">
           ${r.target_cluster_name ? t('tr.on_cluster', {cluster: _exEsc(r.target_cluster_name)}) : ''}${r.point_created_at ? ` · ${t('tr.point_age', {h: ago(r.point_created_at)})}` : ''}${r.bytes ? ` · ${_exMiB(Math.round(r.bytes / 1048576))}` : ''}${r.restored_at ? ` · ${t('tr.restore_took', {d: dur(r.started_at, r.restored_at)})}` : ''}${r.booted_at ? ` · ${t('tr.boot_took', {d: dur(r.restored_at, r.booted_at)})}` : ''}
           ${r.detail ? `<div>${_exEsc(r.detail)}</div>` : ''}
           ${(r.checks || []).length ? `<div>${r.checks.map(c => `${_exEsc(c.ip)}: ${t(c.ping ? 'tr.ping_ok' : 'tr.ping_no')}${Object.entries(c.ports || {}).map(([pt, ok]) => ` · ${pt} ${ok ? '✓' : '✕'}`).join('')}`).join('<br>')}</div>` : ''}
@@ -7377,13 +7354,13 @@ async function exLoadPoints() {
     <table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_points')}</th><th>${t('ex.col_last_point')}</th><th>${t('ex.col_verified')}</th><th>${t('tr.col_tested')}</th><th></th></tr></thead>
     <tbody>${chains.map(c => `
       <tr>
-        <td class="um-username">${_exEsc(c.vm_name)}${_exClusterHint(c)}<div style="font-size:10px;color:var(--text-muted);font-family:var(--font-ui);">${_exEsc(c.vm_uuid.slice(0, 8))}</div></td>
+        <td class="um-username">${_exEsc(c.vm_name)}${_exClusterHint(c)}<div style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);">${_exEsc(c.vm_uuid.slice(0, 8))}</div></td>
         <td><span class="ex-badge ${c.status === 'active' ? 'ok' : 'off'}">${t(c.status === 'active' ? 'ex.chain_active' : 'ex.chain_retired')}</span></td>
-        <td style="font-size:11px;">${_exEsc(c.target_name || '—')} / ${_exEsc(c.folder_slug)}</td>
+        <td style="font-size:12px;">${_exEsc(c.target_name || '—')} / ${_exEsc(c.folder_slug)}</td>
         <td>${c.point_count}</td>
-        <td style="font-family:var(--font-ui);font-size:11px;color:var(--text-muted)">${_exFmt(c.last_point_at)}</td>
-        <td style="font-size:11px;">${_vfChainCell(c)}</td>
-        <td style="font-size:11px;">${_trChainCell(c)}</td>
+        <td style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted)">${_exFmt(c.last_point_at)}</td>
+        <td style="font-size:12px;">${_vfChainCell(c)}</td>
+        <td style="font-size:12px;">${_trChainCell(c)}</td>
         <td style="white-space:nowrap;">
           <button class="um-action-btn" onclick="exPointsOpen(${c.id}, '${_exEsc(c.vm_name)}')">${t('ex.show_points')}</button>
           ${admin ? `<button class="um-action-btn" onclick="exVerifyChain(${c.id})">${t('ex.verify')}</button>
@@ -7409,9 +7386,9 @@ async function exPointsOpen(id, vm) {
     if (!_pts || _pts.chain !== id || _flr) return;   // closed or moved on meanwhile
     _pts.points = pts;
     body.innerHTML = pts.length ? `<table class="um-table"><thead><tr><th>#</th><th>${t('ex.col_kind')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_changed')}</th><th>${t('ex.col_written')}</th><th>${t('ex.col_verified')}</th><th></th></tr></thead><tbody>${pts.map(p => `
-      <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:var(--font-ui);font-size:10px;color:var(--text-muted)">${_exEsc(p.dir)}</span>${p.synthetic ? ` <span class="ex-badge off" title="${_exEsc(t('ex.synthetic_hint'))}">${t('ex.synthetic')}</span>` : ''}${(p.short_disks || []).length ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.short_disk_hint', {n: Math.round((p.short_disks[0].guest_size - p.short_disks[0].image_size) / 1024)}))}">${t('ex.short_disk')}</span>` : ''}${p.quiesced === true ? ` <span class="ex-badge off" title="${_exEsc(t('ex.quiesced_hint'))}">${t('ex.quiesced')}</span>` : p.quiesced === false ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.crash_consistent_hint'))}">${t('ex.crash_consistent')}</span>` : ''}</td>
-      <td style="font-family:var(--font-ui);font-size:11px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
-      <td style="font-size:11px;color:var(--text-muted)">${p.verify_error ? `<span class="ex-badge err" title="${_exEsc(p.verify_error)}">${t('ex.point_corrupt')}</span>` : p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
+      <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted)">${_exEsc(p.dir)}</span>${p.synthetic ? ` <span class="ex-badge off" title="${_exEsc(t('ex.synthetic_hint'))}">${t('ex.synthetic')}</span>` : ''}${(p.short_disks || []).length ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.short_disk_hint', {n: Math.round((p.short_disks[0].guest_size - p.short_disks[0].image_size) / 1024)}))}">${t('ex.short_disk')}</span>` : ''}${p.quiesced === true ? ` <span class="ex-badge off" title="${_exEsc(t('ex.quiesced_hint'))}">${t('ex.quiesced')}</span>` : p.quiesced === false ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.crash_consistent_hint'))}">${t('ex.crash_consistent')}</span>` : ''}</td>
+      <td style="font-family:var(--font-ui);font-size:12px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
+      <td style="font-size:12px;color:var(--text-muted)">${p.verify_error ? `<span class="ex-badge err" title="${_exEsc(p.verify_error)}">${t('ex.point_corrupt')}</span>` : p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
       <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" onclick="exFilesOpen(${p.id}, ${p.seq}, '${_exEsc(_exFmt(p.created_at))}')">${t('ex.files')}</button></td></tr>`).join('')}</tbody></table>` : `<div class="empty-state">${t('ex.no_points')}</div>`;
   } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
 }
@@ -7545,8 +7522,8 @@ function _flrRender() {
     const name = e.kind === 'dir' ? `<a href="#" onclick="_flrLoad('${_exEsc(full)}'); return false;" style="color:var(--text-primary);">${_exEsc(e.name)}</a>` : _exEsc(e.name);
     const size = e.size != null ? (e.size >= 1048576 ? (e.size / 1048576).toFixed(1) + ' MiB' : e.size >= 1024 ? (e.size / 1024).toFixed(0) + ' KiB' : e.size + ' B') : (e.fstype ? `${_exEsc(e.fstype)} · ${(e.size || 0) / 1073741824 | 0} GiB` : '');
     return `<tr><td style="width:24px;"><input type="checkbox" ${sel ? 'checked' : ''} onchange="_flrToggle('${_exEsc(full)}', this.checked)"></td>
-      <td>${icon} ${name}</td><td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${size}</td>
-      <td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${e.mtime ? _exFmt(new Date(e.mtime * 1000).toISOString()) : ''}</td>
+      <td>${icon} ${name}</td><td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">${size}</td>
+      <td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">${e.mtime ? _exFmt(new Date(e.mtime * 1000).toISOString()) : ''}</td>
       <td style="white-space:nowrap;">${e.kind === 'file' ? `<a class="um-action-btn" href="${API_BASE}/api/backup/flr/mounts/${st.mount}/file?path=${encodeURIComponent(full)}&cluster=${currentCluster}">${t('ex.flr_download')}</a>` : ''}</td></tr>`;
   }).join('');
   const n = st.selected.size;
