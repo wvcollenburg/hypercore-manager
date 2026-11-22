@@ -103,3 +103,17 @@ def test_a_late_answer_for_the_previous_cluster_is_dropped(repo, loader):
     assert 'cid = currentCluster' in body, f'{loader} must note the cluster it asks for'
     first_await = body.index('await ')
     assert 'cid !== currentCluster' in body[first_await:], f'{loader} must drop an answer for another cluster'
+
+
+def test_vm_edit_keeps_typed_values_when_a_button_redraws_the_form(repo):
+    """+ Add disk, + Add NIC, Remove/Keep and the boot order buttons redrew the VM edit form from the VM as loaded:
+    a memory size or VLAN typed before was silently back to the old value, and Apply changed less than intended."""
+    import re
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
+    render = src[src.index('function _veRender()'):src.index('function _veSync()')]
+    assert '_ve.form' in render, '_veRender must put back the values _veSync kept'
+    for m in re.finditer(r'_veRender\(\)', src):
+        line = src[src.rfind('\n', 0, m.start()) + 1:src.find('\n', m.start())]
+        if 'function _veRender' in line or line.strip() == '_veRender();':   # the definition, and openVmEdit's first draw
+            continue
+        assert '_veSync()' in line[:line.index('_veRender()')], f'redraw without _veSync(): {line.strip()[:120]}'

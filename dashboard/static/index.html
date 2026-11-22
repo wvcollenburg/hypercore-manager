@@ -2719,7 +2719,7 @@ function _veRender() {
       <td>${sel('ve-add-type-' + i, ['VIRTIO_DISK', 'SCSI_DISK', 'IDE_DISK', 'IDE_CDROM'].map(x => [x, x]), a.type)}</td><td></td>
       <td><input type="number" id="ve-add-cap-${i}" min="1" value="${a.cap}" oninput="_veSummary()"> GB</td>
       <td>${sel('ve-add-cache-' + i, ['WRITETHROUGH', 'WRITEBACK', 'NONE'].map(x => [x, x]), a.cache)}</td><td></td><td></td>
-      <td><button class="um-action-btn" onclick="_ve.adds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
+      <td><button class="um-action-btn" onclick="_veSync();_ve.adds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
   const nics = vm.netDevs || [];
   const nicRows = nics.map(n => `<tr id="ve-n-${n.uuid}" class="${_ve.remove.has(n.uuid) ? 'removing' : ''}">
       <td>${sel('ve-ntype-' + n.uuid, ['VIRTIO', 'INTEL_E1000', 'RTL8139', 'PCNET'].map(x => [x, x]), n.type)}</td>
@@ -2730,12 +2730,12 @@ function _veRender() {
       <td><button class="um-action-btn danger" onclick="_veToggleRemove('${n.uuid}')">${_ve.remove.has(n.uuid) ? t('ve.keep') : t('ve.remove')}</button></td></tr>`).join('')
     + _ve.nicAdds.map((a, i) => `<tr><td>${sel('ve-nadd-type-' + i, ['VIRTIO', 'INTEL_E1000', 'RTL8139', 'PCNET'].map(x => [x, x]), a.type)}</td>
       <td><input type="number" id="ve-nadd-vlan-${i}" min="0" max="4094" value="${a.vlan}" oninput="_veSummary()" style="width:70px"></td>
-      <td><input type="text" id="ve-nadd-mac-${i}" placeholder="${t('ve.mac_auto')}" oninput="_veSummary()" style="width:150px"></td>
-      <td><input type="checkbox" id="ve-nadd-conn-${i}" checked onchange="_veSummary()"></td><td><em>${t('ve.new')}</em></td>
-      <td><button class="um-action-btn" onclick="_ve.nicAdds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
+      <td><input type="text" id="ve-nadd-mac-${i}" value="${E(a.mac || '')}" placeholder="${t('ve.mac_auto')}" oninput="_veSummary()" style="width:150px"></td>
+      <td><input type="checkbox" id="ve-nadd-conn-${i}" ${a.conn === false ? '' : 'checked'} onchange="_veSummary()"></td><td><em>${t('ve.new')}</em></td>
+      <td><button class="um-action-btn" onclick="_veSync();_ve.nicAdds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
   const bootList = _ve.boot.map((u, i) => { const dv = devs.find(x => x.uuid === u); return `<li>${E(dv ? _veDevLabel(dv) : u)}
       <button class="um-action-btn" ${i === 0 ? 'disabled' : ''} onclick="_veBoot(${i},-1)">▲</button><button class="um-action-btn" ${i === _ve.boot.length - 1 ? 'disabled' : ''} onclick="_veBoot(${i},1)">▼</button>
-      <button class="um-action-btn" onclick="_ve.boot.splice(${i},1);_veRender()">✕</button></li>`; }).join('');
+      <button class="um-action-btn" onclick="_veSync();_ve.boot.splice(${i},1);_veRender()">✕</button></li>`; }).join('');
   const notInBoot = devs.filter(dv => !_ve.boot.includes(dv.uuid) && !['NVRAM', 'VTPM'].includes(dv.type));
   const chg = changes.map(c => `<div class="ve-chg"><span class="st ${c.status}">${t('ve.st_' + c.status)}</span>
       <b>${E(c.run_at ? _exFmt(c.run_at) : t('ve.now'))}</b> · ${E(c.summary || c.kind)} · ${E(c.created_by || '?')}
@@ -2767,9 +2767,9 @@ function _veRender() {
     <div class="ve-field" style="margin-top:12px;">${t('vmi.boot_order')} <span class="ve-cyc">⟳</span><ol class="ve-boot">${bootList}</ol>
       ${notInBoot.length ? `<div>${sel('ve-boot-add', [['', t('ve.boot_add')], ...notInBoot.map(dv => [dv.uuid, _veDevLabel(dv)])])} <button class="um-action-btn" onclick="_veBootAdd()">+</button></div>` : ''}</div>
     <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">⟳ ${t('ve.cycle_hint')}</div></div>
-    <div class="ve-sec"><h3>${t('vmi.disks')} <button class="um-action-btn" onclick="_ve.adds.push({type:'VIRTIO_DISK',cap:50,cache:'WRITETHROUGH'});_veRender()">+ ${t('ve.add_disk')}</button></h3>
+    <div class="ve-sec"><h3>${t('vmi.disks')} <button class="um-action-btn" onclick="_veSync();_ve.adds.push({type:'VIRTIO_DISK',cap:50,cache:'WRITETHROUGH'});_veRender()">+ ${t('ve.add_disk')}</button></h3>
       <table class="ve-tbl"><thead><tr><th>${t('vmi.d_name')}</th><th>${t('vmi.d_type')}</th><th>${t('vmi.d_slot')}</th><th>${t('ve.size_or_iso')}</th><th>${t('vmi.d_cache')} ⟳</th><th>${t('vmi.d_tier')}</th><th>${t('vmi.d_snap_off')}</th><th></th></tr></thead><tbody>${diskRows}</tbody></table></div>
-    <div class="ve-sec"><h3>${t('vmi.nics')} ⟳ <button class="um-action-btn" onclick="_ve.nicAdds.push({type:'VIRTIO',vlan:0});_veRender()">+ ${t('ve.add_nic')}</button></h3>
+    <div class="ve-sec"><h3>${t('vmi.nics')} ⟳ <button class="um-action-btn" onclick="_veSync();_ve.nicAdds.push({type:'VIRTIO',vlan:0});_veRender()">+ ${t('ve.add_nic')}</button></h3>
       <table class="ve-tbl"><thead><tr><th>${t('vmi.n_type')}</th><th>VLAN</th><th>${t('vmi.n_mac')}</th><th>${t('vmi.n_connected')}</th><th>${t('vmi.n_ip')}</th><th></th></tr></thead><tbody>${nicRows}</tbody></table></div>
     ${(_ve.data.connections || []).length || replications.length ? `<div class="ve-sec"><h3>${t('ve.replication')}</h3>
       <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--text-secondary);">
@@ -2781,13 +2781,34 @@ function _veRender() {
     <div class="ve-sec"><h3>${t('ve.changes')}</h3>${chg || `<div style="font-size:12px;color:var(--text-muted);">${t('ve.no_changes_yet')}</div>`}</div>
     <div class="ve-sec ve-danger"><h3 style="color:var(--accent-red)">${t('ve.danger')}</h3>
       <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--text-secondary);"><button class="um-action-btn danger" onclick="veDelete()">${t('ve.delete_vm')}</button> ${t('ve.delete_hint')}</div></div>`;
+  // what was typed before a button redrew the form wins over the VM as loaded
+  for (const [id, v] of Object.entries(_ve.form || {})) {
+    const el = document.getElementById(id);
+    if (el) { if (el.type === 'checkbox') el.checked = v; else el.value = v; }
+  }
   document.getElementById('veFoot').hidden = false;
   document.getElementById('veMsg').textContent = '';
   _veSummary();
 }
-function _veToggleRemove(u) { if (_ve.remove.has(u)) _ve.remove.delete(u); else _ve.remove.add(u); _veRender(); }
-function _veBoot(i, d) { const b = _ve.boot; [b[i], b[i + d]] = [b[i + d], b[i]]; _veRender(); }
-function _veBootAdd() { const v = document.getElementById('ve-boot-add').value; if (v) { _ve.boot.push(v); _veRender(); } }
+// The form is drawn from the VM as loaded. Before a button redraws it (+ Add disk, + Add NIC, Remove/Keep, boot
+// order) the values typed so far are kept: the fields by id in _ve.form, the new disk and NIC rows in their objects
+// (their ids are row numbers, which shift when a row is removed).
+function _veSync() {
+  if (!_ve) return;
+  const form = {};
+  document.querySelectorAll('#veBody input[id^="ve-"], #veBody select[id^="ve-"]').forEach(el => {
+    if (/^ve-(add-|nadd-|boot-add$)/.test(el.id)) return;
+    form[el.id] = el.type === 'checkbox' ? el.checked : el.value;
+  });
+  _ve.form = form;
+  _ve.adds.forEach((a, i) => { if (document.getElementById('ve-add-cap-' + i)) {
+    a.type = _veVal('ve-add-type-' + i); a.cap = _veVal('ve-add-cap-' + i); a.cache = _veVal('ve-add-cache-' + i); } });
+  _ve.nicAdds.forEach((a, i) => { if (document.getElementById('ve-nadd-vlan-' + i)) {
+    a.type = _veVal('ve-nadd-type-' + i); a.vlan = _veVal('ve-nadd-vlan-' + i); a.mac = _veVal('ve-nadd-mac-' + i); a.conn = _veVal('ve-nadd-conn-' + i); } });
+}
+function _veToggleRemove(u) { _veSync(); if (_ve.remove.has(u)) _ve.remove.delete(u); else _ve.remove.add(u); _veRender(); }
+function _veBoot(i, d) { _veSync(); const b = _ve.boot; [b[i], b[i + d]] = [b[i + d], b[i]]; _veRender(); }
+function _veBootAdd() { const v = document.getElementById('ve-boot-add').value; if (v) { _veSync(); _ve.boot.push(v); _veRender(); } }
 const _veVal = id => { const el = document.getElementById(id); return el ? (el.type === 'checkbox' ? el.checked : el.value) : undefined; };
 function _veOps() {
   // compare the form with the VM as loaded; the backup service validates and classifies again
