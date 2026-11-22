@@ -55,6 +55,10 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                            "DR so its proxies verify around the clock, or check that the proxies are up.\n\n"
                            "HyperCore Manager: {link}\n\n"
                            "You receive this as the closest administrator of this folder.\n"),
+        'test_failed': ('HyperCore Manager: test restore failed in {folder}',
+                        '{n} test restore(s) in {folder} failed: the newest backup of these VMs was restored as a test VM and did not come up as it should.\n\n{items}\n\nThe backup may not be usable for a real restore. Look at the screenshot under Backup → Runs → Test restores, fix the cause and run the test again.\n\nHyperCore Manager: {link}\n\nYou receive this as the closest administrator of this folder.\n'),
+        'test_overdue': ('HyperCore Manager: VMs in {folder} are not being test-restored',
+                         "{n} VM(s) in a test plan of {folder} have had no passed test restore for twice the plan's interval.\n\n{items}\n\nCheck that the plan is enabled and that its target cluster has room and time for the tests.\n\nHyperCore Manager: {link}\n\nYou receive this as the closest administrator of this folder.\n"),
         'test': ("HyperCore Manager: test mail",
                  "This is a test mail from HyperCore Manager, sent by {actor}.\n\n"
                  "If you can read this, mail from HyperCore Manager reaches you.\n"),
@@ -104,6 +108,10 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                            "als DR zodat de proxy's daar de klok rond controleren, of kijk of de proxy's draaien.\n\n"
                            "HyperCore Manager: {link}\n\n"
                            "Je ontvangt dit als dichtstbijzijnde beheerder van deze map.\n"),
+        'test_failed': ('HyperCore Manager: testherstel mislukt in {folder}',
+                        "{n} testherstel(len) in {folder} mislukt: de nieuwste back-up van deze VM's is als test-VM hersteld en kwam niet op zoals het hoort.\n\n{items}\n\nDe back-up is mogelijk niet bruikbaar voor een echt herstel. Bekijk de schermafbeelding onder Back-up → Runs → Testherstel, los de oorzaak op en test opnieuw.\n\nHyperCore Manager: {link}\n\nJe ontvangt dit als dichtstbijzijnde beheerder van deze map.\n"),
+        'test_overdue': ("HyperCore Manager: VM's in {folder} worden niet testhersteld",
+                         "{n} VM('s) in een testplan van {folder} hebben twee keer de interval van het plan geen geslaagd testherstel gehad.\n\n{items}\n\nControleer of het plan aan staat en of het doelcluster ruimte en tijd heeft voor de tests.\n\nHyperCore Manager: {link}\n\nJe ontvangt dit als dichtstbijzijnde beheerder van deze map.\n"),
         'test': ("HyperCore Manager: testmail",
                  "Dit is een testmail van HyperCore Manager, verstuurd door {actor}.\n\n"
                  "Als je dit kunt lezen, komt mail van HyperCore Manager bij je aan.\n"),
@@ -153,6 +161,10 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                            "Cluster als DR, damit seine Proxys rund um die Uhr prüfen, oder prüfen Sie, ob die Proxys laufen.\n\n"
                            "HyperCore Manager: {link}\n\n"
                            "Sie erhalten dies als nächstgelegener Administrator dieses Ordners.\n"),
+        'test_failed': ('HyperCore Manager: Test-Wiederherstellung in {folder} fehlgeschlagen',
+                        '{n} Test-Wiederherstellung(en) in {folder} fehlgeschlagen: das neueste Backup dieser VMs wurde als Test-VM wiederhergestellt und startete nicht wie erwartet.\n\n{items}\n\nDas Backup ist für eine echte Wiederherstellung möglicherweise nicht brauchbar. Sehen Sie sich den Screenshot unter Backup → Läufe → Test-Wiederherstellungen an, beheben Sie die Ursache und testen Sie erneut.\n\nHyperCore Manager: {link}\n\nSie erhalten dies als nächstgelegener Administrator dieses Ordners.\n'),
+        'test_overdue': ('HyperCore Manager: VMs in {folder} werden nicht testweise wiederhergestellt',
+                         '{n} VM(s) in einem Testplan von {folder} hatten seit dem doppelten Intervall des Plans keine erfolgreiche Test-Wiederherstellung.\n\n{items}\n\nPrüfen Sie, ob der Plan aktiv ist und ob sein Zielcluster Platz und Zeit für die Tests hat.\n\nHyperCore Manager: {link}\n\nSie erhalten dies als nächstgelegener Administrator dieses Ordners.\n'),
         'test': ("HyperCore Manager: Testmail",
                  "Dies ist eine Testmail von HyperCore Manager, gesendet von {actor}.\n\n"
                  "Wenn Sie dies lesen können, erreicht Sie Mail von HyperCore Manager.\n"),
@@ -202,6 +214,10 @@ TEXTS: dict[str, dict[str, tuple[str, str]]] = {
                            "passif comme PRA pour que ses proxys vérifient en continu, ou vérifiez que les proxys tournent.\n\n"
                            "HyperCore Manager : {link}\n\n"
                            "Vous recevez ce message en tant qu'administrateur le plus proche de ce dossier.\n"),
+        'test_failed': ('HyperCore Manager : échec de restauration de test dans {folder}',
+                        "{n} restauration(s) de test dans {folder} ont échoué : la sauvegarde la plus récente de ces VM a été restaurée comme VM de test et n'a pas démarré comme prévu.\n\n{items}\n\nLa sauvegarde n'est peut-être pas utilisable pour une vraie restauration. Consultez la capture d'écran dans Sauvegarde → Exécutions → Restaurations de test, corrigez la cause et relancez le test.\n\nHyperCore Manager : {link}\n\nVous recevez ce message en tant qu'administrateur le plus proche de ce dossier.\n"),
+        'test_overdue': ('HyperCore Manager : les VM de {folder} ne sont pas testées par restauration',
+                         "{n} VM d'un plan de test de {folder} n'ont eu aucune restauration de test réussie depuis deux fois l'intervalle du plan.\n\n{items}\n\nVérifiez que le plan est actif et que son cluster cible a la place et le temps pour les tests.\n\nHyperCore Manager : {link}\n\nVous recevez ce message en tant qu'administrateur le plus proche de ce dossier.\n"),
         'test': ("HyperCore Manager : e-mail de test",
                  "Ceci est un e-mail de test de HyperCore Manager, envoyé par {actor}.\n\n"
                  "Si vous pouvez lire ceci, les e-mails de HyperCore Manager vous parviennent.\n"),

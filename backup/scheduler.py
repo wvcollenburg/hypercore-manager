@@ -209,6 +209,43 @@ def verify_overdue() -> None:
             log.info('verification alerts: %s', out)
     except Exception:                                   # noqa: BLE001
         log.debug('overdue check failed', exc_info=True)
+    import testrestore
+    try:
+        out = testrestore.check_overdue()
+        if out['raised']:
+            log.info('test restore alerts: %s', out)
+    except Exception:                                   # noqa: BLE001
+        log.debug('test overdue check failed', exc_info=True)
+
+
+def test_tick() -> None:
+    """Every minute: queue due test-restore rounds and start what may start (testrestore.py)."""
+    import testrestore
+    try:
+        testrestore.tick()
+    except Exception:                                   # noqa: BLE001 — database not migrated yet, or down
+        log.debug('test restore tick failed', exc_info=True)
+
+
+def test_sweep() -> None:
+    """Test VMs whose test is done (kept failures once their time is up), and leftovers of a restart."""
+    import testrestore
+    try:
+        n = testrestore.sweep()
+        if n:
+            log.info('test restore sweep: %s test VM(s) deleted', n)
+    except Exception:                                   # noqa: BLE001
+        log.exception('test restore sweep failed')
+
+
+def _test_reconcile() -> None:
+    try:
+        n = db.interrupted_test_runs()
+        if n:
+            log.warning('%d test restore(s) were interrupted by a restart; their VMs are removed by the sweep', n)
+    except Exception:                                   # noqa: BLE001
+        log.debug('test reconcile skipped (database not ready)', exc_info=True)
+    test_sweep()
 
 
 def _verify_reconcile() -> None:
@@ -260,6 +297,13 @@ def start(sync_interval_seconds: int = 60) -> None:
                        next_run_time=_dt.now() + _td(seconds=90))
     _scheduler.add_job(verify_overdue, trigger='interval', minutes=10, id='verify-overdue', replace_existing=True,
                        next_run_time=_dt.now() + _td(seconds=150))
+    # test restores: one tick a minute, a sweep of finished test VMs every 15 minutes (and once after a restart)
+    _scheduler.add_job(_test_reconcile, trigger='date', run_date=_dt.now() + _td(seconds=200), id='test-reconcile',
+                       replace_existing=True)
+    _scheduler.add_job(test_tick, trigger='interval', seconds=60, id='test-tick', replace_existing=True,
+                       next_run_time=_dt.now() + _td(seconds=240))
+    _scheduler.add_job(test_sweep, trigger='interval', minutes=15, id='test-sweep', replace_existing=True,
+                       next_run_time=_dt.now() + _td(seconds=900))
     # first sweep a little after start: the dashboard applies new migrations at the same moment
     from datetime import datetime, timedelta
     _scheduler.add_job(sweep_all, trigger='date', run_date=datetime.now() + timedelta(seconds=120), id='sweep-start', replace_existing=True)

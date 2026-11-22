@@ -5,6 +5,7 @@ backup   write one point (full or delta) of a chain from hot-added devices onto 
 flatten  materialise one point as flat qcow2 files + the supplied definition (restore directory)
 synthesize  a point, read through its chain, as the base of a new chain (a synthetic full)
 verify   re-hash the points of a chain (one, all, or everything up to a seq) against their manifests
+netcheck ping / TCP checks of a test-restored VM on the test VLAN, through the proxy's test NIC
 sweep    remove stale restore directories under a folder on the target
 bench    measure write/read throughput onto a target through the paths a backup and a restore use
 
@@ -78,7 +79,7 @@ class Engine:
     # ---------------------------------------------------------------- registry
     def submit(self, kind: str, request: dict) -> Job:
         runner = {'backup': self.run_backup, 'flatten': self.run_flatten, 'synthesize': self.run_synthesize, 'verify': self.run_verify, 'sweep': self.run_sweep,
-                  'prune': self.run_prune, 'delete_chain': self.run_delete_chain, 'stage': self.run_stage, 'bench': self.run_bench}[kind]
+                  'prune': self.run_prune, 'delete_chain': self.run_delete_chain, 'stage': self.run_stage, 'bench': self.run_bench, 'netcheck': self.run_netcheck}[kind]
         job = Job(kind, request)
         with self._lock:
             self.jobs[job.id] = job
@@ -202,16 +203,28 @@ class Engine:
                 def prog(done, total, _b=base_done):
                     job.progress['blocks_done'] = _b + done // copier.MiB
 
+                job.progress['phase'] = 'copy'
                 with self.backend.prepare(path, size, backing) as writable:
                     written = copier.copy_intervals(src, writable, dev_map, writers=self.cfg.writers, progress=prog, cancelled=job.cancelled)
                 if job.cancelled():
                     raise RuntimeError('cancelled')
+                # after the copy: the image is checked and read back once for its checksum. On a big full that
+                # takes minutes; the phases are reported so the run does not look stuck at its last MiB
+                job.progress['phase'] = 'check'
                 problem = self.backend.check_detail(path)
                 if problem:
                     raise RuntimeError(f'image check failed: {fname}: {problem}')
+                job.progress.update(phase='checksum', checksum_done=0, checksum_total=os.path.getsize(path))
+
+                def hashed(n):
+                    job.progress['checksum_done'] = n
+                digest = manifest.sha256_file(path, progress=hashed, cancelled=job.cancelled)
                 out_devices.append({'uuid': dev['uuid'], 'type': dev.get('type', 'VIRTIO_DISK'), 'file': fname, 'size': size,
                                     'serial': dev.get('serial'), 'blocks': copier.blocks_in(dev_map), 'bytes_written': written,
-                                    'full': backing is None and kind == 'delta', 'sha256': manifest.sha256_file(path)})
+                                    'full': backing is None and kind == 'delta', 'sha256': digest})
+                job.progress.pop('phase', None)
+                job.progress.pop('checksum_done', None)
+                job.progress.pop('checksum_total', None)
                 job.progress['devices_done'] += 1
                 self._persist(job)
             point = {'kind': kind, 'seq': seq, 'dir': os.path.basename(point_dir), 'previous_seq': prev_seq, 'created_at': _now(),
@@ -304,6 +317,20 @@ class Engine:
                     'bytes': done, 'duration_s': round(time.time() - t0, 1)}
         finally:
             self._release_target(req)
+
+    # ---------------------------------------------------------------- netcheck
+    def run_netcheck(self, job: Job) -> dict:
+        """request: {mac: the test NIC's MAC, probe: '172.16.0.250/25', targets: [{ip, ports: [int]}],
+        dhcp?: [{mac, ip}], wait_s?}. Ping and TCP checks of a test-restored VM on the test VLAN, through the test
+        NIC only, repeated until it answers or wait_s is up, serving its static DHCP leases meanwhile (netcheck.py)."""
+        import netcheck
+        req = job.request
+        job.progress = {'targets': len(req.get('targets') or [])}
+        try:
+            return netcheck.run(req['mac'], req['probe'], req.get('targets') or [], dhcp=req.get('dhcp') or None,
+                                wait_s=float(req.get('wait_s') or 0), cancelled=job.cancelled)
+        except netcheck.NetcheckError as e:
+            raise RuntimeError(str(e)) from None
 
     # ---------------------------------------------------------------- sweep
     def run_sweep(self, job: Job) -> dict:

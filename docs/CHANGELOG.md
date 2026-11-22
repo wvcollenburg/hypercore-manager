@@ -4,6 +4,52 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.7.0]
+
+### Added
+- **Test restores.** A test plan per folder (Backup → Schedules → **Test restores**) restores the newest backup of
+  its VMs as temporary VMs, starts them, checks that they come up and deletes them again. A round every N days:
+  fixed VMs plus N picked at random from the folder's backed-up VMs (longest untested first, a tested VM rests N
+  weeks). Tests run on the folder's DR cluster at any hour (paused during the folder's backups), else on the VM's
+  own cluster inside the plan's hours, outside backups, and only when they fit before the next backups; one test
+  per target cluster at a time, and only when a node has room for the VM under the balancer's RAM ceiling.
+  - **Boot test**: NICs disconnected; a pass is the guest agent answering or, without an agent, a login / lock /
+    sign-in screen on the console (the console service's classifier, now also recognising stop screens, BitLocker
+    recovery, "no bootable device", GRUB rescue and emergency mode as failures). The last screenshot is kept.
+    VMs without a guest agent are marked *agentless: screen check only*.
+  - **Network test**: NICs on an isolated test VLAN (refused when another VM on the target cluster uses it), then
+    ping and TCP port checks from a proxy NIC on that VLAN (proxy job `netcheck`, bound to that NIC so a restored
+    VM's production IP never reaches the production VM). The proxy serves the test VM its source addresses by DHCP
+    on the test VLAN (static leases for the test VM's MACs only) and probes until it answers. HCM never touches
+    the test VLAN.
+  - Options, off by default: keep a failed test VM for N hours; a byte budget per round.
+  - Results under Runs → **Test restores** (verdict, target, point age, restore and boot time, checks,
+    screenshot) and a **Tested** column on the restore points. A failed test and a fixed VM without a passed test
+    for twice the interval raise a badge on the cluster card and a mail to the closest administrator.
+- **Proxy deploy: Test VLAN** adds a second NIC for the network checks. Proxy **0.6.2**: job `netcheck`,
+  `iproute2`, `iputils-ping` and `dnsmasq-base` in the image; proxies deployed from now on run with host networking
+  (older ones show *network tests: redeploy*).
+- **Progress bars for running work** (like balenaEtcher): a running backup shows a green bar while copying
+  (GiB and device n of m), then a purple one while the proxy checks the image and reads it back for its checksum; a
+  running restore shows verifying (purple), preparing and importing, writing disks (green); a running test
+  restore shows its step: restoring (the restore's bar), booting (time waited against the timeout), network checks,
+  removing the test VM. The Runs tab now also refreshes every 20 s when nothing runs, so runs started by a
+  schedule or another user show up with their bar. Migration 054 stores the structured progress next to the text.
+
+### Fixed
+- **A big full looked stuck at its last MiB.** After a disk is copied the proxy checks the image and reads it back
+  for its checksum, minutes on a large disk, without reporting anything. The run now says so
+  (`device 1/3: checksum 12000/27000 MiB`).
+- **A backup that started within two minutes of a restart lost its disk clones.** The clean-up of clones left by
+  interrupted runs runs shortly after every (re)start of the backup service and also deleted the clones of a run
+  that had just begun (`No such file or directory: /dev/disk/by-id/virtio-…`). It now skips chains whose backup
+  is running.
+- **A failed full no longer leaves its partial data on the share.** A full that failed before its first point
+  kept what it had copied, so repeated failures filled the share. An empty chain of a failed run is now removed.
+- **A Windows lock screen showing only the clock is recognised** by the console's screen check (a second OCR pass
+  for white text on a photo), so a booted BitLocker VM without a guest agent counts as up.
+- The proxy list says *guest agent unknown (source VM is off)* instead of *agent unknown*.
+
 ## [1.6.0]
 
 ### Added

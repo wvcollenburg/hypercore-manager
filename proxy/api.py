@@ -3,7 +3,7 @@ api.py — REST API of the backup proxy (port 8083), driven by the backup servic
 
   GET  /health                liveness
   GET  /identity              hostname, MAC addresses, capabilities (token required)
-  POST /jobs/<kind>           kind in backup | flatten | synthesize | verify | sweep | prune | delete_chain | stage | bench -> {id}
+  POST /jobs/<kind>           kind in backup | flatten | synthesize | verify | sweep | prune | delete_chain | stage | bench | netcheck -> {id}
   GET  /jobs                  recent jobs
   GET  /jobs/<id>             state, progress, result or error
   DELETE /jobs/<id>           request cancellation
@@ -45,6 +45,7 @@ _REQUIRED = {
     'delete_chain': ('target', 'chain_dir'),
     'stage': ('target', 'chain_dir', 'seq', 'devices'),
     'bench': ('target',),
+    'netcheck': ('mac', 'probe', 'targets'),
 }
 
 
@@ -123,7 +124,7 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
         missing = [k for k in _REQUIRED[kind] if k not in body]
         if missing:
             return jsonify({'error': f'missing fields: {", ".join(missing)}'}), 400
-        if not isinstance(body.get('target'), dict) or 'uri' not in body['target']:
+        if 'target' in _REQUIRED[kind] and (not isinstance(body.get('target'), dict) or 'uri' not in body['target']):
             return jsonify({'error': 'target.uri is required'}), 400
         job = engine.submit(kind, body)
         log.info('job submitted', extra={'job': job.id, 'kind': kind})

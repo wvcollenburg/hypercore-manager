@@ -449,11 +449,61 @@ def run_incremental(plan_id: int, policy_id: int | None = None, occurrence=None,
             db.update_run(run_id, work_started_at=work_started)
             _run(plan, run_id, hc, work_started, full)
     except (IncrementalError, HyperCoreError, ProxyError) as e:
-        db.update_run(run_id, status='ERROR', message=str(e), finished_at=_now())
+        db.update_run(run_id, status='ERROR', message=str(e), finished_at=_now(), progress=None)
         log.error('[run %s] %s', run_id, e)
+        discard_empty_chain(run_id)
     except Exception as e:                              # noqa: BLE001 — never kill the scheduler thread
         db.update_run(run_id, status='ERROR', message=f'Unexpected error: {e}', finished_at=_now())
         log.exception('[run %s] unexpected error', run_id)
+        discard_empty_chain(run_id)
+
+
+def backup_progress_text(kind: str, p: dict) -> str:
+    """'full: 1200/28141 MiB, device 1/3', and after a disk's copy what the proxy does with it (proxy 0.6.2+)."""
+    total_dev = p.get('devices_total', 1)
+    text = f'{kind}: {p.get("blocks_done", 0)}/{p["blocks_total"]} MiB, device {min(p.get("devices_done", 0) + 1, total_dev)}/{total_dev}'
+    if p.get('phase') == 'check':
+        text += ': checking the image'
+    elif p.get('phase') == 'checksum':
+        text += f': checksum {int(p.get("checksum_done") or 0) >> 20}/{int(p.get("checksum_total") or 0) >> 20} MiB'
+    return text
+
+
+def backup_progress(p: dict) -> dict:
+    """The bar of a running backup: green while copying (MiB of all devices), purple while the proxy checks a
+    copied disk and reads it back for its checksum (bytes of that disk)."""
+    total_dev = p.get('devices_total', 1)
+    out = {'phase': p.get('phase') or 'copy', 'device': min(p.get('devices_done', 0) + 1, total_dev), 'devices': total_dev,
+           'done': int(p.get('blocks_done') or 0), 'total': int(p.get('blocks_total') or 0)}
+    if out['phase'] == 'checksum':
+        out['done'] = int(p.get('checksum_done') or 0) >> 20
+        out['total'] = int(p.get('checksum_total') or 0) >> 20
+    elif out['phase'] == 'check':
+        out['done'], out['total'] = 0, 0                 # qemu-img check reports nothing: an indeterminate bar
+    return out
+
+
+def discard_empty_chain(run_id: int) -> bool:
+    """A failed run that had started a new chain (a full) leaves partial files on the share and a chain without
+    points: remove both, or every failed full eats share space until the share is full (live 2026-11-21: two
+    failed fulls of a 28 GB VM filled the lab share). A chain with any point is never touched."""
+    try:
+        r = db.get_run(run_id)
+        chain = db.get_chain(r['chain_id']) if r and r.get('chain_id') else None
+        if not chain or chain.get('status') == 'deleted' or db.get_points(chain['id'], include_pruned=True):
+            return False
+        share = db.get_share(chain['target_id'], with_secret=True) if chain.get('target_id') else None
+        if share:
+            pc = proxy_client_for(pick_proxy(chain['cluster_id']))
+            pc.wait(pc.submit('delete_chain', {'target': {'uri': share['uri_base'], 'username': share.get('username'),
+                                                          'password': share.get('password')}, 'chain_dir': chain['chain_dir']}),
+                    timeout=3600)
+        db.update_chain(chain['id'], status='deleted')
+        log.info('[run %s] partial data of the failed full removed from the share (%s)', run_id, chain['chain_dir'])
+        return True
+    except Exception as e:                              # noqa: BLE001 — the run's own error is what matters
+        log.warning('[run %s] partial data of the failed run not removed: %s', run_id, e)
+        return False
 
 
 def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_started: datetime | None = None,
@@ -563,7 +613,7 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_starte
             if p.get('blocks_total'):
                 total_dev = p.get('devices_total', 1)
                 try:                                    # progress text is cosmetic: a db hiccup must not abort the copy
-                    db.update_run(run_id, message=f'{kind}: {p.get("blocks_done", 0)}/{p["blocks_total"]} MiB, device {min(p.get("devices_done", 0) + 1, total_dev)}/{total_dev}')
+                    db.update_run(run_id, message=backup_progress_text(kind, p), progress=backup_progress(p))
                 except Exception as e:                  # noqa: BLE001
                     log.warning('[run %s] progress update failed: %s', run_id, e)
         result = pc.wait(job_id, on_progress, timeout=CFG.task_timeout_hours * 3600)['result']
@@ -751,6 +801,9 @@ def sweep_cluster(cluster_id: str, max_age_days: int = 30) -> dict:
             out['snapshots'] += 1
     for ch in db.chains_with_clones():
         if ch['cluster_id'] != cluster_id:
+            continue
+        if db.plan_run_active(ch.get('plan_id')):
+            # a run that is going on holds these clones (the sweep after a restart once deleted them mid-copy)
             continue
         _delete_clones(hc, list(ch.get('active_clones') or []))
         db.update_chain(ch['id'], active_clones=[])

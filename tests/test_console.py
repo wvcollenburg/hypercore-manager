@@ -264,3 +264,40 @@ def test_carries_input_for_read_only_viewers():
     assert rfb.carries_input(bytes([6, 0, 0, 0, 0, 0, 0, 1, 0x61]))         # clipboard
     assert rfb.carries_input(fbur + bytes([4, 1, 0, 0, 0, 0, 0, 0x61]))     # batched behind an update request
     assert not rfb.carries_input(b'RFB 003.008\n') and not rfb.carries_input(b'\x01')
+
+
+# ------------------------------------------------------------------ boot verdict (test restores)
+@pytest.mark.parametrize('lines, verdict', [
+    (['Ubuntu 24.04 LTS btest01 tty1', 'btest01 login:'], 'pass'),
+    (['Press Ctrl+Alt+Delete to sign in.'], 'pass'),
+    (['root@appliance:~#'], 'pass'),
+    (['Your PC ran into a problem and needs to restart.', 'Stop code: INACCESSIBLE_BOOT_DEVICE'], 'fail'),
+    (['BitLocker recovery', 'Enter the recovery key for this drive'], 'fail'),
+    (['No bootable device -- insert boot disk and press any key'], 'fail'),
+    (['grub rescue>'], 'fail'),
+    (['You are in emergency mode. After logging in, type "journalctl -xb"'], 'fail'),
+    (['[  OK  ] Started Network Manager.', '[  OK  ] Reached target Basic System.', 'Starting cloud-init...'], 'wait'),
+])
+def test_boot_verdict(lines, verdict):
+    img = Image.new('RGB', (720, 400), (40, 40, 40))
+    img.putpixel((5, 5), (250, 250, 250))                 # not blank
+    assert classify.boot_verdict(img, ocr=lambda _i: lines, ocr2=lambda _i: [])[0] == verdict
+
+
+def test_a_blank_or_unreadable_screen_means_wait_never_pass():
+    assert classify.boot_verdict(Image.new('RGB', (720, 400)), ocr=lambda _i: ['login:'], ocr2=lambda _i: [])[0] == 'wait'
+    img = Image.new('RGB', (720, 400), (40, 40, 40)); img.putpixel((5, 5), (250, 250, 250))
+
+    def broken(_i):
+        raise classify.OCRFailed('tesseract died')
+    assert classify.boot_verdict(img, ocr=broken, ocr2=lambda _i: [])[0] == 'wait'
+    assert classify.boot_verdict(img, use_ocr=False)[0] == 'wait'
+
+
+def test_a_windows_lock_screen_with_only_its_clock_passes_through_the_white_text_pass():
+    """Live 2026-11-21: a restored Windows 11 VM showed only clock and date; the normal OCR pass read '-'."""
+    img = Image.new('RGB', (1024, 768), (20, 50, 200)); img.putpixel((5, 5), (250, 250, 250))
+    assert classify.boot_verdict(img, ocr=lambda _i: ['-'], ocr2=lambda _i: ['23:36', 'Saturday, 21 November']) == \
+        ('pass', 'lock screen (clock and date)')
+    assert classify.boot_verdict(img, ocr=lambda _i: ['-'], ocr2=lambda _i: ['Your PC ran into a problem'])[0] == 'fail'
+    assert classify.boot_verdict(img, ocr=lambda _i: ['-'], ocr2=lambda _i: ['12:00'])[0] == 'wait', 'a clock alone is not enough'

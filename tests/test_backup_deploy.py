@@ -169,3 +169,11 @@ def test_push_image_leaves_a_running_proxy_alone_and_times_out(monkeypatch):
     monkeypatch.setattr(dp.time, 'monotonic', lambda: next(clock))
     with pytest.raises(dp.IncrementalError, match='bootstrap receiver'):
         dp.push_image('10.0.0.9', 'tok', timeout=1000, sleep=lambda s: None, fingerprint_of=fp)
+
+
+def test_a_proxy_can_get_a_test_vlan_nic_and_runs_with_host_networking():
+    """Network checks of test restores need the proxy to see its own NICs (--network host) and a NIC on the test VLAN."""
+    body = dp.vm_body('px', 2, 4, 7, 'ud', 'md', test_vlan=999)
+    assert [n['vlan'] for n in body['dom']['netDevs']] == [7, 999] and all(n['connected'] for n in body['dom']['netDevs'])
+    assert len(dp.vm_body('px', 2, 4, 7, 'ud', 'md')['dom']['netDevs']) == 1
+    assert '--network host' in dp.RUN_SH and '-p 8083:8083' not in dp.RUN_SH

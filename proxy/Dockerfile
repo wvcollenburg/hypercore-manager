@@ -3,9 +3,9 @@ FROM python:3.12-slim-bookworm
 # qemu-utils: qemu-img / qemu-nbd; cifs-utils + nfs-common: mounting backup targets;
 # util-linux: blockdev/sfdisk/losetup; udev: udevadm settle; lvm2 + dmsetup: file-level recovery
 # (COW overlays, LVM import); ntfs-3g: NTFS fallback; genisoimage: ISO delivery; procps: ps/free for
-# the support bundle; tini: PID 1 (see below)
+# the support bundle; tini: PID 1 (see below); iproute2 + iputils-ping + dnsmasq-base: network checks of test restores (DHCP on the test VLAN)
 RUN apt-get update \
- && apt-get install -y --no-install-recommends qemu-utils cifs-utils nfs-common util-linux fdisk udev lvm2 dmsetup cryptsetup-bin ntfs-3g genisoimage openssl procps tini \
+ && apt-get install -y --no-install-recommends qemu-utils cifs-utils nfs-common util-linux fdisk udev lvm2 dmsetup cryptsetup-bin ntfs-3g genisoimage openssl procps tini iproute2 iputils-ping dnsmasq-base \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

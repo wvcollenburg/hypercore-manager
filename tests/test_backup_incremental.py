@@ -757,3 +757,51 @@ def test_work_goes_to_the_new_address_and_a_reachable_proxy_costs_no_lookup(monk
     assert inc.ensure_reachable({**_MOVED_PROXY, 'url': 'https://172.16.0.80:8083'})['url'] == 'https://172.16.0.80:8083'
     monkeypatch.setattr(inc, 'relocate_proxy', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('boom')))
     assert inc.ensure_reachable(dict(_MOVED_PROXY))['url'] == 'https://172.16.0.65:8083', 'a failed lookup never breaks the run'
+
+
+def test_the_sweep_leaves_the_clones_of_a_running_backup_alone(world, monkeypatch):
+    """Live 2026-11-21: the sweep two minutes after a restart deleted the clones of a backup that had just started."""
+    hc = _CdHC(running=True)
+    deleted = []
+    monkeypatch.setattr(inc.jobs, 'client_for', lambda cid: hc)
+    monkeypatch.setattr(inc, '_delete_clones', lambda h, uuids: deleted.extend(uuids))
+    monkeypatch.setattr(world.db, 'chains_with_clones', lambda: [
+        {'id': 1, 'cluster_id': 'c1', 'plan_id': 5, 'active_clones': ['busy-clone']},
+        {'id': 2, 'cluster_id': 'c1', 'plan_id': 6, 'active_clones': ['left-behind']}], raising=False)
+    monkeypatch.setattr(world.db, 'plan_run_active', lambda pid: pid == 5, raising=False)
+    monkeypatch.setattr(world.db, 'update_chain', lambda *a, **k: None, raising=False)
+    assert inc.sweep_cluster('c1')['clones'] == 1
+    assert deleted == ['left-behind']
+
+
+def test_a_failed_full_removes_its_partial_data_but_never_a_chain_with_points(world, monkeypatch):
+    """Live 2026-11-21: two failed fulls of a 28 GB VM left their partial files on the share until it was full."""
+    db = world.db
+    empty = db.add_chain(db.plan, 9, 'Lab', 'Lab/w11_1.chain')
+    good = db.add_chain(db.plan, 9, 'Lab', 'Lab/w11_0.chain')
+    db.add_point(good, 0, 'full', 'base', {}, 4, 4 << 20, 1.0, [], {}, 1)
+    runs = {1: {'id': 1, 'chain_id': empty}, 2: {'id': 2, 'chain_id': good}}
+    monkeypatch.setattr(db, 'get_run', lambda rid: runs.get(rid), raising=False)
+    updated = {}
+    monkeypatch.setattr(db, 'update_chain', lambda cid, **f: updated.setdefault(cid, {}).update(f), raising=False)
+    assert inc.discard_empty_chain(1) is True
+    assert world.pc.jobs[-1] == ('delete_chain', {'target': {'uri': 'smb://nas/share', 'username': 'u', 'password': 'p'}, 'chain_dir': 'Lab/w11_1.chain'})
+    assert updated[empty] == {'status': 'deleted'}
+    n = len(world.pc.jobs)
+    assert inc.discard_empty_chain(2) is False and len(world.pc.jobs) == n and good not in updated
+
+
+def test_backup_progress_says_what_happens_after_the_copy():
+    p = {'blocks_done': 28139, 'blocks_total': 28141, 'devices_done': 0, 'devices_total': 3}
+    assert inc.backup_progress_text('full', p) == 'full: 28139/28141 MiB, device 1/3'
+    assert inc.backup_progress_text('full', dict(p, phase='check')).endswith(': checking the image')
+    assert inc.backup_progress_text('full', dict(p, phase='checksum', checksum_done=12 << 30, checksum_total=27 << 30)).endswith(
+        ': checksum 12288/27648 MiB')
+
+
+def test_backup_progress_feeds_the_two_colour_bar():
+    p = {'blocks_done': 1200, 'blocks_total': 28141, 'devices_done': 0, 'devices_total': 3}
+    assert inc.backup_progress(p) == {'phase': 'copy', 'device': 1, 'devices': 3, 'done': 1200, 'total': 28141}
+    assert inc.backup_progress(dict(p, phase='check'))['total'] == 0, 'qemu-img check: no amount, a sliding bar'
+    c = inc.backup_progress(dict(p, phase='checksum', checksum_done=5 << 30, checksum_total=27 << 30))
+    assert (c['phase'], c['done'], c['total']) == ('checksum', 5120, 27648)

@@ -182,7 +182,9 @@ set -e
 image=$(cat /etc/hcm-proxy/image)
 modprobe nbd max_part=0 || true
 docker rm -f hcm-proxy >/dev/null 2>&1 || true
-exec docker run -d --name hcm-proxy --restart unless-stopped --privileged --memory 1g -p 8083:8083 \\
+# --network host: the proxy sees the VM's own NICs, which the network checks of test restores need (the
+# test-VLAN NIC); it listens on 8083 directly
+exec docker run -d --name hcm-proxy --restart unless-stopped --privileged --memory 1g --network host \\
   -v /dev:/dev -v /sys:/host/sys:ro -v hcm-proxy-data:/var/lib/hcm-proxy -v /var/lib/hcm-proxy-update:/update \\
   -v /etc/hcm-proxy/tls:/etc/hcm-proxy/tls:ro --env-file /etc/hcm-proxy.env "$image"
 """
@@ -300,12 +302,16 @@ def cloud_init_metadata(hostname: str) -> str:
     return f'instance-id: {hostname}-{uuidlib.uuid4().hex[:8]}\nlocal-hostname: {hostname}\n'
 
 
-def vm_body(name: str, vcpu: int, mem_gb: int, vlan: int, userdata: str, metadata: str) -> dict:
+def vm_body(name: str, vcpu: int, mem_gb: int, vlan: int, userdata: str, metadata: str, test_vlan: int | None = None) -> dict:
     """VirDomain create body. HyperCore wants the cloud-init documents base64-encoded (a plain
-    string is answered with a 500) and builds a NoCloud ISO from them."""
+    string is answered with a 500) and builds a NoCloud ISO from them. test_vlan: a second NIC on the
+    test VLAN for the network checks of test restores (left unconfigured; the proxy brings it up per check)."""
     b64 = lambda t: base64.b64encode(t.encode()).decode()  # noqa: E731
+    nics = [{'type': 'VIRTIO', 'vlan': int(vlan or 0), 'connected': True}]
+    if test_vlan is not None:
+        nics.append({'type': 'VIRTIO', 'vlan': int(test_vlan), 'connected': True})
     return {'dom': {'name': name, 'mem': int(mem_gb) << 30, 'numVCPU': int(vcpu), 'operatingSystem': 'os_other',
-                    'tags': 'hcm-proxy', 'blockDevs': [], 'netDevs': [{'type': 'VIRTIO', 'vlan': int(vlan or 0), 'connected': True}],
+                    'tags': 'hcm-proxy', 'blockDevs': [], 'netDevs': nics,
                     'cloudInitData': {'userData': b64(userdata), 'metaData': b64(metadata)}},
             'options': {'attachGuestToolsISO': False, 'machineTypeKeyword': 'uefi', 'useUEFISecureBoot': False}}
 
@@ -428,7 +434,8 @@ def run_deployment(dep_id: int) -> None:
         userdata = cloud_init_userdata(token=token, tz=p.get('tz') or 'UTC', hostname=name, ip=p.get('ip'),
                                        authorized_key=p.get('authorized_key'))
         db.update_deployment(dep_id, message='creating the proxy VM')
-        r = hc._request('POST', '/VirDomain', json=vm_body(name, p.get('vcpu') or 1, p.get('mem_gb') or 2, p.get('vlan') or 0, userdata, cloud_init_metadata(name))) or {}
+        r = hc._request('POST', '/VirDomain', json=vm_body(name, p.get('vcpu') or 1, p.get('mem_gb') or 2, p.get('vlan') or 0, userdata, cloud_init_metadata(name),
+                                                       p.get('test_vlan'))) or {}
         if not r.get('createdUUID'):
             raise HyperCoreError(f'VM not created: {r}')
         wait_task(hc, r['taskTag'], 'create VM', 600)

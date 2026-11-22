@@ -187,3 +187,92 @@ def classify(img: Image.Image, refs: Iterable[str] = (), use_ocr: bool = True, o
             # a shell prompt in view: undecidable without pressing a key, so never a pass and never an alarm
             return Verdict('unknown', 'only log output on the console, no prompt in view', h)
     return Verdict('open', 'no lock or login screen recognised', h)
+
+
+# ------------------------------------------------------------------ boot test (test restores)
+# a restored VM that is stuck instead of booted (letters only, accents stripped, lower case)
+BOOT_FAIL_PHRASES = (
+    ('bitlockerrecovery', 'BitLocker recovery screen: the vTPM did not unseal the key'),
+    ('recoverykey', 'asks for a recovery key'),
+    ('ranintoaproblem', 'Windows stop screen'),
+    ('stopcode', 'Windows stop screen'),
+    ('automaticrepair', 'Windows automatic repair'),
+    ('startuprepair', 'Windows startup repair'),
+    ('nobootabledevice', 'no bootable device'),
+    ('bootdevicenotfound', 'boot device not found'),
+    ('operatingsystemnotfound', 'operating system not found'),
+    ('bootfailed', 'boot failed'),
+    ('kernelpanic', 'kernel panic'),
+    ('grubrescue', 'GRUB rescue prompt'),
+    ('emergencymode', 'Linux emergency mode'),
+    ('givingupwaitingforrootdevice', 'root device not found'),
+    ('initramfs', 'stuck in the initramfs'),
+    ('interactiveshell', 'UEFI shell: nothing to boot'),
+)
+
+
+_CLOCK = re.compile(r'^\s*\d{1,2}[:.]\d{2}\s*$')
+_WEEKDAYS = ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+             'maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag',
+             'montag', 'dienstag', 'mittwoch', 'donnerstag', 'freitag', 'samstag', 'sonntag',
+             'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche')
+
+
+def ocr_bright(img: Image.Image, timeout: float = 60, threshold: int = 225) -> list[str]:
+    """Only the near-white pixels, as dark text on white, read as sparse text: white text on a coloured or
+    photographic background (the Windows lock screen's clock, a stop screen, the BitLocker recovery screen),
+    which the normal pass cannot separate from the background (measured on a Windows 11 lock screen: the
+    normal pass read '-', this one '23:36' and 'Saturday, 21 November')."""
+    g = img.convert('L').point(lambda v: 0 if v > threshold else 255)
+    buf = io.BytesIO()
+    g.save(buf, 'PNG')
+    env = dict(os.environ, OMP_THREAD_LIMIT='1')
+    try:
+        r = subprocess.run(['tesseract', 'stdin', 'stdout', '--psm', '11'], input=buf.getvalue(),
+                           capture_output=True, timeout=timeout, env=env)
+    except subprocess.TimeoutExpired:
+        raise OCRFailed(f'text recognition took longer than {timeout:g} s') from None
+    except OSError as e:
+        raise OCRFailed(f'text recognition unavailable: {e}') from None
+    if r.returncode != 0:
+        raise OCRFailed('text recognition failed: ' + r.stderr.decode('utf-8', 'replace').strip()[:120])
+    return [ln.strip() for ln in r.stdout.decode('utf-8', 'replace').splitlines() if ln.strip()]
+
+
+def _judge_boot(lines: list[str]) -> tuple[str, str] | None:
+    flat = _letters(' '.join(lines))
+    for phrase, what in BOOT_FAIL_PHRASES:
+        if phrase in flat:
+            return 'fail', what
+    found = text_verdict(lines)
+    if found == 'shell':
+        return 'pass', 'shell prompt (logged in automatically)'
+    if found:
+        return 'pass', found
+    if any(_CLOCK.match(ln) for ln in lines) and any(d in flat for d in _WEEKDAYS):
+        return 'pass', 'lock screen (clock and date)'
+    return None
+
+
+def boot_verdict(img: Image.Image, use_ocr: bool = True, ocr=None, ocr2=None) -> tuple[str, str]:
+    """('pass' | 'fail' | 'wait', detail) for the console of a test-restored VM. Pass: a login prompt, a lock or
+    sign-in screen (also a Windows lock screen showing only its clock and date), or a shell (auto-login). Fail: a
+    screen that shows the VM is stuck (stop screen, recovery key, nothing to boot). Anything else (blank, boot
+    logo, log output): wait and look again. A second OCR pass for white text runs only when the first decides
+    nothing."""
+    ocr = ocr or ocr_lines
+    ocr2 = ocr2 or ocr_bright
+    if is_blank(img):
+        return 'wait', 'screen is blank'
+    if not use_ocr:
+        return 'wait', 'no OCR available'
+    try:
+        found = _judge_boot(ocr(img))
+        if found:
+            return found
+        found = _judge_boot(ocr2(img))
+        if found:
+            return found
+    except OCRFailed as e:
+        return 'wait', str(e)
+    return 'wait', 'no login screen yet'

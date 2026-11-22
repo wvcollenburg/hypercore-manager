@@ -1793,6 +1793,15 @@ _BACKUP_ROUTES = [
     ('DELETE', r'proxies/(\d+)',                          'backup.proxies.manage', ('owner', 'proxy')),
     ('POST',   r'proxies/(\d+)/(update|test|bench)',      'backup.proxies.manage', ('owner', 'proxy')),
     ('GET',    r'proxies/(\d+)/(logs|bench)',             'backup.proxies.manage', ('owner', 'proxy')),
+    ('GET',    r'test-plans',                             'backup.view',           'folder'),
+    ('POST',   r'test-plans',                             'backup.schedule',       'folder'),
+    ('PUT',    r'test-plans/(\d+)',                       'backup.schedule',       'folder'),
+    ('DELETE', r'test-plans/(\d+)',                       'backup.schedule',       'folder'),
+    ('POST',   r'test-plans/(\d+)/run',                   'backup.run',            'folder'),
+    ('POST',   r'test-plans/(\d+)/vms',                   'backup.schedule',       'vm'),
+    ('DELETE', r'test-plans/(\d+)/vms',                   'backup.schedule',       'folder'),
+    ('GET',    r'test-runs',                              'backup.view',           'folder_some'),
+    ('GET',    r'test-runs/(\d+)/screenshot',             'backup.view',           ('owner', 'test_run')),
     ('GET',    r'verification',                           'backup.view',           'folder'),
     ('PUT',    r'verification',                           'backup.schedule',       'folder'),
     ('GET',    r'chains',                                 'backup.view',           'folder_some'),
@@ -1983,7 +1992,7 @@ def _narrow_backup(sub: str, data, scope, cid: str):
     rows = lambda xs, key='vm_uuid': [x for x in (xs or []) if isinstance(x, dict) and keep(x.get(key))]  # noqa: E731
     if sub == 'vms':
         return rows(data, 'uuid')
-    if sub in ('plans', 'chains', 'restores', 'flr/mounts'):
+    if sub in ('plans', 'chains', 'restores', 'flr/mounts', 'test-runs'):
         return rows(data)
     if sub == 'vmedit/changes':
         return dict(data, changes=rows(data.get('changes')))
@@ -2079,12 +2088,12 @@ def backup_proxy(sub):
             payload['created_by'] = user
         if sub in ('restores', 'flr/mounts') or sub.endswith('/iso'):
             payload['requested_by'] = user
-        if sub == 'verification':
+        if sub == 'verification' or sub.startswith('test-plans'):
             payload['updated_by'] = user
         body = json.dumps(payload).encode()
         headers['Content-Type'] = 'application/json'
     if request.method == 'GET' and (sub.startswith('flr/mounts/') and sub.rsplit('/', 1)[-1] in ('file', 'zip')
-                                    or re.fullmatch(r'proxies/\d+/logs', sub)):
+                                    or re.fullmatch(r'proxies/\d+/logs', sub) or re.fullmatch(r'test-runs/\d+/screenshot', sub)):
         # downloads stream through; nothing in them is a target path or credential
         try:
             rq = urllib.request.Request(f'{url}/api/v1/{sub}?{qs}', headers=headers)

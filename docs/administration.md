@@ -395,7 +395,10 @@ from its MAC addresses; the status column says **VM detected** when that worked.
 connection** repeats the probe. A paused proxy is not used for new runs.
 
 **Deploy a proxy VM** (same panel) creates the proxy VM for you: pick the cluster, a name, VLAN,
-sizes and DHCP or a static address, and the backup service uploads an Ubuntu cloud image to the
+sizes, DHCP or a static address, and optionally a **Test VLAN** (a second NIC on an isolated VLAN, for the
+network checks of test restores; left unconfigured, the proxy brings it up only during a check). Proxies
+deployed from 1.7.0 on run their container with host networking so they can use that NIC; an older proxy
+shows *network tests: redeploy* in the proxies table. The backup service uploads an Ubuntu cloud image to the
 cluster once, creates the VM with a cloud-init document that installs Docker and the proxy
 container, waits for its address and registers it with a freshly generated token. The list below
 the form follows the deployment; a finished one shows up in the proxies table with its VM
