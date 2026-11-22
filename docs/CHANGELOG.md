@@ -18,7 +18,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Documentation
 - New manual chapter **Getting started**: from an empty installation to an MSP, a customer, a folder and a cluster,
-  then a user and their rights on each layer, step by step. Linked from the manual index, Getting around,
+  then a user and their rights on each layer, step by step, with a screenshot per step and numbered markers on
+  what to click. Linked from the manual index, Getting around,
   Settings, the installing chapter and the README.
 
 ## [1.7.2]
