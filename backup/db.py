@@ -830,8 +830,8 @@ def get_restores(cluster_id: Optional[str] = None, limit: int = 50) -> list[dict
 
 
 def update_restore(restore_id: int, **fields) -> None:
-    allowed = {'status', 'message', 'created_uuid', 'finished_at', 'progress'}
-    items = [(k, _json(v) if k == 'progress' else v) for k, v in fields.items() if k in allowed]
+    allowed = {'status', 'message', 'created_uuid', 'finished_at', 'progress', 'staging'}
+    items = [(k, _json(v) if k in ('progress', 'staging') else v) for k, v in fields.items() if k in allowed]
     if not items:
         return
     _exec(f'UPDATE backup.restores SET {", ".join(f"{k} = %s" for k, _ in items)} WHERE id = %s', [v for _, v in items] + [restore_id])
@@ -839,6 +839,13 @@ def update_restore(restore_id: int, **fields) -> None:
 
 def get_active_restores() -> list[dict]:
     return _all("SELECT * FROM backup.restores WHERE status = 'RUNNING' ORDER BY id")
+
+
+def restores_with_staging() -> list[dict]:
+    """Finished or failed restores whose staging disks are still recorded (migration 056)."""
+    return [dict(r, cluster_id=str(r['cluster_id'])) for r in _all(
+        """SELECT * FROM backup.restores WHERE status <> 'RUNNING' AND staging IS NOT NULL AND jsonb_typeof(staging) = 'array'
+             AND jsonb_array_length(staging) > 0 ORDER BY id""")]
 
 
 # ---------------------------------------------------------------- deployments

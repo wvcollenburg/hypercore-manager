@@ -200,8 +200,14 @@ def reconcile_interrupted() -> None:
     for x in db.get_deployments():
         if x['status'] == 'RUNNING':
             db.update_deployment(x['id'], status='ERROR', finished_at=db.now_utc(), message='Interrupted by a restart; check the VM on the cluster and register the proxy by hand if it is up.')
+    interrupted = []
     for x in db.get_active_restores():
         db.update_restore(x['id'], status='ERROR', finished_at=db.now_utc(), message='Interrupted by a restart.')
+        interrupted.append(x['id'])
+    if interrupted:
+        # their staging disks on the proxy VM and the half-built VM go, off the start path (HyperCore calls)
+        import restore
+        _one_off(restore.cleanup_interrupted, [interrupted], 'restore-cleanup')
     for i in db.get_active_imports():
         if i['task_tag']:
             _one_off(jobs.resume_import, [i['id']], f"resume-import-{i['id']}")
@@ -222,6 +228,13 @@ def sweep_all() -> None:
                 log.info('sweep %s: %s', c.name, out)
         except Exception:        # noqa: BLE001
             log.exception('sweep failed for %s', c.name)
+    try:
+        import restore
+        n = restore.sweep_staging()
+        if n:
+            log.info('restore staging disks left on proxy VMs: %s removed', n)
+    except Exception:            # noqa: BLE001
+        log.exception('restore staging sweep failed')
     try:
         db.prune_nights(90)
     except Exception:            # noqa: BLE001

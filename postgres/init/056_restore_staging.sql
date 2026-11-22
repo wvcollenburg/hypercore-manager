@@ -1,0 +1,11 @@
+-- =============================================================================
+-- 056_restore_staging.sql
+-- The writable staging disks a VM restore creates on the proxy's VM, recorded as they are made.
+--
+-- A restore interrupted by a restart (or one whose cleanup failed) left these disks attached to the
+-- proxy VM, each as large as the restored VM's disk, recorded nowhere. The backup service now keeps
+-- their uuids here until they are removed; the restart reconcile and the daily sweep remove what is
+-- left. NULL or [] = nothing left behind.
+-- Idempotent.
+-- =============================================================================
+ALTER TABLE backup.restores ADD COLUMN IF NOT EXISTS staging JSONB;

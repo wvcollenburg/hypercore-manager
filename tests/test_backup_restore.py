@@ -236,6 +236,69 @@ def test_restore_refuses_existing_name_and_cleans_up_on_failure(world, monkeypat
     assert world.hc.proxy_devs == [], 'staging disks removed after a failed stage'
 
 
+def _failing_stage(world, monkeypatch):
+    def boom(jid, on_progress=None, timeout=0, poll=0):
+        kind, _ = world.pc.jobs[int(jid[1:]) - 1]
+        if kind == 'stage':
+            raise rs.ProxyError('target unreachable')
+        return {'state': 'done', 'result': dict(world.pc.verify_result) if kind == 'verify' else {'files': []}}
+    monkeypatch.setattr(world.pc, 'wait', boom)
+
+
+def test_a_failed_restore_deletes_its_half_built_vm_and_records_staging_disks_it_could_not_remove(world, monkeypatch):
+    """Staging disks (each as large as the VM's disk) were recorded nowhere, and the half-built VM blocked a retry
+    with the same name."""
+    _failing_stage(world, monkeypatch)
+    world.db.restore['cluster_id'] = 'c1'
+    deleted = []
+    world.hc.delete_vm = lambda u: deleted.append(u) or 'task'
+    real_delete = world.hc.delete_block_device
+
+    def stuck(u):
+        raise hcm.HyperCoreError('timed out waiting for CV refresh')
+    world.hc.delete_block_device = stuck
+    state = ['RUNNING']
+    real_import = world.hc.import_vm
+
+    def import_vm(*a, **k):
+        out = real_import(*a, **k)
+        world.hc.new_vm['state'] = state[0]
+        return out
+    world.hc.import_vm = import_vm
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'ERROR' and r['staging'] == ['stage-1'], 'the disk that could not be detached stays recorded'
+    assert r['created_uuid'] == 'new-vm'
+    assert deleted == [] and 'kept' in r['message'], 'a running VM is never deleted'
+    state[0] = 'SHUTOFF'
+    world.db.restore.update(status='RUNNING'); world.hc.vms.pop()
+    rs.run_restore(9)
+    assert deleted == ['new-vm'] and 'half-restored VM was deleted' in world.db.restore['message']
+    # the daily sweep removes what is left, and a disk that is gone already counts as removed
+    world.hc.delete_block_device = real_delete
+    world.hc.get_block_device = lambda u: {'uuid': u} if u in world.hc.proxy_devs else None
+    world.db.restores_with_staging = lambda: [dict(world.db.restore, cluster_id='c1')]
+    assert world.db.restore['staging'] == ['stage-2']
+    world.hc.proxy_devs.remove('stage-1')                  # (the fake reuses one row: stage-1 belonged to the first run)
+    world.db.restore['staging'] = ['stage-1', 'stage-2']
+    assert rs.sweep_staging() == 2 and world.db.restore['staging'] == [] and world.hc.proxy_devs == []
+    assert ('delete_dev', 'stage-1') not in world.hc.calls, 'a disk that is gone already is not deleted again'
+
+
+def test_an_interrupted_restore_loses_its_vm_only_before_its_last_step(world):
+    deleted = []
+    world.hc.delete_vm = lambda u: deleted.append(u) or 'task'
+    world.hc.new_vm = {'uuid': 'new-vm', 'name': 'exptest-copy', 'state': 'SHUTOFF'}
+    world.db.restores_with_staging = lambda: []
+    world.db.restore.update(status='ERROR', message='Interrupted by a restart.', created_uuid='new-vm', cluster_id='c1',
+                            progress={'phase': 'finish'})
+    rs.cleanup_interrupted([9])
+    assert deleted == [], 'a restore in its last step has a complete VM'
+    world.db.restore['progress'] = {'phase': 'write'}
+    rs.cleanup_interrupted([9])
+    assert deleted == ['new-vm'] and world.db.restore['message'].endswith('the half-restored VM was deleted')
+
+
 def test_iso_name_and_hypercore_iso_calls():
     sys.path.insert(0, _BACKUP)
     try:
