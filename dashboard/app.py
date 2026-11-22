@@ -790,6 +790,7 @@ def _vm_sizes(client, vms: dict) -> None:
     q = client.query_api()
     # the inventory as of the last polls only: a deleted VM drops out as fast as a stopped one shows up
     fresh = max(60, int(_stale_seconds()))
+    seen: dict[str, datetime] = {}
     for table in q.query(org=INFLUX_ORG, query=f"""
         from(bucket: "{INFLUX_BUCKET}")
           |> range(start: -{fresh}s)
@@ -798,6 +799,8 @@ def _vm_sizes(client, vms: dict) -> None:
           |> last()"""):
         for rec in table.records:
             uuid = rec.values.get('vm_uuid')
+            if rec.get_time() and (uuid not in seen or rec.get_time() > seen[uuid]):
+                seen[uuid] = rec.get_time()
             state = rec.values.get('vm_state') or 'UNKNOWN'
             vm = vms.get(uuid)
             if vm is None and state != 'RUNNING':
@@ -812,6 +815,10 @@ def _vm_sizes(client, vms: dict) -> None:
                 vm['state'] = state
                 # a replication target (HyperCore's sourceVirDomainUUID): listed apart, never as a stopped VM
                 vm['replica_of'] = rec.values.get('vm_source') or None
+    # a VM the newest poll no longer lists is gone (deleted in HCM or in HyperCore): out at once, not when its last
+    # performance sample turns stale. The collector polls right after HCM changes a VM (inventory_listener).
+    for uuid in vm_rows.missing_from_last_poll(vms, seen):
+        vms.pop(uuid, None)
     disks_of: dict[str, set] = {}
     for table in q.query(org=INFLUX_ORG, query=f"""
         from(bucket: "{INFLUX_BUCKET}")

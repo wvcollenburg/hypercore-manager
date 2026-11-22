@@ -473,6 +473,12 @@ def _claim(change_id: int) -> bool:
 def _finish(change_id: int, status: str, result: list, error: Optional[str]) -> None:
     db._exec('UPDATE backup.vm_changes SET status = %s, finished_at = now(), result = %s, error = %s WHERE id = %s',
              (status, psycopg2.extras.Json(result), error, change_id))
+    # the VM list follows at once (a delete, a new VM, a power change), not at the collector's next poll
+    try:
+        row = db._one('SELECT cluster_id::text AS cluster_id FROM backup.vm_changes WHERE id = %s', (change_id,))
+        db.poke_inventory((row or {}).get('cluster_id'))
+    except Exception:                                    # noqa: BLE001 — the change itself is recorded
+        pass
 
 
 def _progress(change_id: int, result: list) -> None:

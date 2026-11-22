@@ -401,6 +401,7 @@ class ClusterWorker(threading.Thread):
         self.cid = cluster.cluster_id
         self.write_api = write_api
         self.stop = stop_event
+        self.wake = threading.Event()        # set to poll now (inventory_listener) or to stop without waiting
         username, password = cluster_registry.credentials(self.cid)
         self.hc = hypercore_session.ClusterSession(
             self.cid, username, password, bool(cluster.verify_tls), service='collector', name=cluster.name,
@@ -471,6 +472,7 @@ class ClusterWorker(threading.Thread):
 
         last_slow_poll = 0
         node_info_map = {}
+        follow_up = 0
 
         while not self.stop.is_set():
             # re-read tunables each iteration — picks up live dashboard changes
@@ -539,10 +541,54 @@ class ClusterWorker(threading.Thread):
             if conditions_unwritten:
                 self._cond_state.clear()        # nothing was stored: write every condition next slow poll
 
-            self.stop.wait(poll_interval)
+            # the next poll comes after the interval, or at once when HCM changed a VM (inventory_listener). A poked
+            # poll is followed by one more after a few seconds: HyperCore still lists a deleted VM for a moment
+            # after its delete task completes (WDvCN11, 2026-11-22)
+            poked = self.wake.wait(follow_up if follow_up else poll_interval)
+            self.wake.clear()
+            follow_up = POKE_FOLLOW_UP_SECONDS if poked else 0
 
         self.hc.close()
         self.log("Worker stopped")
+
+
+INVENTORY_CHANNEL = 'hcm_inventory'      # backup/db.py poke_inventory()
+POKE_FOLLOW_UP_SECONDS = 5
+
+
+def inventory_listener(workers: dict, stop: threading.Event, connect=None) -> None:
+    """LISTEN for 'poll this cluster now' (sent when a VM change set or a restore finishes in HCM) and wake that
+    cluster's worker, so a deleted or new VM shows in the dashboard within seconds instead of the next poll.
+    Reconnects after a database outage; without the database the workers simply poll on their interval."""
+    import select
+    connect = connect or cluster_registry._connect
+    delay = 5
+    while not stop.is_set():
+        conn = None
+        try:
+            conn = connect()
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute(f'LISTEN {INVENTORY_CHANNEL}')
+            delay = 5
+            while not stop.is_set():
+                if select.select([conn], [], [], 5)[0]:
+                    conn.poll()
+                    while conn.notifies:
+                        cid = conn.notifies.pop(0).payload
+                        entry = workers.get(cid)
+                        if entry:
+                            entry[0].wake.set()
+        except Exception as e:                           # noqa: BLE001 — the interval polls go on regardless
+            print(f"[{_ts()}] Inventory listener: {e}; retrying in {delay} s")
+            stop.wait(delay)
+            delay = min(delay * 2, 300)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:                        # noqa: BLE001
+                    pass
 
 
 def main():
@@ -561,6 +607,8 @@ def main():
 
     workers = {}
     last_idle_notice = 0
+    listener_stop = threading.Event()
+    threading.Thread(target=inventory_listener, args=(workers, listener_stop), name='inventory-listener', daemon=True).start()
 
     try:
         while True:
@@ -576,6 +624,7 @@ def main():
                     c = clusters.get(cid)
                     if c is None or c.updated_at != worker.cluster.updated_at:
                         ev.set()
+                        worker.wake.set()
                         del workers[cid]
                 for cid, c in clusters.items():
                     # a worker that ended on its own (an exception nothing caught) is replaced, as the
@@ -597,8 +646,10 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        for _, ev in workers.values():
+        listener_stop.set()
+        for w, ev in workers.values():
             ev.set()
+            w.wake.set()
         for w, _ in workers.values():
             w.join(timeout=5)
 

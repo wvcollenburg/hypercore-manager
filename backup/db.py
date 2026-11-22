@@ -83,6 +83,20 @@ def _exec(sql: str, params=()) -> int:
             return cur.rowcount
 
 
+INVENTORY_CHANNEL = 'hcm_inventory'      # the collector listens here (Collector/collector.py, inventory_listener)
+
+
+def poke_inventory(cluster_id: str | None) -> None:
+    """Ask the collector to poll this cluster now: a VM was deleted, created or changed through HCM, and the
+    dashboard should not wait for the next poll to show it. Best effort; a missed poke is the next poll."""
+    if not cluster_id:
+        return
+    try:
+        _exec('SELECT pg_notify(%s, %s)', (INVENTORY_CHANNEL, str(cluster_id)))
+    except Exception:                                    # noqa: BLE001
+        pass
+
+
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 

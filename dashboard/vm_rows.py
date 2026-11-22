@@ -9,7 +9,7 @@ which emptied the newest node in the "group by node" view.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Iterable
 
 # tags that describe the VM at the time of a sample
@@ -78,3 +78,15 @@ def fold_vsds(records: Iterable[tuple[datetime, dict[str, Any]]]) -> dict[str, d
     for vsd in vsds.values():
         vsd['history'].sort(key=lambda h: h['time'])
     return vsds
+
+
+POLL_SLACK = timedelta(seconds=2)       # one poll's points share one timestamp (one write); polls are >= 5 s apart
+
+
+def missing_from_last_poll(vms: dict, seen: dict) -> list:
+    """The VMs of the list that the newest inventory poll did not report. `seen`: vm uuid -> the time of its newest
+    inventory point. Without any inventory (collector not writing yet) nothing is dropped."""
+    if not seen:
+        return []
+    last = max(seen.values())
+    return [u for u in vms if u not in seen or seen[u] < last - POLL_SLACK]

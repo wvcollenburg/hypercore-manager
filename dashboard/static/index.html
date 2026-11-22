@@ -2558,6 +2558,7 @@ async function loadVMs() {
   await loadVmPending();
   if (vmQuery || _hasTagGrant(cid)) { await loadVmIndex(_vmIndexForce); _vmIndexForce = false; }
   if (cid !== currentCluster) return;
+  _vmFollowTick();
 
   renderVmCards();
 
@@ -2713,6 +2714,25 @@ function openVmConsole(cid, vm) {
 // ─── VM edit window (admins): every setting, power actions, now or in a maintenance window ───
 // HCM holds a change set until it runs; changes that need the VM off run as OS shutdown, change, start.
 var _vmPending = {};                 // vm uuid -> its scheduled/running change set (badge in the list)
+// While a change set runs on this cluster the VM list refreshes every 4 s, and once more after it ends: the backup
+// service has the collector poll the cluster when a change finishes, so a deleted or new VM shows within seconds
+// instead of at the next 30 s refresh (William, 2026-11-22).
+let _vmFollowTimer = null, _vmFollowing = false, _vmFollowUntil = 0;
+function _vmFollow() {
+  _vmFollowing = true;
+  _vmFollowUntil = Date.now() + 15000;      // a change just submitted may take a moment to show as running
+  if (!_vmFollowTimer) _vmFollowTimer = setTimeout(() => { _vmFollowTimer = null; loadVMs(); }, 2000);
+}
+function _vmFollowTick() {
+  const running = Object.values(_vmPending).some(c => c.status === 'running');
+  if (running || Date.now() < _vmFollowUntil) {
+    _vmFollowing = true;
+    if (!_vmFollowTimer) _vmFollowTimer = setTimeout(() => { _vmFollowTimer = null; loadVMs(); }, 4000);
+  } else if (_vmFollowing) {
+    _vmFollowing = false;                   // ended: one more look, after the collector's poll on completion
+    if (!_vmFollowTimer) _vmFollowTimer = setTimeout(() => { _vmFollowTimer = null; loadVMs(); }, 4000);
+  }
+}
 let _ve = null;                      // {uuid, data, form}
 const GIB = 1073741824;
 const VE_VM_LIVE = ['name', 'description', 'tags', 'snapshotScheduleUUID', 'affinityStrategy'];
@@ -3003,6 +3023,7 @@ async function _veSubmit(kind, ops, confirmName) {
     force_off: document.getElementById('veForce').checked, shutdown_timeout_min: parseInt(document.getElementById('veTimeout').value, 10) || 10}, when);
   msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
   const r = await _netFetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (r.ok) _vmFollow();               // the VM list follows the change until it is done
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return false; }
   msg.style.color = 'var(--accent-green)';
@@ -3118,6 +3139,7 @@ async function vnCreate() {
   msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
   const r = await _netFetch(_withCluster('/api/backup/vmedit/new'), {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({cluster_id: currentCluster, spec, run_at})});
+  if (r.ok) _vmFollow();               // the VM list follows the change until it is done
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return; }
   document.getElementById('vnCreate').disabled = true;
@@ -3225,6 +3247,7 @@ async function vaGo() {
   msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
   const r = await _netFetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({cluster_id: currentCluster, vm_uuid: _va.uuid, kind: _va.kind, ops, run_at})});
+  if (r.ok) _vmFollow();               // the VM list follows the change until it is done
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return; }
   document.getElementById('vaGo').disabled = true;
