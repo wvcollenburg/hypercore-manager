@@ -1259,7 +1259,8 @@ def test_nbd_backend_retires_a_slot_that_refuses_io(tmp_path, monkeypatch):
         if slot in bad:
             raise OSError(5, 'Input/output error')
     monkeypatch.setattr(be, '_probe', probe)
-    with be._attached('img.qcow2', False) as slot:
+    img = tmp_path / 'img.qcow2'; img.write_bytes(b'')
+    with be._attached(str(img), False) as slot:
         assert slot == f'{tmp_path}/nbd2'
     assert pool.retired == [f'{tmp_path}/nbd0', f'{tmp_path}/nbd1'] and pool.free == 1
     assert ('disconnect', f'{tmp_path}/nbd0', False) in calls and ('disconnect', f'{tmp_path}/nbd2', True) in calls
@@ -1282,6 +1283,36 @@ def test_nbd_backend_releases_slot_when_connect_fails(tmp_path, monkeypatch):
         with be._attached('img.qcow2', False):
             pass
     assert pool.free == 1 and not pool.retired
+
+
+def test_a_write_error_at_writeback_fails_the_image_after_the_nbd_server_is_gone(tmp_path, monkeypatch):
+    """With --cache=unsafe nothing flushed the image: a writeback error (share full or dropped) went unseen and the
+    job reported done with a checksum read from the page cache. The image is fsynced after the disconnect."""
+    import errno
+    pool = P.images.NbdPool(1, dev_dir=str(tmp_path))
+    be = P.images.NbdBackend(pool)
+    order = []
+    monkeypatch.setattr(be, '_connect', lambda slot, path, ro, cache=None: None)
+    monkeypatch.setattr(be, '_probe', lambda slot: None)
+    monkeypatch.setattr(be, '_disconnect', lambda slot, strict: order.append('disconnect'))
+    img = tmp_path / 'img.qcow2'; img.write_bytes(b'x')
+    real_fsync = os.fsync
+
+    def failing_fsync(fd):
+        order.append('fsync')
+        raise OSError(errno.ENOSPC, 'No space left on device')
+    monkeypatch.setattr(P.images.os, 'fsync', failing_fsync)
+    with pytest.raises(RuntimeError, match='img.qcow2 to the target failed.*No space left'):
+        with be._attached(str(img), False):
+            pass
+    assert order == ['disconnect', 'fsync'] and pool.free == 1
+    order.clear()
+    with be._attached(str(img), True):                   # read-only attaches write nothing
+        pass
+    assert order == ['disconnect']
+    monkeypatch.setattr(P.images.os, 'fsync', real_fsync)
+    with be._attached(str(img), False):
+        pass
 
 
 def test_mount_manager_cleans_leftovers_of_a_previous_life(tmp_path):

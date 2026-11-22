@@ -255,6 +255,23 @@ class NbdBackend:
                 self._disconnect(slot, strict=True)
             finally:
                 self.pool.release(slot)
+        if not readonly:
+            self.fsync_image(path)
+
+    @staticmethod
+    def fsync_image(path: str) -> None:
+        """fsync a written image once its nbd server is gone. With --cache=unsafe qemu-nbd never flushes,
+        and `sync` reports nothing: a write error at writeback (share full, connection dropped) would go
+        unseen and the job report done with a checksum read back from the page cache. The first fsync
+        after the error returns it, whoever opened the file."""
+        try:
+            fd = os.open(path, os.O_RDWR)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        except OSError as e:
+            raise RuntimeError(f'writing {os.path.basename(path)} to the target failed: {e}') from e
 
     @contextlib.contextmanager
     def prepare(self, path: str, size: int, backing: str | None = None, *, lazy_refcounts: bool | None = None, cache: str | None = None):
