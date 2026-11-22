@@ -161,7 +161,7 @@ Do the same on the cluster **Acme-Prod** with the role **Engineer**. Jane now ha
 |---|---|---|
 | Acme | Viewer | Sees everything of Acme, changes nothing |
 | Production | Backup Manager | Runs backups, restores and file recovery for every cluster in Production |
-| Acme-Prod | Engineer | Full VM control on that cluster: console, power, edit, snapshot, clone, create, delete |
+| Acme-Prod | Engineer | Full VM control on that cluster: console, power, edit, snapshot, clone, create, delete; uploading ISOs and disk images |
 
 ![What the cluster's pane shows](img/gs-07c-cluster-pane.png)
 
