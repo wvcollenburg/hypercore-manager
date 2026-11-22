@@ -2022,10 +2022,10 @@ def _tag_guard(cid: str, vm: str | None, payload: dict, kind: str) -> str | None
             return None
         touched = (old ^ new) & set(scoped)
     elif kind == 'clone':
-        new = set()
-        for o in payload.get('ops') or []:
-            if 'tags' in (o or {}):
-                new = _tags_of(o['tags'])
+        # the backup service clones from ops[0] only (and a clone set has one op: _backup_check refuses more)
+        ops = payload.get('ops') or []
+        first = ops[0] if ops and isinstance(ops[0], dict) else {}
+        new = _tags_of(first.get('tags'))
         touched = (new - old) & set(scoped)
     elif kind == 'create':
         touched = _tags_of(((payload.get('spec') or {}).get('tags'))) & set(scoped)
@@ -2087,6 +2087,12 @@ def _backup_check(method: str, sub: str, cid: str, payload: dict | None):
         vm = str(payload.get('vm_uuid') or '')
         if not vm:
             return None, (jsonify({'error': 'vm_uuid required'}), 400)
+        ops = payload.get('ops')
+        if ops is not None and not isinstance(ops, list):
+            return None, (jsonify({'error': 'ops must be a list'}), 400)
+        if str(payload.get('kind') or 'edit') in ('clone', 'snapshot') and len(ops or []) > 1:
+            # the service acts on the first op only: what the guard checks must be all there is
+            return None, (jsonify({'error': 'a clone or snapshot is one operation'}), 400)
         ok = all(_can_vm(p, body_cid, vm) for p in _vmchange_perms(payload))
         if not ok:
             return None, denied
