@@ -3531,7 +3531,8 @@ def login_page():
             found = user_db.get_by_login(typed)
             username = found['username'] if found else typed.strip()
             password = request.form.get('password', '')
-            if found and user_db.verify_password(username, password):
+            # always one password check, also for an unknown address (against a dummy hash): same time either way
+            if user_db.verify_password(username, password) and found:
                 u = found
                 if u.get('enabled') is False:
                     # only after a correct password: say why, so they do not retry into a lockout

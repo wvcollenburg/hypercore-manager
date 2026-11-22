@@ -57,6 +57,11 @@ def forgot(monkeypatch):
     monkeypatch.setattr(account_api, '_recent_resets', lambda uid: 0)
     monkeypatch.setattr(account_api, '_new_token', lambda *a, **k: 'TOKEN')
     monkeypatch.setattr(account_api, '_audit', lambda *a, **k: None)
+
+    class _Now:                                           # the mail goes out in a thread: here, at once
+        def __init__(self, target=None, **kw): self.target = target
+        def start(self): self.target()
+    monkeypatch.setattr(account_api, 'threading', SimpleNamespace(Thread=_Now))
     return app.test_client(), sent
 
 
@@ -72,6 +77,26 @@ def test_forgot_mails_the_configured_address_whatever_the_host(monkeypatch, forg
     monkeypatch.setattr(mailer, 'settings', _settings('https://hcm.example.com'))
     client.post('/account/forgot', data={'email': 'victim@x.example'}, headers={'Host': 'evil.example'})
     assert [s[2]['link'] for s in sent] == ['https://hcm.example.com/account/reset/TOKEN']
+
+
+def test_the_answer_does_not_wait_for_the_mail(monkeypatch, forgot):
+    """Forgot-password answered only after the SMTP conversation for an address with an account: the time told
+    which addresses have one. The mail now goes out in a thread."""
+    client, sent = forgot
+    started = []
+    monkeypatch.setattr(account_api, 'threading', SimpleNamespace(Thread=lambda target=None, **kw: SimpleNamespace(
+        start=lambda: started.append(target))))
+    monkeypatch.setattr(mailer, 'settings', _settings('https://hcm.example.com'))
+    r = client.post('/account/forgot', data={'email': 'victim@x.example'})
+    assert r.status_code == 200 and sent == [] and len(started) == 1
+
+
+def test_an_unknown_account_costs_a_password_check_too(monkeypatch):
+    import user_db
+    checked = []
+    monkeypatch.setattr(user_db, 'get_by_username', lambda n: None)
+    monkeypatch.setattr(user_db, 'check_password_hash', lambda h, pw: checked.append(pw) or True)
+    assert user_db.verify_password('nobody@x.example', 'guess') is False and checked == ['guess']
 
 
 def test_an_invitation_without_the_address_is_not_mailed_but_shown_to_the_inviter(monkeypatch):

@@ -77,3 +77,11 @@ class Sink(socketserver.ThreadingTCPServer):
 
     def to(self, address: str) -> list[dict]:
         return [m for m in self.mails if address in m['to']]
+
+    def wait_to(self, address: str, n: int = 1, timeout: float = 15) -> list[dict]:
+        """The mails to `address` once there are at least `n` (mails sent in the background, such as a reset)."""
+        import time
+        end = time.monotonic() + timeout
+        while len(self.to(address)) < n and time.monotonic() < end:
+            time.sleep(0.2)
+        return self.to(address)

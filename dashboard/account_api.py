@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import threading
 
 from flask import jsonify, render_template, request, session
 
@@ -190,10 +191,19 @@ def register(app, requires, public, h):
         u = access_db.user(uid) if uid else None
         # only an enabled account with a confirmed address, and not more than a few links an hour
         if u and u['enabled'] and not u['awaiting_email'] and '@' in u['username'] and _recent_resets(uid) < RESETS_PER_HOUR:
-            token = _new_token('reset', uid, RESET_MINUTES)
-            link = f"{base}/account/reset/{token}"
-            mailer.deliver(u['username'], 'reset', _lang(), by=u['username'], link=link, minutes=RESET_MINUTES)
-            _audit(u['username'], 'user.reset_requested', u['username'])
+            # in the background: the SMTP conversation takes seconds, and an answer that slow only for addresses
+            # with an account would tell which addresses have one
+            lang = _lang()
+            token = _new_token('reset', uid, RESET_MINUTES)       # here: the hourly limit counts these rows
+
+            def send():
+                try:
+                    mailer.deliver(u['username'], 'reset', lang, by=u['username'], link=f"{base}/account/reset/{token}",
+                                   minutes=RESET_MINUTES)
+                    _audit(u['username'], 'user.reset_requested', u['username'])
+                except Exception:  # noqa: BLE001
+                    app.logger.warning('password reset mail for %s failed', u['username'], exc_info=True)
+            threading.Thread(target=send, daemon=True, name='reset-mail').start()
         return page('forgot_sent', email=email)
 
     @app.route('/account/reset/<token>', methods=['GET', 'POST'])

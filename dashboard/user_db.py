@@ -236,9 +236,16 @@ def set_password(username: str, new_password: str) -> None:
         conn.close()
 
 
+_DUMMY_HASH: list = []
+
+
 def verify_password(username: str, password: str) -> bool:
     user = get_by_username(username)
     if not user:
+        # as slow as a real check: a fast "no" would tell which addresses have an account
+        if not _DUMMY_HASH:
+            _DUMMY_HASH.append(generate_password_hash('not-a-password'))
+        check_password_hash(_DUMMY_HASH[0], password or '')
         return False
     return check_password_hash(user['password_hash'], password)
 

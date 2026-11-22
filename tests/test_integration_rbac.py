@@ -1147,7 +1147,7 @@ def test_forgot_password(admin, clusters, sink):
         p = Client()
         st, raw = p.raw('POST', '/account/forgot', form={'email': 'Forgot@Demo.example'})
         assert st == 200 and b'a mail with a link is on its way' in raw
-        mail = sink.to('forgot@demo.example')[-1]
+        mail = sink.wait_to('forgot@demo.example')[-1]           # sent in the background (1.8.1)
         assert mail['subject'] == 'Reset your HyperCore Manager password'
         path = _account_path(mail)
         assert p.raw('GET', path)[0] == 200
@@ -1170,6 +1170,9 @@ def test_forgot_password_tells_nothing_and_is_limited(admin, clusters, sink):
         assert not sink.to('nobody@nowhere.example')
         for _ in range(4):
             Client().raw('POST', '/account/forgot', form={'email': 'limited@demo.example'})
+        sink.wait_to('limited@demo.example', 3)
+        import time
+        time.sleep(2)                                        # a fourth, if one were sent, has arrived by now
         assert len(sink.to('limited@demo.example')) == 3, 'at most three links an hour'
     finally:
         _drop(admin, uid)
