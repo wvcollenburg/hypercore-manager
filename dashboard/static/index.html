@@ -2447,7 +2447,7 @@ function renderVmCards() {
     for (const k of keys) {
       const label = `${labels[currentVmGroup]}: ${currentVmGroup === 'node' ? t('vm.group_label.peer') + ' ' + k : k}`;
       const gk = `${currentVmGroup}:${k}`, folded = vmCollapsed.has(gk) && !vmQuery;   // a search opens every group with a match
-      body += `<tr class="grp ${folded ? 'collapsed' : ''}" onclick="toggleVmGroup(decodeURIComponent('${encodeURIComponent(gk)}'))" title="${_clEsc(t(folded ? 'vm.group_expand' : 'vm.group_collapse'))}"><td colspan="6"><span class="grp-arrow">▾</span>${_clEsc(label)}<span class="grp-count">${groups[k].length}</span></td></tr>`
+      body += `<tr class="grp ${folded ? 'collapsed' : ''}" data-gk="${_clEsc(gk)}" onclick="toggleVmGroup(this.dataset.gk)" title="${_clEsc(t(folded ? 'vm.group_expand' : 'vm.group_collapse'))}"><td colspan="6"><span class="grp-arrow">▾</span>${_clEsc(label)}<span class="grp-count">${groups[k].length}</span></td></tr>`
             + (folded ? '' : groups[k].sort(cmp).map(row).join(''));
     }
   }
@@ -3357,9 +3357,9 @@ async function loadModules() {
   if (!data||!data.measurements||!data.measurements.length) { container.innerHTML=`<div class="empty-state">${t('empty.no_measurements')}</div>`; return; }
   container.innerHTML = data.measurements.map(name => {
     const m = getModuleMeta(name);
-    return `<div class="module-item" onclick="hcmAlert('Module: ${name}\\nQuery: GET /api/query/${name}?hours=1&limit=100', {title: 'Module'})">
+    return `<div class="module-item" data-name="${_clEsc(name)}" onclick="hcmAlert('Module: ' + this.dataset.name + '\\nQuery: GET /api/query/' + this.dataset.name + '?hours=1&limit=100', {title: 'Module'})">
       <div class="module-icon" style="background:${m.color}20;color:${m.color}">${m.icon}</div>
-      <div><div class="module-name">${name}</div><div class="module-desc">${m.desc}</div></div>
+      <div><div class="module-name">${_clEsc(name)}</div><div class="module-desc">${m.desc}</div></div>
     </div>`;
   }).join('');
 }
@@ -4764,7 +4764,7 @@ async function _loadSharesPanel() {
       <td style="white-space:nowrap;">
         <button class="um-action-btn" onclick="shTest(${sh.id})">${t('clusters.test')}</button>
         <button class="um-action-btn" onclick="shOpen(${sh.id})">${t('clusters.edit')}</button>
-        <button class="um-action-btn danger" onclick="shRemove(${sh.id}, '${_clEsc(sh.name)}')">${t('clusters.remove')}</button>
+        <button class="um-action-btn danger" data-name="${_clEsc(sh.name)}" onclick="shRemove(${sh.id}, this.dataset.name)">${t('clusters.remove')}</button>
         <div class="cl-msg" id="sh-${sh.id}-msg"></div>
       </td>
     </tr>`).join('');
@@ -4819,7 +4819,7 @@ function pxMenu(ev, id) {
     <div class="popmenu-item" title="${_clEsc(t('proxies.bench_hint'))}" onclick="_closeMenus(); pxBench(${p.id})">${t('proxies.bench')}</div>
     <div class="popmenu-item" title="${_clEsc(t('proxies.logs_hint'))}" onclick="_closeMenus(); pxLogs(${p.id})">${t('proxies.logs')}</div>
     <div class="popmenu-sep"></div>
-    <div class="popmenu-item danger" onclick="_closeMenus(); pxRemove(${p.id}, '${_clEsc(p.name)}', '${_clEsc(p.vm_uuid || '')}', '${_clEsc(p.kind || '')}')">${t('clusters.remove')}</div>`);
+    <div class="popmenu-item danger" data-name="${_clEsc(p.name)}" data-vm="${_clEsc(p.vm_uuid || '')}" data-kind="${_clEsc(p.kind || '')}" onclick="_closeMenus(); pxRemove(${p.id}, this.dataset.name, this.dataset.vm, this.dataset.kind)">${t('clusters.remove')}</div>`);
 }
 function pxAddOpen() {
   hcmModal({
@@ -6322,9 +6322,9 @@ function _alertRow(it, cid) {
       ${canVm('vm.console', cid, it.vm_uuid) ? `<button class="um-action-btn" onclick="openVmConsole('${cid}', '${_clEsc(it.vm_uuid)}')">${t('console.open')}</button>` : ''}
       ${can('console_check.manage', cid) ? `<button class="um-action-btn" onclick="alertLearnLocked('${cid}', '${_clEsc(it.vm_uuid)}', this)" title="${_clEsc(t('cc.learn_hint'))}">${t('cc.learn')}</button>` : ''}` : '';
   const muteCtl = it.muted_until
-    ? `<button class="um-action-btn" onclick="muteAlert('${cid}', '${k}', 0)">${t('alerts.unmute')}</button>`
-    : `<span>${t('notice.mute_for')}</span><input type="number" min="1" max="365" value="7" id="mute-${k}"><span>${t('notice.days')}</span>
-       <button class="um-action-btn" onclick="muteAlert('${cid}', '${k}')">${t('notice.mute')}</button>`;
+    ? `<button class="um-action-btn" data-k="${_clEsc(k)}" onclick="muteAlert('${cid}', this.dataset.k, 0)">${t('alerts.unmute')}</button>`
+    : `<span>${t('notice.mute_for')}</span><input type="number" min="1" max="365" value="7" id="mute-${_clEsc(k)}"><span>${t('notice.days')}</span>
+       <button class="um-action-btn" data-k="${_clEsc(k)}" onclick="muteAlert('${cid}', this.dataset.k)">${t('notice.mute')}</button>`;
   return `<div class="alert-row"><span class="alert-dot ${it.severity}">${ALERT_ICON[it.severity]}</span>
     <div class="alert-row-main">${_alertText(it)}<div class="alert-row-meta">${meta.join(' · ')}</div></div>
     <div class="alert-row-actions">${consoleBtns}${muteCtl}</div></div>`;
@@ -6508,7 +6508,7 @@ async function exLoadSchedules() {
           <button class="um-action-btn" onclick="exRunNow(${s.id})" ${s.enabled ? '' : 'disabled'}>${t('ex.run_now')}</button>
           <button class="um-action-btn" onclick="exToggle(${s.id})">${s.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
           <button class="um-action-btn" onclick="exHistory(${s.id})">${t('ex.history')}</button>
-          ${admin ? `<button class="um-action-btn danger" onclick="exRemove(${s.id}, '${_exEsc(s.vm_name)}')">${t('ex.remove')}</button>` : ''}
+          ${admin ? `<button class="um-action-btn danger" data-name="${_exEsc(s.vm_name)}" onclick="exRemove(${s.id}, this.dataset.name)">${t('ex.remove')}</button>` : ''}
         </td>
       </tr>`).join('')}</tbody></table></div>`;
 }
@@ -6670,10 +6670,10 @@ function _polCard(p) {
       <span class="pol-actions">
         <button class="um-action-btn" onclick="exPolicyMembers(${p.id})">${t('ex.pol_members', {n: p.members.length})}</button>
         ${p.members.length ? `<button class="um-action-btn" onclick="exPolicyNight(${p.id}, 'current')">${t('ex.pol_night_plan')}</button>` : ''}
-        <button class="um-action-btn" onclick="exPolicyRunNow(${p.id}, '${_exEsc(p.name)}')" ${p.members.length && !p.manual_at ? '' : 'disabled'} title="${_exEsc(t('ex.pol_run_now_hint'))}">${t('ex.run_now')}</button>
+        <button class="um-action-btn" data-name="${_exEsc(p.name)}" onclick="exPolicyRunNow(${p.id}, this.dataset.name)" ${p.members.length && !p.manual_at ? '' : 'disabled'} title="${_exEsc(t('ex.pol_run_now_hint'))}">${t('ex.run_now')}</button>
         <button class="um-action-btn" onclick="exPolicyEdit(${p.id})">${t('ex.pol_edit')}</button>
         <button class="um-action-btn" onclick="exPolicyToggle(${p.id})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
-        <button class="um-action-btn danger" onclick="exPolicyDelete(${p.id}, '${_exEsc(p.name)}')">${t('ex.remove')}</button>
+        <button class="um-action-btn danger" data-name="${_exEsc(p.name)}" onclick="exPolicyDelete(${p.id}, this.dataset.name)">${t('ex.remove')}</button>
       </span>
     </div>
     <div class="pol-meta">
@@ -6874,7 +6874,7 @@ async function exPolicyMembers(id, keepOpen) {
         <td style="font-size:12px;">${!m.prediction ? '—' : m.prediction.learned ? `<span title="${_exEsc(t('ex.pol_tl_planned', {start: _polHM(m.prediction.planned_start, p.timezone), dur: _polDur(m.prediction.seconds)}))}">~${_polDur(m.prediction.seconds)}</span>` : `<span class="ex-badge off" title="${_exEsc(t('ex.pol_learning_hint'))}">${t('ex.pol_tl_learning', {n: m.prediction.samples, of: m.prediction.needed || 5})}</span>`}</td>
         <td>${m.last_run ? `${_exStatusBadge(m.last_run.status, m.last_run.message)}${m.last_run.notice ? ' ' + _exNoticeBadge(m.last_run.notice) : ''}<div style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);">${_exFmt(m.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:12px;">${t('ex.never')}</span>`}</td>
         <td style="white-space:nowrap;">${m.cluster_id === currentCluster ? `<button class="um-action-btn" onclick="exToggle(${m.id}).then(exLoadPolicies)">${m.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
-          <button class="um-action-btn danger" onclick="exPolicyRemoveMember(${id}, ${m.id}, '${_exEsc(m.vm_name)}')">${t('ex.pol_remove_member')}</button></td></tr>`).join('')}
+          <button class="um-action-btn danger" data-name="${_exEsc(m.vm_name)}" onclick="exPolicyRemoveMember(${id}, ${m.id}, this.dataset.name)">${t('ex.pol_remove_member')}</button></td></tr>`).join('')}
     </tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.pol_no_members')}</div>`}
     <div style="margin-top:10px;"><label style="font-size:12px;color:var(--text-muted);">${t('ex.pol_add_from', {cluster: _exEsc(cur ? cur.name : '')})}</label>
       <div class="ex-hint">${t('ex.pol_add_hint')}</div>
@@ -7238,7 +7238,7 @@ function _trCard(p) {
       <span style="flex:1"></span>
       <button class="um-action-btn" onclick="trRun(${p.id})">${t('tr.run_now')}</button>
       <button class="um-action-btn" onclick="trEdit(${p.id})">${t('vf.edit')}</button>
-      <button class="um-action-btn danger" onclick="trDelete(${p.id}, '${_exEsc(p.name)}')">${t('users.delete')}</button></div>
+      <button class="um-action-btn danger" data-name="${_exEsc(p.name)}" onclick="trDelete(${p.id}, this.dataset.name)">${t('users.delete')}</button></div>
     <div class="ex-hint" style="margin-top:4px;">${t('tr.rule', {n: p.interval_days, fixed: fixed.length, random: p.random_count, weeks: p.rest_weeks})} ${_trTargetLine(p)}</div>
     <div class="ex-hint">${opts.join(' · ')}${p.last_run_at ? ` · ${t('tr.last_round', {when: _exFmt(p.last_run_at)})}` : ''}</div>
     <div style="margin-top:6px;">${fixed.map(member).join('')}${excl.map(member).join('')}</div>
@@ -7349,7 +7349,7 @@ function _trHistory(rows) {
           ${r.detail ? `<div>${_exEsc(r.detail)}</div>` : ''}
           ${(r.checks || []).length ? `<div>${r.checks.map(c => `${_exEsc(c.ip)}: ${t(c.ping ? 'tr.ping_ok' : 'tr.ping_no')}${Object.entries(c.ports || {}).map(([pt, ok]) => ` · ${pt} ${ok ? '✓' : '✕'}`).join('')}`).join('<br>')}</div>` : ''}
           ${r.keep_until && !r.cleaned_at ? `<div>${t('tr.kept_until', {when: _exFmt(r.keep_until)})}</div>` : ''}
-          ${r.has_screenshot ? `<button class="um-action-btn" style="margin-top:4px;" onclick="trScreenshot(${r.id}, '${_exEsc(r.vm_name || '')}')">${t('tr.screenshot')}</button>` : ''}</td></tr>`).join('')}</tbody></table>`
+          ${r.has_screenshot ? `<button class="um-action-btn" style="margin-top:4px;" data-name="${_exEsc(r.vm_name || '')}" onclick="trScreenshot(${r.id}, this.dataset.name)">${t('tr.screenshot')}</button>` : ''}</td></tr>`).join('')}</tbody></table>`
       : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('tr.history_none')}</div>`}</div>`;
 }
 function trScreenshot(id, vm) {
@@ -7386,9 +7386,9 @@ async function exLoadPoints() {
         <td style="font-size:12px;">${_vfChainCell(c)}</td>
         <td style="font-size:12px;">${_trChainCell(c)}</td>
         <td style="white-space:nowrap;">
-          <button class="um-action-btn" onclick="exPointsOpen(${c.id}, '${_exEsc(c.vm_name)}')">${t('ex.show_points')}</button>
+          <button class="um-action-btn" data-name="${_exEsc(c.vm_name)}" onclick="exPointsOpen(${c.id}, this.dataset.name)">${t('ex.show_points')}</button>
           ${admin ? `<button class="um-action-btn" onclick="exVerifyChain(${c.id})">${t('ex.verify')}</button>
-          <button class="um-action-btn danger" onclick="exDeleteChain(${c.id}, '${_exEsc(c.vm_name)}')">${t('ex.delete_data')}</button>` : ''}
+          <button class="um-action-btn danger" data-name="${_exEsc(c.vm_name)}" onclick="exDeleteChain(${c.id}, this.dataset.name)">${t('ex.delete_data')}</button>` : ''}
           <div class="cl-msg" id="ch-${c.id}-msg"></div>
         </td>
       </tr>`).join('')}</tbody></table></div>`;
@@ -7413,7 +7413,7 @@ async function exPointsOpen(id, vm) {
       <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted)">${_exEsc(p.dir)}</span>${p.synthetic ? ` <span class="ex-badge off" title="${_exEsc(t('ex.synthetic_hint'))}">${t('ex.synthetic')}</span>` : ''}${(p.short_disks || []).length ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.short_disk_hint', {n: Math.round((p.short_disks[0].guest_size - p.short_disks[0].image_size) / 1024)}))}">${t('ex.short_disk')}</span>` : ''}${p.quiesced === true ? ` <span class="ex-badge off" title="${_exEsc(t('ex.quiesced_hint'))}">${t('ex.quiesced')}</span>` : p.quiesced === false ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.crash_consistent_hint'))}">${t('ex.crash_consistent')}</span>` : ''}</td>
       <td style="font-family:var(--font-ui);font-size:12px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
       <td style="font-size:12px;color:var(--text-muted)">${p.verify_error ? `<span class="ex-badge err" title="${_exEsc(p.verify_error)}">${t('ex.point_corrupt')}</span>` : p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
-      <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" onclick="exFilesOpen(${p.id}, ${p.seq}, '${_exEsc(_exFmt(p.created_at))}')">${t('ex.files')}</button></td></tr>`).join('')}</tbody></table>` : `<div class="empty-state">${t('ex.no_points')}</div>`;
+      <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" data-date="${_exEsc(_exFmt(p.created_at))}" onclick="exFilesOpen(${p.id}, ${p.seq}, this.dataset.date)">${t('ex.files')}</button></td></tr>`).join('')}</tbody></table>` : `<div class="empty-state">${t('ex.no_points')}</div>`;
   } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
 }
 let _exChains = {};
@@ -7539,13 +7539,13 @@ function _flrRender() {
   const crumbs = ['/'].concat(st.path.split('/').filter(Boolean));
   let acc = '';
   const back = _pts ? `<a href="#" onclick="exFilesBack(); return false;" style="color:var(--accent-cyan);">← ${t('ex.tab.points')}</a> <span style="color:var(--text-muted)">·</span> ` : '';
-  const crumbHtml = back + crumbs.map((c, i) => { if (i > 0) acc += '/' + c; const p = i === 0 ? '/' : acc; return `<a href="#" onclick="_flrLoad('${_exEsc(p)}'); return false;" style="color:var(--accent-cyan);">${_exEsc(i === 0 ? t('ex.flr_root') : c)}</a>`; }).join(' <span style="color:var(--text-muted)">/</span> ');
+  const crumbHtml = back + crumbs.map((c, i) => { if (i > 0) acc += '/' + c; const p = i === 0 ? '/' : acc; return `<a href="#" data-path="${_exEsc(p)}" onclick="_flrLoad(this.dataset.path); return false;" style="color:var(--accent-cyan);">${_exEsc(i === 0 ? t('ex.flr_root') : c)}</a>`; }).join(' <span style="color:var(--text-muted)">/</span> ');
   const rows = st.entries.map(e => {
     const full = _flrJoin(st.path, e.name); const sel = st.selected.has(full);
     const icon = e.kind === 'dir' ? '📁' : e.kind === 'link' ? '🔗' : '📄';
-    const name = e.kind === 'dir' ? `<a href="#" onclick="_flrLoad('${_exEsc(full)}'); return false;" style="color:var(--text-primary);">${_exEsc(e.name)}</a>` : _exEsc(e.name);
+    const name = e.kind === 'dir' ? `<a href="#" data-path="${_exEsc(full)}" onclick="_flrLoad(this.dataset.path); return false;" style="color:var(--text-primary);">${_exEsc(e.name)}</a>` : _exEsc(e.name);
     const size = e.size != null ? (e.size >= 1048576 ? (e.size / 1048576).toFixed(1) + ' MiB' : e.size >= 1024 ? (e.size / 1024).toFixed(0) + ' KiB' : e.size + ' B') : (e.fstype ? `${_exEsc(e.fstype)} · ${(e.size || 0) / 1073741824 | 0} GiB` : '');
-    return `<tr><td style="width:24px;"><input type="checkbox" ${sel ? 'checked' : ''} onchange="_flrToggle('${_exEsc(full)}', this.checked)"></td>
+    return `<tr><td style="width:24px;"><input type="checkbox" ${sel ? 'checked' : ''} data-path="${_exEsc(full)}" onchange="_flrToggle(this.dataset.path, this.checked)"></td>
       <td>${icon} ${name}</td><td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">${size}</td>
       <td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">${e.mtime ? _exFmt(new Date(e.mtime * 1000).toISOString()) : ''}</td>
       <td style="white-space:nowrap;">${e.kind === 'file' ? `<a class="um-action-btn" href="${API_BASE}/api/backup/flr/mounts/${st.mount}/file?path=${encodeURIComponent(full)}&cluster=${currentCluster}">${t('ex.flr_download')}</a>` : ''}</td></tr>`;

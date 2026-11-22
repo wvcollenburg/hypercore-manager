@@ -261,7 +261,7 @@ function _openPendingModal(pending) {
       <td><select class="um-select" data-scope style="max-width:340px">${scopeOptions(u)}</select></td>
       <td style="white-space:nowrap">
         <button class="um-primary-btn" onclick="pendingSave('${u.user_id}')">${_esc(t('acc.pending_save'))}</button>
-        <button class="um-action-btn danger" onclick="pendingDelete('${u.user_id}', '${_esc(u.username)}')">${_esc(t('users.delete'))}</button>
+        <button class="um-action-btn danger" data-name="${_esc(u.username)}" onclick="pendingDelete('${u.user_id}', this.dataset.name)">${_esc(t('users.delete'))}</button>
       </td>
     </tr>`;
   window._pendingList = pending;
@@ -724,7 +724,7 @@ async function _acGroupRender(gid, g) {
     }).join('') : `<div class="hcm-tb-hint">${_esc(t('acc.members_none'))}</div>`}
     ${invited.map(i => `<div class="hcm-tb-who inherited">${_acIcon('user')}
         <div class="hcm-tb-who-name">${_esc(i.email)}<div class="um-hint">${_esc(t('acc.tb_invited'))} · ${_esc(_acInviteState(i))}</div></div>
-        <button class="hcm-tb-x" title="${_esc(t('acc.withdraw'))}" onclick="acInviteWithdraw('${i.invitation_id}', '${_esc(i.email)}').then(() => _acGroupRender('${gid}'))">×</button></div>`).join('')}
+        <button class="hcm-tb-x" title="${_esc(t('acc.withdraw'))}" data-email="${_esc(i.email)}" onclick="acInviteWithdraw('${i.invitation_id}', this.dataset.email).then(() => _acGroupRender('${gid}'))">×</button></div>`).join('')}
 
     <div class="hcm-ga-head"><span class="um-section-title">${_esc(t('acc.assignments'))}</span>
       <span class="um-hint">${_esc(t('acc.group_access_hint'))}</span><span style="flex:1"></span>
@@ -1059,7 +1059,7 @@ async function _acTbPane() {
   if (box2 && here.length) box2.innerHTML = `<div class="um-section-title" style="margin-top:16px">${_esc(t('acc.tb_invited'))} <span class="um-hint">${here.length}</span></div>
     ${here.map(i => `<div class="hcm-tb-who">${_acIcon('user')}<div class="hcm-tb-who-name">${_esc(i.email)}<div class="um-hint">${_esc(_acInviteState(i))}</div></div>
       <span class="hcm-tb-role">${_esc(i.builtin_key ? t('acc.role_' + i.builtin_key) : (i.role_name || i.group_name || ''))}</span>
-      <button class="hcm-tb-x" title="${_esc(t('acc.withdraw'))}" onclick="acInviteWithdraw('${i.invitation_id}', '${_esc(i.email)}')">×</button></div>`).join('')}`;
+      <button class="hcm-tb-x" title="${_esc(t('acc.withdraw'))}" data-email="${_esc(i.email)}" onclick="acInviteWithdraw('${i.invitation_id}', this.dataset.email)">×</button></div>`).join('')}`;
 }
 
 /** The visible chain from the reader's top down to a node (ids), or null when the node is not theirs to see. */
@@ -1151,8 +1151,8 @@ async function _acRenderInvites() {
       <td class="um-hint">${_esc(i.kind === 'activate' ? '' : i.scope_label || '')}</td>
       <td class="um-hint">${i.invited_by ? _esc(i.invited_by) : _esc(t('acc.actor_above'))}</td>
       <td><span class="um-badge ${i.state === 'expired' ? 'hcm-badge-off' : 'hcm-badge-warn'}">${_esc(_acInviteState(i))}</span></td>
-      <td style="white-space:nowrap"><button class="um-action-btn" onclick="acInviteResend('${i.invitation_id}', '${_esc(i.email)}')">${_esc(t('acc.resend'))}</button>
-        <button class="um-action-btn danger" onclick="acInviteWithdraw('${i.invitation_id}', '${_esc(i.email)}')">${_esc(t('acc.withdraw'))}</button></td></tr>`).join('')}
+      <td style="white-space:nowrap"><button class="um-action-btn" data-email="${_esc(i.email)}" onclick="acInviteResend('${i.invitation_id}', this.dataset.email)">${_esc(t('acc.resend'))}</button>
+        <button class="um-action-btn danger" data-email="${_esc(i.email)}" onclick="acInviteWithdraw('${i.invitation_id}', this.dataset.email)">${_esc(t('acc.withdraw'))}</button></td></tr>`).join('')}
     </tbody></table>` : '';
 }
 
