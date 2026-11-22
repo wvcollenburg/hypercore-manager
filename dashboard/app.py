@@ -404,8 +404,10 @@ def _access_denied(e):
     return jsonify({'error': str(e)}), e.status
 
 
-def get_influx_client():
-    return InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
+def get_influx_client(timeout: int | None = None):
+    """timeout: milliseconds per query (the client's default is 10 s)."""
+    kw = {'timeout': timeout} if timeout else {}
+    return InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG, **kw)
 
 
 # ---------------------------------------------------------------------------
@@ -2621,6 +2623,26 @@ def cluster_alert_mute():
     return jsonify({'ok': True})
 
 
+_ALERT_HISTORY_TIMEOUT_MS = 60_000      # 30 days of a busy cluster's conditions: more than the 10 s default
+_ALERT_LATEST_RANGE = '1d'
+
+
+def _alert_history_query(start: str, fields, raw_levels, tail: str) -> str:
+    """A condition_metrics query for the alert history. The filters InfluxDB can push down to storage come
+    first, as equality tests: measurement, then _field, then severity as an `or` chain. contains() is not
+    pushed down: with it right after the measurement, the field filter, unique() and last() ran in the Flux
+    engine over every field of every condition series (16 s on one real cluster, a 503 after 28 s on another)."""
+    flt = lambda col, values: ' or '.join(f'r["{col}"] == {json.dumps(v)}' for v in values) or 'false'   # noqa: E731
+    return f"""
+        from(bucket: "{INFLUX_BUCKET}")
+          |> range(start: {start})
+          {_flux_cluster()}
+          |> filter(fn: (r) => r["_measurement"] == "condition_metrics")
+          |> filter(fn: (r) => {flt('_field', fields)})
+          |> filter(fn: (r) => {flt('severity', raw_levels)})
+          {tail}"""
+
+
 @app.route('/api/cluster-alerts/history')
 @requires('cluster.view')
 def cluster_alert_history():
@@ -2633,30 +2655,25 @@ def cluster_alert_history():
     levels = {s for s in (request.args.get('severity') or '').split(',') if s in ALERT_LEVELS} or set(ALERT_LEVELS)
     raw_levels = [k for k, v in ALERT_SEVERITY.items() if v in levels]
     since_ms = int((time.time() - days * 86400) * 1000)
-    base = f"""
-        from(bucket: "{INFLUX_BUCKET}")
-          |> range(start: -{days}d)
-          {_flux_cluster()}
-          |> filter(fn: (r) => r["_measurement"] == "condition_metrics")
-          |> filter(fn: (r) => contains(value: r["severity"], set: {_flux_set(raw_levels)}))"""
     set_times: dict = {}
     clear_times: dict = {}
     latest: dict = {}
     meta: dict = {}
-    client = get_influx_client()
+    client = get_influx_client(timeout=_ALERT_HISTORY_TIMEOUT_MS)
     try:
         q = client.query_api()
-        for field, target in (('last_set_time', set_times), ('last_clear_time', clear_times)):
-            for table in q.query(org=INFLUX_ORG, query=base + f"""
-          |> filter(fn: (r) => r["_field"] == "{field}")
-          |> unique(column: "_value")"""):
-                for rec in table.records:
-                    key = (rec.values.get('condition_name'), rec.values.get('node_uuid') or '')
-                    target.setdefault(key, set()).add(int(rec.get_value() or 0))
-                    meta.setdefault(key, {'severity': rec.values.get('severity'), 'node_ip': rec.values.get('node_lan_ip') or ''})
-        for table in q.query(org=INFLUX_ORG, query=base + """
-          |> filter(fn: (r) => r["_field"] == "value" or r["_field"] == "is_ok" or r["_field"] == "last_set_time" or r["_field"] == "description")
-          |> last()"""):
+        # one query for both kinds of times (unique() works per series, and _field is part of the series)
+        for table in q.query(org=INFLUX_ORG, query=_alert_history_query(
+                f'-{days}d', ('last_set_time', 'last_clear_time'), raw_levels, '|> unique(column: "_value")')):
+            for rec in table.records:
+                key = (rec.values.get('condition_name'), rec.values.get('node_uuid') or '')
+                target = set_times if rec.get_field() == 'last_set_time' else clear_times
+                target.setdefault(key, set()).add(int(rec.get_value() or 0))
+                meta.setdefault(key, {'severity': rec.values.get('severity'), 'node_ip': rec.values.get('node_lan_ip') or ''})
+        # the latest point of each condition: the Collector writes every condition on every poll, so a day
+        # holds the latest of every one still reported (a longer range only made last() read more)
+        for table in q.query(org=INFLUX_ORG, query=_alert_history_query(
+                f'-{_ALERT_LATEST_RANGE}', ('value', 'is_ok', 'last_set_time', 'description'), raw_levels, '|> last()')):
             for rec in table.records:
                 key = (rec.values.get('condition_name'), rec.values.get('node_uuid') or '')
                 latest.setdefault(key, {})[rec.get_field()] = rec.get_value()
