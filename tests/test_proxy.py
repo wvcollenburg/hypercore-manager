@@ -320,6 +320,51 @@ def test_prune_commits_forward_and_delete_chain(stack):
     assert d['result'] == {'removed': True} and not os.path.exists(chain)
 
 
+@pytest.mark.skipif(not (__import__('shutil').which('qemu-img') and __import__('shutil').which('qemu-io')), reason='qemu-img / qemu-io not installed')
+def test_prune_on_qcow2_leaves_checksums_that_verify(tmp_path):
+    """Retention on the real backend: the commit rewrites the base and the rebase rewrites the next delta's
+    header, so both manifests need fresh checksums. With the old ones every later verification reported
+    'checksum differs' and a restore with verification refused the chain."""
+    import subprocess
+    be = P.images.NbdBackend(P.images.NbdPool(0, str(tmp_path)))
+    root = tmp_path / 'target'; chain_dir = root / 'F' / 'v.chain'
+    fname = 'disk.qcow2'
+
+    def qemu_io(path, *cmds, readonly=False):
+        args = ['qemu-io'] + (['-r'] if readonly else []) + ['-f', 'qcow2'] + [x for c in cmds for x in ('-c', c)]
+        r = subprocess.run(args + [str(path)], capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, r.stdout + r.stderr
+
+    points, prev = [], None
+    for seq, (name, write) in enumerate((('base', 'write -P 0xaa 0 4M'), ('delta-0001', 'write -P 0xbb 1M 1M'),
+                                         ('delta-0002', 'write -P 0xcc 2M 1M'), ('delta-0003', 'write -P 0xdd 3M 1M'))):
+        d = chain_dir / name; d.mkdir(parents=True)
+        be.create(str(d / fname), 4 * MiB, backing=str(prev) if prev else None)
+        qemu_io(d / fname, write)
+        prev = d / fname
+        points.append({'kind': 'delta' if seq else 'full', 'seq': seq, 'dir': name, 'previous_seq': seq - 1 if seq else None, 'created_at': 't'})
+    for pt in points:                                   # checksums as the backup job leaves them: of the finished files
+        d = chain_dir / pt['dir']
+        P.manifest.write_json(str(d / P.manifest.POINT_FILE), dict(pt, devices=[
+            {'uuid': 'u', 'type': 'VIRTIO_DISK', 'file': fname, 'size': 4 * MiB, 'full': False, 'sha256': P.manifest.sha256_file(str(d / fname))}]))
+    P.manifest.save_chain(str(chain_dir), {'vm': {'uuid': 'vm'}, 'points': points})
+    for pt in points:
+        assert P.manifest.verify_point(str(chain_dir / pt['dir']))['ok']
+
+    engine = types.SimpleNamespace(backend=be, _with_target=lambda req: str(root), _release_target=lambda req: None,
+                                   _persist=lambda job: None, _rehash=getattr(P.jobs.Engine, '_rehash', None))
+    job = P.jobs.Job('prune', {'target': {}, 'chain_dir': 'F/v.chain', 'keep_min_seq': 2})
+    out = P.jobs.Engine.run_prune(engine, job)
+    assert out == {'dirs': {'2': 'base', '3': 'delta-0003'}, 'dropped': 2}
+    assert sorted(os.listdir(chain_dir)) == ['base', 'chain.json', 'delta-0003']
+    for name in ('base', 'delta-0003'):
+        v = P.manifest.verify_point(str(chain_dir / name))
+        assert v['ok'], f'{name}: {v["mismatches"]}'
+    # and the content is still each point's own
+    qemu_io(chain_dir / 'base' / fname, 'read -P 0xaa 0 1M', 'read -P 0xbb 1M 1M', 'read -P 0xcc 2M 1M', 'read -P 0xaa 3M 1M', readonly=True)
+    qemu_io(chain_dir / 'delta-0003' / fname, 'read -P 0xbb 1M 1M', 'read -P 0xcc 2M 1M', 'read -P 0xdd 3M 1M', readonly=True)
+
+
 def test_synthesize_builds_a_new_chain_from_a_point_without_touching_the_old_one(stack):
     """A synthetic full: point 1 (a delta) becomes the base of a new chain with the same files,
     devices and definition and fresh checksums; the source chain is left as it was."""
@@ -1254,7 +1299,7 @@ def test_support_bundle_route_needs_the_token(tmp_path):
     r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
     assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
     assert r.data[:2] == b'PK'
-    assert P.identity.VERSION == '0.6.2'
+    assert P.identity.VERSION == '0.6.3'
 
 
 def test_the_proxy_keeps_a_rotating_log_file(tmp_path):

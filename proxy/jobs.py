@@ -422,6 +422,11 @@ class Engine:
             points = sorted(chain['points'], key=lambda p: p['seq'])
             keep_min = int(req['keep_min_seq'])
             job.progress = {'dropped': 0, 'to_drop': len([p for p in points if p['seq'] < keep_min])}
+            # a commit rewrites the base file and a rebase rewrites the next delta's header: the checksums in
+            # their manifests are of files that no longer exist in that form. Remember what changed and hash
+            # it again once the chain has its final shape (once per file, not once per dropped point).
+            base_changed: set[str] = set()
+            rebased: tuple[str, set[str]] | None = None
             while points and points[0]['seq'] < keep_min:
                 oldest, nxt = points[0], points[1] if len(points) > 1 else None
                 base_dir = os.path.join(chain_dir, oldest['dir'])
@@ -429,19 +434,26 @@ class Engine:
                     break
                 nxt_dir = os.path.join(chain_dir, nxt['dir'])
                 nxt_m = manifest.read_json(os.path.join(nxt_dir, manifest.POINT_FILE)) or {}
+                rebased = None                                          # the point rebased last time is the one folded in now
                 for d in nxt_m.get('devices', []):
                     delta_file = os.path.join(nxt_dir, d['file']); base_file = os.path.join(base_dir, d['file'])
                     if self.backend.name == 'file':
                         shutil.copyfile(delta_file, base_file)          # raw files: the delta is complete
+                        base_changed.discard(d['file'])                 # ... and so is its checksum
                     elif os.path.exists(base_file) and not d.get('full'):
                         self.backend.commit(delta_file)                 # fold the delta into its base
+                        base_changed.add(d['file'])
                     else:
                         shutil.move(delta_file, base_file)              # device that got a full inside this delta
+                        base_changed.discard(d['file'])                 # the same file under another name
                     after = points[2] if len(points) > 2 else None
                     if after and self.backend.name != 'file':
                         after_file = os.path.join(chain_dir, after['dir'], d['file'])
                         if os.path.exists(after_file):
                             self.backend.rebase(after_file, base_file)
+                            if rebased is None:
+                                rebased = (after['dir'], set())
+                            rebased[1].add(d['file'])
                 # the base directory now holds nxt's state: move nxt's manifest in, drop nxt's dir
                 nxt_m['dir'] = oldest['dir']
                 nxt_m['note'] = f"committed from {nxt['dir']} on {_now()}"
@@ -451,11 +463,31 @@ class Engine:
                 points.pop(0)
                 job.progress['dropped'] += 1
                 self._persist(job)
+            stale = [(points[0]['dir'], base_changed)] if points and base_changed else []
+            if rebased and any(p['dir'] == rebased[0] for p in points):
+                stale.append(rebased)
+            if stale:
+                job.progress['phase'] = 'checksum'
+                self._persist(job)
+            for point_dir, files in stale:
+                self._rehash(os.path.join(chain_dir, point_dir), files)
             chain['points'] = points
             manifest.save_chain(chain_dir, chain)
             return {'dirs': {str(p['seq']): p['dir'] for p in points}, 'dropped': job.progress['dropped']}
         finally:
             self._release_target(req)
+
+    @staticmethod
+    def _rehash(point_dir: str, files: set[str]) -> None:
+        """Write the current sha256 of `files` into the point's manifest (after a commit or rebase changed them)."""
+        path = os.path.join(point_dir, manifest.POINT_FILE)
+        m = manifest.read_json(path)
+        if not m:
+            return
+        for d in m.get('devices', []):
+            if d.get('file') in files and os.path.exists(os.path.join(point_dir, d['file'])):
+                d['sha256'] = manifest.sha256_file(os.path.join(point_dir, d['file']))
+        manifest.write_json(path, m)
 
     def run_delete_chain(self, job: Job) -> dict:
         req = job.request
