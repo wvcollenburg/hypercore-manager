@@ -741,6 +741,24 @@ def retire_chains_of_plan(plan_id: int) -> int:
     return _exec("UPDATE backup.chains SET status = 'retired', plan_id = NULL, updated_at = NOW() WHERE plan_id = %s AND status = 'active'", (plan_id,))
 
 
+def empty_chains(cluster_id: str, older_than: datetime) -> list[dict]:
+    """Chains of a cluster without a single point (also no pruned one), created before older_than, not deleted
+    and not in use by a running run: the partial data of a failed full that could not be removed at the time."""
+    return [_chain_row(r) for r in _all(
+        """SELECT ch.* FROM backup.chains ch
+            WHERE ch.cluster_id = %s AND ch.status <> 'deleted' AND ch.created_at < %s
+              AND NOT EXISTS (SELECT 1 FROM backup.points pt WHERE pt.chain_id = ch.id)
+              AND NOT EXISTS (SELECT 1 FROM backup.runs r WHERE r.chain_id = ch.id AND r.status = 'RUNNING')
+              AND NOT EXISTS (SELECT 1 FROM backup.runs r WHERE r.schedule_id = ch.plan_id AND r.status = 'RUNNING')""",
+        (cluster_id, older_than))]
+
+
+def chain_folders(cluster_id: str) -> list[dict]:
+    """Every (target, tenant directory) that holds chains of this cluster: where restore directories are made."""
+    return _all("""SELECT DISTINCT target_id, folder_slug FROM backup.chains
+                    WHERE cluster_id = %s AND target_id IS NOT NULL AND status <> 'deleted'""", (cluster_id,))
+
+
 def chains_with_clones() -> list[dict]:
     return [_chain_row(r) for r in _all("SELECT * FROM backup.chains WHERE active_clones IS NOT NULL AND active_clones <> 'null'::jsonb AND jsonb_array_length(active_clones) > 0")]
 

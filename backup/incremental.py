@@ -849,6 +849,10 @@ def sweep_cluster(cluster_id: str, max_age_days: int = 30) -> dict:
         _delete_clones(hc, list(ch.get('active_clones') or []))
         db.update_chain(ch['id'], active_clones=[])
         out['clones'] += len(ch.get('active_clones') or [])
+    try:
+        out.update(sweep_targets(cluster_id))
+    except Exception:                                   # noqa: BLE001 — e.g. no proxy reachable: tomorrow again
+        log.warning('sweep of targets for cluster %s failed', cluster_id, exc_info=True)
     for p in db.get_proxies(cluster_id):
         if not p.get('vm_uuid'):
             continue
@@ -858,6 +862,48 @@ def sweep_cluster(cluster_id: str, max_age_days: int = 30) -> dict:
                 log.warning('cloud-init ISO removed from proxy VM %s (%s): it carried the proxy token', p.get('name'), p['vm_uuid'][:8])
         except (HyperCoreError, IncrementalError) as e:
             log.warning('cloud-init disk of proxy %s: %s', p.get('name'), e)
+    return out
+
+
+def sweep_targets(cluster_id: str, now: datetime | None = None) -> dict:
+    """On the targets, through one of the cluster's proxies: chains without any point older than a day (a failed
+    full whose partial data discard_empty_chain could not remove), each on its own target, and restore
+    directories (<tenant>/_restore/*) older than a day that a failed restore left behind."""
+    out = {'empty_chains': 0, 'restore_dirs': 0}
+    from datetime import timedelta
+    cutoff = (now or _now()) - timedelta(days=1)
+    empty = db.empty_chains(cluster_id, cutoff)
+    folders = db.chain_folders(cluster_id)
+    if not empty and not folders:
+        return out
+    pc = proxy_client_for(pick_proxy(cluster_id))
+    shares: dict = {}
+
+    def target(tid):
+        if tid not in shares:
+            s = db.get_share(tid, with_secret=True) if tid else None
+            shares[tid] = {'uri': s['uri_base'], 'username': s.get('username'), 'password': s.get('password')} if s else None
+        return shares[tid]
+    for ch in empty:
+        t = target(ch.get('target_id'))
+        try:
+            if t:
+                pc.wait(pc.submit('delete_chain', {'target': t, 'chain_dir': ch['chain_dir']}), timeout=3600)
+            db.update_chain(ch['id'], status='deleted')
+            release_anchor(ch)
+            out['empty_chains'] += 1
+            log.info('sweep: chain %s without points removed (%s)', ch['id'], ch['chain_dir'])
+        except ProxyError as e:
+            log.warning('sweep: chain %s without points not removed: %s', ch['id'], e)
+    for f in folders:
+        t = target(f['target_id'])
+        if not t or jobs.is_nfs(t['uri']):          # restores (and so restore directories) are SMB only
+            continue
+        try:
+            res = pc.wait(pc.submit('sweep', {'target': t, 'folder': f['folder_slug'], 'older_than_hours': 24}), timeout=600)
+            out['restore_dirs'] += len((res.get('result') or {}).get('removed') or [])
+        except ProxyError as e:
+            log.warning('sweep: restore directories in %s not removed: %s', f['folder_slug'], e)
     return out
 
 

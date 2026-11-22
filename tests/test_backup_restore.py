@@ -147,7 +147,8 @@ def test_fast_restore_end_to_end(world):
     r = world.db.restore
     assert r['status'] == 'COMPLETE', r
     kinds = [k for k, _ in world.pc.jobs]
-    assert kinds == ['verify', 'flatten', 'stage', 'sweep'], 'the backing chain is re-hashed before anything is created'
+    assert kinds == ['verify', 'flatten', 'stage', 'delete_chain'], 'the backing chain is re-hashed before anything is created'
+    assert world.pc.jobs[3][1]['chain_dir'] == world.pc.jobs[1][1]['out_dir'], 'only its own restore directory is removed'
     ver = world.pc.jobs[0][1]
     assert ver['upto_seq'] == 1 and ver['chain_dir'] == 'Amsterdam/exptest_src-vm.chain'
     assert all(p['verified_at'] and p.get('verify_error') is None for p in world.db.points), 'passing points are stamped'
@@ -367,7 +368,7 @@ def test_restore_can_skip_the_verify_and_says_so(world):
     world.db.restore['params'] = {'mac_policy': 'new', 'start': False, 'nic_connected': False, 'verify': False}
     rs.run_restore(9)
     r = world.db.restore
-    assert r['status'] == 'COMPLETE' and [k for k, _ in world.pc.jobs] == ['flatten', 'stage', 'sweep']
+    assert r['status'] == 'COMPLETE' and [k for k, _ in world.pc.jobs] == ['flatten', 'stage', 'delete_chain']
     assert 'chain not verified (skipped)' in r['message']
 
 

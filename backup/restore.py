@@ -340,7 +340,9 @@ def _run(r: dict) -> None:
             not_started = str(e)
             log.warning('[restore %s] restored VM not started: %s', rid, e)
     try:
-        pc.wait(pc.submit('sweep', {'target': target, 'folder': chain['folder_slug'], 'older_than_hours': 0}), timeout=600)
+        # only this restore's own directory: a sweep of <tenant>/_restore could delete a parallel restore's import
+        # directory; older leftovers go with the daily sweep (incremental.sweep_targets)
+        pc.wait(pc.submit('delete_chain', {'target': target, 'chain_dir': out_dir}), timeout=600)
     except ProxyError as e:
         log.warning('[restore %s] restore directory cleanup failed: %s', rid, e)
     bytes_written = res.get('bytes_written', 0)

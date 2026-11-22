@@ -685,6 +685,25 @@ def test_a_target_change_starts_a_new_chain_and_old_chains_are_pruned_on_their_o
     assert world.pc.jobs == [] and 'no longer exists' in msg
 
 
+def test_daily_sweep_removes_chains_without_points_and_old_restore_dirs_on_their_own_targets(world, monkeypatch):
+    """Partial data of a failed full stayed on the share for good when discard_empty_chain could not run."""
+    shares = {9: {'id': 9, 'uri_base': 'smb://old/share', 'username': 'u', 'password': 'p'},
+              10: {'id': 10, 'uri_base': 'nfs://nas/export', 'username': None, 'password': ''}}
+    monkeypatch.setattr(world.db, 'get_share', lambda sid, with_secret=False: shares.get(sid))
+    cid = world.db.add_chain(world.db.plan, 9, 'Amsterdam', 'Amsterdam/exptest_vm-1_x.chain')
+    asked = []
+    world.db.empty_chains = lambda c, older: asked.append(older) or [world.db.chains[cid]]
+    world.db.chain_folders = lambda c: [{'target_id': 9, 'folder_slug': 'Amsterdam'}, {'target_id': 10, 'folder_slug': 'Lab'}]
+    out = inc.sweep_targets('c1', now=NOW)
+    assert out['empty_chains'] == 1 and world.db.chains[cid]['status'] == 'deleted'
+    assert asked == [NOW - timedelta(days=1)]
+    assert world.pc.jobs[0] == ('delete_chain', {'target': {'uri': 'smb://old/share', 'username': 'u', 'password': 'p'},
+                                                 'chain_dir': 'Amsterdam/exptest_vm-1_x.chain'})
+    assert world.pc.jobs[1] == ('sweep', {'target': {'uri': 'smb://old/share', 'username': 'u', 'password': 'p'},
+                                          'folder': 'Amsterdam', 'older_than_hours': 24})
+    assert len(world.pc.jobs) == 2, 'no restore directories on an NFS target'
+
+
 def test_an_interrupted_delta_makes_the_next_run_a_full(monkeypatch):
     sys.path.insert(0, _BACKUP)
     try:
