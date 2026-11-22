@@ -94,6 +94,11 @@ def consume(token: str, binding: str) -> Optional[Ticket]:
 _SESSION_RE = re.compile(r'(sessionID=)[^&\s\'"]*', re.I)
 
 
+def mask_session(text: str) -> str:
+    """`text` with any HyperCore sessionID in it masked."""
+    return _SESSION_RE.sub(r'\1***', text)
+
+
 def _upstream_failure(e: BaseException) -> str:
     """What went wrong connecting to the cluster's console, never its URL: that carries HyperCore's
     sessionID, and this text goes to the log, the check details on the dashboard and API errors.
@@ -103,7 +108,7 @@ def _upstream_failure(e: BaseException) -> str:
     if isinstance(e, asyncio.TimeoutError):
         return 'timed out'
     if isinstance(e, OSError):                       # connect errors: host, port and the OS error
-        return _SESSION_RE.sub(r'\1***', str(e))
+        return mask_session(str(e))
     return type(e).__name__
 
 
@@ -134,9 +139,15 @@ async def relay(request: web.Request, http: aiohttp.ClientSession) -> web.WebSoc
         await down.close(code=4502, message=str(e)[:120].encode())
         return down
 
-    sid = await asyncio.to_thread(store.session_start, ticket.cluster_id, ticket.vm_uuid, target.vm_name,
-                                  ticket.username, client_ip=ticket.client_ip, source=ticket.source,
-                                  guest_grant_id=ticket.grant_id)
+    try:
+        sid = await asyncio.to_thread(store.session_start, ticket.cluster_id, ticket.vm_uuid, target.vm_name,
+                                      ticket.username, client_ip=ticket.client_ip, source=ticket.source,
+                                      guest_grant_id=ticket.grant_id)
+    except Exception:  # noqa: BLE001 — no audit record, no console; the cluster's websocket must not stay open
+        log.exception('console session for %s could not be recorded; not opened', ticket.vm_uuid)
+        await up.close()
+        await down.close(code=4502, message=b'the console session could not be recorded')
+        return down
     started = time.monotonic()
     state = {'last_input': started, 'in': 0, 'out': 0}
     max_s = min(MAX_HOURS * 3600, (ticket.max_minutes or 1e9) * 60)
@@ -194,7 +205,7 @@ async def relay(request: web.Request, http: aiohttp.ClientSession) -> web.WebSoc
             try:
                 reason = t.result() or reason
             except Exception as e:  # noqa: BLE001 — a dropped socket mid-send
-                reason = _SESSION_RE.sub(r'\1***', f'connection error: {e}')[:200]
+                reason = mask_session(f'connection error: {e}')[:200]
     finally:
         for t in tasks:
             t.cancel()
@@ -215,15 +226,16 @@ async def screenshot(http: aiohttp.ClientSession, cluster_id: str, vm_uuid: str,
                      source: str = 'user', wake: str = 'none'):
     """(PIL image, vm name) of the VM's console right now, audited as a screenshot session."""
     up, target = await open_upstream(http, cluster_id, vm_uuid)
-    sid = await asyncio.to_thread(store.session_start, cluster_id, vm_uuid, target.vm_name, username,
-                                  source=source, kind='screenshot')
-    reason = 'ok'
+    sid, reason = None, 'ok'
     try:
+        sid = await asyncio.to_thread(store.session_start, cluster_id, vm_uuid, target.vm_name, username,
+                                      source=source, kind='screenshot')
         img = await rfb.screenshot(up, wake=wake)
         return img, target.vm_name
     except rfb.RFBError as e:
         reason = f'failed: {e}'[:200]
         raise hc.ConsoleError(f'screenshot failed: {e}', 502) from None
     finally:
-        await up.close()
-        await asyncio.to_thread(store.session_end, sid, reason)
+        await up.close()                                # also when the audit record could not be written
+        if sid is not None:
+            await asyncio.to_thread(store.session_end, sid, reason)

@@ -258,6 +258,76 @@ def test_a_refused_console_connection_never_carries_the_hypercore_session(consol
     assert consoles._upstream_failure(OSError('x sessionID=abc&vm=1')) == 'x sessionID=***&vm=1'
 
 
+class _FakeUp:
+    closed = False
+
+    async def close(self):
+        self.closed = True
+
+
+def _db_down(*a, **kw):
+    raise RuntimeError('database unavailable')
+
+
+def test_a_screenshot_whose_audit_record_fails_still_closes_the_cluster_websocket(consoles, monkeypatch):
+    import types
+    up = _FakeUp()
+
+    async def fake_open(http, c, v):
+        return up, types.SimpleNamespace(vm_name='dc01')
+    ended = []
+    monkeypatch.setattr(consoles, 'open_upstream', fake_open)
+    monkeypatch.setattr(consoles.store, 'session_start', _db_down, raising=False)
+    monkeypatch.setattr(consoles.store, 'session_end', lambda *a, **kw: ended.append(a), raising=False)
+    with pytest.raises(RuntimeError, match='database'):
+        asyncio.run(consoles.screenshot(None, 'c', 'v', username='system'))
+    assert up.closed and not ended
+
+
+def test_a_relay_whose_audit_record_fails_closes_both_websockets(consoles, monkeypatch):
+    import types
+    from aiohttp import web
+    up = _FakeUp()
+
+    async def fake_open(http, c, v):
+        return up, types.SimpleNamespace(vm_name='dc01')
+    monkeypatch.setattr(consoles, 'open_upstream', fake_open)
+    monkeypatch.setattr(consoles.store, 'session_start', _db_down, raising=False)
+
+    async def go():
+        port = _free_port()
+        async def handler(r):
+            return await consoles.relay(r, None)
+        app = web.Application(); app.router.add_get('/relay', handler)
+        runner = web.AppRunner(app); await runner.setup(); await web.TCPSite(runner, '127.0.0.1', port).start()
+        try:
+            t = consoles.mint('c', 'v', 'dc01', 'alice', 'b' * 64, None)
+            async with aiohttp.ClientSession() as http:
+                ws = await http.ws_connect(f'http://127.0.0.1:{port}/relay?ticket={t}&binding={"b" * 64}')
+                msg = await ws.receive(timeout=5)
+                return msg, ws.close_code
+        finally:
+            await runner.cleanup()
+    msg, code = asyncio.run(go())
+    assert msg.type == aiohttp.WSMsgType.CLOSE and code == 4502 and up.closed
+
+
+def test_a_check_that_fails_unexpectedly_records_an_error_verdict(consoles, monkeypatch):
+    """check_vm caught only ConsoleError: anything else left no verdict, so the VM stayed the most overdue and took a
+    slot of the cluster's budget every tick, for ever."""
+    import checker
+
+    async def boom(*a, **kw):
+        raise ValueError('decoder exploded')
+    recorded = []
+    monkeypatch.setattr(checker.consoles, 'screenshot', boom)
+    monkeypatch.setattr(checker.store, 'record_verdict', lambda *a: recorded.append(a), raising=False)
+    out = asyncio.run(checker.check_vm(None, 'c', 'v', {}))
+    assert out['state'] == 'error' and 'ValueError: decoder exploded' in out['detail']
+    assert recorded and recorded[0][:4] == ('c', 'v', None, 'error')
+    assert ('c', 'v') not in checker._busy
+
+
 def test_no_ticket_no_binding(consoles):
     assert consoles.consume('', '') is None
     t = consoles.mint('c', 'vm', 'vm', 'alice', 'b' * 64, None)
