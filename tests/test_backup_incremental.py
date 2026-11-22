@@ -598,6 +598,46 @@ def test_pick_proxy_prefers_an_idle_proxy(monkeypatch):
         lock.release()
 
 
+def test_the_proxy_lock_is_released_when_the_cleanup_itself_fails(world, monkeypatch):
+    """A failed proxy job followed by a database error while recording the clones left the proxy locked until the
+    service restarted: every later backup and restore on it waited for ever."""
+    def boom(job_id, on_progress=None, timeout=0, poll=0):
+        raise inc.ProxyError('connection reset')
+    monkeypatch.setattr(world.pc, 'wait', boom)
+    real = world.db.update_chain
+
+    def stalled(cid, **f):
+        if f.get('active_clones') == []:
+            raise RuntimeError('server closed the connection unexpectedly')
+        real(cid, **f)
+    monkeypatch.setattr(world.db, 'update_chain', stalled)
+    inc.run_incremental(4)
+    locked = inc.proxy_lock(7).locked()
+    if locked:
+        inc.proxy_lock(7).release()                 # keep the other tests from waiting on it
+    assert not locked
+    assert world.db.runs[1]['status'] == 'ERROR' and 'connection reset' in world.db.runs[1]['message']
+    assert not world.hc.snaps, 'the new anchor is removed as well'
+
+
+def test_the_proxy_lock_is_released_once_on_the_no_change_path(world, monkeypatch):
+    """An error after the lock was released by hand on the "no blocks changed" path released it a second time
+    (RuntimeError, or releasing a lock another job had taken meanwhile)."""
+    inc.run_incremental(4)
+    monkeypatch.setattr(world.hc, 'snap_diff', lambda dev, a, b: [{'lower': 0, 'upper': 3}] if a == 0 else [])
+    world.db.runs.clear(); world.db.start_run(4)
+    real = world.db.update_run
+
+    def failing(rid, **f):
+        if f.get('status') == 'COMPLETE':
+            raise RuntimeError('postgres stalled')
+        real(rid, **f)
+    monkeypatch.setattr(world.db, 'update_run', failing)
+    inc.run_incremental(4)
+    assert 'postgres stalled' in world.db.runs[1]['message'] and 'release' not in world.db.runs[1]['message']
+    assert not inc.proxy_lock(7).locked()
+
+
 def test_disk_images_are_not_capped_and_short_points_are_named():
     """A guest sees its disk rounded up to whole MiB; points written capped at the API capacity
     miss that end and are flagged."""

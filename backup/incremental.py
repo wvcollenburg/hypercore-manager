@@ -563,69 +563,81 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_starte
     make_way(proxy['id'], 'a backup')
     lock.acquire()
     lock_wait = time.monotonic() - wait_t0
+    # the proxy lock is released exactly once, in the finally, whatever is raised in between (a requests error the
+    # proxy client does not wrap, a database error); the new anchor goes when the run did not get through
+    unchanged, failed = False, True
     try:
-        # 2. clones + 3. maps
-        req_devices = []
-        for dev in devices:
-            cap = device_capacity(dev)
-            clone_uuid = clone_onto(hc, dev['uuid'], snap_uuid, proxy['vm_uuid'], cap, read_only=True)
-            clones.append(clone_uuid)
-            db.update_chain(chain['id'], active_clones=clones)
-            serial = serials.get(dev['uuid'])
-            if dev['type'] in HyperCoreClient.DISK_TYPES:
-                if kind == 'delta' and dev['uuid'] in prev_serials and dev['uuid'] not in resized:
-                    dev_map = hc.snap_diff(dev['uuid'], prev_serials[dev['uuid']], serial)
-                    entry = {'map': dev_map}
+        try:
+            # 2. clones + 3. maps
+            req_devices = []
+            for dev in devices:
+                cap = device_capacity(dev)
+                clone_uuid = clone_onto(hc, dev['uuid'], snap_uuid, proxy['vm_uuid'], cap, read_only=True)
+                clones.append(clone_uuid)
+                db.update_chain(chain['id'], active_clones=clones)
+                serial = serials.get(dev['uuid'])
+                if dev['type'] in HyperCoreClient.DISK_TYPES:
+                    if kind == 'delta' and dev['uuid'] in prev_serials and dev['uuid'] not in resized:
+                        dev_map = hc.snap_diff(dev['uuid'], prev_serials[dev['uuid']], serial)
+                        entry = {'map': dev_map}
+                    else:
+                        entry = {'map': hc.snap_diff(dev['uuid'], 0, serial)}
+                        if kind == 'delta':
+                            # new or resized disk inside a delta point: the proxy writes it without a
+                            # backing file (`full`); `full_map` is what older proxies read
+                            entry['full_map'] = entry['map']
+                            entry['full'] = True
                 else:
-                    entry = {'map': hc.snap_diff(dev['uuid'], 0, serial)}
-                    if kind == 'delta':
-                        # new or resized disk inside a delta point: the proxy writes it without a
-                        # backing file (`full`); `full_map` is what older proxies read
-                        entry['full_map'] = entry['map']
-                        entry['full'] = True
-            else:
-                entry = {'map': [{'lower': 0, 'upper': 0}]}       # NVRAM / vTPM: 1 MiB, always re-copied
-            req_devices.append({'uuid': dev['uuid'], 'type': dev['type'], 'clone_uuid': clone_uuid, 'size': cap,
-                                'image_size': image_size(dev), 'serial': serial, **entry})
-        blocks = sum(jobs_blocks(d['map']) for d in req_devices)
-        disk_blocks = sum(jobs_blocks(d['map']) for d in req_devices if d['type'] in HyperCoreClient.DISK_TYPES)
-        if kind == 'delta' and disk_blocks == 0:
-            # nothing changed on any disk since the previous point: no new point, keep the old anchor
-            db.update_chain(chain['id'], active_clones=_delete_clones(hc, clones))
-            lock.release()
-            _safe_delete_snapshot(hc, snap_uuid, 'unneeded anchor')
-            end = _now()
-            db.update_run(run_id, status='COMPLETE', finished_at=end, blocks_changed=0, bytes_written=0,
-                          message='No blocks changed since the previous point; nothing written.',
-                          **jobs.run_timing(work_started, lock_wait, 0.0, end))
-            log.info('[run %s] no changes, skipped', run_id)
-            return
-        db.update_run(run_id, blocks_changed=blocks, message=f'{kind}: {blocks} MiB to copy, proxy {proxy["name"]}')
+                    entry = {'map': [{'lower': 0, 'upper': 0}]}       # NVRAM / vTPM: 1 MiB, always re-copied
+                req_devices.append({'uuid': dev['uuid'], 'type': dev['type'], 'clone_uuid': clone_uuid, 'size': cap,
+                                    'image_size': image_size(dev), 'serial': serial, **entry})
+            blocks = sum(jobs_blocks(d['map']) for d in req_devices)
+            disk_blocks = sum(jobs_blocks(d['map']) for d in req_devices if d['type'] in HyperCoreClient.DISK_TYPES)
+            # nothing changed on any disk since the previous point: no proxy job, no new point (see below)
+            unchanged = kind == 'delta' and disk_blocks == 0
+            if not unchanged:
+                db.update_run(run_id, blocks_changed=blocks, message=f'{kind}: {blocks} MiB to copy, proxy {proxy["name"]}')
 
-        # 4. proxy job
-        body = {'target': {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')},
-                'folder': loc['tenant'], 'vm': {'uuid': vm['uuid'], 'name': vm['name']}, 'chain_dir': chain['chain_dir'],
-                'point': {'kind': kind, 'seq': seq, 'previous_seq': prev_seq}, 'devices': req_devices,
-                'definition': definition, 'plan_id': plan['id'], 'run_id': run_id}
-        job_id = pc.submit('backup', body)
+                # 4. proxy job
+                body = {'target': {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')},
+                        'folder': loc['tenant'], 'vm': {'uuid': vm['uuid'], 'name': vm['name']}, 'chain_dir': chain['chain_dir'],
+                        'point': {'kind': kind, 'seq': seq, 'previous_seq': prev_seq}, 'devices': req_devices,
+                        'definition': definition, 'plan_id': plan['id'], 'run_id': run_id}
+                job_id = pc.submit('backup', body)
 
-        def on_progress(p):
-            if p.get('blocks_total'):
-                total_dev = p.get('devices_total', 1)
-                try:                                    # progress text is cosmetic: a db hiccup must not abort the copy
-                    db.update_run(run_id, message=backup_progress_text(kind, p), progress=backup_progress(p))
-                except Exception as e:                  # noqa: BLE001
-                    log.warning('[run %s] progress update failed: %s', run_id, e)
-        result = pc.wait(job_id, on_progress, timeout=CFG.task_timeout_hours * 3600)['result']
-    except Exception:
-        db.update_chain(chain['id'], active_clones=_delete_clones(hc, clones))
+                def on_progress(p):
+                    if p.get('blocks_total'):
+                        total_dev = p.get('devices_total', 1)
+                        try:                                    # progress text is cosmetic: a db hiccup must not abort the copy
+                            db.update_run(run_id, message=backup_progress_text(kind, p), progress=backup_progress(p))
+                        except Exception as e:                  # noqa: BLE001
+                            log.warning('[run %s] progress update failed: %s', run_id, e)
+                result = pc.wait(job_id, on_progress, timeout=CFG.task_timeout_hours * 3600)['result']
+            leftover = _delete_clones(hc, clones)
+            failed = False
+        except Exception:
+            try:
+                db.update_chain(chain['id'], active_clones=_delete_clones(hc, clones))
+            except Exception:                           # noqa: BLE001 — the run's own error is what matters
+                log.warning('[run %s] clones of the failed run not recorded for the sweep', run_id, exc_info=True)
+            raise
+    finally:
         lock.release()
-        _safe_delete_snapshot(hc, snap_uuid, 'new anchor')
-        raise
+        if failed:
+            _safe_delete_snapshot(hc, snap_uuid, 'new anchor')
+
+    if unchanged:
+        # no new point, keep the old anchor
+        _safe_delete_snapshot(hc, snap_uuid, 'unneeded anchor')
+        db.update_chain(chain['id'], active_clones=leftover)
+        end = _now()
+        db.update_run(run_id, status='COMPLETE', finished_at=end, blocks_changed=0, bytes_written=0,
+                      message='No blocks changed since the previous point; nothing written.',
+                      **jobs.run_timing(work_started, lock_wait, 0.0, end))
+        log.info('[run %s] no changes, skipped', run_id)
+        return
 
     # 5. bookkeeping
-    leftover = _delete_clones(hc, clones)
-    lock.release()
     point_id = db.add_point(chain['id'], seq, kind, result['point_dir'], serials, blocks, result.get('bytes_written', 0),
                             result.get('duration_s', 0), result.get('devices', []), definition, run_id, quiesced=quiesced)
     db.update_chain(chain['id'], anchor_snapshot_uuid=snap_uuid, last_serials=serials, next_seq=seq + 1,
