@@ -51,7 +51,7 @@
     {% elif state == 'other' %}
       <div class="card-title">{{ t.title_accept }}</div>
       <div class="card-sub">{{ t.other_account }}</div>
-      <form method="get" action="/logout"><input type="hidden" name="next" value="/invite/{{ token }}"><button type="submit">{{ t.switch_btn }}</button></form>
+      <form method="post" action="/logout"><input type="hidden" name="next" value="/invite/{{ token }}"><button type="submit">{{ t.switch_btn }}</button></form>
 
     {% elif state == 'done' %}
       <div class="card-title">{{ t.title_activate if inv and inv.kind == 'activate' else t.title_new }}</div>

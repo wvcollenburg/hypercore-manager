@@ -54,7 +54,7 @@ from functools import wraps
 import psycopg2
 import psycopg2.extras
 from flask import Flask, g, jsonify, redirect, render_template, request, send_from_directory, Response, session, url_for
-from flask_cors import CORS
+from flask.sessions import SecureCookieSessionInterface
 from flask_sock import Sock
 import simple_websocket
 from influxdb_client import InfluxDBClient
@@ -73,7 +73,28 @@ from forwarding import body_cluster
 from alerts import ALERT_LEVELS, ALERT_SEVERITY, active_items, condition_episodes, ms_iso
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
-CORS(app)
+# No CORS: every page that calls this API is served by it (the guest pages too), so no other origin needs to
+# read its answers. The session cookie is not sent on cross-site requests (SameSite=Lax), and is marked Secure
+# when the request came over HTTPS (directly or through a TLS proxy), so plain-HTTP installs keep working.
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('HCM_SESSION_COOKIE_SECURE', '').strip().lower() in ('1', 'true', 'yes')
+
+
+def _request_is_https() -> bool:
+    return request.is_secure or request.headers.get('X-Forwarded-Proto', '').split(',')[0].strip().lower() == 'https'
+
+
+class _SessionInterface(SecureCookieSessionInterface):
+    def get_cookie_secure(self, app):              # called while the response of a request is made
+        if app.config.get('SESSION_COOKIE_SECURE'):
+            return True
+        try:
+            return _request_is_https()
+        except RuntimeError:                       # outside a request
+            return False
+
+
+app.session_interface = _SessionInterface()
 # websockets (VM console): pings keep reverse proxies with a read timeout from closing an idle console
 app.config['SOCK_SERVER_OPTIONS'] = {'ping_interval': 25, 'max_message_size': None}
 sock = Sock(app)
@@ -259,6 +280,71 @@ def public(reason: str):
         _ROUTE_PERMS[f.__name__] = ('public', reason)
         return f
     return deco
+
+
+_UNSAFE_METHODS = frozenset({'POST', 'PUT', 'PATCH', 'DELETE'})
+
+
+def _host_of(url_or_host: str) -> str:
+    """'https://Hcm.Example:443/x' -> 'hcm.example' (scheme and default ports left out: a TLS proxy changes
+    the scheme, not who the site is)."""
+    v = (url_or_host or '').strip().lower()
+    if '://' in v:
+        v = urllib.parse.urlsplit(v).netloc
+    v = v.rsplit('@', 1)[-1]
+    for port in (':80', ':443'):
+        if v.endswith(port):
+            v = v[:-len(port)]
+    return v
+
+
+def _own_hosts() -> set:
+    """The names this request may legitimately come from: the Host it was sent to and the one a reverse proxy
+    names in X-Forwarded-Host (a cross-site page can set neither: X-Forwarded-Host is not a header a browser
+    lets another origin add without a CORS preflight, which this app never answers)."""
+    hosts = {_host_of(request.host)}
+    fwd = (request.headers.get('X-Forwarded-Host') or '').split(',')[0].strip()
+    if fwd:
+        hosts.add(_host_of(fwd))
+    return hosts
+
+
+def _configured_hosts() -> set:
+    """The addresses in Settings -> Mail (links and guest links): a proxy that rewrites Host still works."""
+    import mailer
+    out = set()
+    try:
+        s = mailer.settings()
+        for k in ('public_url', 'guest_url'):
+            if s.get(k):
+                out.add(_host_of(s[k]))
+    except Exception:  # noqa: BLE001 — no database: only the request's own host counts
+        pass
+    env = (os.getenv('HCM_GUEST_BASE_URL') or '').strip()
+    if env:
+        out.add(_host_of(env))
+    return out
+
+
+@app.before_request
+def _same_origin_only():
+    """Cross-site request forgery: a request that changes something must come from a page of this site.
+    Browsers send Origin on such requests (Referer when they leave Origin out); a value naming another site is
+    refused. A request with neither is a script or a non-browser client, which holds no victim's cookie."""
+    if request.method not in _UNSAFE_METHODS or request.path.startswith('/internal/'):
+        return None
+    source = request.headers.get('Origin')
+    if source is None:
+        source = request.headers.get('Referer')
+        if not source:
+            return None
+    source_host = _host_of(source) if source != 'null' else 'null'
+    if source_host and (source_host in _own_hosts() or source_host in _configured_hosts()):
+        return None
+    app.logger.warning('refused a cross-site %s %s from %r', request.method, request.path, source[:200])
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'cross-site request refused'}), 403
+    return Response('Cross-site request refused', status=403, mimetype='text/plain')
 
 
 @app.before_request
@@ -1368,7 +1454,7 @@ def _cluster_form(body: dict) -> dict:
 @app.route('/api/clusters', methods=['POST'])
 @requires('cluster.manage', 'any')
 def api_clusters_create():
-    body = request.get_json(force=True, silent=True) or {}
+    body = request.get_json(silent=True) or {}
     target_folder = (body.get('folder_id') or '').strip() or None
     if target_folder and not cluster_registry.is_uuid(target_folder):
         return jsonify({'error': 'invalid folder id'}), 400
@@ -1431,7 +1517,7 @@ def api_clusters_update(cluster_id):
     acc = _access()
     if not acc.can('cluster.manage', cluster_id):
         return jsonify({'error': 'cluster not found'}), 404
-    body = request.get_json(force=True, silent=True) or {}
+    body = request.get_json(silent=True) or {}
     if 'folder_id' in body and not _may_move_cluster(acc, cluster_id, body['folder_id'] or None):
         return jsonify({'error': 'Access denied'}), 403
     fields = {}
@@ -1479,7 +1565,7 @@ def api_clusters_delete(cluster_id):
 @requires('cluster.manage', 'any')
 def api_clusters_test_new():
     """Connection test for the add/edit form (credentials from the body)."""
-    f = _cluster_form(request.get_json(force=True, silent=True) or {})
+    f = _cluster_form(request.get_json(silent=True) or {})
     if not (f['host'] and f['username']):
         return jsonify({'ok': False, 'error': 'host and username are required'}), 400
     return jsonify(cluster_registry.test_connection(f['host'], f['username'], f['password'], f['verify_tls']))
@@ -1615,7 +1701,7 @@ def api_folders_list():
 @app.route('/api/folders', methods=['POST'])
 @requires('tree.manage', 'any')
 def api_folders_create():
-    body = request.get_json(force=True, silent=True) or {}
+    body = request.get_json(silent=True) or {}
     acc = _access()
     parent = (body.get('parent_id') or '').strip() or None
     if parent is None:
@@ -1643,7 +1729,7 @@ def api_folders_update(folder_id):
     acc = _access()
     if not acc.can('tree.manage', node_id=folder_id):
         return jsonify({'error': 'Access denied'}), 403
-    body = request.get_json(force=True, silent=True) or {}
+    body = request.get_json(silent=True) or {}
     if 'share_id' in body and not acc.can('backup.targets.manage', node_id=folder_id):
         return jsonify({'error': 'Access denied'}), 403
     try:
@@ -3338,10 +3424,10 @@ def _after_login(dest):
     return dest if ok else url_for('index')
 
 
-@app.route('/logout')
+@app.route('/logout', methods=['GET', 'POST'])        # POST: a form button (cross-site safe); GET: the old link
 @public('logging out')
 def logout():
-    nxt = request.args.get('next')
+    nxt = request.values.get('next')
     session.clear()
     if _after_login(nxt) != url_for('index'):
         session['next'] = nxt                 # 'sign out and switch' on an invitation for another address
@@ -3401,7 +3487,7 @@ def api_otp_setup():
 @requires(None)
 def api_otp_enable():
     username = session.get('username', 'dev')
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True) or {}
     code = (data.get('code') or '').strip()
     if not code:
         return jsonify({'error': 'code is required'}), 400
@@ -3414,7 +3500,7 @@ def api_otp_enable():
 @requires(None)
 def api_otp_disable():
     username = session.get('username', 'dev')
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True) or {}
     if _AUTH_ENABLED and not user_db.verify_password(username, data.get('password', '')):
         return jsonify({'error': 'Incorrect password'}), 403
     try:
