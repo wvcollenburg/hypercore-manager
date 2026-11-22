@@ -1044,6 +1044,8 @@
   /* ── nav logout button ───────────────────────────────────────────────── */
 
   /* ── data quality banner ──────────────────────────────────────────────── */
+  /* clickable elements that are not buttons, made keyboard reachable by _kbdMark() */
+  [data-kbd]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   #dataQualityBanner {
     display: none;
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999;
@@ -1623,7 +1625,7 @@
     <div class="vm-modal ve-modal" style="width:min(820px,96vw);" role="dialog" aria-modal="true" aria-labelledby="vaTitle">
       <div class="vm-modal-header">
         <div class="vm-modal-title" id="vaTitle"></div>
-        <button class="vm-modal-close" onclick="closeVmAct()">✕</button>
+        <button class="vm-modal-close" onclick="closeVmAct()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
       </div>
       <div id="vaBody"></div>
       <div class="ve-foot" id="vaFoot" hidden>
@@ -1645,7 +1647,7 @@
     <div class="vm-modal ve-modal" role="dialog" aria-modal="true" aria-labelledby="vnTitle">
       <div class="vm-modal-header">
         <div class="vm-modal-title" id="vnTitle" data-i18n="vn.new_vm">New VM</div>
-        <button class="vm-modal-close" onclick="closeNewVm()">✕</button>
+        <button class="vm-modal-close" onclick="closeNewVm()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
       </div>
       <div id="vnBody"></div>
       <div class="ve-foot" id="vnFoot" hidden>
@@ -1667,7 +1669,7 @@
     <div class="vm-modal ve-modal" role="dialog" aria-modal="true" aria-labelledby="veTitle">
       <div class="vm-modal-header">
         <div class="vm-modal-title" id="veTitle" data-i18n="ve.edit">Edit</div>
-        <button class="vm-modal-close" onclick="closeVmEdit()">✕</button>
+        <button class="vm-modal-close" onclick="closeVmEdit()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
       </div>
       <div id="veBody"></div>
       <div class="ve-foot" id="veFoot" hidden>
@@ -1708,7 +1710,7 @@
           <button class="refresh-btn" id="vmWhoBtn" hidden data-i18n="acc.who_btn">Who has access</button>
           <button class="refresh-btn" id="vmGuestBtn" hidden data-i18n="gc.outside_btn">Outside access…</button>
           <button class="refresh-btn" id="vmConsoleBtn" hidden onclick="openVmConsole(currentCluster, vmDetailActiveUuid)" data-i18n="console.open" data-i18n-title="console.open_hint" title="Open this VM's console in a new window">Console</button>
-          <button class="vm-modal-close" onclick="closeVmModal()">✕</button>
+          <button class="vm-modal-close" onclick="closeVmModal()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
         </div>
       </div>
       <div class="vmi" id="vmDetailInfo" data-vmpane="info"></div>
@@ -2747,7 +2749,7 @@ function _veRender() {
       <td>${sel('ve-add-type-' + i, ['VIRTIO_DISK', 'SCSI_DISK', 'IDE_DISK', 'IDE_CDROM'].map(x => [x, x]), a.type)}</td><td></td>
       <td><input type="number" id="ve-add-cap-${i}" min="1" value="${a.cap}" oninput="_veSummary()"> GB</td>
       <td>${sel('ve-add-cache-' + i, ['WRITETHROUGH', 'WRITEBACK', 'NONE'].map(x => [x, x]), a.cache)}</td><td></td><td></td>
-      <td><button class="um-action-btn" onclick="_veSync();_ve.adds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
+      <td><button class="um-action-btn" aria-label="${_clEsc(t('ve.remove'))}" onclick="_veSync();_ve.adds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
   const nics = vm.netDevs || [];
   const nicRows = nics.map(n => `<tr id="ve-n-${n.uuid}" class="${_ve.remove.has(n.uuid) ? 'removing' : ''}">
       <td>${sel('ve-ntype-' + n.uuid, ['VIRTIO', 'INTEL_E1000', 'RTL8139', 'PCNET'].map(x => [x, x]), n.type)}</td>
@@ -2760,10 +2762,10 @@ function _veRender() {
       <td><input type="number" id="ve-nadd-vlan-${i}" min="0" max="4094" value="${a.vlan}" oninput="_veSummary()" style="width:70px"></td>
       <td><input type="text" id="ve-nadd-mac-${i}" value="${E(a.mac || '')}" placeholder="${t('ve.mac_auto')}" oninput="_veSummary()" style="width:150px"></td>
       <td><input type="checkbox" id="ve-nadd-conn-${i}" ${a.conn === false ? '' : 'checked'} onchange="_veSummary()"></td><td><em>${t('ve.new')}</em></td>
-      <td><button class="um-action-btn" onclick="_veSync();_ve.nicAdds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
+      <td><button class="um-action-btn" aria-label="${_clEsc(t('ve.remove'))}" onclick="_veSync();_ve.nicAdds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
   const bootList = _ve.boot.map((u, i) => { const dv = devs.find(x => x.uuid === u); return `<li>${E(dv ? _veDevLabel(dv) : u)}
       <button class="um-action-btn" ${i === 0 ? 'disabled' : ''} onclick="_veBoot(${i},-1)">▲</button><button class="um-action-btn" ${i === _ve.boot.length - 1 ? 'disabled' : ''} onclick="_veBoot(${i},1)">▼</button>
-      <button class="um-action-btn" onclick="_veSync();_ve.boot.splice(${i},1);_veRender()">✕</button></li>`; }).join('');
+      <button class="um-action-btn" aria-label="${_clEsc(t('ve.remove'))}" onclick="_veSync();_ve.boot.splice(${i},1);_veRender()">✕</button></li>`; }).join('');
   const notInBoot = devs.filter(dv => !_ve.boot.includes(dv.uuid) && !['NVRAM', 'VTPM'].includes(dv.type));
   const chg = changes.map(c => `<div class="ve-chg"><span class="st ${c.status}">${t('ve.st_' + c.status)}</span>
       <b>${E(c.run_at ? _exFmt(c.run_at) : t('ve.now'))}</b> · ${E(c.summary || c.kind)} · ${E(c.created_by || '?')}
@@ -3033,10 +3035,10 @@ function _vnRender() {
   const disks = _vn.disks.map((x, i) => `<tr><td>${sel('vn-dtype-' + i, ['VIRTIO_DISK', 'SCSI_DISK', 'IDE_DISK'].map(v => [v, v]), x.type)}</td>
       <td><input type="number" id="vn-dcap-${i}" min="1" value="${E(x.cap)}" style="width:80px"> GB</td>
       <td>${i === 0 ? sel('vn-dimg-0', imgOpts, x.image, 'onchange="_vnSync();_vnRender()"') : `<span style="color:var(--text-muted)">${t('vn.empty_disk')}</span>`}</td>
-      <td><button class="um-action-btn" onclick="_vnSync();_vn.disks.splice(${i},1);_vnRender()">✕</button></td></tr>`).join('');
+      <td><button class="um-action-btn" aria-label="${_clEsc(t('ve.remove'))}" onclick="_vnSync();_vn.disks.splice(${i},1);_vnRender()">✕</button></td></tr>`).join('');
   const nics = _vn.nics.map((x, i) => `<tr><td>${sel('vn-ntype-' + i, ['VIRTIO', 'INTEL_E1000', 'RTL8139', 'PCNET'].map(v => [v, v]), x.type)}</td>
       <td><input type="number" id="vn-nvlan-${i}" min="0" max="4094" value="${E(x.vlan)}" style="width:80px"></td>
-      <td><button class="um-action-btn" onclick="_vnSync();_vn.nics.splice(${i},1);_vnRender()">✕</button></td></tr>`).join('');
+      <td><button class="um-action-btn" aria-label="${_clEsc(t('ve.remove'))}" onclick="_vnSync();_vn.nics.splice(${i},1);_vnRender()">✕</button></td></tr>`).join('');
   const fromImage = !!(_vn.disks[0] && _vn.disks[0].image);
   document.getElementById('vnBody').innerHTML = `
     <div class="ve-sec"><h3>${t('ve.general')}</h3><div class="ve-grid">
@@ -6912,7 +6914,7 @@ function _polBlackoutRow(b) {
   const days = (b && b.days) || ['mon', 'tue', 'wed', 'thu', 'fri'];
   return `<div class="pol-blackout"><span class="pol-days">${_POL_BDAYS.map(d => `<label><input type="checkbox" class="polb-day" value="${d}" ${days.includes(d) ? 'checked' : ''}>${_polDayName(d.slice(0, 2))}</label>`).join('')}</span>
     <input type="time" class="polb-from" value="${_exEsc((b && b.from) || '07:00')}"> – <input type="time" class="polb-to" value="${_exEsc((b && b.to) || '19:00')}">
-    <button class="um-action-btn danger" onclick="this.parentElement.remove()">×</button></div>`;
+    <button class="um-action-btn danger" aria-label="${_exEsc(t('ve.remove'))}" onclick="this.parentElement.remove()">×</button></div>`;
 }
 function _polAddBlackout() { document.getElementById('polf-blackouts')?.insertAdjacentHTML('beforeend', _polBlackoutRow(null)); }
 function _polPresetChanged() {
@@ -7949,6 +7951,37 @@ setTimeout(function firstUpdateCheck(tries = 0) {
 }, 6000);
 
 // =============================================================================
+// keyboard reach: tabs, sub-tabs, language options, sortable headers, VM group rows, menu items and the
+// cluster list are <div>/<th>/<tr onclick>. One helper gives each a role and a tab stop, and Enter or Space
+// clicks it; a MutationObserver marks what later renders add.
+// =============================================================================
+const _KBD_TABS = '.nav-tab, .rail-nav, .iv-sub-tab, .cb-sub-tab, .sentinel-sub-tab, .settings-sub-tab, .exports-sub-tab';
+const _KBD_SEL = _KBD_TABS + ', .lang-opt, th[onclick], tr.grp, .popmenu-item, .cluster-item, .cluster-folder, .module-item, .crumb.link, .node-alert-list, .vm-console-open';
+function _kbdMark(root) {
+  (root || document).querySelectorAll(_KBD_SEL).forEach(el => {
+    if (el.dataset.kbd) return;
+    el.dataset.kbd = '1';
+    if (!el.hasAttribute('tabindex')) el.tabIndex = 0;
+    if (!el.hasAttribute('role')) el.setAttribute('role', el.matches(_KBD_TABS) ? 'tab' : 'button');
+  });
+}
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target instanceof Element && e.target.matches(_KBD_SEL)) {
+    e.preventDefault();
+    e.target.click();
+  }
+});
+document.addEventListener('DOMContentLoaded', () => {
+  _kbdMark();
+  let queued = false;
+  new MutationObserver(() => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; _kbdMark(); });
+  }).observe(document.body, {childList: true, subtree: true});
+});
+
+// =============================================================================
 // data quality banner
 // =============================================================================
 // per cluster: re-checked whenever the selected cluster changes, and hidden again when the
@@ -7997,7 +8030,7 @@ async function checkDataQuality() {
   <div class="update-modal">
     <div class="update-modal-header">
       <span class="update-modal-title" data-i18n="update.title">Software update</span>
-      <button class="update-modal-close" onclick="closeUpdateModal()">✕</button>
+      <button class="update-modal-close" onclick="closeUpdateModal()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
     </div>
     <div class="update-meta">
       <span><span data-i18n="update.current">Current:</span> <span class="update-sha" id="updateCurrentSha">—</span></span>
@@ -8040,7 +8073,7 @@ async function checkDataQuality() {
       <span class="update-modal-title" id="alertsTitle"></span>
       <div style="display:flex;gap:8px;align-items:center;">
         <button class="refresh-btn" id="alertsHistBtn" onclick="toggleAlertsHistory()" data-i18n="alerts.history">History</button>
-        <button class="update-modal-close" onclick="closeClusterAlerts()">✕</button>
+        <button class="update-modal-close" onclick="closeClusterAlerts()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
       </div>
     </div>
     <div class="alerts-hist-filters" id="alertsHistFilters" hidden>

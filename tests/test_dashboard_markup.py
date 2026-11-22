@@ -199,3 +199,17 @@ def test_a_network_error_does_not_leave_a_spinner(repo, rel):
     bare = [l.strip()[:100] for l in src.splitlines()
             if re.match(r'^  (const r = )?await fetch\(', l)]
     assert not bare, 'use _netFetch() or a try/catch:\n' + '\n'.join(bare)
+
+
+def test_icon_buttons_have_names_and_clickable_divs_a_tab_stop(repo):
+    """The ✕ buttons had no accessible name, and the top tabs, sub-tabs, language options, sortable headers and
+    VM group rows were <div>/<th>/<tr onclick> that a keyboard could not reach."""
+    import re
+    src = (repo / 'dashboard' / 'static' / 'index.html').read_text()
+    for m in re.finditer(r'<button\b[^>]*>(✕|×)</button>', src):
+        assert 'aria-label=' in m.group(0), f'icon button without a name: {m.group(0)[:100]}'
+    helper = src[src.index('function _kbdMark('):][:500]
+    assert 'tabIndex = 0' in helper and "setAttribute('role'" in helper
+    for part in ('.nav-tab', '.settings-sub-tab', '.lang-opt', 'th[onclick]', 'tr.grp'):
+        assert part in src[src.index('const _KBD_TABS'):src.index('function _kbdMark(')], part
+    assert "e.key === 'Enter' || e.key === ' '" in src and 'new MutationObserver' in src
