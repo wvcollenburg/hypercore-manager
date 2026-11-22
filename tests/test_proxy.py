@@ -1012,6 +1012,30 @@ def test_idle_mounts_are_swept_and_api_routes_work(flr):
     assert flr.mm.sweep_idle() == 1 and c.get(f'/mounts/{mid}/ls', headers=H).status_code == 404
 
 
+def test_a_zip_download_holds_one_piece_of_a_file_in_memory_not_the_whole_file(flr, monkeypatch):
+    """zf.write() returns only after the whole file: its compressed form sat in the stream buffer (measured 96 MiB
+    held for a 96 MiB file; a 20 GiB file OOM-killed the proxy). Entries are written in 1 MiB pieces now."""
+    import io, zipfile
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    mp = next(f['mountpoint'] for f in m.filesystems if f['name'] == 'disk1-p2')
+    big = os.urandom(12 * MiB)                           # incompressible
+    open(os.path.join(mp, 'etc', 'big.bin'), 'wb').write(big)
+    peak = [0]
+    real_write = P.mounts._StreamBuffer.write
+
+    def spy(self, b):
+        n = real_write(self, b)
+        peak[0] = max(peak[0], sum(len(c) for c in self._chunks))
+        return n
+    monkeypatch.setattr(P.mounts._StreamBuffer, 'write', spy)
+    data = b''.join(flr.mm.iter_zip(m.id, ['/disk1-p2/etc']))
+    assert peak[0] < 3 * MiB, f'{peak[0]} bytes buffered'
+    z = zipfile.ZipFile(io.BytesIO(data))
+    assert z.testzip() is None and z.read('disk1-p2/etc/big.bin') == big and z.read('disk1-p2/etc/hostname') == b'exptest\n'
+    assert z.getinfo('disk1-p2/etc/big.bin').compress_type == zipfile.ZIP_DEFLATED
+    flr.mm.unmount(m.id)
+
+
 @pytest.mark.parametrize('kind', ['zip', 'file', 'iso'])
 def test_a_mount_that_is_still_streaming_is_neither_swept_nor_unmounted(flr, monkeypatch, kind):
     """last_used was only set when a download started: a zip, ISO or file that streamed longer than the idle limit

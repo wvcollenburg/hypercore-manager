@@ -546,13 +546,27 @@ class MountManager:
                             full = os.path.join(dirpath, f)
                             # links are left out of a zip: os.path.isfile would follow one out of the backup
                             if not os.path.islink(full) and os.path.isfile(full):
-                                zf.write(full, os.path.join(arc_root, os.path.relpath(full, abs_path)))
-                                yield from buf.drain()
+                                yield from self._zip_entry(zf, buf, full, os.path.join(arc_root, os.path.relpath(full, abs_path)), chunk)
                 elif os.path.isfile(abs_path):
-                    zf.write(abs_path, arc_root)
-                    yield from buf.drain()
+                    yield from self._zip_entry(zf, buf, abs_path, arc_root, chunk)
             zf.close()
             yield from buf.drain()
+
+    @staticmethod
+    def _zip_entry(zf: zipfile.ZipFile, buf: '_StreamBuffer', path: str, arcname: str, chunk: int):
+        """One file into the zip in `chunk` pieces, drained after each: zf.write() hands back only after the
+        whole file, so its compressed form sat in memory (a 20 GiB file OOM-killed the proxy). The entry's
+        size comes from stat (the point is mounted read-only), so zipfile picks zip64 where it is needed."""
+        zinfo = zipfile.ZipInfo.from_file(path, arcname)
+        zinfo.compress_type = zf.compression
+        with open(path, 'rb') as src, zf.open(zinfo, 'w') as dest:
+            while True:
+                b = src.read(chunk)
+                if not b:
+                    break
+                dest.write(b)
+                yield from buf.drain()
+        yield from buf.drain()
 
     # ------------------------------------------------------------------- ISO
     def iso_command(self, mid: str, paths: list[str], print_size: bool = False) -> list[str]:
