@@ -26,7 +26,9 @@ import socket
 import ssl
 import threading
 import time
+import unicodedata
 from functools import wraps
+from urllib.parse import quote
 
 from flask import Flask, Response, jsonify, request
 from werkzeug.serving import WSGIRequestHandler
@@ -50,6 +52,15 @@ _REQUIRED = {
     'bench': ('target',),
     'netcheck': ('mac', 'probe', 'targets'),
 }
+
+
+def attachment(name: str) -> str:
+    """Content-Disposition for a download whose name may be anything a guest can name a file: an HTTP
+    header is Latin-1, and a name outside it ('Rapport – Q3.docx', 'prijs €.txt') killed the response.
+    RFC 6266: an ASCII fallback for old clients plus filename* with the UTF-8 name percent-encoded."""
+    fallback = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
+    fallback = ''.join('_' if c in '"\\' or ord(c) < 32 or ord(c) == 127 else c for c in fallback).strip() or 'download'
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
 
 
 def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
@@ -211,7 +222,7 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
                         break
                     yield b
         return Response(stream_with_context(gen()), mimetype='application/octet-stream',
-                        headers={'Content-Length': str(size), 'Content-Disposition': f'attachment; filename="{name}"'})
+                        headers={'Content-Length': str(size), 'Content-Disposition': attachment(name)})
 
     @app.get('/mounts/<mid>/zip')
     @require_token
@@ -226,7 +237,7 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
             return jsonify({'error': 'mount not found'}), 404
         name = request.args.get('name') or 'recovered-files.zip'
         return Response(stream_with_context(mounts.iter_zip(mid, paths)), mimetype='application/zip',
-                        headers={'Content-Disposition': f'attachment; filename="{name}"'})
+                        headers={'Content-Disposition': attachment(name)})
 
     @app.get('/mounts/<mid>/iso')
     @require_token

@@ -1012,6 +1012,26 @@ def test_idle_mounts_are_swept_and_api_routes_work(flr):
     assert flr.mm.sweep_idle() == 1 and c.get(f'/mounts/{mid}/ls', headers=H).status_code == 404
 
 
+def test_a_file_named_outside_latin1_downloads_with_its_name(flr):
+    """The raw name went into Content-Disposition; an HTTP header is Latin-1, so 'Rapport – Q3.docx' or
+    'prijs €.txt' killed the response."""
+    from urllib.parse import unquote
+    app = P.api.create_app(flr.cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}), flr.mm)
+    c = app.test_client(); H = {'Authorization': 'Bearer t0k'}
+    mid = c.post('/mounts', json={'target': {'uri': 'smb://nas/share/hcm'}, 'chain_dir': 'F/v_vm-1.chain', 'seq': 0}, headers=H).get_json()['id']
+    mp = next(f['mountpoint'] for f in flr.mm.mounts[mid].filesystems if f['name'] == 'disk1-p2')
+    for name, fallback in (('Rapport – Q3.docx', 'Rapport  Q3.docx'), ('prijs €.txt', 'prijs .txt'), ('café "x".txt', 'cafe _x_.txt')):
+        open(os.path.join(mp, name), 'wb').write(b'data')
+        r = c.get('/mounts/%s/file' % mid, query_string={'path': f'/disk1-p2/{name}'}, headers=H)
+        assert r.status_code == 200 and r.data == b'data'
+        cd = r.headers['Content-Disposition']
+        cd.encode('ascii')
+        assert f'filename="{fallback}"' in cd, cd
+        assert unquote(cd.split("filename*=UTF-8''", 1)[1]) == name
+    z = c.get(f'/mounts/{mid}/zip', query_string={'paths': '/disk1-p2/etc', 'name': 'bestanden – €.zip'}, headers=H)
+    assert z.status_code == 200 and "filename*=UTF-8''bestanden%20%E2%80%93%20%E2%82%AC.zip" in z.headers['Content-Disposition']
+
+
 def test_a_zip_download_holds_one_piece_of_a_file_in_memory_not_the_whole_file(flr, monkeypatch):
     """zf.write() returns only after the whole file: its compressed form sat in the stream buffer (measured 96 MiB
     held for a 96 MiB file; a 20 GiB file OOM-killed the proxy). Entries are written in 1 MiB pieces now."""
