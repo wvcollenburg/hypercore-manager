@@ -544,6 +544,11 @@ def main():
                         ev.set()
                         del workers[cid]
                 for cid, c in clusters.items():
+                    # a worker that ended on its own (an exception nothing caught) is replaced, as the
+                    # balancer does: without this its cluster stays without metrics until a restart
+                    if cid in workers and not workers[cid][0].is_alive():
+                        print(f"[{_ts()}] Collector for {c.name} stopped unexpectedly; starting it again.")
+                        del workers[cid]
                     if cid not in workers:
                         ev = threading.Event()
                         w = ClusterWorker(c, write_api, ev)

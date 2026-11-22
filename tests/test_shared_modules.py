@@ -193,3 +193,28 @@ def test_timezone_helpers():
     assert c.effective_timezone == 'Europe/Amsterdam'
     c.timezone = 'US/Eastern'
     assert c.effective_timezone == 'US/Eastern'
+
+
+def test_bookkeeping_survives_an_unreachable_database(monkeypatch):
+    """These six are called from poll loops and from their except handlers, and promise never to raise.
+    They opened their connection outside the try: with Postgres unreachable for a minute the collector's
+    worker died in its own error handler (2026-11-22, both real clusters) and nothing started it again."""
+    import cluster_registry as cr
+    if not hasattr(cr, '_connect'):
+        pytest.skip('the registry is stubbed in this run')
+
+    def down(*a, **k):
+        raise RuntimeError('could not translate host name "postgres" to address')
+    monkeypatch.setattr(cr, '_connect', down)
+    cid = '11111111-1111-4111-8111-111111111111'
+    cr.mark_seen(cid, active_host='10.0.0.1')
+    cr.set_active_host(cid, '10.0.0.1')
+    cr.upsert_nodes(cid, [{'uuid': 'n1', 'lanIP': '10.0.0.1', 'peerID': 1}])
+    cr.record_tasks(cid, [{'task_tag': '1', 'state': 'RUNNING'}])
+    cr.settle_stale_tasks(cid, set())
+    cr.mark_error(cid, 'login failed')
+
+
+def test_the_collector_replaces_a_worker_that_died(repo):
+    src = (repo / 'Collector' / 'collector.py').read_text()
+    assert 'not workers[cid][0].is_alive()' in src, 'a dead worker must be started again'

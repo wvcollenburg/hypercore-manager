@@ -413,15 +413,17 @@ def mark_seen(cluster_id: str, hc_cluster_uuid: Optional[str] = None, *, api_v2_
     if timezone and zone_is_valid(timezone):
         # what the cluster reports, unless an admin typed a zone (timezone_override)
         sets.append('timezone = CASE WHEN timezone_override THEN timezone ELSE %s END'); params.append(timezone)
-    conn = _connect()
+    conn = None
     try:
+        conn = _connect()        # inside the try: an unreachable database is one more thing bookkeeping survives
         with conn.cursor() as cur:
             cur.execute(f'UPDATE config.clusters SET {", ".join(sets)} WHERE cluster_id = %s', params + [cluster_id])
         conn.commit()
     except Exception as exc:  # never let bookkeeping break a poll loop
         log.warning('cluster_registry.mark_seen(%s): %s', cluster_id, exc)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
     if hc_cluster_uuid:
         try:
             me = get(cluster_id)
@@ -535,8 +537,9 @@ def candidate_hosts(cluster_id: str, current: Optional[str] = None) -> list[str]
 
 def set_active_host(cluster_id: str, host: str) -> None:
     """Record the node the cluster is currently reached on (written on every switch)."""
-    conn = _connect()
+    conn = None
     try:
+        conn = _connect()        # inside the try: an unreachable database is one more thing bookkeeping survives
         with conn.cursor() as cur:
             cur.execute('UPDATE config.clusters SET active_host = %s WHERE cluster_id = %s',
                         (normalize_host(host), cluster_id))
@@ -544,7 +547,8 @@ def set_active_host(cluster_id: str, host: str) -> None:
     except Exception as exc:
         log.warning('cluster_registry.set_active_host(%s): %s', cluster_id, exc)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 def upsert_nodes(cluster_id: str, api_nodes: list[dict], seed_host: Optional[str] = None) -> None:
@@ -553,8 +557,9 @@ def upsert_nodes(cluster_id: str, api_nodes: list[dict], seed_host: Optional[str
     or per changed LAN IP, never per poll. Never raises."""
     rows = [dict(n) if 'node_uuid' in n else node_from_api(n) for n in api_nodes or []]   # raw API or slim
     rows = [r for r in rows if r.get('node_uuid')]
-    conn = _connect()
+    conn = None
     try:
+        conn = _connect()        # inside the try: an unreachable database is one more thing bookkeeping survives
         with conn.cursor() as cur:
             if seed_host is None:
                 cur.execute('SELECT hc_host FROM config.clusters WHERE cluster_id = %s', (cluster_id,))
@@ -592,7 +597,8 @@ def upsert_nodes(cluster_id: str, api_nodes: list[dict], seed_host: Optional[str
     except Exception as exc:  # bookkeeping must never break a poll loop
         log.warning('cluster_registry.upsert_nodes(%s): %s', cluster_id, exc)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 _NODE_COLUMNS = '''cluster_id::text AS cluster_id, node_uuid, peer_id, lan_ip, backplane_ip, address, network_status,
@@ -671,8 +677,9 @@ def record_tasks(cluster_id: str, rows: list[dict]) -> None:
     """Upsert normalised task rows (see hypercore_tasks.normalise) for one cluster."""
     if not rows:
         return
-    conn = _connect()
+    conn = None
     try:
+        conn = _connect()        # inside the try: an unreachable database is one more thing bookkeeping survives
         with conn.cursor() as cur:
             psycopg2.extras.execute_batch(cur, '''
                 INSERT INTO config.cluster_tasks (cluster_id, task_tag, kind, description, vm_name, object_uuid, state, progress,
@@ -689,14 +696,16 @@ def record_tasks(cluster_id: str, rows: list[dict]) -> None:
     except Exception as exc:  # the feed is informational; never break a poll loop
         log.warning('cluster_registry.record_tasks(%s): %s', cluster_id, exc)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 def settle_stale_tasks(cluster_id: str, active_tags: set[str], older_than_seconds: int = 180) -> None:
     """A task that was active but is no longer listed as active and has not been seen for a while
     is marked COMPLETE (the v2 feed drops finished tasks from the active list)."""
-    conn = _connect()
+    conn = None
     try:
+        conn = _connect()        # inside the try: an unreachable database is one more thing bookkeeping survives
         with conn.cursor() as cur:
             cur.execute('''UPDATE config.cluster_tasks SET state = 'COMPLETE', progress = 100, completed_at = COALESCE(completed_at, NOW())
                            WHERE cluster_id = %s AND state IN ('QUEUED', 'RUNNING') AND NOT (task_tag = ANY(%s))
@@ -707,7 +716,8 @@ def settle_stale_tasks(cluster_id: str, active_tags: set[str], older_than_second
     except Exception as exc:
         log.warning('cluster_registry.settle_stale_tasks(%s): %s', cluster_id, exc)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 def list_tasks(cluster_id: str, limit: int = 40) -> list[dict[str, Any]]:
@@ -733,8 +743,9 @@ def list_tasks(cluster_id: str, limit: int = 40) -> list[dict[str, Any]]:
 
 
 def mark_error(cluster_id: str, message: str) -> None:
-    conn = _connect()
+    conn = None
     try:
+        conn = _connect()        # inside the try: an unreachable database is one more thing bookkeeping survives
         with conn.cursor() as cur:
             cur.execute('UPDATE config.clusters SET last_error = %s WHERE cluster_id = %s',
                         ((message or '')[:500], cluster_id))
@@ -742,7 +753,8 @@ def mark_error(cluster_id: str, message: str) -> None:
     except Exception as exc:
         log.warning('cluster_registry.mark_error(%s): %s', cluster_id, exc)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 # ---------------------------------------------------------------------------
