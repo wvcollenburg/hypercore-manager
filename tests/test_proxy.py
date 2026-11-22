@@ -205,6 +205,16 @@ def test_api_requires_token_and_validates(stack):
     assert ident['service'] == 'hcm-proxy' and ident['backend'] == 'file' and 'backup' in ident['capabilities']['jobs']
 
 
+def test_the_bearer_token_is_compared_in_constant_time(stack, monkeypatch):
+    seen = []
+    real = P.api.hmac.compare_digest
+    monkeypatch.setattr(P.api.hmac, 'compare_digest', lambda a, b: seen.append((a, b)) or real(a, b))
+    assert stack.client.get('/identity', headers={'Authorization': 'Bearer t0x'}).status_code == 401
+    assert stack.client.get('/identity', headers={'Authorization': 'Bearer t0k€'}).status_code == 401
+    assert stack.client.get('/identity', headers={'Authorization': 'Bearer t0k'}).status_code == 200
+    assert seen and seen[-1] == (b't0k', b't0k')
+
+
 def test_backup_full_then_delta_then_flatten_verify_sweep(stack):
     H = {'Authorization': 'Bearer t0k'}
     disk = 'd0dd5d2c-9c7a-44ec-b6bc-d4ce06bb204d'; nvram = 'a26166e5-ddf9-4665-83f8-e6dd5254019a'

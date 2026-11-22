@@ -20,6 +20,7 @@ Authentication: Bearer token (PROXY_API_TOKEN). An empty token disables auth, fo
 """
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import socket
@@ -74,7 +75,7 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
             token = app.config.get('API_TOKEN', '')
             if token:
                 auth = request.headers.get('Authorization', '')
-                if not auth.startswith('Bearer ') or auth[7:] != token:
+                if not auth.startswith('Bearer ') or not hmac.compare_digest(auth[7:].encode(), token.encode()):
                     return jsonify({'error': 'Unauthorized'}), 401
             return f(*a, **kw)
         return wrapper
