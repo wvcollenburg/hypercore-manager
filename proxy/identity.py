@@ -9,7 +9,7 @@ import shutil
 import socket
 import subprocess
 
-VERSION = '0.6.3'
+VERSION = '0.6.4'
 _SKIP_PREFIXES = ('lo', 'docker', 'veth', 'br-', 'virbr', 'cni', 'flannel', 'tun', 'tap', 'wg')
 
 

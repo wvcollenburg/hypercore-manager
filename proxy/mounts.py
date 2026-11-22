@@ -201,6 +201,37 @@ def no_filesystem_error(skipped: list[dict], limit: int = 900) -> str:
     return msg
 
 
+def _resolve_in_root(root: str, parts: list[str], max_links: int = 40) -> str:
+    """root/parts with every symbolic link resolved the way the guest would resolve it: a relative target
+    from the link's own directory, an absolute target from the filesystem's own root, and '..' never above
+    that root. The files are a guest's: a link to /etc/shadow, /proc/self/environ or the proxy's mount
+    directory must lead into the backup, never into the proxy (which is what following it with the
+    kernel's resolver does, since the proxy's root is the root)."""
+    cur: list[str] = []
+    todo = [p for p in parts]
+    links = 0
+    while todo:
+        p = todo.pop(0)
+        if p in ('', '.'):
+            continue
+        if p == '..':
+            if cur:
+                cur.pop()
+            continue
+        full = os.path.join(root, *cur, p)
+        if os.path.islink(full):
+            links += 1
+            if links > max_links:
+                raise FileNotFoundError('too many levels of symbolic links')
+            target = os.readlink(full)
+            if target.startswith('/'):
+                cur = []
+            todo = [x for x in target.split('/') if x] + todo
+            continue
+        cur.append(p)
+    return os.path.join(root, *cur) if cur else root
+
+
 class MountManager:
     def __init__(self, cfg, backend, mounter, run=subprocess.run, idle_seconds: int = 1800):
         self.cfg, self.backend, self.mounter, self.run = cfg, backend, mounter, run
@@ -450,10 +481,7 @@ class MountManager:
         fs = next((f for f in m.filesystems if f['name'] == parts[0]), None)
         if not fs:
             raise FileNotFoundError(path)
-        abs_path = os.path.normpath(os.path.join(fs['mountpoint'], *parts[1:]))
-        if not abs_path.startswith(fs['mountpoint']):
-            raise FileNotFoundError(path)
-        return fs, abs_path
+        return fs, _resolve_in_root(fs['mountpoint'], parts[1:])
 
     def ls(self, mid: str, path: str) -> dict:
         m = self.get(mid)
@@ -494,7 +522,8 @@ class MountManager:
                 for dirpath, _, files in os.walk(abs_path):
                     for f in files:
                         full = os.path.join(dirpath, f)
-                        if os.path.isfile(full):
+                        # links are left out of a zip: os.path.isfile would follow one out of the backup
+                        if not os.path.islink(full) and os.path.isfile(full):
                             zf.write(full, os.path.join(arc_root, os.path.relpath(full, abs_path)))
                             yield from buf.drain()
             elif os.path.isfile(abs_path):

@@ -570,6 +570,38 @@ def test_mount_browse_zip_and_unmount(flr):
     assert not os.path.exists(m.root) and m.id not in flr.mm.mounts
 
 
+def test_links_in_the_guest_never_lead_out_of_the_backup(flr, tmp_path):
+    """Symbolic links are the guest's: followed with the kernel's resolver they lead into the proxy (its
+    token, its TLS key, every tenant's images under the mount directory). They are resolved inside the
+    filesystem they are on, as the guest itself would."""
+    outside = tmp_path / 'proxy-secret'; outside.mkdir(); (outside / 'token').write_text('s3cret')
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    root = m.filesystems[1]['mountpoint']
+    os.makedirs(os.path.join(root, 'usr', 'share')); open(os.path.join(root, 'usr', 'share', 'zone'), 'w').write('UTC')
+    os.symlink(str(outside / 'token'), os.path.join(root, 'etc', 'abs-file'))          # absolute, to a proxy file
+    os.symlink(str(outside), os.path.join(root, 'etc', 'abs-dir'))                     # absolute, to a proxy directory
+    os.symlink('../../../../../../..' + str(outside / 'token'), os.path.join(root, 'etc', 'rel-up'))
+    os.symlink('/usr/share/zone', os.path.join(root, 'etc', 'localtime'))              # absolute, exists in the guest
+    os.symlink('../usr/share', os.path.join(root, 'etc', 'rel-dir'))                   # relative, inside the guest
+    os.symlink('loop-b', os.path.join(root, 'etc', 'loop-a')); os.symlink('loop-a', os.path.join(root, 'etc', 'loop-b'))
+
+    for p in ('/disk1-p2/etc/abs-file', '/disk1-p2/etc/rel-up', '/disk1-p2/etc/abs-dir/token', '/disk1-p2/etc/loop-a'):
+        with pytest.raises(FileNotFoundError):
+            flr.mm.open_file(m.id, p)
+    with pytest.raises(FileNotFoundError):
+        flr.mm.ls(m.id, '/disk1-p2/etc/abs-dir')
+    # a link that stays inside the guest works, absolute or relative
+    fh, size, name = flr.mm.open_file(m.id, '/disk1-p2/etc/localtime'); assert fh.read() == b'UTC' and name == 'zone'; fh.close()
+    assert [e['name'] for e in flr.mm.ls(m.id, '/disk1-p2/etc/rel-dir')['entries']] == ['zone']
+    kinds = {e['name']: e['kind'] for e in flr.mm.ls(m.id, '/disk1-p2/etc')['entries']}
+    assert kinds['abs-file'] == 'link' and kinds['hostname'] == 'file', 'a link is listed as a link, not as its target'
+    import zipfile, io
+    names = zipfile.ZipFile(io.BytesIO(b''.join(flr.mm.iter_zip(m.id, ['/disk1-p2/etc'])))).namelist()
+    assert sorted(names) == ['disk1-p2/etc/hostname', 'disk1-p2/etc/hosts'], 'a zip holds files, never what a link points at'
+    assert not any(x.endswith(str(outside / 'token')) for x in flr.mm.iso_command(m.id, ['/disk1-p2/etc/abs-file', '/disk1-p2/etc/hosts']))
+    flr.mm.unmount(m.id)
+
+
 def test_nothing_mountable_names_the_reason_per_partition(flr):
     """The proxy's log is out of reach for most admins: the error itself says why each partition
     was left out."""
@@ -1299,7 +1331,7 @@ def test_support_bundle_route_needs_the_token(tmp_path):
     r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
     assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
     assert r.data[:2] == b'PK'
-    assert P.identity.VERSION == '0.6.3'
+    assert P.identity.VERSION == '0.6.4'
 
 
 def test_the_proxy_keeps_a_rotating_log_file(tmp_path):
