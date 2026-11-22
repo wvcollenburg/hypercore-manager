@@ -220,6 +220,8 @@ def deliver(to: str, kind: str, lang: str | None = None, by: str | None = None, 
         _send(cfg, to, subject, body)
     except MailError as exc:
         return _failed(to, kind, by, str(exc))
+    except Exception as exc:  # noqa: BLE001 — e.g. a line break in a header (ValueError): the promise is never to raise
+        return _failed(to, kind, by, f'the mail could not be made: {exc.__class__.__name__}: {exc}'[:300])
     return {'sent': True, 'error': None}
 
 

@@ -106,3 +106,25 @@ def test_a_header_cannot_be_injected(monkeypatch, fake_smtp):
     monkeypatch.setattr(mailer, 'settings', lambda with_secret=False: _cfg())
     with pytest.raises(ValueError):
         mailer._send(_cfg(), 'a@b.example\r\nBcc: evil@x.example', 'subject', 'body')
+
+
+def test_deliver_reports_a_mail_it_cannot_make_instead_of_raising(monkeypatch, fake_smtp):
+    """A line break in a value of the subject made EmailMessage raise ValueError through deliver(), which
+    promises never to raise: the verification mail pass then aborted a batch it had already claimed."""
+    monkeypatch.setattr(mailer, 'settings', lambda with_secret=False: _cfg())
+    r = mailer.deliver('a@b.example', 'verify_failed', 'en', by='x', **{
+        k: 'x' for k in ('link', 'n', 'items')},
+        folder='Prod\r\nBcc: evil@x.example')
+    assert r['sent'] is False and 'ValueError' in r['error'] and fake_smtp.sent == []
+
+
+@pytest.mark.parametrize('name', ['Contoso\nBcc: x', 'tab\there', 'nul\x00', 'line sep'])
+def test_names_that_reach_mails_cannot_hold_control_characters(name):
+    import access_db
+    with pytest.raises(access_db.AccessError, match='line breaks'):
+        access_db.no_control(name)
+    with pytest.raises(access_db.AccessError):
+        access_db.save_role(None, name, '', None, ['vm.view'], 'admin')
+    with pytest.raises(access_db.AccessError):
+        access_db.save_group(None, name, '', None, 'admin')
+    access_db.no_control('Contoso — Prod (EU) #1')

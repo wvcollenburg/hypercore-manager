@@ -205,6 +205,13 @@ def register(app, sock, requires, public, h):
         name = str(b.get('guest_name') or '').strip()
         if not name or len(name) > 120:
             raise AccessError("the guest's name is required (at most 120 characters)")
+        company = str(b.get('guest_company') or '').strip()
+        if len(company) > 120:
+            raise AccessError("the guest's company is at most 120 characters")
+        # name and company go into the approvers' mail; the label onto the guest's page
+        access_db.no_control(name, "the guest's name")
+        access_db.no_control(company, "the guest's company")
+        access_db.no_control(b.get('label'), 'the label')
         vf = _parse_time(b.get('valid_from') or _now().isoformat(), 'valid from')
         vu = _parse_time(b.get('valid_until'), 'valid until')
         if vu <= vf:
@@ -225,7 +232,7 @@ def register(app, sock, requires, public, h):
             raise AccessError('that VM is not on the cluster', 404)
         return {'cluster_id': cid, 'vm_uuid': vm, 'vm_name': vm_name,
                 'label': (str(b.get('label') or '').strip() or 'Console')[:60],
-                'guest_name': name, 'guest_company': (str(b.get('guest_company') or '').strip() or None),
+                'guest_name': name, 'guest_company': company or None,
                 'reason': (str(b.get('reason') or '').strip()[:500] or None), 'valid_from': vf, 'valid_until': vu,
                 'max_minutes': max_minutes, 'max_sessions': max_sessions,
                 'allow_open_session': bool(b.get('allow_open_session'))}

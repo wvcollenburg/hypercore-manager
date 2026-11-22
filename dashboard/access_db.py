@@ -334,10 +334,21 @@ def _colour(value):
         raise AccessError(str(e), 400) from None
 
 
+_CONTROL = re.compile('[\x00-\x1f\x7f\u2028\u2029]')
+
+
+def no_control(value, what: str = 'a name') -> None:
+    """Names go into mail subjects and texts (invitations, approvals): a line break there makes the mail
+    library refuse the whole message. Refused where they are entered."""
+    if value and _CONTROL.search(str(value)):
+        raise AccessError(f'{what} cannot contain line breaks or control characters')
+
+
 def create_node(name: str, level: str, parent_id: str | None, colour: str | None, actor: str) -> str:
     name = (name or '').strip()
     if not name or len(name) > 80:
         raise AccessError('a name is required (at most 80 characters)')
+    no_control(name)
     if level not in rbac.NODE_LEVELS:
         raise AccessError('unknown level')
     tree = load_tree()
@@ -375,6 +386,7 @@ def rename_node(node_id: str, name: str | None, colour, actor: str) -> None:
                 name = name.strip()
                 if not name or len(name) > 80:
                     raise AccessError('a name is required (at most 80 characters)')
+                no_control(name)
                 try:
                     cur.execute('UPDATE config.folders SET name = %s, updated_at = NOW() WHERE folder_id = %s', (name, node_id))
                 except Exception as exc:  # noqa: BLE001
@@ -464,6 +476,7 @@ def save_role(role_id: str | None, name: str, description: str, node_id: str | N
     name = (name or '').strip()
     if not name or len(name) > 60:
         raise AccessError('a name is required (at most 60 characters)')
+    no_control(name)
     perms = sorted(rbac.expand(perms))
     if not perms:
         raise AccessError('a role needs at least one permission')
@@ -548,6 +561,7 @@ def save_group(group_id: str | None, name: str, description: str, node_id: str |
     name = (name or '').strip()
     if not name or len(name) > 60:
         raise AccessError('a name is required (at most 60 characters)')
+    no_control(name)
     conn = _connect()
     try:
         with conn.cursor() as cur:
