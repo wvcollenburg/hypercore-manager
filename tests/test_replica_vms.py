@@ -42,7 +42,7 @@ def test_the_vm_list_puts_replicas_in_their_own_section_last(repo):
 
 def test_the_dashboard_reads_the_source_and_names_it_only_on_fully_visible_clusters(repo):
     app = (repo / 'dashboard' / 'app.py').read_text()
-    assert "vm['replica_of'] = rec.values.get('vm_source') or None" in app
+    assert "vm['replica_of'] = tags.get('vm_source') or None" in app
     fn = app[app.index('def _replica_sources('):]
     fn = fn[:fn.index('\ndef ')]
     assert "scope_for('vm.view', [cid]).get(cid) == 'all'" in fn

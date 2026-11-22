@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.9.1]
+
+### Fixed
+- **A VM that was just started still showed 'shutoff'** (and a stopped one 'running') for up to two minutes. Power
+  state is stored as a tag, so the old and the new state are two series side by side until the older one leaves the
+  window, and the VM list took whichever came last. It now reads each VM from its newest inventory record; a started
+  VM shows as running within a second of its change finishing. A VM started a moment ago without a performance
+  sample yet is listed too.
+
 ## [1.9.0]
 
 ### Added

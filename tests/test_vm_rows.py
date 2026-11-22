@@ -99,3 +99,22 @@ def test_bad_numbers_on_the_foresight_routes_are_a_400(dash, monkeypatch):
         assert c.get(f'/api/sentinel/{path}').status_code == 400, path
     r = c.get('/api/sentinel/forecasts?horizon=90&limit=5000')
     assert r.status_code == 200 and r.get_json()[0]['params'][-2:] == [90, 1000]
+
+
+def test_a_started_vm_is_running_although_its_old_shutoff_series_is_still_in_range():
+    """Power state is a tag: right after a start both series are in the queried range. The one that came last
+    won, and 'SHUTOFF' sorts after 'RUNNING': a VM started from New VM showed 'shutoff' for two minutes."""
+    t0 = NOW - timedelta(seconds=40)
+    recs = [(t0, 'num_vcpu', 2, {'vm_uuid': 'v', 'vm_state': 'SHUTOFF', 'vm_name': 'vd01'}),
+            (NOW, 'num_vcpu', 4, {'vm_uuid': 'v', 'vm_state': 'RUNNING', 'vm_name': 'vd01'}),
+            (t0, 'mem_bytes', 1, {'vm_uuid': 'v', 'vm_state': 'SHUTOFF', 'vm_name': 'vd01'}),
+            (NOW, 'mem_bytes', 8, {'vm_uuid': 'v', 'vm_state': 'RUNNING', 'vm_name': 'vd01'})]
+    for order in (recs, list(reversed(recs))):
+        e = vm_rows.newest_inventory(order)['v']
+        assert e['values']['vm_state'] == 'RUNNING' and e['fields'] == {'num_vcpu': 4, 'mem_bytes': 8} and e['time'] == NOW
+
+
+def test_a_stopped_vm_is_stopped_although_its_running_series_is_still_in_range():
+    recs = [(NOW - timedelta(seconds=30), 'num_vcpu', 2, {'vm_uuid': 'v', 'vm_state': 'RUNNING'}),
+            (NOW, 'num_vcpu', 2, {'vm_uuid': 'v', 'vm_state': 'SHUTOFF'})]
+    assert vm_rows.newest_inventory(recs)['v']['values']['vm_state'] == 'SHUTOFF'
