@@ -146,6 +146,28 @@ def register(app, sock, requires, public, h):
         finally:
             conn.close()
 
+    def counter(sql: str, params) -> int | None:
+        """One atomic UPDATE ... RETURNING on a grant's counter (four workers: never read, add, write back)."""
+        conn = db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                row = cur.fetchone()
+            conn.commit()
+        finally:
+            conn.close()
+        return int(list(row.values())[0]) if row else None
+
+    def count_failed_code(gid: int) -> int:
+        return counter("""UPDATE console.guest_grants SET failed_codes = COALESCE(failed_codes, 0) + 1,
+                                 status = CASE WHEN COALESCE(failed_codes, 0) + 1 >= %s THEN 'locked' ELSE status END
+                           WHERE id = %s RETURNING failed_codes""", (MAX_FAILED, gid)) or MAX_FAILED
+
+    def claim_session(gid: int) -> int | None:
+        """The next session of the grant, or None when every one is used (also by a request a moment earlier)."""
+        return counter("""UPDATE console.guest_grants SET sessions_used = sessions_used + 1
+                           WHERE id = %s AND sessions_used < max_sessions RETURNING sessions_used""", (gid,))
+
     def label(g) -> str:
         return f"{g['guest_name']}{' (' + g['guest_company'] + ')' if g.get('guest_company') else ''} on {g.get('vm_name') or g['vm_uuid']}"
 
@@ -544,8 +566,7 @@ def register(app, sock, requires, public, h):
                                 samesite='Strict', secure=https(),
                                 max_age=max(60, int((g['valid_until'] - _now()).total_seconds())))
                 return _harden(resp)
-            failed = (g['failed_codes'] or 0) + 1
-            update(g['id'], failed_codes=failed, status='locked' if failed >= MAX_FAILED else g['status'])
+            failed = count_failed_code(g['id'])
             audit('guest.code_failed', label(g), g['cluster_id'], {'ip': h.client_ip(), 'attempt': failed},
                   who=f"guest:{g['guest_name']}")
             if failed >= MAX_FAILED:
@@ -597,8 +618,10 @@ def register(app, sock, requires, public, h):
         if status != 200:
             return jsonify({'error': 'the console cannot be opened right now'}), 502
         d = json.loads(raw.decode() or '{}')
-        update(g['id'], sessions_used=g['sessions_used'] + 1)
-        audit('guest.session', label(g), g['cluster_id'], {'ip': h.client_ip(), 'session': g['sessions_used'] + 1}, who=who)
+        used = claim_session(g['id'])
+        if used is None:                  # two tickets asked for at once: the ticket just issued is not handed out
+            return jsonify({'error': 'every session of this access has been used'}), 403
+        audit('guest.session', label(g), g['cluster_id'], {'ip': h.client_ip(), 'session': used}, who=who)
         # the guest learns nothing about the VM: not its name, not the cluster
         return jsonify({'ticket': d['ticket'], 'max_minutes': max_minutes, 'idle_minutes': d.get('idle_minutes')})
 
