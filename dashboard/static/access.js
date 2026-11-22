@@ -20,7 +20,7 @@ function hcmModal({ title = '', body = '', buttons = [], closable = true, width 
     <div class="vm-modal hcm-modal ${cls}" role="dialog" aria-modal="true" style="width:${width}">
       <div class="vm-modal-header">
         <div class="vm-modal-title">${title}</div>
-        ${closable ? '<button class="vm-modal-close" data-x="1" aria-label="close">✕</button>' : ''}
+        ${closable ? `<button class="vm-modal-close" data-x="1" aria-label="${_esc(t('acc.close'))}">✕</button>` : ''}
       </div>
       <div class="hcm-modal-body"></div>
       <div class="hcm-modal-msg"></div>
@@ -66,7 +66,11 @@ function hcmModal({ title = '', body = '', buttons = [], closable = true, width 
   }
   document.body.appendChild(back);
   _hcmModals.push(handle);
-  setTimeout(() => back.querySelector('input:not([type=hidden]):not([type=checkbox]), select, textarea')?.focus(), 30);
+  // focus moves into the dialog: the first field, else the first footer button (Cancel in a confirmation).
+  // Left on the button that opened it, Enter or Space pressed that button again behind the backdrop.
+  document.activeElement?.blur?.();
+  setTimeout(() => { if (!back.contains(document.activeElement)) (back.querySelector('input:not([type=hidden]):not([type=checkbox]), select, textarea')
+                    || back.querySelector('.hcm-modal-foot button'))?.focus(); }, 30);
   return handle;
 }
 document.addEventListener('keydown', e => {
@@ -92,7 +96,12 @@ function hcmConfirm(message, { title = t('acc.confirm'), confirmLabel = t('acc.o
         } },
       ],
     });
-    m.el.addEventListener('keydown', e => { if (e.key === 'Enter') m.el.querySelector('.hcm-modal-foot button:last-child').click(); });
+    // Enter in the typed-confirmation field confirms; on a focused button Enter presses that button (Cancel stays Cancel)
+    m.el.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' || e.target.tagName === 'BUTTON') return;
+      e.preventDefault();
+      m.el.querySelector('.hcm-modal-foot button:last-child').click();
+    });
   });
 }
 
@@ -199,7 +208,7 @@ async function _acLoad() {
 }
 
 async function _acCall(method, path, body) {
-  const r = await fetch(`${API_BASE}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const r = await _netFetch(`${API_BASE}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(d.error || `HTTP ${r.status}`); e.status = r.status; e.data = d; throw e; }
   return d;
@@ -261,7 +270,7 @@ function _openPendingModal(pending) {
       <td><select class="um-select" data-scope style="max-width:340px">${scopeOptions(u)}</select></td>
       <td style="white-space:nowrap">
         <button class="um-primary-btn" onclick="pendingSave('${u.user_id}')">${_esc(t('acc.pending_save'))}</button>
-        <button class="um-action-btn danger" onclick="pendingDelete('${u.user_id}', '${_esc(u.username)}')">${_esc(t('users.delete'))}</button>
+        <button class="um-action-btn danger" data-name="${_esc(u.username)}" onclick="pendingDelete('${u.user_id}', this.dataset.name)">${_esc(t('users.delete'))}</button>
       </td>
     </tr>`;
   window._pendingList = pending;
@@ -376,12 +385,12 @@ function _acRenderUsers(keepFocus) {
     </div>
     <div id="acInvites"></div>
     ${users.length ? `<table class="um-table"><thead><tr><th>${_esc(t('acc.col_email'))}</th>
-        <th>${_esc(t('acc.col_state'))}</th><th>OTP</th><th></th></tr></thead><tbody>
+        <th>${_esc(t('acc.col_state'))}</th><th>${_esc(t('acc.col_otp'))}</th><th></th></tr></thead><tbody>
       ${users.map(u => `<tr>
         <td class="um-username">${_esc(u.username)}${u.username === me.username ? ` <span class="um-hint">(${_esc(t('users.you'))})</span>` : ''}
             ${u.display_name ? `<div class="um-hint">${_esc(u.display_name)}</div>` : ''}</td>
         <td>${state(u)}</td>
-        <td><span class="um-badge ${u.otp_enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${u.otp_enabled ? 'on' : 'off'}</span></td>
+        <td><span class="um-badge ${u.otp_enabled ? 'um-badge-otp-on' : 'um-badge-otp-off'}">${_esc(t(u.otp_enabled ? 'acc.otp_on' : 'acc.otp_off'))}</span></td>
         <td style="white-space:nowrap"><button class="um-action-btn" onclick="acOpenUser('${u.user_id}')">${_esc(t('acc.access_btn'))}</button></td>
       </tr>`).join('')}</tbody></table>`
       : `<div class="um-hint" style="padding:10px 0">${_esc(t('users.none'))}</div>`}`;
@@ -724,7 +733,7 @@ async function _acGroupRender(gid, g) {
     }).join('') : `<div class="hcm-tb-hint">${_esc(t('acc.members_none'))}</div>`}
     ${invited.map(i => `<div class="hcm-tb-who inherited">${_acIcon('user')}
         <div class="hcm-tb-who-name">${_esc(i.email)}<div class="um-hint">${_esc(t('acc.tb_invited'))} · ${_esc(_acInviteState(i))}</div></div>
-        <button class="hcm-tb-x" title="${_esc(t('acc.withdraw'))}" onclick="acInviteWithdraw('${i.invitation_id}', '${_esc(i.email)}').then(() => _acGroupRender('${gid}'))">×</button></div>`).join('')}
+        <button class="hcm-tb-x" title="${_esc(t('acc.withdraw'))}" data-email="${_esc(i.email)}" onclick="acInviteWithdraw('${i.invitation_id}', this.dataset.email).then(() => _acGroupRender('${gid}'))">×</button></div>`).join('')}
 
     <div class="hcm-ga-head"><span class="um-section-title">${_esc(t('acc.assignments'))}</span>
       <span class="um-hint">${_esc(t('acc.group_access_hint'))}</span><span style="flex:1"></span>
@@ -1059,7 +1068,7 @@ async function _acTbPane() {
   if (box2 && here.length) box2.innerHTML = `<div class="um-section-title" style="margin-top:16px">${_esc(t('acc.tb_invited'))} <span class="um-hint">${here.length}</span></div>
     ${here.map(i => `<div class="hcm-tb-who">${_acIcon('user')}<div class="hcm-tb-who-name">${_esc(i.email)}<div class="um-hint">${_esc(_acInviteState(i))}</div></div>
       <span class="hcm-tb-role">${_esc(i.builtin_key ? t('acc.role_' + i.builtin_key) : (i.role_name || i.group_name || ''))}</span>
-      <button class="hcm-tb-x" title="${_esc(t('acc.withdraw'))}" onclick="acInviteWithdraw('${i.invitation_id}', '${_esc(i.email)}')">×</button></div>`).join('')}`;
+      <button class="hcm-tb-x" title="${_esc(t('acc.withdraw'))}" data-email="${_esc(i.email)}" onclick="acInviteWithdraw('${i.invitation_id}', this.dataset.email)">×</button></div>`).join('')}`;
 }
 
 /** The visible chain from the reader's top down to a node (ids), or null when the node is not theirs to see. */
@@ -1136,7 +1145,7 @@ async function _acInvites() {
 }
 
 function _acInviteState(i) {
-  return i.state === 'expired' ? t('acc.inv_expired') : t('acc.inv_expires', { at: new Date(i.expires_at).toLocaleString() });
+  return i.state === 'expired' ? t('acc.inv_expired') : t('acc.inv_expires', { at: new Date(i.expires_at).toLocaleString(_hcmLocale()) });
 }
 
 async function _acRenderInvites() {
@@ -1151,8 +1160,8 @@ async function _acRenderInvites() {
       <td class="um-hint">${_esc(i.kind === 'activate' ? '' : i.scope_label || '')}</td>
       <td class="um-hint">${i.invited_by ? _esc(i.invited_by) : _esc(t('acc.actor_above'))}</td>
       <td><span class="um-badge ${i.state === 'expired' ? 'hcm-badge-off' : 'hcm-badge-warn'}">${_esc(_acInviteState(i))}</span></td>
-      <td style="white-space:nowrap"><button class="um-action-btn" onclick="acInviteResend('${i.invitation_id}', '${_esc(i.email)}')">${_esc(t('acc.resend'))}</button>
-        <button class="um-action-btn danger" onclick="acInviteWithdraw('${i.invitation_id}', '${_esc(i.email)}')">${_esc(t('acc.withdraw'))}</button></td></tr>`).join('')}
+      <td style="white-space:nowrap"><button class="um-action-btn" data-email="${_esc(i.email)}" onclick="acInviteResend('${i.invitation_id}', this.dataset.email)">${_esc(t('acc.resend'))}</button>
+        <button class="um-action-btn danger" data-email="${_esc(i.email)}" onclick="acInviteWithdraw('${i.invitation_id}', this.dataset.email)">${_esc(t('acc.withdraw'))}</button></td></tr>`).join('')}
     </tbody></table>` : '';
 }
 
@@ -1360,7 +1369,7 @@ async function _acClusterSave(h, P, clusterId, folderId, force) {
   else body.folder_id = folderId;
   if (force) body.force = true;
   _clMsg(P, t('clusters.testing'), '');
-  const r = await fetch(`${API_BASE}/api/clusters${clusterId ? '/' + clusterId : ''}`,
+  const r = await _netFetch(`${API_BASE}/api/clusters${clusterId ? '/' + clusterId : ''}`,
                         { method: clusterId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) {
@@ -1384,7 +1393,7 @@ async function _acClustersChanged() {
 
 async function acClusterTest(cid) { await clTestExisting(cid); }
 async function acClusterToggle(cid, enabled) {
-  const r = await fetch(`${API_BASE}/api/clusters/${cid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
+  const r = await _netFetch(`${API_BASE}/api/clusters/${cid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
   if (!r.ok) { const d = await r.json().catch(() => ({})); hcmAlert(d.error || `HTTP ${r.status}`); return; }
   await _acClustersChanged();
 }
@@ -1393,7 +1402,7 @@ async function acClusterRemove(cid) {
   if (!c) return;
   if (!await hcmConfirm(t('clusters.confirm_remove', { name: c.name }), { danger: true, typeToConfirm: c.name, confirmLabel: t('clusters.remove') })) return;
   const purge = await hcmConfirm(t('clusters.confirm_purge', { name: c.name }), { danger: true });
-  const r = await fetch(`${API_BASE}/api/clusters/${cid}?purge=${purge ? 1 : 0}`, { method: 'DELETE' });
+  const r = await _netFetch(`${API_BASE}/api/clusters/${cid}?purge=${purge ? 1 : 0}`, { method: 'DELETE' });
   if (!r.ok) { const d = await r.json().catch(() => ({})); hcmAlert(d.error || `HTTP ${r.status}`); return; }
   if (currentCluster === cid) { currentCluster = null; try { localStorage.removeItem(CLUSTER_LS_KEY); } catch (_) {} }
   _ac.tb.cluster = null;
@@ -1425,7 +1434,7 @@ async function _acRenderAudit() {
   const rows = (d && d.rows) || [];
   body.innerHTML = rows.length ? `<table class="um-table"><thead><tr><th>${_esc(t('acc.col_when'))}</th><th>${_esc(t('acc.col_who'))}</th>
       <th>${_esc(t('acc.col_action'))}</th><th>${_esc(t('acc.col_what'))}</th></tr></thead><tbody>
-    ${rows.map(r => `<tr><td class="um-hint" style="white-space:nowrap">${_esc(new Date(r.at).toLocaleString())}</td><td>${r.actor_above ? `<span class="um-hint">${_esc(t('acc.actor_above'))}</span>` : _esc(r.actor || '')}</td>
+    ${rows.map(r => `<tr><td class="um-hint" style="white-space:nowrap">${_esc(new Date(r.at).toLocaleString(_hcmLocale()))}</td><td>${r.actor_above ? `<span class="um-hint">${_esc(t('acc.actor_above'))}</span>` : _esc(r.actor || '')}</td>
       <td><code>${_esc(r.action)}</code></td><td>${_esc(r.target || '')}${r.detail ? `<div class="um-hint">${_esc(_acDetail(r.detail))}</div>` : ''}</td></tr>`).join('')}
     </tbody></table>` : `<div class="um-hint" style="padding:10px 0">${_esc(t('acc.audit_empty'))}</div>`;
 }
@@ -1655,7 +1664,7 @@ async function gcForm(kind, preset) {
 
 function _gcShowSecrets(r, guest) {
   hcmModal({
-    title: _esc(t('gc.secrets_title')), width: 'min(640px, 96vw)', closable: true,
+    title: _esc(t('gc.secrets_title')), width: 'min(640px, 96vw)', closable: false,   // shown once: only Done closes it
     body: `<p class="hcm-text">${_esc(t('gc.secrets_intro', { guest: guest || '' }))}</p>
       <div class="um-section-title">${_esc(t('gc.link'))}</div>
       <div class="hcm-guest-link" id="gcLink">${_esc(r.link)}</div>

@@ -128,7 +128,7 @@ customer ("Default" in the MSP "Default"): rename both to your own company.
   deleted from above it, and only when it is empty; deleting removes its roles, groups and access.
   Accounts stay: they only lose the access they had there.
 - Nobody sees the layers above their own. A customer's administrators and users do not see the MSP
-  that serves them: not in the tree, the sidebar, labels or "who has access", and the accounts above
+  that serves them: not in the tree, the cluster switcher, labels or "who has access", and the accounts above
   them (the MSP's staff, the installation's administrators) are not listed. In the audit log, the
   guest console list and the console log their names show as "an administrator above your level",
   and the console log leaves out their address. Roles defined higher up can still be handed
@@ -278,7 +278,9 @@ through: invitations, password resets, address changes and guest console request
   your own network only; an optional login. The password is stored encrypted with
   `HCM_SECRET_KEY`, like the cluster passwords, and never shown again.
 - **Address in links**: the address people use to reach the dashboard, put in the links of
-  invitations, resets and guest requests. Empty: the address of the browser that sends the invitation.
+  invitations, resets and guest requests. Required to save a mail server: a link is never built from the
+  address a request came in on. Without it, password resets by mail are off and invitation links are shown
+  to the inviter instead of mailed.
 - **Address in guest console links**: how outside guests reach `/guest/` from the internet, for
   example `https://support.example.com`. Empty: `HCM_GUEST_BASE_URL` from `.env`, else the address
   of the browser of whoever gives the access.

@@ -35,6 +35,7 @@ the dashboard once it is up, and each service runs one worker per cluster.
 | `dashboard` | 5000 | The web UI, this manual, the updater |
 | `sentinel` | 8081 | Foresight capacity analysis and its REST API |
 | `backup` | 8082 | Backup and import scheduler and its REST API |
+| `console` | internal | VM console relay and the open-session check |
 | `proxy` | internal | Backup proxy: reads snapshot clones, writes backup chains (privileged) |
 
 There are no Compose profiles. A module you do not want is stopped (`docker compose stop
@@ -48,7 +49,7 @@ Two ways to write `.env`; the rest is the same.
 through every setting: what it does, why the default is what it is, when to change it. Easy
 mode asks only for the dashboard password and your time zone, picked from a list (UTC, or a
 region and then a city, with a filter as you type), and generates every secret; advanced mode
-shows them all, with every module on by default. It warns when the wrong Compose is on the host and ends with the commands to start the
+shows them all, for every module. It warns when the wrong Compose is on the host and ends with the commands to start the
 stack. Run it again later and it finds the existing `.env` and asks whether to start from
 its values: yes for an upgrade of a running installation, no for a fresh install after
 `docker compose down -v`, which ignores the file and starts blank.
@@ -59,8 +60,10 @@ cd hypercore-manager
 python3 install.py
 ```
 
-**By hand.** Copy `.env.template` to `.env` and replace every `CHANGE_ME`. Each secret is any
-long random string:
+**By hand.** Copy `.env.template` to `.env`, set `SC_REPO_PATH` to the checkout's own path (the
+updater, the migrations and the proxy image are read from it; the template's `/opt/hypercore-manager`
+is only right if you cloned there), and replace every `CHANGE_ME`. The dashboard refuses to start while a
+secret still reads `CHANGE_ME`. Each secret is any long random string:
 
 ```
 python3 -c "import secrets; print(secrets.token_hex(32))"
@@ -285,7 +288,8 @@ Before the stack is reachable from anything but localhost, work through this lis
 - [ ] "Verify TLS" on for every cluster with a trusted certificate; self-signed ones documented
 - [ ] Dry-run observation completed per cluster before its balancer goes live
 - [ ] The dashboard (port 5000) behind a reverse proxy with TLS, never directly internet-facing
-- [ ] InfluxDB (8086), Sentinel (8081) and the backup API (8082) not reachable beyond the host;
+- [ ] InfluxDB (8086), Sentinel (8081) and the backup API (8082) not reachable beyond the host
+      (`HCM_INTERNAL_BIND=127.0.0.1`, the default);
       the proxy API (8083) reachable from the backup service only
 - [ ] Firewall rules between the host, clusters, proxies and the share as listed in
       [Connectivity](09-connectivity.md)
@@ -295,7 +299,11 @@ Before the stack is reachable from anything but localhost, work through this lis
 The dashboard does not terminate TLS itself. Put nginx or Caddy in front of it. The proxy must
 pass websockets (the VM console uses one on `/console/ws`); Caddy does that by itself, nginx
 needs the `Upgrade` and `Connection` headers below. Without them everything works except the
-console, which closes right after opening.
+console, which closes right after opening. Keep the `Host` header as the browser sent it (both
+examples do): the dashboard refuses changes whose `Origin` is not its own address. In `.env`, set
+`HCM_TRUSTED_PROXIES=1` so the audit log and the sign-in attempt limit see the client's address
+instead of the proxy's, and `HCM_SESSION_COOKIE_SECURE=true` once the dashboard is only reached
+over HTTPS.
 
 ```nginx
 server {
@@ -389,7 +397,7 @@ Store both off the host and schedule the dump, for instance in `/etc/cron.d/hcm-
 To restore PostgreSQL:
 
 ```
-docker compose stop balancer collector dashboard sentinel backup
+docker compose stop balancer collector dashboard sentinel backup console
 docker exec -i sc_postgres psql -U sentinel hypercore_balancer < backup_pg_YYYYMMDD.sql
 docker compose up -d
 ```

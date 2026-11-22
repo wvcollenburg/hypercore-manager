@@ -20,7 +20,7 @@ import logging
 import re
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import psycopg2.extras
@@ -181,6 +181,9 @@ def plan(kind: str, ops: list[dict], vm: dict, ctx: Optional[dict] = None) -> di
             summary += [_describe_vm_field(k, v) for k, v in fields.items()]
         elif op == 'disk_resize':
             d = _dev(vm, o.get('device'), 'disk')
+            if d.get('type') not in DISK_TYPES:
+                # HyperCore answers a resize of the NVRAM, vTPM or a CD-ROM with a 500 (live: four retries, then failed)
+                raise EditError(f"only a disk can grow, not the {d.get('type') or 'unknown'} device")
             cap = _int(o.get('capacity'), 'disk size', 1, 64 * 1024 * GIB)
             if cap <= int(d.get('capacity') or 0):
                 raise EditError(f"disk {d.get('name') or d.get('type')} can only grow")
@@ -497,6 +500,8 @@ def _state(hc, vm_uuid: str) -> str:
 
 
 SHUTDOWN_REPEAT = 60
+LATE_SHUTDOWN_WATCH = 30 * 60      # after the user's timeout: how long a late guest shutdown is still caught
+MISSED_WINDOW = timedelta(minutes=30)   # a scheduled set that could not start this long after its time is not run
 
 
 def _wait_off(hc, vm_uuid: str, seconds: float, repeat=None) -> bool:
@@ -529,9 +534,16 @@ def _power_off(hc, ch: dict, step: _Step) -> None:
         step('OS shutdown', True, 'the VM is off')
         return
     if not ch['force_off']:
-        step('OS shutdown', False, f'the guest did not shut down within {mins} min')
-        raise EditError(f'the guest did not shut down within {mins} minutes; nothing was changed and the VM keeps '
-                        'running (tick "force power off" to power it off in that case)')
+        # the guest has the shutdown request and may still act on it: a VM that went off later stayed off, as nobody
+        # started it again. Keep watching; if it goes off now, the set carries on (apply, start) as if in time.
+        late = LATE_SHUTDOWN_WATCH // 60
+        step('OS shutdown', False, f'the guest did not shut down within {mins} min; watching {late} min more')
+        if _wait_off(hc, vm, LATE_SHUTDOWN_WATCH):
+            step('OS shutdown', True, f'the VM went off after the {mins} min timeout')
+            return
+        raise EditError(f'the guest did not shut down within {mins} minutes (nor {late} minutes after that); nothing was '
+                        'changed. The guest got the shutdown request: if it still shuts down later, the VM stays off; check '
+                        'it (tick "force power off" to power it off at the timeout instead)')
     step('OS shutdown', False, f'the guest did not shut down within {mins} min: powering off')
     jobs.retry_transient(lambda: hc.vm_action(vm, 'STOP'), 'power off')
     if not _wait_off(hc, vm, 300):
@@ -603,6 +615,14 @@ def run(change_id: int) -> None:
     vm_uuid = ch['vm_uuid']
     was_running = False
     off_by_us = False
+    run_at = ch.get('run_at')
+    if run_at and datetime.now(timezone.utc) - run_at > MISSED_WINDOW:
+        # the service was down at its time: a Sunday 02:00 maintenance set must not run on Monday morning
+        step('start', False, f'due at {run_at.isoformat(timespec="minutes")}')
+        _finish(change_id, 'failed', result, f'missed its window: it was due at {run_at.isoformat(timespec="minutes")} and could not '
+                                             f'start within {int(MISSED_WINDOW.total_seconds() // 60)} minutes; nothing was done, '
+                                             'schedule it again')
+        return
     try:
         hc = jobs.client_for(ch['cluster_id'])
         pf = jobs.preflight(hc, ch['cluster_id'])

@@ -208,6 +208,7 @@ def analysis_loop(cfg: config.Config, stop: threading.Event, reader, trigger: th
             stats = _collect_and_analyse(reader, live_cfg, writer)
             health.record_trend_ok()
             logger.info('Analysis cycle complete', extra=stats)
+            writer.prune_audit(live_cfg.retention_months)        # audit rows past the Retention setting
         except Exception:
             health.record_trend_error()
             logger.exception('Analysis cycle failed')
@@ -232,7 +233,7 @@ def pruning_loop(cfg: config.Config, stop: threading.Event, reader) -> None:
     """
     from writer import Writer
     writer  = Writer(cfg)
-    interval = cfg.vm_prune_interval_seconds
+    interval = max(tunables.MIN_PRUNE_INTERVAL_SECONDS, cfg.vm_prune_interval_seconds)
 
     while not stop.is_set():
         stop.wait(interval)
@@ -240,7 +241,7 @@ def pruning_loop(cfg: config.Config, stop: threading.Event, reader) -> None:
             break
 
         live_cfg = tunables.apply_live(cfg)
-        interval = live_cfg.vm_prune_interval_seconds
+        interval = max(tunables.MIN_PRUNE_INTERVAL_SECONDS, live_cfg.vm_prune_interval_seconds)
         window_minutes = max(interval * 2 // 60, 10)
 
         try:
@@ -251,37 +252,46 @@ def pruning_loop(cfg: config.Config, stop: threading.Event, reader) -> None:
 
 
 def outcome_loop(cfg: config.Config, stop: threading.Event) -> None:
-    """C7: Periodically detect whether right-sized VMs were actually resized."""
-    if not cfg.outcome_tracker_enabled:
-        logger.info('Outcome tracker disabled via config')
-        return
-
+    """C7: Periodically detect whether right-sized VMs were actually resized. The Outcome
+    Tracker switch and the check delay are live settings, read on every pass: the loop used to
+    keep the start-up values, so changing them in the UI did nothing until a restart."""
     from outcome_tracker import run_once as tracker_run_once
 
+    was_enabled = None
     while not stop.is_set():
         stop.wait(cfg.outcome_check_interval_seconds)
         if stop.is_set():
             break
 
+        live_cfg = tunables.apply_live(cfg)
+        if live_cfg.outcome_tracker_enabled != was_enabled:
+            logger.info('Outcome tracker %s', 'enabled' if live_cfg.outcome_tracker_enabled else 'disabled via config')
+            was_enabled = live_cfg.outcome_tracker_enabled
+        if not live_cfg.outcome_tracker_enabled:
+            continue
         try:
-            tracker_run_once(cfg)
+            tracker_run_once(live_cfg)
         except Exception:
             logger.exception('Outcome tracker cycle failed')
 
 
 def webhook_loop(cfg: config.Config, stop: threading.Event) -> None:
-    """F5: Periodically dispatch pending webhook alerts for CRITICAL/EMERGENCY events."""
-    if not cfg.webhook_enabled or not cfg.webhook_url:
+    """F5: Periodically dispatch pending webhook alerts for CRITICAL/EMERGENCY events. The
+    Webhook Enabled switch is a live setting, read on every pass; the URL comes from the
+    environment, so without one the loop does not run."""
+    if not cfg.webhook_url:
         logger.info('Webhook dispatcher disabled \u2014 SENTINEL_WEBHOOK_URL not set')
         return
 
     from webhook import dispatch_pending
 
     while not stop.is_set():
-        try:
-            dispatch_pending(cfg)
-        except Exception:
-            logger.exception('Webhook dispatch cycle failed')
+        live_cfg = tunables.apply_live(cfg)
+        if live_cfg.webhook_enabled:
+            try:
+                dispatch_pending(live_cfg)
+            except Exception:
+                logger.exception('Webhook dispatch cycle failed')
 
         stop.wait(cfg.webhook_dispatch_interval_seconds)
 

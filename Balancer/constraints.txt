@@ -1,0 +1,35 @@
+# Every package of the working Balancer image, transitive ones included (pip freeze, 2026-11-22, release 1.8.1).
+# requirements.txt says what the service needs; this file keeps a rebuild months from now on the
+# versions it was tested with (the Dockerfile installs with -c). Regenerate after changing requirements:
+#   docker run --rm --entrypoint pip <image> freeze
+certifi==2026.11.20
+cffi==2.1.1
+charset-normalizer==3.5.2
+cmdstanpy==1.3.2
+contourpy==1.3.3
+cryptography==42.0.8
+cycler==0.12.1
+fonttools==4.68.0
+holidays==0.109
+idna==3.20
+influxdb-client==1.50.0
+kiwisolver==1.5.1
+matplotlib==3.11.2
+numpy==2.4.6
+packaging==26.3
+pandas==3.0.6
+pillow==13.0.0
+prophet==1.5.0
+psycopg2-binary==2.9.13
+pycparser==3.12
+pyparsing==3.3.3
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.4
+reactivex==6.1.1
+requests==2.34.2
+six==1.17.0
+stanio==0.5.1
+tqdm==4.70.1
+typing_extensions==4.16.0
+tzdata==2025.2
+urllib3==2.8.0

@@ -382,69 +382,6 @@ def screen_too_small(stdscr) -> None:
             return
 
 
-def screen_profiles(stdscr, state: dict) -> bool:
-    """First screen: pick which profiles you'll run. Returns False if cancelled."""
-    items = [
-        ("core",     "Core stack (always on)",                 "InfluxDB, Postgres, Collector, Balancer, Dashboard", True),
-        ("sentinel", "Sentinel — Foresight (recommended)", "Capacity forecasting, right-sizing, REST API",       True),
-        ("backup",   "Backup",                                 "Scheduled VM backups/exports to SMB/NFS and imports", True),
-    ]
-    selected = {key for key, _, _, default in items if default}
-    selected.add("core")  # always on, locked
-
-    cursor = 0
-
-    while True:
-        stdscr.erase()
-        draw_titlebar(stdscr, " HyperCore Manager — Installer  ")
-        h, w = stdscr.getmaxyx()
-        draw_box(stdscr, 2, 2, h - 4, w - 4, "Step 1 of 2 — Pick the modules you intend to use")
-
-        intro = [
-            "Sections of the installer that don't apply to your chosen modules will",
-            "be skipped, so you don't have to answer questions you'll never use.",
-            "",
-            "Toggle with Space.  Core is mandatory.",
-        ]
-        y = 4
-        for line in intro:
-            addstr_safe(stdscr, y, 6, line, curses.color_pair(C_DIM))
-            y += 1
-        y += 1
-
-        for idx, (key, label, blurb, _default) in enumerate(items):
-            mark = "[X]" if key in selected else "[ ]"
-            if key == "core":
-                mark = "[X]"  # locked on
-            attr = curses.color_pair(C_SELECTED) if idx == cursor else curses.color_pair(C_DEFAULT)
-            line = f" {mark}  {label}"
-            addstr_safe(stdscr, y, 6, line.ljust(w - 12), attr)
-            addstr_safe(stdscr, y + 1, 12, blurb, curses.color_pair(C_DIM))
-            y += 3
-
-        draw_statusbar(stdscr, " ↑↓: navigate   Space: toggle   Enter: continue   Esc: quit ")
-        stdscr.refresh()
-
-        ch = stdscr.getch()
-        if ch in (curses.KEY_UP, ord("k")):
-            cursor = (cursor - 1) % len(items)
-        elif ch in (curses.KEY_DOWN, ord("j")):
-            cursor = (cursor + 1) % len(items)
-        elif ch == ord(" "):
-            key = items[cursor][0]
-            if key == "core":
-                continue  # locked
-            if key in selected:
-                selected.remove(key)
-            else:
-                selected.add(key)
-        elif ch in (10, 13, curses.KEY_ENTER):
-            state["profiles"] = selected
-            return True
-        elif ch in (27, ord("q")):
-            return False
-
-
 def screen_mode(stdscr) -> Optional[str]:
     """Pick easy or advanced mode. Returns 'easy', 'advanced', or None on cancel."""
     items = [
@@ -683,7 +620,7 @@ def screen_main_menu(stdscr, state: dict) -> str:
         left_w = max(40, w * 2 // 3)
         right_w = w - left_w - 4
 
-        draw_box(stdscr, 2, 2, h - 4, left_w, "Step 2 of 2 — Configure each section")
+        draw_box(stdscr, 2, 2, h - 4, left_w, "Configure each section")
 
         y = 4
         addstr_safe(stdscr, y, 6, "Sections", curses.color_pair(C_HELP) | curses.A_BOLD)
@@ -1226,14 +1163,16 @@ def run(stdscr) -> None:
     state["mode"] = mode
 
     if mode == "easy":
-        # easy mode runs core + sentinel (the recommended baseline) and skips
+        # easy mode configures every module with generated secrets and skips
         # the per-section configuration screen entirely
         state["profiles"] = set(EASY_PROFILES)
         screen_easy(stdscr, state)
         return
 
-    if not screen_profiles(stdscr, state):
-        return
+    # every module starts with the stack (there are no compose profiles), so every module's settings are
+    # written: a module left out here used to get no API token in .env, which means no authentication on
+    # its published port while its container ran anyway
+    state["profiles"] = set(EASY_PROFILES)
 
     while True:
         result = screen_main_menu(stdscr, state)

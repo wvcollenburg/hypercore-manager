@@ -5,6 +5,7 @@ import asyncio
 import importlib.util
 import os
 import socket
+import struct
 import sys
 import time
 from pathlib import Path
@@ -228,6 +229,105 @@ def test_ticket_expires(consoles, monkeypatch):
     assert consoles.consume(t, 'b' * 64) is None
 
 
+def test_a_refused_console_connection_never_carries_the_hypercore_session(consoles, monkeypatch):
+    """aiohttp's WSServerHandshakeError renders as status, message and the full URL, sessionID included; that text
+    went to the log, the open-session check details on the dashboard and API error bodies."""
+    import types
+    from aiohttp import web
+
+    async def refuse(request):
+        return web.Response(status=403, text='no')
+
+    async def go():
+        port = _free_port()
+        app = web.Application(); app.router.add_get('/node/{node}/console', refuse)
+        runner = web.AppRunner(app); await runner.setup(); await web.TCPSite(runner, '127.0.0.1', port).start()
+        target = types.SimpleNamespace(url=f'ws://127.0.0.1:{port}/node/n1/console?sessionID=S3CRET-SESSION&vm=v1',
+                                       ssl=False, vm_name='dc01', node_uuid='n1')
+        monkeypatch.setattr(consoles.hc, 'console_target', lambda c, v: target, raising=False)
+        try:
+            async with aiohttp.ClientSession() as http:
+                with pytest.raises(consoles.hc.ConsoleError) as ei:
+                    await consoles.open_upstream(http, 'c', 'v1')
+                return ei.value
+        finally:
+            await runner.cleanup()
+    e = asyncio.run(go())
+    assert 'S3CRET-SESSION' not in str(e) and 'sessionID' not in str(e) and '127.0.0.1' not in str(e)
+    assert str(e) == 'console connection to the cluster failed: the cluster answered HTTP 403' and e.status == 502
+    assert consoles._upstream_failure(OSError('x sessionID=abc&vm=1')) == 'x sessionID=***&vm=1'
+
+
+class _FakeUp:
+    closed = False
+
+    async def close(self):
+        self.closed = True
+
+
+def _db_down(*a, **kw):
+    raise RuntimeError('database unavailable')
+
+
+def test_a_screenshot_whose_audit_record_fails_still_closes_the_cluster_websocket(consoles, monkeypatch):
+    import types
+    up = _FakeUp()
+
+    async def fake_open(http, c, v):
+        return up, types.SimpleNamespace(vm_name='dc01')
+    ended = []
+    monkeypatch.setattr(consoles, 'open_upstream', fake_open)
+    monkeypatch.setattr(consoles.store, 'session_start', _db_down, raising=False)
+    monkeypatch.setattr(consoles.store, 'session_end', lambda *a, **kw: ended.append(a), raising=False)
+    with pytest.raises(RuntimeError, match='database'):
+        asyncio.run(consoles.screenshot(None, 'c', 'v', username='system'))
+    assert up.closed and not ended
+
+
+def test_a_relay_whose_audit_record_fails_closes_both_websockets(consoles, monkeypatch):
+    import types
+    from aiohttp import web
+    up = _FakeUp()
+
+    async def fake_open(http, c, v):
+        return up, types.SimpleNamespace(vm_name='dc01')
+    monkeypatch.setattr(consoles, 'open_upstream', fake_open)
+    monkeypatch.setattr(consoles.store, 'session_start', _db_down, raising=False)
+
+    async def go():
+        port = _free_port()
+        async def handler(r):
+            return await consoles.relay(r, None)
+        app = web.Application(); app.router.add_get('/relay', handler)
+        runner = web.AppRunner(app); await runner.setup(); await web.TCPSite(runner, '127.0.0.1', port).start()
+        try:
+            t = consoles.mint('c', 'v', 'dc01', 'alice', 'b' * 64, None)
+            async with aiohttp.ClientSession() as http:
+                ws = await http.ws_connect(f'http://127.0.0.1:{port}/relay?ticket={t}&binding={"b" * 64}')
+                msg = await ws.receive(timeout=5)
+                return msg, ws.close_code
+        finally:
+            await runner.cleanup()
+    msg, code = asyncio.run(go())
+    assert msg.type == aiohttp.WSMsgType.CLOSE and code == 4502 and up.closed
+
+
+def test_a_check_that_fails_unexpectedly_records_an_error_verdict(consoles, monkeypatch):
+    """check_vm caught only ConsoleError: anything else left no verdict, so the VM stayed the most overdue and took a
+    slot of the cluster's budget every tick, for ever."""
+    import checker
+
+    async def boom(*a, **kw):
+        raise ValueError('decoder exploded')
+    recorded = []
+    monkeypatch.setattr(checker.consoles, 'screenshot', boom)
+    monkeypatch.setattr(checker.store, 'record_verdict', lambda *a: recorded.append(a), raising=False)
+    out = asyncio.run(checker.check_vm(None, 'c', 'v', {}))
+    assert out['state'] == 'error' and 'ValueError: decoder exploded' in out['detail']
+    assert recorded and recorded[0][:4] == ('c', 'v', None, 'error')
+    assert ('c', 'v') not in checker._busy
+
+
 def test_no_ticket_no_binding(consoles):
     assert consoles.consume('', '') is None
     t = consoles.mint('c', 'vm', 'vm', 'alice', 'b' * 64, None)
@@ -251,19 +351,52 @@ def test_console_service_is_internal_only():
     assert 'ports:' not in block
 
 
-def test_carries_input_for_read_only_viewers():
+def _viewer():
+    """A read-only stream filter past the handshake (RFB 3.8: version, security None, shared)."""
+    f = rfb.ViewOnlyFilter()
+    assert f.feed(b'RFB 003.008\n') == b'RFB 003.008\n'
+    assert f.feed(b'\x01') == b'\x01' and f.feed(b'\x01') == b'\x01'
+    return f
+
+
+PIXFMT = struct.pack('>B3x', 0) + struct.pack('>BBBBHHHBBB3x', 32, 24, 0, 1, 255, 255, 255, 16, 8, 0)
+ENCODINGS = struct.pack('>BxH', 2, 3) + struct.pack('>iii', 0, 7, -223)
+KEY = rfb.key(0x61, True)
+POINTER = rfb.pointer(10, 10, 1)
+CLIP = struct.pack('>B3xI', 6, 5) + b'hello'
+QEMU_KEY = struct.pack('>BBHII', 255, 0, 1, 0x61, 30)          # QEMU extended key event
+
+
+def test_a_read_only_viewer_passes_screen_updates_and_nothing_else():
     """A watcher's browser may ask for screen updates but never send keys, pointer or clipboard."""
-    import importlib, sys, os
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'console'))
-    rfb = importlib.import_module('rfb')
-    fbur = bytes([3, 1, 0, 0, 0, 0, 4, 0, 3, 0])
-    assert not rfb.carries_input(fbur)
-    assert not rfb.carries_input(fbur * 3)
-    assert rfb.carries_input(bytes([4, 1, 0, 0, 0, 0, 0, 0x61]))           # key event
-    assert rfb.carries_input(bytes([5, 1, 0, 10, 0, 10]))                   # pointer event
-    assert rfb.carries_input(bytes([6, 0, 0, 0, 0, 0, 0, 1, 0x61]))         # clipboard
-    assert rfb.carries_input(fbur + bytes([4, 1, 0, 0, 0, 0, 0, 0x61]))     # batched behind an update request
-    assert not rfb.carries_input(b'RFB 003.008\n') and not rfb.carries_input(b'\x01')
+    fbur = rfb.update_request(1024, 768, incremental=True)
+    f = _viewer()
+    assert f.feed(PIXFMT) == PIXFMT and f.feed(ENCODINGS) == ENCODINGS
+    assert f.feed(fbur) == fbur and f.feed(fbur * 3) == fbur * 3
+    for evil in (KEY, POINTER, CLIP, QEMU_KEY):
+        assert _viewer().feed(evil) == b''
+
+
+@pytest.mark.parametrize('evil', [KEY, POINTER, CLIP, QEMU_KEY, KEY + POINTER])
+def test_input_cannot_ride_behind_an_allowed_message_in_one_frame(evil):
+    """The filter looked at the first byte of each websocket message: SetPixelFormat, SetEncodings or a short
+    update request in front let key, pointer and QEMU key events through in the same frame."""
+    fbur = rfb.update_request(800, 600, incremental=True)
+    for allowed in (PIXFMT, ENCODINGS, fbur, fbur * 2):
+        f = _viewer()
+        assert f.feed(allowed + evil) == allowed
+        assert f.feed(fbur) == fbur, 'the stream stays in step after skipped input'
+    f = rfb.ViewOnlyFilter()                                   # behind the handshake in one frame
+    assert f.feed(b'RFB 003.008\n\x01\x01' + evil + fbur) == b'RFB 003.008\n\x01\x01' + (fbur if evil[0] != 255 else b'')
+
+
+def test_a_message_split_over_frames_is_passed_once_whole():
+    fbur = rfb.update_request(800, 600)
+    f = _viewer()
+    assert f.feed(fbur[:4]) == b'' and f.feed(fbur[4:] + KEY[:3]) == fbur
+    assert f.feed(KEY[3:] + fbur) == fbur, 'the rest of a split key event is skipped too'
+    big = struct.pack('>B3xI', 6, 100000)
+    assert f.feed(big) == b'' and f.feed(b'x' * 100000 + fbur) == fbur
 
 
 # ------------------------------------------------------------------ boot verdict (test restores)

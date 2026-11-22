@@ -143,13 +143,14 @@ def run(mac: str, probe: str, targets: list[dict], settle_s: float = 3.0, ping_f
             cleaned.append(ipaddress.IPv4Address(str(t['ip'])))
         except (KeyError, ValueError):
             raise NetcheckError(f"not an IPv4 address: {t.get('ip')!r}") from None
-    ip_fn('link', 'set', dev, 'up')
-    # with its prefix but without the subnet route: dnsmasq needs to see the subnet on the interface, the
-    # management NIC (often in the same subnet) must keep the route
-    ip_fn('addr', 'add', f'{pr.ip}/{pr.network.prefixlen}', 'dev', dev, 'noprefixroute')
     routes, server = [], None
     t0 = clock()
-    try:
+    try:                                                     # from the link up on: the finally always cleans up
+        ip_fn('link', 'set', dev, 'up')
+        # with its prefix but without the subnet route: dnsmasq needs to see the subnet on the interface, the
+        # management NIC (often in the same subnet) must keep the route. 'replace', not 'add': an interrupted
+        # check (container stopped) left the address behind, and 'add' then failed until the VM rebooted
+        ip_fn('addr', 'replace', f'{pr.ip}/{pr.network.prefixlen}', 'dev', dev, 'noprefixroute')
         for a in cleaned:
             # a host route per target through the test NIC, for the duration of the check only
             ip_fn('route', 'replace', f'{a}/32', 'dev', dev, 'src', str(pr.ip))

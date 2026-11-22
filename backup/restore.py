@@ -93,11 +93,92 @@ def run_restore(restore_id: int) -> None:
     try:
         _run(r)
     except (IncrementalError, HyperCoreError, ProxyError, ValueError, vm_definition.UnknownMachineType) as e:
-        db.update_restore(restore_id, status='ERROR', message=str(e), finished_at=_now(), progress=None)
+        db.update_restore(restore_id, status='ERROR', message=str(e) + _discard_failed_vm(restore_id), finished_at=_now(), progress=None)
         log.error('[restore %s] %s', restore_id, e)
     except Exception as e:                                  # noqa: BLE001
-        db.update_restore(restore_id, status='ERROR', message=f'Unexpected error: {e}', finished_at=_now(), progress=None)
+        db.update_restore(restore_id, status='ERROR', message=f'Unexpected error: {e}' + _discard_failed_vm(restore_id),
+                          finished_at=_now(), progress=None)
         log.exception('[restore %s] unexpected error', restore_id)
+
+
+def _record_staging(rid: int, uuids: list[str]) -> None:
+    """Staging disks on the proxy VM that this restore still owns (migration 056); never fails the restore."""
+    try:
+        db.update_restore(rid, staging=list(uuids))
+    except Exception as e:                                  # noqa: BLE001 — e.g. before migration 056
+        log.warning('[restore %s] staging disks not recorded: %s', rid, e)
+
+
+def remove_staging(hc: HyperCoreClient, uuids: list[str]) -> list[str]:
+    """Delete staging disks still attached to a proxy VM; a disk that is gone already counts as removed.
+    Returns the ones that could not be removed."""
+    present = []
+    for u in uuids or []:
+        try:
+            if hc.get_block_device(u):
+                present.append(u)
+        except HyperCoreError as e:
+            if e.status != 404:
+                present.append(u)
+    return _delete_clones(hc, present) if present else []
+
+
+def _discard_failed_vm(rid: int, require_unfinished: bool = False) -> str:
+    """Delete the VM a failed restore created (half-built, it also blocks a retry with the same name). Only the
+    VM recorded on this restore, and only while it is off. With require_unfinished, only when the restore had
+    not reached its last step (an interrupted restore). Returns a note for the message ('' = nothing done)."""
+    try:
+        r = db.get_restore(rid) or {}
+        vm_uuid = r.get('created_uuid')
+        if not vm_uuid or (r.get('kind') or 'vm') != 'vm' or (require_unfinished and (r.get('progress') or {}).get('phase') == 'finish'):
+            return ''
+        hc = jobs.client_for(r['cluster_id'])
+        try:
+            vm = hc.get_vm(vm_uuid)
+        except HyperCoreError:
+            return ''                                       # gone already
+        if (vm.get('state') or '').upper() not in ('SHUTOFF', 'SHUTDOWN'):
+            return f"; the restored VM '{vm.get('name')}' is running and was kept"
+        t = hc.delete_vm(vm_uuid)
+        if t:
+            wait_task(hc, t, 'delete the half-restored VM', 600)
+        log.warning('[restore %s] half-restored VM %s deleted', rid, vm_uuid)
+        return '; the half-restored VM was deleted'
+    except Exception as e:                                  # noqa: BLE001 — the restore's own error is what matters
+        log.warning('[restore %s] half-restored VM not deleted: %s', rid, e)
+        return f'; the half-restored VM could not be deleted ({e}), delete it on the cluster'
+
+
+def cleanup_interrupted(restore_ids: list[int]) -> None:
+    """After a restart: the staging disks and the half-built VM of restores the restart interrupted."""
+    for rid in restore_ids:
+        note = _discard_failed_vm(rid, require_unfinished=True)
+        if note:
+            try:
+                r = db.get_restore(rid) or {}
+                db.update_restore(rid, message=(r.get('message') or 'Interrupted by a restart.') + note)
+            except Exception:                               # noqa: BLE001
+                log.warning('[restore %s] note not recorded', rid, exc_info=True)
+    sweep_staging()
+
+
+def sweep_staging() -> int:
+    """Daily and after a restart: staging disks that finished or failed restores left on proxy VMs."""
+    removed = 0
+    try:
+        rows = db.restores_with_staging()
+    except Exception:                                       # noqa: BLE001 — before migration 056
+        log.debug('staging sweep skipped', exc_info=True)
+        return 0
+    for r in rows:
+        try:
+            left = remove_staging(jobs.client_for(r['cluster_id']), list(r['staging']))
+        except HyperCoreError as e:
+            log.warning('[restore %s] staging disks not removed yet: %s', r['id'], e)
+            continue
+        removed += len(r['staging']) - len(left)
+        _record_staging(r['id'], left)
+    return removed
 
 
 def _run(r: dict) -> None:
@@ -167,6 +248,8 @@ def _run(r: dict) -> None:
     tags = ','.join(t for t in [*(definition.get('tags') or '').split(','), *(params.get('extra_tags') or [])] if t.strip())
     tag, created = hc.import_vm(source_uri, name=name, description=params.get('description') or definition.get('description') or '',
                                 tags=tags, definition_file=f'{dirname}.xml')
+    if created:
+        db.update_restore(rid, created_uuid=created)       # known before the import finishes: a failure removes it
     wait_task(hc, tag, 'import', 3600)
     new_vm = hc.get_vm(created) if created else next((v for v in hc.list_vms_full() if (v.get('name') or '').lower() == name.lower()), None)
     if not new_vm:
@@ -184,8 +267,9 @@ def _run(r: dict) -> None:
                 cap = int(d['capacity'])
                 # staging disks take heavy one-off writes: keep them off the SSD tier (factor 0)
                 stag, su = jobs.retry_transient(lambda: hc.create_block_device(proxy['vm_uuid'], cap, tiering=0), 'create staging disk')
-                wait_task(hc, stag, 'create staging disk', 600)
                 staging.append((d, su))
+                _record_staging(rid, [s for _, s in staging])     # a restart or a failed cleanup must not lose them
+                wait_task(hc, stag, 'create staging disk', 600)
             db.update_restore(rid, message=f'writing {len(disks)} disk(s) to the proxy', progress={'phase': 'write', 'done': 0, 'total': 0})
             res = pc.wait(pc.submit('stage', {'target': target, 'chain_dir': chain['chain_dir'], 'seq': point['seq'],
                                               'devices': [{'uuid': d['uuid'], 'staging_clone_uuid': su} for d, su in staging]}),
@@ -208,6 +292,8 @@ def _run(r: dict) -> None:
                 # the clone inherits the staging disk's tiering (0) whatever the template says: put the
                 # source's factor back, or the restored VM runs from an uncached disk
                 fields = {'tieringPriorityFactor': tiering}
+                if d.get('cacheMode'):
+                    fields['cacheMode'] = d['cacheMode']       # recorded in the point; the clone gets HyperCore's default
                 if d.get('name'):
                     fields['name'] = d['name']                 # an orchestrator's identity for the volume (CSI)
                 t = jobs.retry_transient(lambda: hc.patch_block_device(new_dev, **fields), 'disk settings')
@@ -215,9 +301,11 @@ def _run(r: dict) -> None:
                     wait_task(hc, t, 'disk settings', 300)
         finally:
             _safe_delete_snapshot(hc, snap_uuid, 'restore staging')
-            _delete_clones(hc, [su for _, su in staging])
+            if staging:
+                _record_staging(rid, _delete_clones(hc, [su for _, su in staging]))   # the daily sweep retries what is left
 
     # 5. boot order, NICs, start
+    db.update_restore(rid, message='boot order and network', progress={'phase': 'finish'})
     new_vm = hc.get_vm(new_vm['uuid'])
     order = boot_order(definition, disk_map, new_vm)
     if order:
@@ -228,6 +316,9 @@ def _run(r: dict) -> None:
     connected = bool(params.get('nic_connected', not source_exists))
     for new_nic, old_nic in zip(new_vm.get('netDevs', []), definition.get('netDevs', [])):
         fields = {'connected': connected}
+        if old_nic.get('type') and old_nic['type'] != new_nic.get('type'):
+            # the restore template always renders a virtio NIC: an E1000 or RTL8139 guest would come back without network
+            fields['type'] = old_nic['type']
         if params.get('vlan') is not None:
             fields['vlan'] = int(params['vlan'])         # a test restore on the network level: the isolated test VLAN
         elif old_nic.get('vlan') is not None:
@@ -249,7 +340,9 @@ def _run(r: dict) -> None:
             not_started = str(e)
             log.warning('[restore %s] restored VM not started: %s', rid, e)
     try:
-        pc.wait(pc.submit('sweep', {'target': target, 'folder': chain['folder_slug'], 'older_than_hours': 0}), timeout=600)
+        # only this restore's own directory: a sweep of <tenant>/_restore could delete a parallel restore's import
+        # directory; older leftovers go with the daily sweep (incremental.sweep_targets)
+        pc.wait(pc.submit('delete_chain', {'target': target, 'chain_dir': out_dir}), timeout=600)
     except ProxyError as e:
         log.warning('[restore %s] restore directory cleanup failed: %s', rid, e)
     bytes_written = res.get('bytes_written', 0)

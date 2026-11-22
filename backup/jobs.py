@@ -69,11 +69,23 @@ def build_path_uri(base: str, user: str | None, password: str | None) -> str:
 
 
 def tenant_slug(cluster) -> str:
-    """Share subfolder for a cluster: its HyperCore Manager folder name made filesystem-safe
-    (spaces and other awkward characters become underscores). Clusters without a folder share
-    one `no_folder` subfolder."""
+    """Share subfolder for a cluster: the directory stored on its HyperCore Manager folder
+    (config.folders.backup_dir, migration 055). Folders that existed before 055 keep their old
+    name-derived directory; a newer folder gets `<name slug>-<first 8 of its id>` on first use,
+    because folder names are unique per parent only and two tenants' "Production" folders must not
+    share one directory. A rename never moves it. Clusters without a folder share one `no_folder`
+    subfolder."""
     name = getattr(cluster, 'folder_name', None) if cluster is not None else None
-    return safe_name(name) if name else 'no_folder'
+    legacy = safe_name(name) if name else 'no_folder'
+    folder_id = getattr(cluster, 'folder_id', None) if cluster is not None else None
+    if not folder_id:
+        return legacy
+    try:
+        stored = db.folder_backup_dir(str(folder_id), f'{legacy}-{str(folder_id)[:8]}')
+    except Exception as e:                  # noqa: BLE001 -- database before migration 055: the old directory
+        log.warning('backup directory of folder %s not readable, using its name: %s', folder_id, e)
+        return legacy
+    return stored or legacy
 
 
 def location_for_cluster(cluster_id: str) -> dict | None:
@@ -102,7 +114,7 @@ def location_for_schedule(sched) -> dict:
     if loc:
         return loc
     if not sched.get('path_uri_base'):
-        raise HyperCoreError("no share assigned to this cluster's folder (Settings → Shares, then the folder menu)")
+        raise HyperCoreError("no backup target is assigned to this cluster's folder (Settings → Targets, then Backup target in the folder's menu in the cluster switcher)")
     cluster = cluster_registry.get(sched['cluster_id'])
     tenant = tenant_slug(cluster)
     return {
@@ -113,6 +125,17 @@ def location_for_schedule(sched) -> dict:
         'share_name': None,
         'tenant': tenant,
     }
+
+
+def under_location(uri: str | None, base: str | None) -> bool:
+    """True when uri is base itself or lies inside it (no `..` segment): the only URIs a folder target's
+    stored credentials may be put into."""
+    if not uri or not base:
+        return False
+    uri, base = uri.rstrip('/').lower(), base.rstrip('/').lower()
+    if '..' in urlsplit(uri).path.split('/'):
+        return False
+    return uri == base or uri.startswith(base + '/')
 
 
 def effective_base(sched) -> str:
@@ -142,8 +165,8 @@ def client_for(cluster_id: str) -> HyperCoreClient:
 
 
 def derive_name(folder: str) -> str:
-    """Strip a `_YYYYMMDD-HHMMSS` export suffix to guess the original VM name."""
-    m = re.match(r'^(.*)_\d{8}-\d{6}$', folder or '')
+    """Strip a `[_uuid8]_YYYYMMDD-HHMMSS` export suffix to guess the original VM name."""
+    m = re.match(r'^(.*?)(?:_[0-9a-f]{8})?_\d{8}-\d{6}$', folder or '')
     return m.group(1) if m else (folder or '')
 
 
@@ -353,7 +376,7 @@ def run_export(schedule_id: int, policy_id: int | None = None, occurrence=None) 
 
     run_id = db.start_run(schedule_id, policy_id, occurrence)
     db.update_run(run_id, mode='export')
-    folder = f"{safe_name(sched['vm_name'])}_{datetime.now().strftime(TIMESTAMP_FMT)}"
+    folder = export_folder(sched['vm_name'], sched.get('vm_uuid'), datetime.now().strftime(TIMESTAMP_FMT))
     try:
         loc = location_for_schedule(sched)
     except HyperCoreError as e:
@@ -479,15 +502,40 @@ def smb_list_dirs(base_uri: str, user: str, password: str | None) -> list[str]:
     return sorted(names, reverse=True)
 
 
-def select_excess(dir_names, vm_name: str, retention: int):
-    """Which folders to delete: only this VM's `{safe_name}_YYYYMMDD-HHMMSS` folders are
-    candidates, sibling VMs are never touched; the newest `retention` are kept."""
-    prefix = safe_name(vm_name) + '_'
-    pattern = re.compile(re.escape(prefix) + r'\d{8}-\d{6}$')
-    copies = sorted(n for n in dir_names if pattern.match(n))
+def export_folder(vm_name: str, vm_uuid: str | None, stamp: str) -> str:
+    """`{safe_name}_{first 8 of the VM uuid}_YYYYMMDD-HHMMSS`: the tenant directory is shared by every cluster of
+    the folder, so the name alone would let two clusters' VMs called "dc01" prune each other's exports."""
+    short = re.sub(r'[^0-9A-Za-z]', '', vm_uuid or '')[:8]
+    return f'{safe_name(vm_name)}_{short}_{stamp}' if short else f'{safe_name(vm_name)}_{stamp}'
+
+
+def select_excess(dir_names, vm_name: str, retention: int, vm_uuid: str | None = None, own_legacy=()):
+    """Which folders to delete: only this VM's `{safe_name}_{uuid8}_YYYYMMDD-HHMMSS` folders are candidates,
+    sibling VMs (also a namesake on another cluster of the folder) are never touched; the newest `retention`
+    are kept. A folder in the older `{safe_name}_YYYYMMDD-HHMMSS` form counts only when it is in
+    `own_legacy` (recorded in this plan's own runs). Without vm_uuid: the old name-only rule."""
+    stamp = r'\d{8}-\d{6}$'
+    if vm_uuid:
+        pattern = re.compile(re.escape(export_folder(vm_name, vm_uuid, '')) + stamp)
+        legacy = re.compile(re.escape(safe_name(vm_name) + '_') + stamp)
+        own = set(own_legacy or ())
+        copies = [n for n in dir_names if pattern.match(n) or (n in own and legacy.match(n))]
+        copies.sort(key=lambda n: n[-15:])                  # by timestamp: legacy and new names interleave
+    else:
+        pattern = re.compile(re.escape(safe_name(vm_name) + '_') + stamp)
+        copies = sorted(n for n in dir_names if pattern.match(n))
     excess = copies[:-retention] if retention > 0 else []
     kept = min(len(copies), retention)
     return excess, kept
+
+
+def _own_legacy(sched) -> set:
+    """Export folder names recorded in this plan's runs (to recognise its exports from before the uuid suffix)."""
+    try:
+        return {p.rsplit('/', 1)[-1] for p in db.export_paths(sched['id'])}
+    except Exception as e:                  # noqa: BLE001 -- no history: legacy folders are simply kept
+        log.warning('export history of plan %s not readable: %s', sched.get('id'), e)
+        return set()
 
 
 def prune_old_exports(sched) -> str:
@@ -511,7 +559,7 @@ def _prune_via_mount(sched, loc) -> str:
     if not base.is_dir():
         return f'Pruning skipped: {base} is not accessible from this container.'
     names = [d.name for d in base.iterdir() if d.is_dir()]
-    excess, kept = select_excess(names, sched['vm_name'], sched['retention'])
+    excess, kept = select_excess(names, sched['vm_name'], sched['retention'], sched.get('vm_uuid'), _own_legacy(sched))
     for name in excess:
         try:
             shutil.rmtree(base / name)
@@ -533,7 +581,7 @@ def _prune_via_smb(sched, loc) -> str:
         names = [e.name for e in smbclient.scandir(unc_base, **conn) if e.is_dir()]
     except Exception as e:  # noqa: BLE001
         return f'Pruning skipped: could not list {unc_base} over SMB: {e}'
-    excess, kept = select_excess(names, sched['vm_name'], sched['retention'])
+    excess, kept = select_excess(names, sched['vm_name'], sched['retention'], sched.get('vm_uuid'), _own_legacy(sched))
     for name in excess:
         try:
             smb_shutil.rmtree(unc_base + '\\' + name, **conn)
@@ -558,8 +606,13 @@ def run_import(import_id: int) -> None:
             password = db.decrypt_password(imp['smb_pass_enc']) if imp['smb_pass_enc'] else None
             source_uri = build_path_uri(imp['source_uri'], imp['smb_user'], password)
         else:
+            # the folder target's credentials go only into a URI inside that folder's own directory, never into
+            # a source somebody typed elsewhere
             loc = location_for_cluster(imp['cluster_id'])
-            source_uri = build_path_uri(imp['source_uri'], loc['user'] or None, loc['password'] or None) if loc else imp['source_uri']
+            if loc and under_location(imp['source_uri'], loc['base']):
+                source_uri = build_path_uri(imp['source_uri'], loc['user'] or None, loc['password'] or None)
+            else:
+                source_uri = imp['source_uri']
         task_tag, created = hc.import_vm(source_uri, name=imp['target_name'] or None)
         db.update_import(import_id, task_tag=task_tag, created_uuid=created or None)
         wait_for_task(hc, task_tag, lambda state, pct: db.update_import(import_id, message=f'{state} {pct}%'))

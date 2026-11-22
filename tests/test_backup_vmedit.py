@@ -102,6 +102,7 @@ def test_confirmation_is_the_vm_name():
 @pytest.mark.parametrize('op, msg', [
     ({'op': 'disk_resize', 'device': 'd1', 'capacity': 40 * GIB}, 'only grow'),
     ({'op': 'disk_resize', 'device': 'other', 'capacity': 60 * GIB}, 'does not belong'),
+    ({'op': 'disk_resize', 'device': 'cd', 'capacity': 60 * GIB}, 'only a disk can grow'),     # live: HyperCore 500 x4
     ({'op': 'nic_set', 'device': 'n1', 'fields': {'vlan': 5000}}, 'VLAN'),
     ({'op': 'nic_set', 'device': 'n1', 'fields': {'macAddress': 'nonsense'}}, 'MAC'),
     ({'op': 'vm', 'fields': {'mem': 1}}, 'memory'),
@@ -113,6 +114,12 @@ def test_confirmation_is_the_vm_name():
 def test_refused(op, msg):
     with pytest.raises(ve.EditError, match=msg):
         _plan(op)
+
+
+def test_the_nvram_device_cannot_be_grown():
+    vm = dict(VM, blockDevs=VM['blockDevs'] + [{'uuid': 'nv', 'type': 'NVRAM', 'capacity': 540672, 'slot': -1}])
+    with pytest.raises(ve.EditError, match='NVRAM'):
+        ve.plan('edit', [{'op': 'disk_resize', 'device': 'nv', 'capacity': GIB}], vm)
 
 
 def test_power_action_is_validated():
@@ -195,6 +202,35 @@ def test_guest_that_will_not_stop_aborts_and_keeps_running(harness):
     ve.run(1)
     assert st['status'] == 'failed' and 'did not shut down' in st['error']
     assert st['hc'].calls == ['SHUTDOWN']                    # nothing changed, no power off, no start needed
+
+
+def test_a_guest_that_shuts_down_after_the_timeout_is_started_again(harness):
+    """The ACPI shutdown was sent and completed after the timeout: nothing started the VM again and a production
+    VM stayed off. Now the late shutdown is caught and the set carries on: apply, start."""
+    hc = FakeHC(stops_after=None)
+    orig = hc.get_vm
+
+    def get_vm(u):
+        if hc.reads >= 12:                     # past the 1-minute timeout (10 s per clock read in the harness)
+            hc.stops_after = 0
+        return orig(u)
+    hc.get_vm = get_vm
+    st = harness([{'op': 'vm', 'fields': {'mem': 8 * GIB}}], hc=hc)
+    ve.run(1)
+    assert st['status'] == 'done', st
+    assert hc.calls == ['SHUTDOWN', ('patch_vm', {'mem': 8 * GIB}), 'START'] and hc.state == 'RUNNING'
+    assert any('after the 1 min timeout' in r['detail'] for r in st['result'])
+
+
+def test_a_scheduled_set_that_missed_its_window_is_not_run(harness):
+    from datetime import datetime, timedelta, timezone
+    st = harness([{'op': 'vm', 'fields': {'mem': 8 * GIB}}])
+    st['ch']['run_at'] = datetime.now(timezone.utc) - timedelta(hours=31)
+    ve.run(1)
+    assert st['status'] == 'failed' and 'missed its window' in st['error'] and st['hc'].calls == []
+    st['ch']['run_at'] = datetime.now(timezone.utc) - timedelta(minutes=5)
+    ve.run(1)
+    assert st['status'] == 'done', 'a few minutes late is fine'
 
 
 def test_force_off_after_the_timeout(harness):

@@ -92,7 +92,7 @@ def test_sentinel_api_resolves_cluster_per_request(repo):
     src = (repo / 'sentinel' / 'api.py').read_text()
     assert "request.args.get('cluster')" in src
     assert 'SENTINEL_CFGS' in src
-    assert 'trigger(_cfg().cluster_id)' in src
+    assert 'cid = _cfg().cluster_id' in src and 'trigger(cid)' in src
 
 
 def test_sentinel_runs_one_engine_per_cluster(repo):

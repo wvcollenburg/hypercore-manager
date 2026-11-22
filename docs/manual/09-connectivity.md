@@ -56,8 +56,10 @@ listed; replies are allowed by the firewall's connection tracking.
 | Guests' browsers | TCP 443 on your reverse proxy | Only if you use the guest console. Publish only `/guest/` to the outside; see [Installing and updating → Publishing only the guest console](08-installing-and-updating.md#publishing-only-the-guest-console). |
 
 Nothing else needs to reach the host. The stack also publishes ports 8081 (Foresight API), 8082
-(backup API) and 8086 (InfluxDB) on the host. Block them from outside the host: the dashboard
-reaches them over Docker's internal network. Internal traffic between the containers
+(backup API) and 8086 (InfluxDB), on 127.0.0.1 only: the dashboard reaches them over Docker's
+internal network. `HCM_INTERNAL_BIND` in `.env` publishes them on another address (for a Grafana
+elsewhere); restrict them in a firewall in front of the host then, since Docker's published ports
+bypass host firewalls such as ufw. Internal traffic between the containers
 (PostgreSQL 5432, the console service 8084, the in-stack proxy 8083) never leaves the host.
 
 ## Connections from a backup proxy

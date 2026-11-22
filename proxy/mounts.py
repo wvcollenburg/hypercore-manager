@@ -16,6 +16,7 @@ browse/zip logic are unit-tested without root; the real thing is exercised on th
 """
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import logging
@@ -150,6 +151,8 @@ class Mount:
         self.created = time.time()
         self.last_used = time.time()
         self.lock = threading.Lock()
+        self.streams = 0                     # downloads (file, zip, ISO) reading from this mount right now
+        self.unmount_requested = False       # unmount refused while busy: the sweep does it once the downloads end
 
     def touch(self):
         self.last_used = time.time()
@@ -184,6 +187,10 @@ def parse_bitlk_dump(text: str) -> dict:
     return out
 
 
+class MountBusy(RuntimeError):
+    """The mount is still being read by a download."""
+
+
 class LockedVolumes(RuntimeError):
     """Nothing could be mounted but there are encrypted volumes a key would open."""
     def __init__(self, msg: str, locked: list[dict]):
@@ -199,6 +206,37 @@ def no_filesystem_error(skipped: list[dict], limit: int = 900) -> str:
         why = '; '.join(f"{s['name']}: {s['reason']}" for s in skipped)
         msg += f' ({why[:limit] + "…" if len(why) > limit else why})'
     return msg
+
+
+def _resolve_in_root(root: str, parts: list[str], max_links: int = 40) -> str:
+    """root/parts with every symbolic link resolved the way the guest would resolve it: a relative target
+    from the link's own directory, an absolute target from the filesystem's own root, and '..' never above
+    that root. The files are a guest's: a link to /etc/shadow, /proc/self/environ or the proxy's mount
+    directory must lead into the backup, never into the proxy (which is what following it with the
+    kernel's resolver does, since the proxy's root is the root)."""
+    cur: list[str] = []
+    todo = [p for p in parts]
+    links = 0
+    while todo:
+        p = todo.pop(0)
+        if p in ('', '.'):
+            continue
+        if p == '..':
+            if cur:
+                cur.pop()
+            continue
+        full = os.path.join(root, *cur, p)
+        if os.path.islink(full):
+            links += 1
+            if links > max_links:
+                raise FileNotFoundError('too many levels of symbolic links')
+            target = os.readlink(full)
+            if target.startswith('/'):
+                cur = []
+            todo = [x for x in target.split('/') if x] + todo
+            continue
+        cur.append(p)
+    return os.path.join(root, *cur) if cur else root
 
 
 class MountManager:
@@ -442,6 +480,21 @@ class MountManager:
         m.touch()
         return m
 
+    @contextlib.contextmanager
+    def streaming(self, mid: str):
+        """Held for as long as a download reads from the mount: the idle sweep and an unmount leave a
+        busy mount alone (last_used is only set when a download starts; a zip or ISO that streams longer
+        than the idle limit was cut off without an error)."""
+        with self._lock:                                # the lock unmount() checks the count under
+            m = self.get(mid)
+            m.streams += 1
+        try:
+            yield m
+        finally:
+            with self._lock:
+                m.streams -= 1
+            m.touch()
+
     def _resolve(self, m: Mount, path: str) -> tuple[dict | None, str]:
         """'/<fs name>/rest' -> (filesystem, absolute path inside its mount point); '/' -> (None, '')"""
         parts = [p for p in (path or '/').split('/') if p and p not in ('.', '..')]
@@ -450,10 +503,7 @@ class MountManager:
         fs = next((f for f in m.filesystems if f['name'] == parts[0]), None)
         if not fs:
             raise FileNotFoundError(path)
-        abs_path = os.path.normpath(os.path.join(fs['mountpoint'], *parts[1:]))
-        if not abs_path.startswith(fs['mountpoint']):
-            raise FileNotFoundError(path)
-        return fs, abs_path
+        return fs, _resolve_in_root(fs['mountpoint'], parts[1:])
 
     def ls(self, mid: str, path: str) -> dict:
         m = self.get(mid)
@@ -482,25 +532,40 @@ class MountManager:
 
     def iter_zip(self, mid: str, paths: list[str], chunk: int = 1 << 20):
         """Stream a zip of files and directories (recursively), without materialising it."""
-        m = self.get(mid)
-        buf = _StreamBuffer()
-        zf = zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED, allowZip64=True)
-        for p in paths:
-            fs, abs_path = self._resolve(m, p)
-            if fs is None:
-                continue
-            arc_root = '/'.join(x for x in p.split('/') if x)
-            if os.path.isdir(abs_path):
-                for dirpath, _, files in os.walk(abs_path):
-                    for f in files:
-                        full = os.path.join(dirpath, f)
-                        if os.path.isfile(full):
-                            zf.write(full, os.path.join(arc_root, os.path.relpath(full, abs_path)))
-                            yield from buf.drain()
-            elif os.path.isfile(abs_path):
-                zf.write(abs_path, arc_root)
+        with self.streaming(mid) as m:
+            buf = _StreamBuffer()
+            zf = zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED, allowZip64=True)
+            for p in paths:
+                fs, abs_path = self._resolve(m, p)
+                if fs is None:
+                    continue
+                arc_root = '/'.join(x for x in p.split('/') if x)
+                if os.path.isdir(abs_path):
+                    for dirpath, _, files in os.walk(abs_path):
+                        for f in files:
+                            full = os.path.join(dirpath, f)
+                            # links are left out of a zip: os.path.isfile would follow one out of the backup
+                            if not os.path.islink(full) and os.path.isfile(full):
+                                yield from self._zip_entry(zf, buf, full, os.path.join(arc_root, os.path.relpath(full, abs_path)), chunk)
+                elif os.path.isfile(abs_path):
+                    yield from self._zip_entry(zf, buf, abs_path, arc_root, chunk)
+            zf.close()
+            yield from buf.drain()
+
+    @staticmethod
+    def _zip_entry(zf: zipfile.ZipFile, buf: '_StreamBuffer', path: str, arcname: str, chunk: int):
+        """One file into the zip in `chunk` pieces, drained after each: zf.write() hands back only after the
+        whole file, so its compressed form sat in memory (a 20 GiB file OOM-killed the proxy). The entry's
+        size comes from stat (the point is mounted read-only), so zipfile picks zip64 where it is needed."""
+        zinfo = zipfile.ZipInfo.from_file(path, arcname)
+        zinfo.compress_type = zf.compression
+        with open(path, 'rb') as src, zf.open(zinfo, 'w') as dest:
+            while True:
+                b = src.read(chunk)
+                if not b:
+                    break
+                dest.write(b)
                 yield from buf.drain()
-        zf.close()
         yield from buf.drain()
 
     # ------------------------------------------------------------------- ISO
@@ -529,23 +594,29 @@ class MountManager:
         return int(nums[-1]) * 2048          # genisoimage prints the size in 2048-byte extents
 
     def iter_iso(self, mid: str, paths: list[str], chunk: int = 1 << 20, popen=subprocess.Popen):
-        proc = popen(self.iso_command(mid, paths), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        try:
-            while True:
-                b = proc.stdout.read(chunk)
-                if not b:
-                    break
-                yield b
-        finally:
-            proc.stdout.close()
-            rc = proc.wait(timeout=60)
-            if rc:
-                log.warning('genisoimage exited with %s: %s', rc, (proc.stderr.read() or b'')[:300])
+        with self.streaming(mid):
+            proc = popen(self.iso_command(mid, paths), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                while True:
+                    b = proc.stdout.read(chunk)
+                    if not b:
+                        break
+                    yield b
+            finally:
+                proc.stdout.close()
+                rc = proc.wait(timeout=60)
+                if rc:
+                    log.warning('genisoimage exited with %s: %s', rc, (proc.stderr.read() or b'')[:300])
 
     # --------------------------------------------------------------- unmount
-    def unmount(self, mid: str) -> None:
+    def unmount(self, mid: str, force: bool = False) -> None:
+        """Raises MountBusy while a download reads from the mount (unless force: the proxy stops)."""
         with self._lock:
-            m = self.mounts.pop(mid, None)
+            m = self.mounts.get(mid)
+            if m and m.streams and not force:
+                m.unmount_requested = True
+                raise MountBusy(f'a download from mount {mid} is still running; it is unmounted when that ends')
+            self.mounts.pop(mid, None)
         if m:
             self._teardown(m)
 
@@ -566,15 +637,21 @@ class MountManager:
 
     def sweep_idle(self) -> int:
         now = time.time()
-        idle = [mid for mid, m in list(self.mounts.items()) if now - m.last_used > self.idle_seconds]
+        idle = [mid for mid, m in list(self.mounts.items())
+                if not m.streams and (m.unmount_requested or now - m.last_used > self.idle_seconds)]
+        n = 0
         for mid in idle:
             log.info('unmounting idle point mount %s', mid)
-            self.unmount(mid)
-        return len(idle)
+            try:
+                self.unmount(mid)
+                n += 1
+            except MountBusy:                           # a download started meanwhile
+                pass
+        return n
 
     def unmount_all(self) -> None:
         for mid in list(self.mounts):
-            self.unmount(mid)
+            self.unmount(mid, force=True)
 
     def cleanup_leftovers(self) -> dict:
         """Undo what a previous container life left behind when it was stopped while a point was

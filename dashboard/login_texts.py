@@ -23,6 +23,8 @@ TEXTS: dict[str, dict[str, str]] = {
         'err_needs_email': 'Your account needs an email address. An administrator will send you an invitation.',
         'err_awaiting': 'Your account is waiting for an administrator to assign its access.',
         'err_disabled': 'Your account is disabled. Ask an administrator.',
+        'err_locked': 'Too many failed sign-in attempts. Wait 15 minutes and try again.',
+        'err_otp_restart': 'Too many wrong codes. Sign in with your password again.',
     },
     'nl': {
         'title': 'Aanmelden', 'tagline': 'Beheeromgeving voor clusters',
@@ -39,6 +41,8 @@ TEXTS: dict[str, dict[str, str]] = {
         'err_needs_email': 'Je account heeft een e-mailadres nodig. Een beheerder stuurt je een uitnodiging.',
         'err_awaiting': 'Je account wacht tot een beheerder er toegang aan geeft.',
         'err_disabled': 'Je account is uitgeschakeld. Vraag het een beheerder.',
+        'err_locked': 'Te veel mislukte aanmeldpogingen. Wacht 15 minuten en probeer het opnieuw.',
+        'err_otp_restart': 'Te veel onjuiste codes. Meld je opnieuw aan met je wachtwoord.',
     },
     'de': {
         'title': 'Anmelden', 'tagline': 'Verwaltungsoberfläche für Cluster',
@@ -55,6 +59,8 @@ TEXTS: dict[str, dict[str, str]] = {
         'err_needs_email': 'Ihr Konto braucht eine E-Mail-Adresse. Ein Administrator sendet Ihnen eine Einladung.',
         'err_awaiting': 'Ihr Konto wartet darauf, dass ein Administrator ihm Zugriff gibt.',
         'err_disabled': 'Ihr Konto ist deaktiviert. Wenden Sie sich an einen Administrator.',
+        'err_locked': 'Zu viele fehlgeschlagene Anmeldeversuche. Warten Sie 15 Minuten und versuchen Sie es erneut.',
+        'err_otp_restart': 'Zu viele falsche Codes. Melden Sie sich erneut mit Ihrem Passwort an.',
     },
     'fr': {
         'title': 'Connexion', 'tagline': 'Interface de gestion des clusters',
@@ -71,6 +77,8 @@ TEXTS: dict[str, dict[str, str]] = {
         'err_needs_email': 'Votre compte a besoin d\'une adresse e-mail. Un administrateur vous enverra une invitation.',
         'err_awaiting': 'Votre compte attend qu\'un administrateur lui attribue un accès.',
         'err_disabled': 'Votre compte est désactivé. Adressez-vous à un administrateur.',
+        'err_locked': 'Trop de tentatives de connexion échouées. Attendez 15 minutes et réessayez.',
+        'err_otp_restart': 'Trop de codes incorrects. Reconnectez-vous avec votre mot de passe.',
     },
 }
 

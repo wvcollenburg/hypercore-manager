@@ -91,8 +91,23 @@ def test_select_excess_uses_safe_name_prefix():
     assert excess == ['web_server_1_20260101-000000'] and kept == 1
 
 
+def test_two_clusters_with_a_vm_of_the_same_name_never_prune_each_other():
+    """The tenant directory is shared by every cluster of the folder; retention picked folders by VM name only."""
+    a, b = '3cf115a9-1111-4111-8111-111111111111', '9d0e22b7-2222-4222-8222-222222222222'
+    names = [jobs.export_folder('dc01', a, f'2026010{d}-030000') for d in range(1, 5)] + \
+            [jobs.export_folder('dc01', b, f'2026010{d}-040000') for d in range(1, 5)]
+    assert names[0] == 'dc01_3cf115a9_20260101-030000'
+    excess, kept = jobs.select_excess(names, 'dc01', 2, a)
+    assert excess == ['dc01_3cf115a9_20260101-030000', 'dc01_3cf115a9_20260102-030000'] and kept == 2
+    # folders of the old form count only when this plan's own runs recorded them
+    legacy = ['dc01_20251230-030000', 'dc01_20251231-030000']
+    excess, _ = jobs.select_excess(names + legacy, 'dc01', 2, a, own_legacy={'dc01_20251230-030000'})
+    assert excess == ['dc01_20251230-030000', 'dc01_3cf115a9_20260101-030000', 'dc01_3cf115a9_20260102-030000']
+
+
 @pytest.mark.parametrize('folder, expected', [
     ('DC02_20260101-030000', 'DC02'), ('DC02', 'DC02'), ('', ''), ('a_b_20261231-235959', 'a_b'),
+    ('dc01_3cf115a9_20260101-030000', 'dc01'),
 ])
 def test_derive_name(folder, expected):
     assert jobs.derive_name(folder) == expected
@@ -123,6 +138,60 @@ def test_tenant_slug_from_folder_name():
     assert jobs.tenant_slug(_C(None)) == 'no_folder'
     assert jobs.tenant_slug(None) == 'no_folder'
     assert jobs.tenant_slug(_C('MSP customers')) == 'MSP_customers', 'spaces become underscores on the share'
+
+
+class _F:
+    def __init__(self, folder_name, folder_id): self.folder_name, self.folder_id = folder_name, folder_id
+
+
+def _fake_backup_dirs(monkeypatch, stored):
+    """db.folder_backup_dir over a dict folder_id -> backup_dir (None = column still empty)."""
+    def folder_backup_dir(fid, new_dir):
+        if fid not in stored:
+            return None
+        if not stored[fid]:
+            stored[fid] = new_dir
+        return stored[fid]
+    monkeypatch.setattr(jobs.db, 'folder_backup_dir', folder_backup_dir)
+
+
+def test_tenant_dir_is_stored_on_the_folder_not_derived_from_its_name(monkeypatch):
+    """Two customers' folders named "Production" must not share one directory on a target, and a rename must not
+    move where a folder's exports are looked for."""
+    a, b = '11111111-aaaa-4aaa-8aaa-000000000001', '22222222-bbbb-4bbb-8bbb-000000000002'
+    stored = {a: None, b: None}
+    _fake_backup_dirs(monkeypatch, stored)
+    da, db_ = jobs.tenant_slug(_F('Production', a)), jobs.tenant_slug(_F('Production', b))
+    assert da != db_, 'same name under two customers: two directories'
+    assert da == 'Production-11111111' and db_ == 'Production-22222222'
+    assert jobs.tenant_slug(_F('Renamed', a)) == 'Production-11111111', 'a rename keeps the directory'
+
+
+def test_tenant_dir_of_a_folder_from_before_055_is_its_old_slug(monkeypatch):
+    stored = {'f1': 'MSP_customers'}            # migration 055 filled it with the old slug
+    _fake_backup_dirs(monkeypatch, stored)
+    assert jobs.tenant_slug(_F('MSP customers', 'f1')) == 'MSP_customers'
+
+
+def test_tenant_dir_falls_back_to_the_name_before_the_migration(monkeypatch):
+    def broken(*_a):
+        raise RuntimeError('column "backup_dir" does not exist')
+    monkeypatch.setattr(jobs.db, 'folder_backup_dir', broken)
+    assert jobs.tenant_slug(_F('Amsterdam', 'f1')) == 'Amsterdam'
+
+
+def test_migration_055_fills_existing_folders_with_the_old_slug():
+    """The SQL in 055 must compute exactly what safe_name did, or existing exports and chains are looked for in
+    the wrong directory. The character class and trimming are replayed here in Python."""
+    import re
+    sql = open(os.path.join(os.path.dirname(__file__), '..', 'postgres', 'init', '055_folder_backup_dir.sql')).read()
+    cls = re.search(r"'(\[\^[^']+\]\+)'", sql).group(1)
+    assert "btrim(" in sql and "'vm'" in sql and 'WHERE backup_dir IS NULL' in sql
+
+    def sql_slug(name):
+        return re.sub(cls, '_', name).strip('_') or 'vm'
+    for name in ('Amsterdam', 'MSP customers / West', 'ünïcode', '///', 'a.b-c_d', '  spaced  ', 'Prod (EU) #2'):
+        assert sql_slug(name) == jobs.safe_name(name), name
 
 
 def test_effective_base_appends_tenant(monkeypatch):

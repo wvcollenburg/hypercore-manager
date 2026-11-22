@@ -265,6 +265,32 @@ def test_customer_admin_cannot_escalate(admin, clusters):
     assert st == 404
 
 
+def test_handing_out_access_needs_user_management_on_that_scope(admin):
+    """Holding a role's permissions somewhere is not the right to hand them out there. contoso-admin, made a
+    Viewer at Fabrikam, could assign and invite people as Viewer at Fabrikam (2026-11-22)."""
+    o = admin.call('GET', '/api/access/overview')[1]
+    fabrikam = next(n['id'] for n in o['nodes'] if n['name'] == 'Fabrikam')
+    viewer = next(r['role_id'] for r in o['roles'] if r['builtin_key'] == 'viewer')
+    scope = {'kind': 'node', 'node_id': fabrikam}
+    st, d = admin.call('POST', '/api/access/assignments', {'user_id': _uid(admin, 'contoso-admin'), 'role_id': viewer, 'scope': scope})
+    assert st == 201, d
+    try:
+        _sessions.pop('contoso-admin', None)
+        c = as_user('contoso-admin')
+        st, d = c.call('POST', '/api/access/assignments', {'user_id': _uid(admin, 'contoso-viewer'), 'role_id': viewer, 'scope': scope})
+        assert st == 403 and 'manage' in d['error'], (st, d)
+        st, d = c.call('POST', '/api/access/invitations', {'email': 'someone@invited.example', 'role_id': viewer, 'scope': scope})
+        assert st in (403, 404), (st, d)
+        assert 'Fabrikam-Main' not in visible('contoso-viewer')
+    finally:
+        admin.call('DELETE', f"/api/access/assignments/{d.get('assignment_id')}") if isinstance(d, dict) and d.get('assignment_id') else None
+        uid = _uid(admin, 'contoso-admin')
+        for a in admin.call('GET', f'/api/access/users/{uid}')[1]['assignments']:
+            if a.get('node_id') == fabrikam:
+                admin.call('DELETE', f"/api/access/assignments/{a['assignment_id']}")
+        _sessions.pop('contoso-admin', None)
+
+
 def test_engineer_cannot_manage_users(admin):
     c = as_user('contoso-eng')
     st, _ = c.call('POST', '/api/access/assignments', {'user_id': _uid(admin, 'contoso-viewer'), 'role_id': _role(admin, 'viewer'),
@@ -1121,7 +1147,7 @@ def test_forgot_password(admin, clusters, sink):
         p = Client()
         st, raw = p.raw('POST', '/account/forgot', form={'email': 'Forgot@Demo.example'})
         assert st == 200 and b'a mail with a link is on its way' in raw
-        mail = sink.to('forgot@demo.example')[-1]
+        mail = sink.wait_to('forgot@demo.example')[-1]           # sent in the background (1.8.1)
         assert mail['subject'] == 'Reset your HyperCore Manager password'
         path = _account_path(mail)
         assert p.raw('GET', path)[0] == 200
@@ -1144,6 +1170,9 @@ def test_forgot_password_tells_nothing_and_is_limited(admin, clusters, sink):
         assert not sink.to('nobody@nowhere.example')
         for _ in range(4):
             Client().raw('POST', '/account/forgot', form={'email': 'limited@demo.example'})
+        sink.wait_to('limited@demo.example', 3)
+        import time
+        time.sleep(2)                                        # a fourth, if one were sent, has arrived by now
         assert len(sink.to('limited@demo.example')) == 3, 'at most three links an hour'
     finally:
         _drop(admin, uid)

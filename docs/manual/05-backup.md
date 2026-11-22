@@ -10,8 +10,14 @@ Two modes exist. **Incremental** backups go through a backup proxy on the cluste
 changed-block tracking tells the proxy which blocks changed since the last run, only those are
 read and written as a chain of qcow2 images onto the target, a fresh full is taken every N runs,
 and old points are merged away by retention. **Export** mode uses HyperCore's own export every
-run, into a timestamped folder; it needs no proxy and suits small VMs. A cluster with a
-registered proxy defaults to incremental.
+run, into a folder named after the VM, the start of its uuid and the time (`dc01_6c4add46_20261122-0300`,
+so two clusters of a folder with a VM of the same name never prune each other's copies); it needs no proxy and
+suits small VMs. A cluster with a registered proxy defaults to incremental.
+
+Each folder has its own directory on its target. It is set the first time the folder backs up and stays put
+when the folder is renamed: folders from before 1.8.1 keep the directory named after the folder, newer
+folders get the name plus the start of the folder's id, so two customers with a folder called "Production"
+on one target never share a directory.
 
 ## Schedules
 
@@ -20,7 +26,7 @@ registered proxy defaults to incremental.
 A schedule backs up many VMs on one timetable: create the schedule first (**New schedule** opens the
 schedule dialog; **Edit** on a schedule opens the same dialog), then add VMs to it with **VMs (n)**.
 Schedules belong to the folder of the selected cluster and can hold VMs of every cluster in that
-folder; select another cluster of the folder in the sidebar to add its VMs. **Backup schedules**
+folder; select another cluster of the folder in the cluster switcher to add its VMs. **Backup schedules**
 run incremental backups and **export schedules** run exports; a schedule never mixes the two.
 
 - **Repeats** picks the days: every day or every N days, chosen weekdays every N weeks, the Nth or

@@ -100,7 +100,7 @@ so clusters can be added, disabled or removed independently.
 ### Prerequisites
 
 - A Linux host or VM (Ubuntu 22.04+ tested) with **Docker Engine 24+** and **Docker Compose v2**.
-  - Compose v2 is the `docker compose` (no hyphen) command. The legacy python `docker-compose` 1.29.x is **not supported** — it has known recreate bugs that break the in-app updater. On Debian/Ubuntu, install via `sudo apt install docker-compose-v2`.
+  - Compose v2 is the `docker compose` (no hyphen) command. The legacy python `docker-compose` 1.29.x is **not supported** — it has known recreate bugs that break the in-app updater. On Ubuntu, install via `sudo apt install docker-compose-v2`; on Debian, install Docker from Docker's own repository, which includes the `docker-compose-plugin`.
 - HyperCore cluster management IP and a service account with read + migration permissions.
 - Outbound HTTPS (TCP 443) to every node of each cluster (or fully offline — see [Dark-Site Deployment](#dark-site--air-gapped-deployment)). Backups add proxies and a share; see [Network requirements](#network-requirements).
 - ~2 vCPU / 4 GB RAM minimum for the core stack; more for Foresight (see [Resource Requirements](#resource-requirements)).
@@ -122,7 +122,8 @@ connection in the direction listed (a stateful firewall allows the replies).
 | Backup proxy | Ubuntu archive or apt mirror | TCP 80 / 443 | Only on the first boot of a proxy deployed from the dashboard |
 | Cluster nodes | Backup share | TCP 445 | Restores, test restores, export mode, Import (HyperCore imports and exports over SMB only) |
 
-Block 8081, 8082 and 8086 from outside the host: the dashboard reaches those containers internally.
+Ports 8081, 8082 and 8086 (Foresight API, backup API, InfluxDB) are published on 127.0.0.1 only: the
+dashboard reaches those containers internally. `HCM_INTERNAL_BIND` in `.env` changes that.
 DNS and NTP are needed as usual. The full table, the test-restore VLAN and typical layouts (MSP sites,
 a share on another site, a DR cluster, no internet) are in [Connectivity](docs/manual/09-connectivity.md).
 
@@ -137,10 +138,20 @@ git clone https://github.com/wvcollenburg/hypercore-manager.git
 cd hypercore-manager
 
 cp .env.template .env
+# the checkout's own path: the updater, the migrations and the proxy image are read from it
+sed -i.bak "s|^SC_REPO_PATH=.*|SC_REPO_PATH=$(pwd)|" .env && rm .env.bak
 # Edit .env — replace every CHANGE_ME (HCM_SECRET_KEY, database secrets, dashboard password)
 
 docker compose up --build -d
 ```
+
+> **On a Mac:** macOS uses port 5000 for AirPlay Receiver, so `docker compose up` cannot publish the
+> dashboard there. Switch AirPlay Receiver off (System Settings → General → AirDrop & Handoff) or change
+> `"5000:5000"` in `docker-compose.yaml` to another host port.
+>
+> **The `proxy` container** is the backup proxy for a cluster the HCM host itself runs on. On a host that
+> is not a VM on one of your clusters it has nothing to read and only clears the host's `/dev/nbd*` devices
+> at start: stop it with `docker compose stop proxy` (deployed proxy VMs do the backup work there).
 
 The dashboard is available at **http://localhost:5000**. Log in, and the first screen asks for
 your cluster: management address plus a HyperCore account. Save it and the collector, balancer
@@ -388,7 +399,7 @@ The dashboard includes an in-app updater that detects new releases and applies t
 - Releases are tagged in git as `vMAJOR.MINOR.PATCH` and announced on [GitHub Releases](https://github.com/wvcollenburg/hypercore-manager/releases). Untagged commits don't trigger update prompts — only deliberate releases do, so customers are never bombarded with "update available" for in-flight development.
 - Database migrations under `postgres/init/` are applied automatically on dashboard startup; every script is idempotent (`CREATE TABLE IF NOT EXISTS` and similar guards) so existing installs never lose data when a new migration ships.
 - The updater works against the checkout's own git origin; nothing about the repository location is built in. It recreates the application services only and leaves InfluxDB and PostgreSQL running.
-- Manual update path (equivalent to clicking Apply Update in the dashboard): `git pull && docker compose up --build -d`.
+- Manual update path (equivalent to clicking Apply Update in the dashboard): `git fetch --tags && git merge --ff-only v<version> && docker compose up --build -d` (see [Installing and updating](docs/manual/08-installing-and-updating.md#updating)).
 
 ---
 
@@ -397,10 +408,10 @@ The dashboard includes an in-app updater that detects new releases and applies t
 ```bash
 # On an internet-connected machine:
 docker compose build
-docker save $(docker compose config --images) -o hypercore-balancer-images.tar
+docker save $(docker compose config --images) -o hypercore-manager-images.tar
 
 # On the air-gapped machine:
-docker load -i hypercore-balancer-images.tar
+docker load -i hypercore-manager-images.tar
 docker compose up -d
 ```
 
@@ -443,7 +454,10 @@ Sentinel's memory limit in `docker-compose.yaml` should be sized to cover the pe
 ## Bring your own Grafana
 
 The stack no longer ships Grafana. If you want one, point your own instance at InfluxDB with the
-Flux query language: URL `http://<stack host>:8086`, organisation and bucket from `.env`
+Flux query language at `http://<stack host>:8086`. InfluxDB answers
+on the stack host only by default: for a Grafana on another machine set `HCM_INTERNAL_BIND=0.0.0.0` in
+`.env`, run `docker compose up -d influxdb`, and restrict port 8086 in a firewall in front of the host
+(Docker's published ports bypass ufw). Use the organisation and bucket names from `.env`
 (`INFLUX_ORG`, `INFLUX_BUCKET`, long-term data in `INFLUX_LONGTERM_BUCKET`), and a read-only
 token created in the InfluxDB UI rather than the admin token the services use. Every measurement
 carries a `cluster_id` tag.
@@ -550,19 +564,12 @@ carries a `cluster_id` tag.
 
 ---
 
-## Related Projects
-
-| Repository | Description |
-|------------|-------------|
-
----
-
 ## Disclaimer
 
 **USE AT YOUR OWN RISK.** HyperCore Manager is community-supported software, not an official Scale Computing product. It is provided "as is" without warranty of any kind, express or implied, and without any official support or service-level commitment. Neither the authors nor Scale Computing accept responsibility or liability for any damage, data loss, downtime, or other consequences resulting from its use. Every cluster starts in dry-run; test the balancer there before switching it to live in the dashboard.
 
 ## License
 
-Copyright (c) 2026 Scale Computing.
+Copyright 2026 William David van Collenburg.
 
 Licensed under the Apache License, Version 2.0. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0. Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See [LICENSE](LICENSE) for the full text and [NOTICE](NOTICE) for attribution.

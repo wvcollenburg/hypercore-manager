@@ -78,12 +78,46 @@ _stub('config_db',
 _stub('cluster_registry', TEMPLATE_CLUSTER_ID=_TEMPLATE, list_enabled=lambda: [],
       credentials=lambda cid: ('', ''), mark_seen=lambda *a, **k: None, mark_error=lambda *a, **k: None)
 _stub('hcm_crypto', key_configured=lambda: True, ENV_VAR='HCM_SECRET_KEY')
+for _otp_mod in ('pyotp', 'qrcode', 'qrcode.image', 'qrcode.image.pil'):   # user_db imports them at the top
+    _stub(_otp_mod)
 _stub('db', connect=lambda *a, **k: (_ for _ in ()).throw(RuntimeError('no db in tests')))
 
 
 @pytest.fixture(scope='session')
 def repo() -> Path:
     return REPO
+
+
+@pytest.fixture(scope='session')
+def dash_module():
+    """dashboard/app.py imported once, for route tests through Flask's test client. Its background threads
+    (update checker, migrations, verification mail) are not started, and the database is an address that
+    refuses at once; tests replace the functions a route uses with fakes."""
+    for name in ('pyotp', 'qrcode', 'qrcode.image', 'qrcode.image.pil'):
+        sys.modules.setdefault(name, types.ModuleType(name))
+    os.environ['PG_HOST'], os.environ['PG_PORT'] = '127.0.0.1', '9'
+    import logging
+    import threading
+    start = threading.Thread.start
+    threading.Thread.start = lambda self: None
+    level = logging.root.manager.disable
+    logging.disable(logging.WARNING)
+    try:
+        import app as dash
+    finally:
+        threading.Thread.start = start
+        logging.disable(level)
+    dash.app.config['TESTING'] = True
+    return dash
+
+
+@pytest.fixture
+def dash(dash_module, monkeypatch):
+    """The dashboard with logins on and known, and an empty registry cache; undone after each test."""
+    monkeypatch.setattr(dash_module, '_AUTH_ENABLED', True)
+    monkeypatch.setattr(dash_module, '_auth_known', True)
+    monkeypatch.setattr(dash_module.access_db, 'begin_request', lambda: None)
+    return dash_module
 
 
 @pytest.fixture(scope='session')

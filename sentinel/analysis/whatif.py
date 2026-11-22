@@ -13,18 +13,16 @@ access is required — this is pure computation on already-concluded data.
 Supported scenarios
 -------------------
 add_nodes
-    Adds N nodes to the cluster.  Each node contributes capacity (CPU, RAM,
-    storage) and dilutes the per-node load average.  Growth rates are
-    unchanged — the cluster is still growing at the same pace but there is
-    more headroom.
+    Adds N nodes to the cluster, modelled on the cluster-wide forecasts and
+    their N+1 capacities.
 
-    CPU exhaustion: new capacity = existing_node_count + N normalised to the
-    per-cluster percentage space.  Current average load and growth rate are
-    used to project when the cluster re-hits exhaustion.
+    CPU: the same load spread over more nodes (average usage and growth scale
+    by n / (n + N)) against the new N+1 capacity (n + N - 1) / (n + N).
 
-    Storage exhaustion: same capacity-dilution model applied to used_bytes.
+    RAM: the N+1 capacity grows by the added nodes; usage and growth unchanged.
 
-    RAM: added purely as additional allocation headroom (growth rate unchanged).
+    Storage: its capacity is not known to the forecast, so its date is kept.
+    Adding nodes never creates an exhaustion date nor brings one closer.
 
 add_vms
     Adds M new VMs.  Each new VM is assumed to consume the cluster average
@@ -113,6 +111,7 @@ class _DimState:
     growth_rate_day:   float | None  = None  # slope in value/day
     exhaustion_date:   date  | None  = None
     severity:          str           = 'INFO'
+    capacity:          float | None  = None  # the forecast's own capacity (N+1 for cpu and ram); None = unknown
 
 
 @dataclass
@@ -142,28 +141,6 @@ def _days_until(d: date | None) -> int | None:
     return max(0, (d - date.today()).days)
 
 
-def _new_exhaustion_from_diluted_growth(
-    current_usage: float,
-    capacity: float,
-    growth_rate_per_day: float,
-    extra_capacity: float,
-) -> date | None:
-    """
-    Given current_usage approaching capacity at growth_rate_per_day, compute
-    when it will reach (capacity + extra_capacity).
-    Returns None if growth_rate ≤ 0 or headroom is effectively unlimited.
-    """
-    if growth_rate_per_day is None or growth_rate_per_day <= 0:
-        return None
-    new_cap = capacity + extra_capacity
-    if current_usage >= new_cap:
-        return date.today()
-    days = (new_cap - current_usage) / growth_rate_per_day
-    if days > 3650:
-        return None
-    return date.today() + timedelta(days=int(days))
-
-
 def _new_exhaustion_from_faster_growth(
     current_usage: float,
     capacity: float,
@@ -177,6 +154,21 @@ def _new_exhaustion_from_faster_growth(
     if days > 3650:
         return None
     return date.today() + timedelta(days=int(days))
+
+
+# dimensions the forecaster models cluster-wide (entity_label 'Cluster'); the others (network,
+# storage_latency) are per VM / per disk and not changed by adding nodes
+_CLUSTER_DIMS = ('cpu', 'ram', 'storage_capacity')
+
+
+def _days_to(current: float, capacity: float, growth: float | None) -> date | None:
+    """When usage growing at `growth` per day reaches capacity; None when never or > 10 years."""
+    if growth is None or growth <= 0:
+        return None
+    if current >= capacity:
+        return date.today()
+    days = (capacity - current) / growth
+    return None if days > 3650 else date.today() + timedelta(days=int(days))
 
 
 def _sev_from_date(d: date | None) -> str:
@@ -237,96 +229,59 @@ def _simulate_add_nodes(
     node_count: int,
 ) -> tuple[dict, dict]:
     """
-    Simulate adding req.count new nodes.
+    Simulate adding req.count new nodes, on the cluster-wide forecasts and their own N+1
+    capacities (no invented capacities).
 
     Strategy per dimension:
-      cpu             — capacity increases by count/node_count (more nodes share load)
-      storage_capacity — same capacity-dilution model
-      ram             — additional RAM headroom; growth rate unchanged
+      cpu             — the same load spread over more nodes: usage and growth scale by
+                        n / (n + k), capacity becomes the N+1 share (n + k - 1) / (n + k)
+      ram             — N+1 capacity grows by the added nodes (same size as the existing
+                        nodes, or node_ram_bytes); usage and growth unchanged
+      storage_capacity — capacity is not known to the forecast: its date is kept
       network/latency — unaffected by adding nodes (demand-side unchanged)
+
+    Adding nodes never makes a dimension worse: a dimension without a baseline exhaustion
+    date gets none, and a simulated date is never earlier than the baseline one.
     """
     new_node_count = node_count + req.count
+    n, m = max(1, node_count), max(1, node_count) + req.count
 
     sim_dates:     dict[str, date | None] = {}
     assumptions:   dict[str, str]         = {}
 
     for dim, state in dim_states.items():
-        if state.exhaustion_date is None and state.growth_rate_day is not None and state.growth_rate_day <= 0:
-            sim_dates[dim] = None
-            continue
-
-        if dim == 'cpu':
-            # each new node adds one node-worth of CPU headroom
-            # current cluster CPU capacity = node_count × 100 % points
-            # new cluster CPU capacity = new_node_count × 100 % points
-            # but forecasts are per-node %, so capacity per-node stays at 100%
-            # model: cluster-wide avg CPU = current_usage × node_count / new_node_count
-            if node_count == 0:
-                sim_dates[dim] = state.exhaustion_date
-                continue
-
-            # effective extra headroom in % terms (per original cluster basis)
-            extra_pct = (req.count / node_count) * 100.0
-            current   = state.current_usage_pct or 0.0
-            growth    = state.growth_rate_day or 0.0
-
-            sim_dates[dim] = _new_exhaustion_from_diluted_growth(
-                current_usage=current,
-                capacity=100.0,
-                growth_rate_per_day=growth,
-                extra_capacity=extra_pct,
-            )
+        if dim == 'cpu' and state.current_usage_pct is not None:
+            capacity = state.capacity if state.capacity else ((n - 1) / n * 100.0 if n > 1 else 100.0)
+            new_capacity = (m - 1) / m * 100.0
+            current = state.current_usage_pct * n / m
+            growth = state.growth_rate_day * n / m if state.growth_rate_day is not None else None
+            sim_dates[dim] = _days_to(current, new_capacity, growth)
             assumptions['cpu'] = (
-                f'CPU headroom increased by {req.count}/{node_count} = '
-                f'{extra_pct:.1f}% cluster-equivalent; growth rate unchanged.'
+                f'Load spread over {m} nodes instead of {n}: average CPU {state.current_usage_pct:.1f}% '
+                f'-> {current:.1f}%, N+1 capacity {capacity:.1f}% -> {new_capacity:.1f}%.'
             )
 
-        elif dim == 'storage_capacity':
-            override = req.node_storage_bytes
-            if override is not None:
-                extra_bytes = override * req.count
-            elif state.current_bytes and node_count:
-                # assume new nodes match current cluster average storage
-                extra_bytes = (state.current_bytes / node_count) * req.count
-            else:
-                sim_dates[dim] = state.exhaustion_date
-                continue
-
-            sim_dates[dim] = _new_exhaustion_from_diluted_growth(
-                current_usage=state.current_bytes or 0.0,
-                capacity=(state.current_bytes or 0.0) * 1.5,  # headroom proxy
-                growth_rate_per_day=state.growth_rate_day or 0.0,
-                extra_capacity=extra_bytes,
-            )
-            assumptions['storage_capacity'] = (
-                f'Storage capacity increased by {extra_bytes / 1e12:.2f} TB '
-                f'({req.count} node(s) × cluster-average).'
-            )
-
-        elif dim == 'ram':
-            override = req.node_ram_bytes
-            if override is not None:
-                extra_ram = override * req.count
-            elif state.current_bytes and node_count:
-                extra_ram = (state.current_bytes / node_count) * req.count
-            else:
-                sim_dates[dim] = state.exhaustion_date
-                continue
-
-            sim_dates[dim] = _new_exhaustion_from_diluted_growth(
-                current_usage=state.current_bytes or 0.0,
-                capacity=(state.current_bytes or 0.0) * 2.0,  # headroom proxy
-                growth_rate_per_day=state.growth_rate_day or 0.0,
-                extra_capacity=extra_ram,
-            )
+        elif dim == 'ram' and state.capacity and state.current_bytes is not None:
+            # existing nodes taken as equal: N+1 capacity = (n - 1) nodes (one node on its own)
+            node_ram = state.capacity / (n - 1) if n > 1 else state.capacity
+            added = req.node_ram_bytes if req.node_ram_bytes is not None else node_ram
+            new_capacity = n * node_ram + req.count * added - max(node_ram, added)
+            sim_dates[dim] = _days_to(state.current_bytes, new_capacity, state.growth_rate_day)
             assumptions['ram'] = (
-                f'RAM headroom increased by {extra_ram / 1e9:.1f} GB '
-                f'({req.count} node(s) × cluster-average).'
+                f'N+1 RAM capacity {state.capacity / 1e9:.1f} GB -> {new_capacity / 1e9:.1f} GB '
+                f'({req.count} node(s) of {added / 1e9:.1f} GB); growth rate unchanged.'
             )
 
         else:
-            # network / storage_latency — not affected by adding nodes
+            # storage_capacity (capacity unknown), network, storage_latency: unchanged
             sim_dates[dim] = state.exhaustion_date
+
+        # the invariant: more nodes never bring an exhaustion closer, nor create one
+        base = state.exhaustion_date
+        if base is None:
+            sim_dates[dim] = None
+        elif sim_dates[dim] is not None and sim_dates[dim] < base:
+            sim_dates[dim] = base
 
     baseline_exhaustion = {d: s.exhaustion_date for d, s in dim_states.items()}
     score, comp_severities = _health_score_anchored(
@@ -398,16 +353,17 @@ def _simulate_add_vms(
             days_remaining = max(0, (state.exhaustion_date - date.today()).days)
             new_days = max(0, int(days_remaining / scale_factor))
             sim_dates[dim] = date.today() + timedelta(days=new_days)
-        else:
+        elif state.capacity:
             # no current exhaustion projected; with faster growth one may appear
             new_growth = growth * scale_factor
             ref_usage  = state.current_usage_pct if dim == 'cpu' else state.current_bytes
-            capacity   = 100.0 if dim == 'cpu' else ((ref_usage or 1.0) * 2.0)
             sim_dates[dim] = _new_exhaustion_from_faster_growth(
                 current_usage=ref_usage or 0.0,
-                capacity=capacity,
+                capacity=state.capacity,
                 new_growth_rate_per_day=new_growth,
             )
+        else:
+            sim_dates[dim] = None      # capacity unknown: no date can be projected
 
     assumptions['all_dimensions'] = (
         f'Growth rates scaled by {scale_factor:.3f}× '
@@ -527,10 +483,12 @@ def _simulate_add_vms_like(
             days_saved = total_increment / growth
             new_days = max(0, int(days_remaining - days_saved))
             sim_dates[dim] = date.today() + timedelta(days=new_days)
+        elif not state.capacity:
+            sim_dates[dim] = None      # capacity unknown: no date can be projected
         else:
             # no current exhaustion; project from elevated starting usage
-            ref = state.current_usage_pct if dim == 'cpu' else (state.current_bytes or 0.0)
-            capacity = 100.0 if dim == 'cpu' else (ref * 2.0 or 1.0)
+            ref = (state.current_usage_pct if dim == 'cpu' else state.current_bytes) or 0.0
+            capacity = state.capacity
             new_usage = ref + total_increment
             if new_usage >= capacity:
                 sim_dates[dim] = date.today()
@@ -584,45 +542,48 @@ def run_whatif(req: WhatIfRequest, pg_state: dict) -> WhatIfResult:
     efficiency     = float(health_row.get('efficiency_index') or 1.0)
 
     # ── build baseline exhaustion dates and dim states ───────────────────────
+    # only the cluster-wide forecasts (entity_label 'Cluster'): the per-node rows of the same
+    # dimension used to be blended in, so 'current usage' was whichever row came last and the
+    # growth rate was dominated by one node's slope
     dim_states: dict[str, _DimState] = {}
 
-    # populate growth rates from 30d forecast rows (most stable)
     for row in forecast_rows:
         if row.get('forecast_horizon_days') != 30:
             continue
         dim   = row.get('resource_dimension') or ''
-        if not dim:
+        if dim not in _CLUSTER_DIMS or row.get('entity_label') != 'Cluster' or row.get('node_uuid'):
             continue
         state = dim_states.setdefault(dim, _DimState())
         meta  = row.get('model_metadata') or {}
-        slope = meta.get('slope')
-        if slope is not None:
-            # accumulate slopes; average later
-            if state.growth_rate_day is None:
-                state.growth_rate_day = slope
-            else:
-                state.growth_rate_day = (state.growth_rate_day + slope) / 2.0
+        if meta.get('slope') is not None:
+            state.growth_rate_day = float(meta['slope'])
+        if row.get('current_capacity') is not None:
+            state.capacity = float(row['current_capacity'])
         if row.get('current_usage') is not None:
             if dim == 'cpu':
                 state.current_usage_pct = float(row['current_usage'])
             else:
                 state.current_bytes = float(row['current_usage'])
+        if dim == 'cpu' and meta.get('node_count'):
+            node_count = int(meta['node_count'])
 
-    # populate exhaustion dates and per-dim severity from exhaustion rows
+    # exhaustion dates and severity: the cluster-wide row for the cluster dimensions; for the
+    # per-entity dimensions (network, storage_latency) the earliest date of any entity
     for row in exhaustion_rows:
         dim   = row.get('resource_dimension') or ''
-        state = dim_states.setdefault(dim, _DimState())
+        if not dim or (dim in _CLUSTER_DIMS and row.get('node_uuid')):
+            continue
         raw_date = row.get('exhaustion_date')
-        if raw_date is not None:
-            if isinstance(raw_date, str):
-                from datetime import date as _date
-                try:
-                    state.exhaustion_date = _date.fromisoformat(raw_date[:10])
-                except ValueError:
-                    pass
-            else:
-                state.exhaustion_date = raw_date
-        state.severity = row.get('severity') or 'INFO'
+        if isinstance(raw_date, str):
+            try:
+                raw_date = date.fromisoformat(raw_date[:10])
+            except ValueError:
+                raw_date = None
+        state = dim_states.setdefault(dim, _DimState())
+        if dim in _CLUSTER_DIMS:
+            state.exhaustion_date, state.severity = raw_date, row.get('severity') or 'INFO'
+        elif raw_date is not None and (state.exhaustion_date is None or raw_date < state.exhaustion_date):
+            state.exhaustion_date, state.severity = raw_date, row.get('severity') or 'INFO'
 
     # ── baseline summary ─────────────────────────────────────────────────────
     baseline_exhaustion = {

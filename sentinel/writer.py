@@ -8,8 +8,14 @@ Design:
 - Each write is a single transaction per result type per cycle.
 - Exhaustion estimates are derived from forecast results in the same call.
 - The retention cleanup function is called at the start of each write cycle.
-- Audit records are always written even if the recommendations write fails
-  (separate transaction).
+- Audit events are written in a separate transaction after the recommendations
+  write, and only for what changed: a recommendation whose key (event type,
+  entity, dimension, horizon) was not in the previous cycle's rows, or whose
+  severity or direction differs from them. INFO forecast snapshots are not
+  audited. Re-emitting every row every hour grew audit.* by millions of rows a
+  year, made the outcome tracker check each VM 24 times a day and the webhook
+  repeat an unchanged CRITICAL hourly.
+- prune_audit() removes audit rows older than retention_months.
 """
 
 import json
@@ -26,6 +32,68 @@ from analysis.resize_advisor import ResizeAdvice
 from analysis.rightsizing    import RightSizingResult
 
 log = logging.getLogger(__name__)
+
+# event_type -> (columns that identify the recommendation, columns whose change is news); the
+# names are the same on the result objects and in the recommendations.* tables
+_AUDIT_IDENTITY = {
+    'forecast_snapshot':     (('node_uuid', 'entity_label', 'resource_dimension', 'forecast_horizon_days'), ('severity',)),
+    'right_sizing':          (('vm_uuid', 'sizing_direction'), ('severity',)),
+    'resize_recommendation': (('vm_uuid', 'sizing_direction'), ('severity',)),
+    'resource_exhaustion':   (('node_uuid', 'resource_dimension'), ('severity',)),
+    'cluster_health':        ((), ('severity',)),
+}
+_AUDIT_TABLE = {
+    'forecast_snapshot':     'recommendations.forecast_snapshots',
+    'right_sizing':          'recommendations.right_sizing',
+    'resize_recommendation': 'recommendations.resize_recommendations',
+    'resource_exhaustion':   'recommendations.resource_exhaustion',
+    'cluster_health':        'recommendations.cluster_health_scores',
+}
+_AUDIT_PRUNE_BATCH = 20000
+
+
+def _norm(value):
+    """A key/state value as text, so a UUID from the database equals the one on the result."""
+    if value is None or value == '':
+        return None
+    return str(value)
+
+
+def _identity(event_type: str, obj) -> tuple[tuple, tuple]:
+    keys, state = _AUDIT_IDENTITY[event_type]
+    get = (lambda f: obj.get(f)) if isinstance(obj, dict) else (lambda f: getattr(obj, f, None))
+    return tuple(_norm(get(f)) for f in keys), tuple(_norm(get(f)) for f in state)
+
+
+def _previous_state(cur, event_type: str, cluster_id: str) -> dict:
+    """{key: state} of the rows the previous cycle left in the recommendations table. Read in
+    the write's own transaction, before its DELETE (cluster health is append-only: its latest
+    row)."""
+    keys, state = _AUDIT_IDENTITY[event_type]
+    cols = keys + state
+    sql = f'SELECT {", ".join(cols)} FROM {_AUDIT_TABLE[event_type]} WHERE cluster_id = %s'
+    if event_type == 'cluster_health':
+        sql += ' ORDER BY id DESC LIMIT 1'
+    cur.execute(sql, [cluster_id])
+    prev = {}
+    for row in cur.fetchall():
+        key, st = _identity(event_type, dict(zip(cols, row)))
+        prev[key] = st
+    return prev
+
+
+def _usage_pct(f) -> float | None:
+    """A forecast's current usage as a percentage, for resource_exhaustion.current_usage_pct:
+    CPU is a percentage already; RAM and other byte dimensions are taken against the forecast's
+    capacity, or NULL when there is none. Storing the raw value put RAM bytes in a percent column
+    (the report printed '320000000000.0%')."""
+    if f.current_usage is None:
+        return None
+    if f.resource_dimension == 'cpu':
+        return f.current_usage
+    if f.current_capacity:
+        return round(f.current_usage / f.current_capacity * 100.0, 2)
+    return None
 
 
 def _dt(value) -> str | None:
@@ -149,6 +217,45 @@ class Writer:
         except Exception:
             log.exception('Retention cleanup failed')
 
+    def prune_audit(self, retention_months: int) -> int:
+        """Delete this cluster's audit events (and their webhook delivery rows) older than
+        retention_months, in batches. Events someone acted on (audit.action_log) are kept.
+        Returns the number of events deleted."""
+        months = max(1, int(retention_months or 12))
+        total = 0
+        try:
+            while True:
+                with db.connect(self._cfg) as conn:
+                    with conn.cursor() as cur:
+                        # one statement: the delivery rows that reference the events go first
+                        # (foreign keys are checked at the end of the statement)
+                        cur.execute(
+                            '''
+                            WITH old AS (
+                                SELECT re.id FROM audit.recommendation_events re
+                                 WHERE re.cluster_id = %s
+                                   AND re.emitted_at < NOW() - make_interval(months => %s)
+                                   AND NOT EXISTS (SELECT 1 FROM audit.action_log a
+                                                    WHERE a.recommendation_event_id = re.id)
+                                 LIMIT %s
+                            ), deliveries AS (
+                                DELETE FROM audit.webhook_deliveries
+                                 WHERE recommendation_event_id IN (SELECT id FROM old)
+                            )
+                            DELETE FROM audit.recommendation_events WHERE id IN (SELECT id FROM old)
+                            ''',
+                            [self._cfg.cluster_id, months, _AUDIT_PRUNE_BATCH],
+                        )
+                        n = cur.rowcount
+                total += max(0, n)
+                if n < _AUDIT_PRUNE_BATCH:
+                    break
+            if total:
+                log.info('Audit retention cleanup', extra={'deleted': total, 'retention_months': months})
+        except Exception:
+            log.exception('Audit retention cleanup failed')
+        return total
+
     # ------------------------------------------------------------------
     # forecasts
     # ------------------------------------------------------------------
@@ -164,6 +271,7 @@ class Writer:
         try:
             with db.connect(self._cfg) as conn:
                 with conn.cursor() as cur:
+                    previous = _previous_state(cur, 'forecast_snapshot', forecasts[0].cluster_id)
                     cur.execute(
                         'DELETE FROM recommendations.forecast_snapshots WHERE cluster_id = %s',
                         [forecasts[0].cluster_id],
@@ -205,7 +313,7 @@ class Writer:
 
         # write audit events (separate transaction — audit must not be lost
         # if the recommendations write somehow partially failed)
-        self._emit_audit_events(inserted_ids, 'forecast_snapshot', 'recommendations.forecast_snapshots')
+        self._emit_audit_events(inserted_ids, 'forecast_snapshot', 'recommendations.forecast_snapshots', previous)
 
         # derive and write resource exhaustion records from these forecasts
         self._write_exhaustion(forecasts)
@@ -223,6 +331,7 @@ class Writer:
         try:
             with db.connect(self._cfg) as conn:
                 with conn.cursor() as cur:
+                    previous = _previous_state(cur, 'right_sizing', results[0].cluster_id)
                     cur.execute(
                         'DELETE FROM recommendations.right_sizing WHERE cluster_id = %s',
                         [results[0].cluster_id],
@@ -265,7 +374,7 @@ class Writer:
             log.exception('Failed to write right-sizing results')
             return
 
-        self._emit_audit_events(inserted_ids, 'right_sizing', 'recommendations.right_sizing')
+        self._emit_audit_events(inserted_ids, 'right_sizing', 'recommendations.right_sizing', previous)
 
     # ------------------------------------------------------------------
     # resource exhaustion (derived from forecasts)
@@ -301,6 +410,7 @@ class Writer:
         try:
             with db.connect(self._cfg) as conn:
                 with conn.cursor() as cur:
+                    previous = _previous_state(cur, 'resource_exhaustion', cluster_id)
                     cur.execute(
                         'DELETE FROM recommendations.resource_exhaustion WHERE cluster_id = %s',
                         [cluster_id],
@@ -323,7 +433,7 @@ class Writer:
                                 f.resource_dimension,
                                 days,
                                 f.exhaustion_date,
-                                f.current_usage,
+                                _usage_pct(f),
                                 growth,
                                 f.severity,
                             ),
@@ -336,7 +446,7 @@ class Writer:
             log.exception('Failed to write exhaustion records')
             return
 
-        self._emit_audit_events(inserted_ids, 'resource_exhaustion', 'recommendations.resource_exhaustion')
+        self._emit_audit_events(inserted_ids, 'resource_exhaustion', 'recommendations.resource_exhaustion', previous)
 
     # ------------------------------------------------------------------
     # resize recommendations (C3-C6)
@@ -351,6 +461,7 @@ class Writer:
         try:
             with db.connect(self._cfg) as conn:
                 with conn.cursor() as cur:
+                    previous = _previous_state(cur, 'resize_recommendation', advice[0].cluster_id)
                     cur.execute(
                         'DELETE FROM recommendations.resize_recommendations WHERE cluster_id = %s',
                         [advice[0].cluster_id],
@@ -393,7 +504,7 @@ class Writer:
             return
 
         self._emit_audit_events(
-            inserted_ids, 'resize_recommendation', 'recommendations.resize_recommendations'
+            inserted_ids, 'resize_recommendation', 'recommendations.resize_recommendations', previous
         )
 
     # ------------------------------------------------------------------
@@ -406,6 +517,7 @@ class Writer:
         try:
             with db.connect(self._cfg) as conn:
                 with conn.cursor() as cur:
+                    previous = _previous_state(cur, 'cluster_health', health.cluster_id)
                     cur.execute(
                         '''
                         INSERT INTO recommendations.cluster_health_scores
@@ -439,7 +551,7 @@ class Writer:
             return
 
         self._emit_audit_events(
-            inserted_ids, 'cluster_health', 'recommendations.cluster_health_scores'
+            inserted_ids, 'cluster_health', 'recommendations.cluster_health_scores', previous
         )
 
     # ------------------------------------------------------------------
@@ -451,8 +563,22 @@ class Writer:
         inserted: list[tuple[int, object]],
         event_type: str,
         source_table: str,
+        previous: dict | None = None,
     ) -> None:
-        """Write one audit event per inserted recommendation row."""
+        """Write an audit event for each inserted recommendation row that is news: its key was
+        not among the previous cycle's rows (`previous`, {key: state}) or its severity or
+        direction changed. INFO forecast snapshots are never audited."""
+        changed = []
+        for row_id, obj in inserted:
+            if event_type == 'forecast_snapshot' and getattr(obj, 'severity', 'INFO') == 'INFO':
+                continue
+            key, state = _identity(event_type, obj)
+            if previous is not None and previous.get(key) == state:
+                continue
+            changed.append((row_id, obj))
+        inserted = changed
+        if not inserted:
+            return
         try:
             with db.connect(self._cfg) as conn:
                 with conn.cursor() as cur:

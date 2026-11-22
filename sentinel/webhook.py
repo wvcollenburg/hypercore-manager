@@ -19,8 +19,9 @@ Retry schedule
 --------------
 Attempt 1  — immediate
 Attempt 2  — 5 minutes after first failure
-Attempt 3  — 30 minutes after second failure
-> max      — marked dead_letter; requires manual re-trigger or ops action
+Attempt 3+ — 30 minutes after the previous failure
+The attempt numbered SENTINEL_WEBHOOK_MAX_RETRIES (default 3) that fails is marked
+dead_letter; requires manual re-trigger or ops action.
 
 Delivery log
 ------------
@@ -122,12 +123,13 @@ def _build_payload(event: dict) -> dict:
     }
 
 
-def _next_retry_at(attempt_count: int) -> datetime | None:
-    """Return the datetime for the next retry, or None when max retries reached."""
-    idx = attempt_count - 1   # 0-indexed into _RETRY_DELAYS
-    if idx < len(_RETRY_DELAYS):
-        return datetime.now(timezone.utc) + _RETRY_DELAYS[idx]
-    return None   # signals dead_letter
+def _next_retry_at(attempt_count: int, max_attempts: int = 3) -> datetime | None:
+    """Return the datetime for the next retry, or None when attempt_count used up the
+    max_attempts (SENTINEL_WEBHOOK_MAX_RETRIES) and the event goes to dead_letter."""
+    if attempt_count >= max(1, max_attempts):
+        return None   # signals dead_letter
+    idx = min(attempt_count - 1, len(_RETRY_DELAYS) - 1)   # 0-indexed; later retries reuse the last delay
+    return datetime.now(timezone.utc) + _RETRY_DELAYS[idx]
 
 
 def _record_delivery(
@@ -173,7 +175,7 @@ def _dispatch_event(cfg: cfg_module.Config, event: dict, attempt_count: int) -> 
         )
     except Exception as exc:
         # connection/timeout error
-        next_retry = _next_retry_at(attempt_count)
+        next_retry = _next_retry_at(attempt_count, cfg.webhook_max_retries)
         status     = 'dead_letter' if next_retry is None else 'failed'
         log.warning(
             'Webhook delivery failed (connection error)',
@@ -207,7 +209,7 @@ def _dispatch_event(cfg: cfg_module.Config, event: dict, attempt_count: int) -> 
         except Exception:
             log.exception('Failed to record webhook success for event_id=%s', event_id)
     else:
-        next_retry = _next_retry_at(attempt_count)
+        next_retry = _next_retry_at(attempt_count, cfg.webhook_max_retries)
         status     = 'dead_letter' if next_retry is None else 'failed'
         log.warning(
             'Webhook delivery rejected',
@@ -276,25 +278,29 @@ def dispatch_pending(cfg: cfg_module.Config) -> None:
                 )
                 new_events = [dict(r) for r in cur.fetchall()]
 
-                # ── retry queue: failed deliveries past their next_retry_at ──
+                # ── retry queue: events whose LATEST attempt failed and is due ──
+                # the latest row per event is picked first and only then tested: filtering
+                # status/next_retry_at before DISTINCT ON let the stale attempt-1 row match
+                # again after attempt 2 failed, so a failing endpoint got a retry every
+                # dispatch pass (60 s) instead of three attempts in all
                 cur.execute(
                     '''
-                    SELECT DISTINCT ON (wd.recommendation_event_id)
-                           re.id, re.cluster_id, re.event_type, re.severity,
+                    SELECT re.id, re.cluster_id, re.event_type, re.severity,
                            re.emitted_at, re.payload_snapshot,
-                           wd.attempt_count
-                    FROM audit.webhook_deliveries wd
+                           last.attempt_count
+                    FROM (
+                        SELECT DISTINCT ON (wd.recommendation_event_id)
+                               wd.recommendation_event_id, wd.status,
+                               wd.next_retry_at, wd.attempt_count
+                        FROM audit.webhook_deliveries wd
+                        WHERE wd.cluster_id = %s
+                        ORDER BY wd.recommendation_event_id, wd.attempted_at DESC, wd.id DESC
+                    ) last
                     JOIN audit.recommendation_events re
-                         ON re.id = wd.recommendation_event_id
-                    WHERE wd.status         = 'failed'
-                      AND wd.next_retry_at  < NOW()
-                      AND re.cluster_id     = %s
-                      AND NOT EXISTS (
-                          SELECT 1 FROM audit.webhook_deliveries s
-                          WHERE s.recommendation_event_id = re.id
-                            AND s.status IN ('sent', 'dead_letter')
-                      )
-                    ORDER BY wd.recommendation_event_id, wd.attempted_at DESC
+                         ON re.id = last.recommendation_event_id
+                    WHERE last.status        = 'failed'
+                      AND last.next_retry_at < NOW()
+                    ORDER BY last.next_retry_at ASC
                     LIMIT 50
                     ''',
                     [cfg.cluster_id],

@@ -97,7 +97,11 @@ def test_no_personal_contact_email(repo):
 def test_license_is_apache_2(repo):
     text = (repo / 'LICENSE').read_text()
     assert 'Apache License' in text and 'Version 2.0, January 2004' in text
-    assert 'Copyright 2026 Scale Computing' in text
+    assert 'Copyright 2026 William David van Collenburg' in text
+    for rel in ('LICENSE', 'NOTICE', 'README.md'):
+        assert 'Copyright 2026 William David van Collenburg' in (repo / rel).read_text(), rel
+        assert 'Copyright 2026 Scale Computing' not in (repo / rel).read_text(), rel
+        assert 'Copyright (c) 2026 Scale Computing' not in (repo / rel).read_text(), rel
     assert 'All rights reserved' not in text
     assert (repo / 'NOTICE').exists()
 
@@ -165,3 +169,62 @@ def test_root_holds_only_readme_license_and_notice(repo):
     assert root_docs == ['LICENSE', 'NOTICE', 'README.md'], root_docs
     assert (repo / '.github' / 'CONTRIBUTING.md').exists() and (repo / '.github' / 'SECURITY.md').exists()
     assert (repo / 'docs' / 'CHANGELOG.md').exists()
+
+
+def _lang_values(repo, code):
+    text = (repo / 'dashboard' / 'static' / 'lang' / f'{code}.js').read_text(encoding='utf-8')
+    return dict(re.findall(r"^\s*'([A-Za-z0-9_.]+)'\s*:\s*(.*),\s*$", text, re.M))
+
+
+def test_every_tunable_has_a_translated_label(repo):
+    """The Balancer and Foresight setting labels came from CTRL_GROUPS / the Sentinel API in English, and the
+    toggles said ON/OFF, in every language."""
+    html = (repo / 'dashboard' / 'static' / 'index.html').read_text(encoding='utf-8')
+    groups = html[html.index('const CTRL_GROUPS'):html.index('// reverse map: key')]
+    sent = html[html.index('const SENT_INFO'):html.index('const SENT_GROUPS')]
+    keys = set(re.findall(r"\{ key: '([A-Z0-9_]+)'", groups)) | set(re.findall(r"\n  ([A-Z0-9_]+): \{", sent))
+    assert len(keys) >= 40
+    for code in LANGS:
+        missing = {k for k in keys if f'tun.{k}' not in lang_keys(repo, code)}
+        assert not missing, f'{code}.js lacks tun.<KEY> for {sorted(missing)}'
+    assert "? 'ON' : 'OFF'" not in html
+
+
+@pytest.mark.parametrize('code', ('nl', 'fr', 'de'))
+def test_setting_help_is_translated(repo, code):
+    """All 123 info.<KEY>.what/benefits/careful values were the English text in nl, fr and de."""
+    en, other = _lang_values(repo, 'en'), _lang_values(repo, code)
+    info = [k for k in en if re.match(r'info\.[A-Z0-9_]+\.(what|benefits|careful)$', k)]
+    assert len(info) >= 120
+    same = [k for k in info if other.get(k) == en[k]]
+    assert not same, f'{code}.js still has English help for {same[:5]}'
+
+
+@pytest.mark.parametrize('rel', ('dashboard/static/index.html', 'dashboard/static/access.js', 'dashboard/static/mail.js'))
+def test_every_key_the_frontend_asks_for_exists(repo, rel):
+    """t('key') and data-i18n-* name keys of en.js (the parity test carries them to nl, fr and de); a key that is
+    missing shows as the raw key."""
+    src = (repo / rel).read_text(encoding='utf-8')
+    used = set(re.findall(r"\bt\(\s*'([a-zA-Z][\w.]*)'", src))
+    used |= set(re.findall(r'data-i18n(?:-title|-placeholder|-aria-label)?="([^"$]+)"', src))
+    used = {k for k in used if not k.endswith(('.', '_'))}       # t('ve.st_' + status): a prefix
+    missing = used - lang_keys(repo, 'en')
+    assert not missing, f'{rel} asks for keys en.js lacks: {sorted(missing)}'
+
+
+def test_no_fixed_english_texts_or_date_locale(repo):
+    """Time ranges, the update dialog, chart legends, the forecast log, 'Connecting...', '3m ago' and every date
+    were English (dates in a fixed en-GB) whatever the interface language."""
+    html = (repo / 'dashboard' / 'static' / 'index.html').read_text(encoding='utf-8')
+    for label in ('1 day', '7 days', '1 month', '1 year'):
+        for m in re.finditer(rf'>{label}</button>', html):
+            tag = html[html.rfind('<button', 0, m.start()):m.start()]
+            assert 'data-i18n=' in tag, f'time range "{label}" without data-i18n'
+    for text in ("label: 'Total IOPS'", "'just now'", 'No Oracle runs in the selected window', "'⟳ Checking...'",
+                 "'✓ Up to date'", "<th>Queued at</th>", "desc:'Physical node CPU & RAM'", "`Error: ${e.message}`"):
+        assert text not in html, f'English left in index.html: {text}'
+    assert 'id="statusText" data-i18n="header.connecting"' in html
+    assert html.count("'en-GB'") == 3, 'dates follow _hcmLocale(); en-GB only as its English default (twice) and in zone arithmetic'
+    for rel in ('access.js', 'mail.js'):
+        src = (repo / 'dashboard' / 'static' / rel).read_text(encoding='utf-8')
+        assert '.toLocaleString()' not in src, f'{rel}: give toLocaleString the interface locale'

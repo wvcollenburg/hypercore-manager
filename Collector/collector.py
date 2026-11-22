@@ -246,7 +246,51 @@ def collect_fast(cid, nodes, vms, vm_stats, node_info_map):
     return points, vm_info_map
 
 
-def collect_slow(cid, hc, node_info_map):
+# a condition whose fields did not change is written again after this long, so the dashboard's
+# active-alert query (the last point of the past hour) and history (distinct set/clear times plus
+# the latest point) read exactly what they did when every condition was written every slow poll
+CONDITION_HEARTBEAT_SECONDS = 1800
+
+
+def condition_points(cid, conditions, state=None, now=None):
+    """condition_metrics points for the user-visible conditions: each SET or not (the dashboard
+    takes the latest point per condition, so one that clears must be written as value=false or it
+    would stay lit). lastSetTime / lastClearTime (ms) give each episode HyperCore's exact start and
+    end. With `state` (a dict kept per cluster between polls) a condition is written only when one
+    of its fields changed or its last point is CONDITION_HEARTBEAT_SECONDS old; writing every
+    condition every 300 s made the alert-history queries slow on real clusters."""
+    now = time.time() if now is None else now
+    points = []
+    for cond in conditions or []:
+        if not cond.get('userVisible', False):
+            continue
+        tags = {
+            'condition_name': cond.get('name', 'unknown'), 'node_uuid': cond.get('nodeUUID', ''),
+            'node_lan_ip': cond.get('nodeLANIP', ''), 'severity': cond.get('severity', 'INFO'),
+        }
+        fields = {
+            'value': bool(cond.get('value', False)), 'is_ok': bool(cond.get('isOK', True)),
+            'is_expired': bool(cond.get('isExpired', False)), 'description': cond.get('description', ''),
+            'last_set_time': int(cond.get('lastSetTime') or 0), 'last_clear_time': int(cond.get('lastClearTime') or 0),
+            'tags': ','.join(str(t) for t in (cond.get('tags') or [])),
+        }
+        if state is not None:
+            key = (tags['condition_name'], tags['node_uuid'])
+            sig = (tuple(sorted(tags.items())), tuple(sorted(fields.items())))
+            prev = state.get(key)
+            if prev and prev[0] == sig and now - prev[1] < CONDITION_HEARTBEAT_SECONDS:
+                continue
+            state[key] = (sig, now)
+        p = Point("condition_metrics").tag("cluster_id", cid)
+        for k, v in tags.items():
+            p = p.tag(k, v)
+        for k, v in fields.items():
+            p = p.field(k, v)
+        points.append(p)
+    return points
+
+
+def collect_slow(cid, hc, node_info_map, cond_state=None):
     """Collects low-frequency data: snapshots, replication, cluster info, conditions."""
     points = []
 
@@ -306,26 +350,7 @@ def collect_slow(cid, hc, node_info_map):
     # =========================================================================
     # conditions — cluster health alerts
     # =========================================================================
-    conditions = fetch_safe(hc, "/Condition")
-    for cond in conditions:
-        # every user-visible condition, SET or not: the dashboard takes the latest point per
-        # condition, so one that clears must be written as value=false or it would stay lit.
-        # lastSetTime / lastClearTime (ms) give each episode HyperCore's exact start and end.
-        if not cond.get('userVisible', False):
-            continue
-        p = Point("condition_metrics").tag("cluster_id", cid) \
-            .tag("condition_name", cond.get('name', 'unknown')) \
-            .tag("node_uuid", cond.get('nodeUUID', '')) \
-            .tag("node_lan_ip", cond.get('nodeLANIP', '')) \
-            .tag("severity", cond.get('severity', 'INFO')) \
-            .field("value", bool(cond.get('value', False))) \
-            .field("is_ok", bool(cond.get('isOK', True))) \
-            .field("is_expired", bool(cond.get('isExpired', False))) \
-            .field("description", cond.get('description', '')) \
-            .field("last_set_time", int(cond.get('lastSetTime') or 0)) \
-            .field("last_clear_time", int(cond.get('lastClearTime') or 0)) \
-            .field("tags", ','.join(str(t) for t in (cond.get('tags') or [])))
-        points.append(p)
+    points.extend(condition_points(cid, fetch_safe(hc, "/Condition"), cond_state))
 
     return points
 
@@ -381,6 +406,7 @@ class ClusterWorker(threading.Thread):
         self._seen_moves: set[str] = set()
         self._nodes_sig = None          # last node list stored in the registry (uuid, ip, status, ...)
         self._nodes_stored_at = 0.0
+        self._cond_state: dict = {}     # (condition, node) -> (fields last written, when)
 
     def log(self, msg):
         print(f"[{_ts()}] [{self.cluster.name}] {msg}")
@@ -450,6 +476,7 @@ class ClusterWorker(threading.Thread):
             write_retries      = config_db.get('INFLUX_WRITE_RETRIES', self.cid) or 3
             retry_delay        = config_db.get('INFLUX_RETRY_DELAY', self.cid)   or 5
 
+            conditions_unwritten = False
             try:
                 nodes = fetch_data(self.hc, "/Node")
                 vms = fetch_data(self.hc, "/VirDomain")
@@ -460,7 +487,8 @@ class ClusterWorker(threading.Thread):
 
                 slow_points = []
                 if time.time() - last_slow_poll >= slow_poll_interval:
-                    slow_points = collect_slow(self.cid, self.hc, node_info_map)
+                    slow_points = collect_slow(self.cid, self.hc, node_info_map, self._cond_state)
+                    conditions_unwritten = True
                     last_slow_poll = time.time()
                     # pick up a changed API switch and (unless v1 is forced) re-probe REST v2
                     fresh = cluster_registry.get(self.cid)
@@ -481,6 +509,7 @@ class ClusterWorker(threading.Thread):
                 if self.cluster.uses_v2:
                     self._poll_tasks(all_points)
                 if write_with_retry(self.write_api, INFLUX_BUCKET, all_points, write_retries, retry_delay):
+                    conditions_unwritten = False
                     slow_note = f" + {len(slow_points)} slow" if slow_points else ""
                     self.log(f"Wrote {len(all_points)} datapoints ({len(fast_points)} fast{slow_note}).")
 
@@ -504,6 +533,8 @@ class ClusterWorker(threading.Thread):
             except Exception as e:
                 self.log(f"Unexpected Error: {e}")
                 cluster_registry.mark_error(self.cid, str(e))
+            if conditions_unwritten:
+                self._cond_state.clear()        # nothing was stored: write every condition next slow poll
 
             self.stop.wait(poll_interval)
 
@@ -544,6 +575,11 @@ def main():
                         ev.set()
                         del workers[cid]
                 for cid, c in clusters.items():
+                    # a worker that ended on its own (an exception nothing caught) is replaced, as the
+                    # balancer does: without this its cluster stays without metrics until a restart
+                    if cid in workers and not workers[cid][0].is_alive():
+                        print(f"[{_ts()}] Collector for {c.name} stopped unexpectedly; starting it again.")
+                        del workers[cid]
                     if cid not in workers:
                         ev = threading.Event()
                         w = ClusterWorker(c, write_api, ev)

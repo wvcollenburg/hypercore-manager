@@ -10,8 +10,9 @@ sweep    remove stale restore directories under a folder on the target
 bench    measure write/read throughput onto a target through the paths a backup and a restore use
 
 Every job request carries the target (uri, username, password); the proxy mounts it for the
-job and never stores the credentials. Progress and results are kept in memory and mirrored as
-json under <data_dir>/jobs so a restarted proxy can still answer for finished jobs.
+job and never stores the credentials: a job drops its request when it ends. Progress and results
+are kept in memory and mirrored as json under <data_dir>/jobs (for a look on the VM itself), both
+for the newest KEEP_FINISHED finished jobs. A restarted proxy does not know earlier jobs.
 """
 from __future__ import annotations
 
@@ -68,13 +69,50 @@ def grown_tail(prev_size: int | None, size: int) -> dict | None:
     return {'lower': prev_size // copier.MiB, 'upper': (size - 1) // copier.MiB}
 
 
+_FINISHED = ('done', 'failed', 'cancelled')
+
+
 class Engine:
+    KEEP_FINISHED = 300                  # finished jobs kept in memory and as json; older ones are forgotten
+
     def __init__(self, cfg, backend, mounter):
         self.cfg, self.backend, self.mounter = cfg, backend, mounter
         self.jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=max(1, cfg.concurrency), thread_name_prefix='job')
         os.makedirs(os.path.join(cfg.data_dir, 'jobs'), exist_ok=True)
+        self._trim_job_files()
+
+    def _job_file(self, job_id: str) -> str:
+        return os.path.join(self.cfg.data_dir, 'jobs', f'{job_id}.json')
+
+    def _trim_job_files(self) -> None:
+        """Earlier container lives left one json per job, never removed: keep the newest KEEP_FINISHED."""
+        d = os.path.join(self.cfg.data_dir, 'jobs')
+        try:
+            files = sorted((e for e in os.scandir(d) if e.name.endswith('.json')), key=lambda e: e.stat().st_mtime)
+        except OSError:
+            return
+        for e in files[:max(0, len(files) - self.KEEP_FINISHED)]:
+            try:
+                os.unlink(e.path)
+            except OSError:
+                pass
+
+    def _forget_old(self, job: Job) -> None:
+        """A job has ended: its request (with the target's password) goes, and finished jobs beyond the
+        newest KEEP_FINISHED leave memory and disk."""
+        job.request = {}
+        with self._lock:
+            finished = [j for j in self.jobs.values() if j.state in _FINISHED]
+            drop = finished[:max(0, len(finished) - self.KEEP_FINISHED)]
+            for j in drop:
+                self.jobs.pop(j.id, None)
+        for j in drop:
+            try:
+                os.unlink(self._job_file(j.id))
+            except OSError:
+                pass
 
     # ---------------------------------------------------------------- registry
     def submit(self, kind: str, request: dict) -> Job:
@@ -96,24 +134,34 @@ class Engine:
     def _persist(self, job: Job) -> None:
         job.updated_at = _now()
         try:
-            manifest.write_json(os.path.join(self.cfg.data_dir, 'jobs', f'{job.id}.json'), job.public())
+            manifest.write_json(self._job_file(job.id), job.public())
         except OSError:
             pass
 
     def _guard(self, job: Job, runner) -> None:
+        if job.cancelled():                         # cancelled while it was queued: it never runs
+            job.state, job.error = 'cancelled', 'cancelled before it started'
+            self._persist(job)
+            self._forget_old(job)
+            return
         job.state = 'running'
         self._persist(job)
         try:
             job.result = runner(job)
-            job.state = 'cancelled' if job.cancelled() else 'done'
+            job.state = 'done'                      # it got to the end: a cancel that came too late changes nothing
         except Exception as e:                      # noqa: BLE001 — the job is the error boundary
-            log.exception('job %s (%s) failed', job.id, job.kind)
-            job.state = 'failed'
+            if job.cancelled() and str(e) == 'cancelled':
+                log.info('job %s (%s) cancelled', job.id, job.kind)
+                job.state = 'cancelled'
+            else:
+                log.exception('job %s (%s) failed', job.id, job.kind)
+                job.state = 'failed'
             job.error = str(e)
         finally:
             job.progress.pop('current_device', None)
             job.progress.pop('current', None)
             self._persist(job)
+            self._forget_old(job)
 
     # ---------------------------------------------------------------- helpers
     def _with_target(self, req: dict):
@@ -265,6 +313,8 @@ class Engine:
             for d in pm.get('devices', []):
                 if only and d['uuid'] not in only:
                     continue
+                if job.cancelled():
+                    raise RuntimeError('cancelled')
                 src = os.path.join(chain_dir, point['dir'], d['file'])
                 name = req.get('files', {}).get(d['uuid'], d['file'])
                 dst = os.path.join(out_dir, name)
@@ -295,6 +345,8 @@ class Engine:
         try:
             chain_dir = os.path.join(root, req['chain_dir'])
             chain = manifest.load_chain(chain_dir)
+            job.progress = {'phase': 'checksum'}
+            healed = self._heal_legacy_prune(chain_dir, chain)
             seq, upto = req.get('seq'), req.get('upto_seq')
             points = [p for p in chain['points'] if (seq is None or p['seq'] == int(seq)) and (upto is None or p['seq'] <= int(upto))]
             job.progress = {'points_total': len(points), 'points_done': 0, 'bytes_done': 0,
@@ -314,7 +366,7 @@ class Engine:
                 job.progress['points_done'] += 1
                 self._persist(job)
             return {'ok': bool(points) and all(r['ok'] for r in results.values()), 'points': results,
-                    'bytes': done, 'duration_s': round(time.time() - t0, 1)}
+                    'bytes': done, 'duration_s': round(time.time() - t0, 1), 'healed': healed}
         finally:
             self._release_target(req)
 
@@ -327,10 +379,13 @@ class Engine:
         req = job.request
         job.progress = {'targets': len(req.get('targets') or [])}
         try:
-            return netcheck.run(req['mac'], req['probe'], req.get('targets') or [], dhcp=req.get('dhcp') or None,
-                                wait_s=float(req.get('wait_s') or 0), cancelled=job.cancelled)
+            out = netcheck.run(req['mac'], req['probe'], req.get('targets') or [], dhcp=req.get('dhcp') or None,
+                               wait_s=float(req.get('wait_s') or 0), cancelled=job.cancelled)
         except netcheck.NetcheckError as e:
             raise RuntimeError(str(e)) from None
+        if job.cancelled() and not out.get('answered'):
+            raise RuntimeError('cancelled')         # stopped waiting early: no verdict
+        return out
 
     # ---------------------------------------------------------------- sweep
     def run_sweep(self, job: Job) -> dict:
@@ -422,40 +477,132 @@ class Engine:
             points = sorted(chain['points'], key=lambda p: p['seq'])
             keep_min = int(req['keep_min_seq'])
             job.progress = {'dropped': 0, 'to_drop': len([p for p in points if p['seq'] < keep_min])}
+            # a commit rewrites the base file and a rebase rewrites the next delta's header: the checksums in
+            # their manifests are of files that no longer exist in that form. Remember what changed and hash
+            # it again once the chain has its final shape (once per file, not once per dropped point).
+            base_changed: set[str] = set()
+            rebased: tuple[str, set[str]] | None = None
+            # Crash safety: every step leaves chain.json and the manifests in a state a retry can continue
+            # from. The base manifest is replaced first, chain.json gets the new shape next, nxt's directory
+            # goes last; a retry that finds the base already holding nxt's manifest only finishes the
+            # bookkeeping (before, it read the vanished nxt's manifest as {} and wrote that over the base).
             while points and points[0]['seq'] < keep_min:
+                if job.cancelled():                                     # between points: the chain is whole here
+                    break
                 oldest, nxt = points[0], points[1] if len(points) > 1 else None
                 base_dir = os.path.join(chain_dir, oldest['dir'])
                 if nxt is None:
                     break
                 nxt_dir = os.path.join(chain_dir, nxt['dir'])
-                nxt_m = manifest.read_json(os.path.join(nxt_dir, manifest.POINT_FILE)) or {}
-                for d in nxt_m.get('devices', []):
-                    delta_file = os.path.join(nxt_dir, d['file']); base_file = os.path.join(base_dir, d['file'])
-                    if self.backend.name == 'file':
-                        shutil.copyfile(delta_file, base_file)          # raw files: the delta is complete
-                    elif os.path.exists(base_file) and not d.get('full'):
-                        self.backend.commit(delta_file)                 # fold the delta into its base
-                    else:
-                        shutil.move(delta_file, base_file)              # device that got a full inside this delta
-                    after = points[2] if len(points) > 2 else None
-                    if after and self.backend.name != 'file':
-                        after_file = os.path.join(chain_dir, after['dir'], d['file'])
-                        if os.path.exists(after_file):
-                            self.backend.rebase(after_file, base_file)
-                # the base directory now holds nxt's state: move nxt's manifest in, drop nxt's dir
-                nxt_m['dir'] = oldest['dir']
-                nxt_m['note'] = f"committed from {nxt['dir']} on {_now()}"
-                manifest.write_json(os.path.join(base_dir, manifest.POINT_FILE), nxt_m)
-                shutil.rmtree(nxt_dir, ignore_errors=True)
+                after = points[2] if len(points) > 2 else None
+                rebased = None                                          # the point rebased last time is the one folded in now
+                base_m = manifest.read_json(os.path.join(base_dir, manifest.POINT_FILE)) or {}
+                if base_m.get('seq') is not None and int(base_m['seq']) == int(nxt['seq']):
+                    # an earlier prune folded nxt in and stopped before chain.json said so
+                    log.warning('prune of %s: %s was already folded into %s; finishing that step', chain_dir, nxt['dir'], oldest['dir'])
+                    files = {d['file'] for d in base_m.get('devices', [])}
+                    if self.backend.name != 'file':
+                        base_changed |= files
+                        if after:
+                            rebased = (after['dir'], {f for f in files if os.path.exists(os.path.join(chain_dir, after['dir'], f))})
+                else:
+                    nxt_m = manifest.read_json(os.path.join(nxt_dir, manifest.POINT_FILE))
+                    if not nxt_m:
+                        raise RuntimeError(f'{nxt["dir"]} has no readable manifest; prune stopped, {oldest["dir"]} left as it is')
+                    for d in nxt_m.get('devices', []):
+                        delta_file = os.path.join(nxt_dir, d['file']); base_file = os.path.join(base_dir, d['file'])
+                        if self.backend.name == 'file':
+                            shutil.copyfile(delta_file, base_file)      # raw files: the delta is complete
+                            base_changed.discard(d['file'])             # ... and so is its checksum
+                        elif not os.path.exists(delta_file) and os.path.exists(base_file):
+                            base_changed.add(d['file'])                 # moved there by an attempt that stopped halfway
+                        elif os.path.exists(base_file) and not d.get('full'):
+                            self.backend.commit(delta_file)             # fold the delta into its base
+                            base_changed.add(d['file'])
+                        else:
+                            shutil.move(delta_file, base_file)          # device that got a full inside this delta
+                            base_changed.discard(d['file'])             # the same file under another name
+                        if after and self.backend.name != 'file':
+                            after_file = os.path.join(chain_dir, after['dir'], d['file'])
+                            if os.path.exists(after_file):
+                                self.backend.rebase(after_file, base_file)
+                                if rebased is None:
+                                    rebased = (after['dir'], set())
+                                rebased[1].add(d['file'])
+                    # the base directory now holds nxt's state: move nxt's manifest in
+                    nxt_m['dir'] = oldest['dir']
+                    nxt_m['note'] = f"committed from {nxt['dir']} on {_now()}"
+                    manifest.write_json(os.path.join(base_dir, manifest.POINT_FILE), nxt_m)
                 nxt['dir'] = oldest['dir']
                 points.pop(0)
+                chain['points'] = list(points)
+                manifest.save_chain(chain_dir, chain)
+                shutil.rmtree(nxt_dir, ignore_errors=True)
                 job.progress['dropped'] += 1
                 self._persist(job)
+            # the base is marked as hashed after its commit: a base that carries the 'committed from' note
+            # without the mark was pruned by an older proxy and is healed once by the next verify
+            stale = [(points[0]['dir'], base_changed, True)] if points and job.progress['dropped'] else []
+            if rebased and any(p['dir'] == rebased[0] for p in points):
+                stale.append((rebased[0], rebased[1], False))
+            if any(files for _, files, _ in stale):
+                job.progress['phase'] = 'checksum'
+                self._persist(job)
+            for point_dir, files, mark in stale:
+                self._rehash(os.path.join(chain_dir, point_dir), files, mark=mark)
             chain['points'] = points
             manifest.save_chain(chain_dir, chain)
+            if job.cancelled() and len(points) > 1 and points[0]['seq'] < keep_min:
+                raise RuntimeError('cancelled')                         # after the checksums: what was dropped is consistent
             return {'dirs': {str(p['seq']): p['dir'] for p in points}, 'dropped': job.progress['dropped']}
         finally:
             self._release_target(req)
+
+    @staticmethod
+    def _rehash(point_dir: str, files: set[str], mark: bool = False, healed: bool = False) -> None:
+        """Write the current sha256 of `files` into the point's manifest (after a commit or rebase changed them).
+        mark: the point is a base whose checksums were taken after its commit (LEGACY_COMMIT_NOTE without it
+        means an older proxy pruned it); healed: stamp healed_at (see _heal_legacy_prune)."""
+        path = os.path.join(point_dir, manifest.POINT_FILE)
+        m = manifest.read_json(path)
+        if not m:
+            return
+        for d in m.get('devices', []):
+            if d.get('file') in files and os.path.exists(os.path.join(point_dir, d['file'])):
+                d['sha256'] = manifest.sha256_file(os.path.join(point_dir, d['file']))
+        if mark:
+            m['checksums_after_commit'] = True
+        if healed:
+            m['healed_at'] = _now()
+        manifest.write_json(path, m)
+
+    LEGACY_COMMIT_NOTE = 'committed from '
+
+    def _heal_legacy_prune(self, chain_dir: str, chain: dict) -> list[str]:
+        """Proxies before 0.6.3 left stale checksums after a prune in two manifests: the base (its file was
+        committed into) and the point after it (rebased). They would heal only on the next prune, which may
+        never come, and until then every verification fails and a verified restore refuses the chain. Such a
+        base carries the 'committed from' note without the checksums_after_commit mark that run_prune writes
+        now: re-hash both points once, trusting their current file contents, and mark the base. Returns the
+        point directories healed."""
+        pts = sorted(chain.get('points') or [], key=lambda p: p['seq'])
+        if not pts:
+            return []
+        base_dir = os.path.join(chain_dir, pts[0]['dir'])
+        bm = manifest.read_json(os.path.join(base_dir, manifest.POINT_FILE)) or {}
+        if not str(bm.get('note') or '').startswith(self.LEGACY_COMMIT_NOTE) or bm.get('checksums_after_commit'):
+            return []
+        healed = []
+        if len(pts) > 1:                                    # the next point first: the base's mark is the last write
+            nxt_dir = os.path.join(chain_dir, pts[1]['dir'])
+            nm = manifest.read_json(os.path.join(nxt_dir, manifest.POINT_FILE)) or {}
+            if nm:
+                self._rehash(nxt_dir, {d['file'] for d in nm.get('devices', [])}, healed=True)
+                healed.append(pts[1]['dir'])
+        self._rehash(base_dir, {d['file'] for d in bm.get('devices', [])}, mark=True, healed=True)
+        healed.insert(0, pts[0]['dir'])
+        log.warning('checksums of %s re-taken once (pruned by a proxy before 0.6.3): %s', chain_dir, ', '.join(healed))
+        return healed
 
     def run_delete_chain(self, job: Job) -> dict:
         req = job.request

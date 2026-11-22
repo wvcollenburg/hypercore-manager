@@ -20,14 +20,20 @@ Authentication: Bearer token (PROXY_API_TOKEN). An empty token disables auth, fo
 """
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import socket
+import ssl
 import threading
 import time
+import unicodedata
 from functools import wraps
+from urllib.parse import quote
 
 from flask import Flask, Response, jsonify, request
+from werkzeug.serving import WSGIRequestHandler
+from werkzeug.serving import make_server as _make_server
 
 import identity as identity_mod
 import mounts as mounts_mod
@@ -49,6 +55,15 @@ _REQUIRED = {
 }
 
 
+def attachment(name: str) -> str:
+    """Content-Disposition for a download whose name may be anything a guest can name a file: an HTTP
+    header is Latin-1, and a name outside it ('Rapport – Q3.docx', 'prijs €.txt') killed the response.
+    RFC 6266: an ASCII fallback for old clients plus filename* with the UTF-8 name percent-encoded."""
+    fallback = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
+    fallback = ''.join('_' if c in '"\\' or ord(c) < 32 or ord(c) == 127 else c for c in fallback).strip() or 'download'
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
+
+
 def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
     app = Flask('proxy.api')
     app.config['API_TOKEN'] = cfg.api_token
@@ -60,7 +75,7 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
             token = app.config.get('API_TOKEN', '')
             if token:
                 auth = request.headers.get('Authorization', '')
-                if not auth.startswith('Bearer ') or auth[7:] != token:
+                if not auth.startswith('Bearer ') or not hmac.compare_digest(auth[7:].encode(), token.encode()):
                     return jsonify({'error': 'Unauthorized'}), 401
             return f(*a, **kw)
         return wrapper
@@ -179,15 +194,24 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
     def list_mounts():
         return jsonify([m.public() for m in (mounts.mounts.values() if mounts else [])])
 
+    def mount_gone(mid):
+        # the backup service shows this text; 'not found' stays in it (it maps that to a 404 of its own)
+        idle = getattr(mounts, 'idle_seconds', 1800) // 60
+        return jsonify({'error': f'mount {mid} not found: it was unmounted (on request, after {idle} minutes '
+                                 'without use, or by a restart of the proxy); open the restore point again'}), 404
+
+    def path_gone(what, path):
+        return jsonify({'error': f'{what} not found in this restore point: {path or "/"}'}), 404
+
     @app.get('/mounts/<mid>/ls')
     @require_token
     def mount_ls(mid):
         try:
             return jsonify(mounts.ls(mid, request.args.get('path') or '/'))
         except KeyError:
-            return jsonify({'error': 'mount not found'}), 404
+            return mount_gone(mid)
         except (FileNotFoundError, NotADirectoryError):
-            return jsonify({'error': 'path not found'}), 404
+            return path_gone('directory', request.args.get('path'))
 
     @app.get('/mounts/<mid>/file')
     @require_token
@@ -196,19 +220,19 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
         try:
             fh, size, name = mounts.open_file(mid, request.args.get('path') or '')
         except KeyError:
-            return jsonify({'error': 'mount not found'}), 404
+            return mount_gone(mid)
         except (FileNotFoundError, IsADirectoryError):
-            return jsonify({'error': 'file not found'}), 404
+            return path_gone('file', request.args.get('path'))
 
         def gen():
-            with fh:
+            with fh, mounts.streaming(mid):
                 while True:
                     b = fh.read(1 << 20)
                     if not b:
                         break
                     yield b
         return Response(stream_with_context(gen()), mimetype='application/octet-stream',
-                        headers={'Content-Length': str(size), 'Content-Disposition': f'attachment; filename="{name}"'})
+                        headers={'Content-Length': str(size), 'Content-Disposition': attachment(name)})
 
     @app.get('/mounts/<mid>/zip')
     @require_token
@@ -220,10 +244,10 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
         try:
             mounts.get(mid)
         except KeyError:
-            return jsonify({'error': 'mount not found'}), 404
+            return mount_gone(mid)
         name = request.args.get('name') or 'recovered-files.zip'
         return Response(stream_with_context(mounts.iter_zip(mid, paths)), mimetype='application/zip',
-                        headers={'Content-Disposition': f'attachment; filename="{name}"'})
+                        headers={'Content-Disposition': attachment(name)})
 
     @app.get('/mounts/<mid>/iso')
     @require_token
@@ -235,7 +259,7 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
         try:
             size = mounts.iso_size(mid, paths)
         except KeyError:
-            return jsonify({'error': 'mount not found'}), 404
+            return mount_gone(mid)
         except (FileNotFoundError, RuntimeError) as e:
             return jsonify({'error': str(e)}), 400
         if request.args.get('size'):
@@ -247,8 +271,11 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
     @require_token
     def unmount_point(mid):
         if mounts is None or mid not in mounts.mounts:
-            return jsonify({'error': 'mount not found'}), 404
-        mounts.unmount(mid)
+            return mount_gone(mid)
+        try:
+            mounts.unmount(mid)
+        except mounts_mod.MountBusy as e:
+            return jsonify({'error': str(e)}), 409
         return jsonify({'ok': True})
 
     @app.delete('/jobs/<job_id>')
@@ -263,7 +290,37 @@ def create_app(cfg, engine, mounts=None, tls_fingerprint=None) -> Flask:
     return app
 
 
-def start(app: Flask, port: int, ssl_context=None) -> None:
-    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=port, threaded=True, use_reloader=False, ssl_context=ssl_context),
-                     name='proxy-api', daemon=True).start()
-    log.info('Proxy REST API started', extra={'port': port, 'tls': bool(ssl_context)})
+class _Handler(WSGIRequestHandler):
+    """Werkzeug's request handler with the TLS handshake moved into the request thread. Werkzeug wraps
+    the listening socket with the default handshake-on-accept, so the handshake ran in the single accept
+    loop: one connection that never spoke TLS froze the whole API (no token needed). Every socket
+    operation is bounded by `timeout`, the handshake included; a slow reader between chunks is not."""
+    timeout = 300
+
+    def handle(self) -> None:
+        if isinstance(self.connection, ssl.SSLSocket):
+            try:
+                self.connection.do_handshake()
+            except (OSError, ValueError) as e:              # timeout, reset, not TLS at all
+                log.debug('TLS handshake from %s failed: %s', self.client_address[0], e)
+                return
+        super().handle()
+
+
+def make_server(app: Flask, port: int, ssl_context=None, host: str = '0.0.0.0'):
+    """A threaded werkzeug server; with TLS (a (cert, key) tuple) the listening socket is wrapped
+    without the handshake on accept, which _Handler does in the request's own thread."""
+    srv = _make_server(host, port, app, threaded=True, request_handler=_Handler)
+    if ssl_context:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(*ssl_context)
+        srv.socket = ctx.wrap_socket(srv.socket, server_side=True, do_handshake_on_connect=False)
+        srv.ssl_context = ctx                               # werkzeug reports https and treats TLS errors as dropped
+    return srv
+
+
+def start(app: Flask, port: int, ssl_context=None, host: str = '0.0.0.0'):
+    srv = make_server(app, port, ssl_context, host)
+    threading.Thread(target=srv.serve_forever, name='proxy-api', daemon=True).start()
+    log.info('Proxy REST API started', extra={'port': srv.port, 'tls': bool(ssl_context)})
+    return srv

@@ -191,6 +191,71 @@ def test_standalone_plans_keep_their_cron_job_and_members_do_not(monkeypatch):
     assert sch.sync_jobs() == 1 and added == ['export-1']
 
 
+def test_a_standalone_plan_missed_while_the_service_was_down_runs_at_start(monkeypatch):
+    """Standalone plans live in a memory job store: a 03:00 run that fell in a restart was skipped until the next day."""
+    now = datetime(2026, 11, 22, 4, 30, tzinfo=AMS)            # restarted at 04:30 local
+    from datetime import timezone as _tz
+    plans = [{'id': 1, 'vm_name': 'a', 'enabled': True, 'run_time': '03:00', 'policy_id': None, 'cluster_timezone': 'Europe/Amsterdam'},
+             {'id': 2, 'vm_name': 'b', 'enabled': True, 'run_time': '03:00', 'policy_id': None, 'cluster_timezone': 'Europe/Amsterdam'},
+             {'id': 3, 'vm_name': 'c', 'enabled': True, 'run_time': '22:00', 'policy_id': None, 'cluster_timezone': 'Europe/Amsterdam'},
+             {'id': 4, 'vm_name': 'd', 'enabled': True, 'run_time': '03:00', 'policy_id': 7, 'cluster_timezone': 'Europe/Amsterdam'},
+             {'id': 5, 'vm_name': 'e', 'enabled': False, 'run_time': '03:00', 'policy_id': None, 'cluster_timezone': 'Europe/Amsterdam'}]
+    last = {2: {'started_at': datetime(2026, 11, 22, 3, 0, 2, tzinfo=AMS).astimezone(_tz.utc)}}
+    monkeypatch.setattr(sch, 'db', types.SimpleNamespace(get_schedules=lambda: plans, last_run_for=lambda pid: last.get(pid)))
+    ran = []
+    monkeypatch.setattr(sch, 'run_now', ran.append)
+    assert sch.catch_up(now.astimezone(_tz.utc)) == [1] and ran == [1], \
+        'only the plan without a run since 03:00; 22:00 yesterday is too long ago; members and paused plans never'
+    assert sch.missed_fire('03:00', 'Europe/Amsterdam', datetime(2026, 11, 22, 8, 0, tzinfo=AMS)) is None
+
+
+def test_one_off_jobs_are_never_dropped_for_starting_late():
+    """On the shared 10-thread pool a one-off job that waited over an hour for a thread was silently dropped
+    (misfire_grace_time 3600): a restore stayed RUNNING, a policy run blocked its plan for good. Reproduced here
+    with a real scheduler whose only thread is busy."""
+    import threading
+    import time as _t
+    from apscheduler.events import EVENT_JOB_MISSED
+    from apscheduler.executors.pool import ThreadPoolExecutor
+    from apscheduler.schedulers.background import BackgroundScheduler
+    s = BackgroundScheduler(executors={'default': ThreadPoolExecutor(1), 'long': ThreadPoolExecutor(1)},
+                            job_defaults={'misfire_grace_time': 1})
+    gate, ran, missed = threading.Event(), [], []
+    s.add_listener(lambda e: missed.append(e.job_id), EVENT_JOB_MISSED)
+    s.start()
+    try:
+        saved = sch._scheduler
+        sch._scheduler = s
+        s.add_job(gate.wait, args=[10], executor='long', id='busy')
+        _t.sleep(0.2)
+        sch._one_off(ran.append, ['restore'], 'restore-1')
+        _t.sleep(1.5)                                    # longer than the grace time while the only thread is busy
+        gate.set()
+        for _ in range(100):
+            if ran:
+                break
+            _t.sleep(0.05)
+    finally:
+        sch._scheduler = saved
+        gate.set()
+        s.shutdown(wait=False)
+    assert ran == ['restore'] and missed == []
+
+
+def test_a_missed_job_closes_its_row_and_frees_its_policy_slot(monkeypatch):
+    updates = []
+    monkeypatch.setattr(sch, 'db', types.SimpleNamespace(
+        update_restore=lambda i, **f: updates.append(('restore', i, f['status'])),
+        update_import=lambda i, **f: updates.append(('import', i, f['status'])),
+        update_deployment=lambda i, **f: updates.append(('deploy', i, f['status'])),
+        update_run=lambda i, **f: updates.append(('run', i, f['status'])), now_utc=lambda: OCC))
+    sch._policy_runs[42] = ('c1', 'incremental')
+    for jid in ('policy-run-42', 'restore-7', 'import-8', 'deploy-9', 'resume-run-10', 'export-11', 'sync'):
+        sch._on_missed(types.SimpleNamespace(job_id=jid))
+    assert 42 not in sch._policy_runs
+    assert updates == [('restore', 7, 'ERROR'), ('import', 8, 'ERROR'), ('deploy', 9, 'ERROR'), ('run', 10, 'ERROR')]
+
+
 def test_policy_fields_validation():
     f = api._policy_fields({'name': ' Nightly ', 'kind': 'incremental', 'rrule': 'freq=weekly;byday=mo',
                             'blackouts': [{'days': ['Mon'], 'from': '7:00', 'to': '19:00'}], 'buffer_minutes': 9999}, True)

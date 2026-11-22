@@ -6,6 +6,7 @@ from the repo's .env (SC_DASHBOARD_USER / SC_DASHBOARD_PASSWORD).
 """
 import http.cookiejar
 import json
+import os
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,7 +17,7 @@ import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'dashboard'))
 
-BASE = 'http://localhost:5000'
+BASE = os.environ.get('HCM_BASE', 'http://localhost:5000')      # as test_integration_rbac: the stack from inside a container
 pytestmark = pytest.mark.integration
 
 
@@ -62,6 +63,16 @@ def session(creds):
             raw = r.read()
             return r.status, (json.loads(raw) if raw else None), r.headers
     return get
+
+
+@pytest.fixture(autouse=True)
+def _stack_up():
+    """Every test here needs the stack: two of them used no fixture and failed, instead of being skipped,
+    when it was not reachable."""
+    try:
+        urllib.request.urlopen(BASE + '/login', timeout=3)
+    except Exception:  # noqa: BLE001
+        pytest.skip('dashboard not reachable on ' + BASE)
 
 
 def test_root_requires_login():

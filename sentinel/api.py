@@ -71,13 +71,26 @@ def _require_token(f):
 # helpers
 # ---------------------------------------------------------------------------
 
+class UnknownCluster(Exception):
+    """?cluster= names a cluster Foresight runs no engine for."""
+
+
+@_api_app.errorhandler(UnknownCluster)
+def _unknown_cluster(e):
+    return jsonify({'error': f'No Foresight engine for cluster {e}'}), 404
+
+
 def _cfg() -> cfg_module.Config:
-    """Config of the cluster this request is about: ?cluster=<uuid> when it names a running
-    engine, otherwise the first engine. The dict is owned and updated by sentinel.py."""
+    """Config of the cluster this request is about: ?cluster=<uuid> must name a running engine
+    (404 otherwise: answering with another cluster's data, or writing its settings, is worse
+    than no answer); without ?cluster= the first engine. The dict is owned and updated by
+    sentinel.py."""
     cfgs: dict = _api_app.config.get('SENTINEL_CFGS') or {}
     wanted = (request.args.get('cluster') or '').strip()
-    if wanted and wanted in cfgs:
-        return cfgs[wanted]
+    if wanted:
+        if wanted in cfgs:
+            return cfgs[wanted]
+        raise UnknownCluster(wanted)
     if cfgs:
         return next(iter(cfgs.values()))
     return _api_app.config['SENTINEL_CFG']   # no cluster registered yet: base config, no data
@@ -752,7 +765,7 @@ def post_whatif():
                 # latest forecast snapshots (30d horizon — for growth rates)
                 cur.execute(
                     '''
-                    SELECT resource_dimension, forecast_horizon_days,
+                    SELECT node_uuid, entity_label, resource_dimension, forecast_horizon_days,
                            current_usage, current_capacity, model_metadata
                     FROM recommendations.forecast_snapshots
                     WHERE cluster_id = %s AND expires_at > NOW()
@@ -766,7 +779,7 @@ def post_whatif():
                 # latest resource exhaustion rows
                 cur.execute(
                     '''
-                    SELECT resource_dimension, exhaustion_date,
+                    SELECT node_uuid, resource_dimension, exhaustion_date,
                            days_until_exhaustion, severity
                     FROM recommendations.resource_exhaustion
                     WHERE cluster_id = %s AND expires_at > NOW()
@@ -874,6 +887,8 @@ def put_tunables():
                 raise ValueError('Must be >= 1')
             if key == 'SENTINEL_OUTCOME_CHECK_DELAY_HOURS' and val < 0:
                 raise ValueError('Must be >= 0')
+            if key == 'SENTINEL_VM_PRUNE_INTERVAL_SECONDS' and val < _tunables.MIN_PRUNE_INTERVAL_SECONDS:
+                raise ValueError(f'Must be >= {_tunables.MIN_PRUNE_INTERVAL_SECONDS}')   # 0 made the pruning loop spin
             validated[key] = val
         except (ValueError, TypeError) as e:
             errors[key] = str(e)
@@ -905,8 +920,9 @@ def post_trend_run():
             'success': False,
             'error':   'Trigger not configured — analysis loop is not running.',
         }), 503
+    cid = _cfg().cluster_id
     try:
-        trigger(_cfg().cluster_id)
+        trigger(cid)
     except Exception as e:
         log.exception('POST /api/v1/trend/run: trigger failed')
         return jsonify({'success': False, 'error': str(e)}), 500

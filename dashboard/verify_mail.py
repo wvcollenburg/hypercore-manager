@@ -134,7 +134,7 @@ def run_once(conn=None) -> int:
             return 0
         tree = access_db.load_tree()
         candidates = _mailable_candidates()
-        link = mailer.link_base(None)
+        link = mailer.link_base()
         by_folder: dict = {}
         for r in rows:
             by_folder.setdefault(r['folder_id'], []).append(r)

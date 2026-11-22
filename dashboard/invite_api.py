@@ -161,13 +161,18 @@ def _scope(inv: dict) -> dict:
             'vm_uuid': inv['vm_uuid'], 'vm_name': inv['vm_name']}
 
 
-def _link(token: str, host_url: str | None) -> str:
-    return f'{mailer.link_base(host_url)}/invite/{token}'
+def _link(token: str, base: str | None) -> str:
+    return f"{(base or '').rstrip('/')}/invite/{token}"
 
 
 def _send(inv: dict, token: str, host_url: str | None, by: str) -> dict:
-    """Mail the link; without mail (or on failure) the link comes back for the inviter to pass on."""
-    link = _link(token, host_url)
+    """Mail the link; without mail (or on failure) the link comes back for the inviter to pass on.
+    The mailed link uses the configured address in links only: the inviter's request Host header is theirs
+    to set, so it may only shape the link shown back to the inviter, never one mailed to someone else."""
+    base = mailer.link_base()
+    if not base:
+        return {'sent': False, 'error': mailer.LINK_ADDRESS_MISSING, 'link': _link(token, host_url)}
+    link = _link(token, base)
     if inv['kind'] == 'activate':
         kind, values = 'activate', {}
     else:
@@ -409,6 +414,7 @@ def register(app, requires, public, access, h):
             return False
         session.clear()
         session['user_id'], session['username'], session['role'] = str(full['user_id']), full['username'], full['role']
+        session['gen'] = int(full.get('session_gen') or 0)      # the generation the session was started at
         return True
 
     @app.route('/invite/<token>', methods=['GET', 'POST'])

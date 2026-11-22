@@ -114,6 +114,11 @@
   .user-menu-who { padding: 6px 10px 8px; font-size: 12px; color: var(--ink-3); border-bottom: 1px solid var(--border); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; }
   .user-menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
   .user-menu a.rail-nav { text-decoration: none; }
+  /* sign out is a POST (a link could be triggered from another site): buttons that look like the links they replace */
+  .logout-form { margin: 0; }
+  .logout-form button.rail-nav { width: 100%; background: none; border: 0; font: inherit; color: inherit; text-align: left; }
+  .logout-link { background: none; border: 0; padding: 0; font: inherit; font-size: 12px; color: var(--text-muted); cursor: pointer; }
+  .logout-link:hover { color: var(--accent-blue); }
 
   /* module tabs, inside the bar */
   .nav-tabs { display: flex; align-self: stretch; gap: 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
@@ -1044,6 +1049,8 @@
   /* ── nav logout button ───────────────────────────────────────────────── */
 
   /* ── data quality banner ──────────────────────────────────────────────── */
+  /* clickable elements that are not buttons, made keyboard reachable by _kbdMark() */
+  [data-kbd]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   #dataQualityBanner {
     display: none;
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999;
@@ -1055,6 +1062,8 @@
     text-align: center;
   }
   #dataQualityBanner.visible { display: block; }
+  /* the banner is fixed over the bottom of the page: leave room for it so the last table row stays readable */
+  body.has-dq-banner { padding-bottom: 56px; }
   #dataQualityBanner.info { background: linear-gradient(var(--info-bg), var(--info-bg)), var(--surface); border-top-color: var(--info); color: var(--info); }
   #dataQualityBanner.warn { background: linear-gradient(var(--warn-bg), var(--warn-bg)), var(--surface); border-top-color: var(--warn); color: var(--warn); }
 
@@ -1159,9 +1168,9 @@
     <div class="nav-tab" data-tab="settings" onclick="switchTab('settings')" id="navTabSettings" data-i18n="nav.settings_short" hidden>Settings</div>
   </nav>
   <div class="header-right">
-    <div class="tb-status"><div class="status-dot" id="statusDot"></div><span class="status-text" id="statusText">Connecting...</span></div>
+    <div class="tb-status"><div class="status-dot" id="statusDot"></div><span class="status-text" id="statusText" data-i18n="header.connecting">Connecting...</span></div>
     <button class="tb-btn" data-i18n="header.refresh" onclick="vmIndexStale(); refreshAll()">↻ Refresh</button>
-    <button class="update-badge-btn" id="updateBadgeBtn" onclick="openUpdateModal()" title="Software update">Update</button>
+    <button class="update-badge-btn" id="updateBadgeBtn" onclick="openUpdateModal()" title="Software update" data-i18n-title="update.software_update" data-i18n="update.button" hidden>Update</button>
     <div class="lang-picker" id="langPicker">
       <button class="lang-btn tb-btn" id="langBtn" onclick="toggleLangDropdown(event)">
         <span id="langBtnCode">EN</span><span class="tb-caret">▾</span>
@@ -1193,7 +1202,7 @@
   <div id="clusterRailList" class="cluster-rail-list"></div>
 </aside>
 
-<div class="crumbs-line"><nav class="crumbs" id="crumbs" aria-label="breadcrumbs"></nav></div>
+<div class="crumbs-line"><nav class="crumbs" id="crumbs" aria-label="Breadcrumbs" data-i18n-aria-label="nav.breadcrumbs"></nav></div>
 
 <div class="main">
   <!-- ─── Infraviewer tab ─── -->
@@ -1209,8 +1218,8 @@
       <div class="group-controls">
         <span class="group-label" data-i18n="vm.group_by">Group by:</span>
         <button class="group-btn active" data-group="none" data-i18n="vm.group_none" onclick="setVmGroup('none')">None</button>
-        <button class="group-btn" data-group="tag"  onclick="setVmGroup('tag')">Tag</button>
-        <button class="group-btn" data-group="node" onclick="setVmGroup('node')">Node</button>
+        <button class="group-btn" data-group="tag"  onclick="setVmGroup('tag')" data-i18n="vm.group_label.tag">Tag</button>
+        <button class="group-btn" data-group="node" onclick="setVmGroup('node')" data-i18n="vm.group_label.node">Node</button>
         <button class="group-btn" data-group="vlan" onclick="setVmGroup('vlan')">VLAN</button>
         <input type="search" id="vmSearch" class="um-input vm-search" placeholder="Search VMs" data-i18n-placeholder="vm.search_ph"
                title="Name, tags, IP or MAC address, VLAN, mounted ISO, disk, OS, node" data-i18n-title="vm.search_hint"
@@ -1232,10 +1241,10 @@
         <button class="time-range-btn"        data-trpanel="nodes" data-hours="2"    onclick="setNodeTimeRange(2)">2hr</button>
         <button class="time-range-btn"        data-trpanel="nodes" data-hours="6"    onclick="setNodeTimeRange(6)">6hr</button>
         <button class="time-range-btn"        data-trpanel="nodes" data-hours="12"   onclick="setNodeTimeRange(12)">12hr</button>
-        <button class="time-range-btn active" data-trpanel="nodes" data-hours="24"   onclick="setNodeTimeRange(24)">1 day</button>
-        <button class="time-range-btn"        data-trpanel="nodes" data-hours="168"  onclick="setNodeTimeRange(168)">7 days</button>
-        <button class="time-range-btn"        data-trpanel="nodes" data-hours="720"  onclick="setNodeTimeRange(720)">1 month</button>
-        <button class="time-range-btn"        data-trpanel="nodes" data-hours="8760" onclick="setNodeTimeRange(8760)">1 year</button>
+        <button class="time-range-btn active" data-trpanel="nodes" data-hours="24"   onclick="setNodeTimeRange(24)" data-i18n="range.1d">1 day</button>
+        <button class="time-range-btn"        data-trpanel="nodes" data-hours="168"  onclick="setNodeTimeRange(168)" data-i18n="range.7d">7 days</button>
+        <button class="time-range-btn"        data-trpanel="nodes" data-hours="720"  onclick="setNodeTimeRange(720)" data-i18n="range.1mo">1 month</button>
+        <button class="time-range-btn"        data-trpanel="nodes" data-hours="8760" onclick="setNodeTimeRange(8760)" data-i18n="range.1y">1 year</button>
         <div class="fetch-spinner"></div>
       </div>
       <div class="charts-row">
@@ -1265,10 +1274,10 @@
         <button class="time-range-btn"        data-trpanel="vms" data-hours="2"    onclick="setVmTimeRange(2)">2hr</button>
         <button class="time-range-btn"        data-trpanel="vms" data-hours="6"    onclick="setVmTimeRange(6)">6hr</button>
         <button class="time-range-btn"        data-trpanel="vms" data-hours="12"   onclick="setVmTimeRange(12)">12hr</button>
-        <button class="time-range-btn active" data-trpanel="vms" data-hours="24"   onclick="setVmTimeRange(24)">1 day</button>
-        <button class="time-range-btn"        data-trpanel="vms" data-hours="168"  onclick="setVmTimeRange(168)">7 days</button>
-        <button class="time-range-btn"        data-trpanel="vms" data-hours="720"  onclick="setVmTimeRange(720)">1 month</button>
-        <button class="time-range-btn"        data-trpanel="vms" data-hours="8760" onclick="setVmTimeRange(8760)">1 year</button>
+        <button class="time-range-btn active" data-trpanel="vms" data-hours="24"   onclick="setVmTimeRange(24)" data-i18n="range.1d">1 day</button>
+        <button class="time-range-btn"        data-trpanel="vms" data-hours="168"  onclick="setVmTimeRange(168)" data-i18n="range.7d">7 days</button>
+        <button class="time-range-btn"        data-trpanel="vms" data-hours="720"  onclick="setVmTimeRange(720)" data-i18n="range.1mo">1 month</button>
+        <button class="time-range-btn"        data-trpanel="vms" data-hours="8760" onclick="setVmTimeRange(8760)" data-i18n="range.1y">1 year</button>
         <div class="fetch-spinner"></div>
       </div>
       <div class="charts-row">
@@ -1423,7 +1432,7 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;" id="brandingForm">
           <div style="display:flex;flex-direction:column;gap:6px;">
             <label for="brandingCompany" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);" data-i18n="reports.company_name">Company Name</label>
-            <input id="brandingCompany" type="text" placeholder="e.g. Acme Corp"
+            <input id="brandingCompany" type="text" placeholder="e.g. Acme Corp" data-i18n-placeholder="reports.company_ph"
               style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:7px 10px;border-radius:6px;font-size:13px;" />
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;">
@@ -1509,18 +1518,18 @@
           <div id="whatifNodeOptions" style="display:flex;gap:12px;flex-wrap:wrap;">
             <div style="display:flex;flex-direction:column;gap:6px;">
               <label for="whatifStorageTB" data-i18n="whatif.storage_per_node" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">Storage / node (TB, optional)</label>
-              <input id="whatifStorageTB" type="number" min="0" step="0.1" placeholder="cluster avg"
+              <input id="whatifStorageTB" type="number" min="0" step="0.1" placeholder="cluster avg" data-i18n-placeholder="whatif.cluster_avg_ph"
                 style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:160px;" />
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;">
               <label for="whatifRamGB" data-i18n="whatif.ram_per_node" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">RAM / node (GB, optional)</label>
-              <input id="whatifRamGB" type="number" min="0" step="1" placeholder="cluster avg"
+              <input id="whatifRamGB" type="number" min="0" step="1" placeholder="cluster avg" data-i18n-placeholder="whatif.cluster_avg_ph"
                 style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:160px;" />
             </div>
           </div>
           <div id="whatifVmLikeOptions" style="display:none;flex-direction:column;gap:6px;">
             <label for="whatifSourceVm" data-i18n="whatif.template_vm" style="font-size:12px;color:var(--text-secondary);font-family:var(--font-ui);">Template VM</label>
-            <input id="whatifSourceVm" type="text" placeholder="Type or select a VM name"
+            <input id="whatifSourceVm" type="text" placeholder="Type or select a VM name" data-i18n-placeholder="whatif.source_vm_ph"
               list="whatifVmList"
               style="background:var(--bg-input);border:1px solid var(--border-strong);color:var(--text-primary);padding:6px 10px;border-radius:6px;font-size:13px;width:260px;" />
             <datalist id="whatifVmList"></datalist>
@@ -1621,7 +1630,7 @@
     <div class="vm-modal ve-modal" style="width:min(820px,96vw);" role="dialog" aria-modal="true" aria-labelledby="vaTitle">
       <div class="vm-modal-header">
         <div class="vm-modal-title" id="vaTitle"></div>
-        <button class="vm-modal-close" onclick="closeVmAct()">✕</button>
+        <button class="vm-modal-close" onclick="closeVmAct()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
       </div>
       <div id="vaBody"></div>
       <div class="ve-foot" id="vaFoot" hidden>
@@ -1643,7 +1652,7 @@
     <div class="vm-modal ve-modal" role="dialog" aria-modal="true" aria-labelledby="vnTitle">
       <div class="vm-modal-header">
         <div class="vm-modal-title" id="vnTitle" data-i18n="vn.new_vm">New VM</div>
-        <button class="vm-modal-close" onclick="closeNewVm()">✕</button>
+        <button class="vm-modal-close" onclick="closeNewVm()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
       </div>
       <div id="vnBody"></div>
       <div class="ve-foot" id="vnFoot" hidden>
@@ -1664,8 +1673,8 @@
   <div id="vmEditBackdrop" class="vm-modal-backdrop" onclick="closeVmEdit(event)">
     <div class="vm-modal ve-modal" role="dialog" aria-modal="true" aria-labelledby="veTitle">
       <div class="vm-modal-header">
-        <div class="vm-modal-title" id="veTitle">Edit</div>
-        <button class="vm-modal-close" onclick="closeVmEdit()">✕</button>
+        <div class="vm-modal-title" id="veTitle" data-i18n="ve.edit">Edit</div>
+        <button class="vm-modal-close" onclick="closeVmEdit()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
       </div>
       <div id="veBody"></div>
       <div class="ve-foot" id="veFoot" hidden>
@@ -1693,7 +1702,7 @@
     <div class="vm-modal" id="vmDetailModal">
       <div class="vm-modal-header">
         <div style="display:flex;align-items:center;gap:18px;min-width:0;">
-          <div class="vm-modal-title" id="vmDetailTitle">VM Details</div>
+          <div class="vm-modal-title" id="vmDetailTitle" data-i18n="vm.details_title">VM Details</div>
           <div class="vm-tabs">
             <button class="vm-tab active" data-vmtab="info" onclick="switchVmTab('info')" data-i18n="vm.tab_details">Details</button>
             <button class="vm-tab" data-vmtab="perf" onclick="switchVmTab('perf')" data-i18n="vm.tab_performance">Performance</button>
@@ -1706,7 +1715,7 @@
           <button class="refresh-btn" id="vmWhoBtn" hidden data-i18n="acc.who_btn">Who has access</button>
           <button class="refresh-btn" id="vmGuestBtn" hidden data-i18n="gc.outside_btn">Outside access…</button>
           <button class="refresh-btn" id="vmConsoleBtn" hidden onclick="openVmConsole(currentCluster, vmDetailActiveUuid)" data-i18n="console.open" data-i18n-title="console.open_hint" title="Open this VM's console in a new window">Console</button>
-          <button class="vm-modal-close" onclick="closeVmModal()">✕</button>
+          <button class="vm-modal-close" onclick="closeVmModal()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
         </div>
       </div>
       <div class="vmi" id="vmDetailInfo" data-vmpane="info"></div>
@@ -1716,10 +1725,10 @@
             <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="2"    onclick="setVmDetailTimeRange(2)">2hr</button>
             <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="6"    onclick="setVmDetailTimeRange(6)">6hr</button>
             <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="12"   onclick="setVmDetailTimeRange(12)">12hr</button>
-            <button class="time-range-btn active" data-trpanel="vmdetail" data-hours="24"   onclick="setVmDetailTimeRange(24)">1 day</button>
-            <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="168"  onclick="setVmDetailTimeRange(168)">7 days</button>
-            <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="720"  onclick="setVmDetailTimeRange(720)">1 month</button>
-            <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="8760" onclick="setVmDetailTimeRange(8760)">1 year</button>
+            <button class="time-range-btn active" data-trpanel="vmdetail" data-hours="24"   onclick="setVmDetailTimeRange(24)" data-i18n="range.1d">1 day</button>
+            <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="168"  onclick="setVmDetailTimeRange(168)" data-i18n="range.7d">7 days</button>
+            <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="720"  onclick="setVmDetailTimeRange(720)" data-i18n="range.1mo">1 month</button>
+            <button class="time-range-btn"        data-trpanel="vmdetail" data-hours="8760" onclick="setVmDetailTimeRange(8760)" data-i18n="range.1y">1 year</button>
             <div class="fetch-spinner"></div>
       </div>
       <div class="vm-modal-charts">
@@ -1765,6 +1774,9 @@
  * Falls back to the key itself if the string is not found.
  * Supports simple {placeholder} substitution via the params object.
  */
+// dates and times in the interface language (en keeps the 24-hour day-month form it always had)
+function _hcmLocale() { return ({en: 'en-GB', nl: 'nl-NL', fr: 'fr-FR', de: 'de-DE'})[window._hcmLang] || 'en-GB'; }
+
 function t(key, params) {
   const lang = window.LANG || {};
   let str = Object.prototype.hasOwnProperty.call(lang, key) ? lang[key] : key;
@@ -1794,6 +1806,10 @@ function applyI18n() {
   document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
     const val = t(el.dataset.i18nPlaceholder);
     if (val !== el.dataset.i18nPlaceholder) el.placeholder = val;
+  });
+  document.querySelectorAll('[data-i18n-aria-label]').forEach(el => {
+    const val = t(el.dataset.i18nAriaLabel);
+    if (val !== el.dataset.i18nAriaLabel) el.setAttribute('aria-label', val);
   });
 }
 
@@ -1827,6 +1843,25 @@ document.addEventListener('click', function(e) {
 
 // ──────────────────────────────────────────────────────────────────────────
 const API_BASE = window.location.origin;
+
+// A session that is gone (expired, signed out in another tab, account disabled) answers 401 on every
+// API call. Every fetch wrapper (apiFetch, _exCall, _acCall, _folderCall) and the direct fetches go
+// through window.fetch, so the check sits here: the first 401 from our own /api/ sends the page to the
+// login page, once.
+let _hcmSignedOut = false;
+const _hcmFetch = window.fetch.bind(window);
+window.fetch = async function (input, init) {
+  const r = await _hcmFetch(input, init);
+  if (r.status === 401 && !_hcmSignedOut && location.pathname !== '/login') {
+    let url;
+    try { url = new URL(typeof input === 'string' ? input : input.url, location.href); } catch (e) { url = null; }
+    if (url && url.origin === location.origin && url.pathname.startsWith('/api/')) {
+      _hcmSignedOut = true;
+      location.href = '/login';
+    }
+  }
+  return r;
+};
 
 // cluster selection state — declared here because _withCluster() is called by the very first
 // refreshAll() during script execution; a later `let` would still be in its temporal dead zone
@@ -1942,15 +1977,19 @@ function setVmTimeRange(h) {
 }
 
 const MODULE_META = {
-  'node_metrics':     { icon:'⬡', color:'var(--accent-blue)',   desc:'Physical node CPU & RAM' },
-  'vm_metrics':       { icon:'◫', color:'var(--accent-cyan)',   desc:'Virtual machine performance' },
-  'drive_metrics':    { icon:'◉', color:'var(--accent-green)',  desc:'Physical drive health & usage' },
-  'vsd_metrics':      { icon:'◈', color:'var(--accent-amber)',  desc:'Virtual storage device I/O' },
-  'migration_events':           { icon:'⇄', color:'var(--accent-purple)', desc:'Balancer migration log' },
-  'predictive_recommendations': { icon:'🔮', color:'var(--accent-purple)', desc:'Oracle queued recommendations' },
-  'predictive_runs':            { icon:'📊', color:'var(--accent-purple)', desc:'Oracle per-run summary' },
+  'node_metrics':     { icon:'⬡', color:'var(--accent-blue)'   },
+  'vm_metrics':       { icon:'◫', color:'var(--accent-cyan)'   },
+  'drive_metrics':    { icon:'◉', color:'var(--accent-green)'  },
+  'vsd_metrics':      { icon:'◈', color:'var(--accent-amber)'  },
+  'migration_events':           { icon:'⇄', color:'var(--accent-purple)' },
+  'predictive_recommendations': { icon:'🔮', color:'var(--accent-purple)' },
+  'predictive_runs':            { icon:'📊', color:'var(--accent-purple)' },
 };
-function getModuleMeta(n) { return MODULE_META[n] || { icon:'◻', color:'var(--text-secondary)', desc:t('module.auto_desc') }; }
+// the description of a known module is module.desc.<name> in lang/*.js
+function getModuleMeta(n) { return MODULE_META[n] ? {...MODULE_META[n], desc: t('module.desc.' + n)} : { icon:'◻', color:'var(--text-secondary)', desc:t('module.auto_desc') }; }
+function showModuleInfo(name) {
+  hcmAlert(t('module.alert', {name, query: `GET /api/query/${name}?hours=1&limit=100`}), {title: t('module.title')});
+}
 
 function switchTab(t) {
   document.querySelectorAll('.nav-tab, .rail-nav').forEach(e => e.classList.remove('active'));
@@ -1972,8 +2011,8 @@ function switchIvPanel(p) {
   document.getElementById(`ivpanel-${p}`).classList.add('active');
 }
 
-function formatTime(s) { return new Date(s).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }
-function formatDateTime(s) { return new Date(s).toLocaleDateString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); }
+function formatTime(s) { return new Date(s).toLocaleTimeString(_hcmLocale(),{hour:'2-digit',minute:'2-digit'}); }
+function formatDateTime(s) { return new Date(s).toLocaleDateString(_hcmLocale(),{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); }
 function formatBytes(b) {
   if(!b) return '0 B';
   const u=['B','KB','MB','GB','TB']; let i=0, v=b;
@@ -1992,6 +2031,14 @@ let _fetchCount = 0;
 function _fetchStart() { _fetchCount++; document.body.classList.add('fetching'); }
 function _fetchEnd()  { if (--_fetchCount <= 0) { _fetchCount = 0; document.body.classList.remove('fetching'); } }
 
+// fetch for the calls that handle !r.ok themselves: a network error (server gone, connection dropped) becomes a
+// 503 answer whose error says so, instead of an exception that left spinners and "Testing…" up for good
+async function _netFetch(input, init) {
+  try { return await fetch(input, init); }
+  catch (e) {
+    return new Response(JSON.stringify({error: t('msg.network', {msg: e.message})}), {status: 503, headers: {'Content-Type': 'application/json'}});
+  }
+}
 async function apiFetch(ep) {
   _fetchStart();
   try { const r=await fetch(_withCluster(ep)); if(!r.ok) throw new Error(`HTTP ${r.status}`); return await r.json(); }
@@ -2057,8 +2104,8 @@ function renderVsdsForVm(vmUuid) {
         return `
           <div class="sub-item">
             <div class="sub-item-header">
-              <span class="sub-item-name">${v.name}</span>
-              <span style="font-family:var(--font-ui);font-size:11px;padding:2px 6px;border-radius:3px;background:var(--accent-tint);color:var(--accent-2);">${v.type}</span>
+              <span class="sub-item-name">${_clEsc(v.name)}</span>
+              <span style="font-family:var(--font-ui);font-size:11px;padding:2px 6px;border-radius:3px;background:var(--accent-tint);color:var(--accent-2);">${_clEsc(v.type)}</span>
             </div>
             <div class="sub-item-row">
               <span class="sub-item-label">${t('vsd.read')}</span>
@@ -2085,7 +2132,7 @@ function renderVsdsForVm(vmUuid) {
 
 // ─── load nodes + drives ───
 async function loadNodes() {
-  const h = nodeHours;
+  const h = nodeHours, cid = currentCluster;
   const [nodeData, driveData, allDriveData, vsdData, configData] = await Promise.all([
     apiFetch(`/api/nodes?hours=${h}`),
     apiFetch(`/api/drives?hours=${h}`),
@@ -2093,6 +2140,7 @@ async function loadNodes() {
     fetchStorageSummary(h),
     apiFetch('/api/config')
   ]);
+  if (cid !== currentCluster) return;     // the user switched clusters meanwhile: this answer is the old one's
   const maxVcpuRatio = configData ? (configData.find(c => c.key === 'MAX_VCPU_RATIO')?.value ?? 2.0) : 2.0;
 
   if (!nodeData) { document.getElementById('nodeCards').innerHTML = `<div class="empty-state">${t('empty.no_api')}</div>`; setStatus(false); return; }
@@ -2115,7 +2163,7 @@ async function loadNodes() {
     return `
       <div class="card ${nodeCpuClass}">
         <div class="card-header">
-          <span class="card-title">Node ${node.peer_id}<span class="node-alert-badges" data-node="${node.uuid}"></span></span>
+          <span class="card-title">${t('chart.node', {n: node.peer_id})}<span class="node-alert-badges" data-node="${node.uuid}"></span></span>
           <span class="card-badge ${cpuBadgeClass(cpu)}">${avg_cpu.toFixed(1)}% CPU</span>
         </div>
         <div class="node-alerts" data-node="${node.uuid}"></div>
@@ -2151,7 +2199,7 @@ async function loadNodes() {
   nodeCpuChart = new Chart(ctx, {
     type: 'line',
     data: { datasets: nodeData.map((n,i) => ({
-      label: `Node ${n.peer_id}`,
+      label: t('chart.node', {n: n.peer_id}),
       data: n.history.map(pt => ({ x: new Date(pt.time), y: pt.cpu_usage })),
       borderColor: CHART_COLORS[i%CHART_COLORS.length],
       backgroundColor: CHART_COLORS[i%CHART_COLORS.length]+'20',
@@ -2201,7 +2249,7 @@ async function loadNodes() {
     type: 'line',
     data: { datasets: [
       {
-        label: 'Total IOPS',
+        label: t('chart.total_iops'),
         data: iopsPoints,
         borderColor: tok('--chart-3'),
         backgroundColor: tokA('--chart-3', 0.12),
@@ -2245,7 +2293,7 @@ async function loadNodes() {
   clusterRamChart = new Chart(ctx3, {
     type: 'line',
     data: { datasets: [{
-      label: 'RAM Used %',
+      label: t('chart.ram_used_pct'),
       data: ramPoints,
       borderColor: tok('--chart-4'),
       backgroundColor: tokA('--chart-4', 0.12),
@@ -2287,8 +2335,8 @@ async function loadNodes() {
   clusterStorageChart = new Chart(ctx4, {
     type: 'line',
     data: { datasets: [
-      { label: 'Total Capacity (GB)', data: storCapPts,  borderColor: tok('--warn'), backgroundColor: tokA('--warn', 0.08), borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false },
-      { label: 'Used (GB)',           data: storUsedPts, borderColor: tok('--bad'), backgroundColor: tokA('--bad', 0.12), borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true }
+      { label: t('chart.total_capacity_gb'), data: storCapPts,  borderColor: tok('--warn'), backgroundColor: tokA('--warn', 0.08), borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false },
+      { label: t('chart.used_gb'), data: storUsedPts, borderColor: tok('--bad'), backgroundColor: tokA('--bad', 0.12), borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true }
     ]},
     options: {
       animation: false, responsive: true, maintainAspectRatio: false,
@@ -2323,11 +2371,18 @@ let vmSort = {key: 'name', dir: 1};
 // search: every word must match something about the VM (live facts from HyperCore plus what the list knows)
 let vmQuery = '', _vmIndex = {}, _vmIndexFor = null, _vmIndexAt = 0, _vmTagsOf = {};
 function _vmTags(uuid) { return _vmTagsOf[uuid] || []; }
+// a role given on a tag needs each VM's tags (from the VM index) before Edit or Console can show
+function _hasTagGrant(cid) {
+  const c = ((window.HCM_ACCESS || {}).clusters || {})[cid];
+  return !!(c && (c.grants || []).some(g => g.tag));
+}
 async function loadVmIndex(force) {
-  if (!currentCluster) return;
-  if (!force && _vmIndexFor === currentCluster && Date.now() - _vmIndexAt < 20000) return;
+  const cid = currentCluster;
+  if (!cid) return;
+  if (!force && _vmIndexFor === cid && Date.now() - _vmIndexAt < 20000) return;
   const d = await apiFetch('/api/vm-index' + (force ? '?fresh=1' : ''));
-  _vmIndex = {}; _vmTagsOf = {}; _vmIndexFor = currentCluster; _vmIndexAt = Date.now();
+  if (cid !== currentCluster) return;
+  _vmIndex = {}; _vmTagsOf = {}; _vmIndexFor = cid; _vmIndexAt = Date.now();
   for (const v of (d && d.vms) || []) {
     _vmTagsOf[v.uuid] = v.tags || [];
     _vmIndex[v.uuid] = [v.name, ...v.tags, v.description, ...v.ips, ...v.macs, ...v.vlans.map(x => 'vlan ' + x), ...v.vlans,
@@ -2447,7 +2502,7 @@ function renderVmCards() {
     for (const k of keys) {
       const label = `${labels[currentVmGroup]}: ${currentVmGroup === 'node' ? t('vm.group_label.peer') + ' ' + k : k}`;
       const gk = `${currentVmGroup}:${k}`, folded = vmCollapsed.has(gk) && !vmQuery;   // a search opens every group with a match
-      body += `<tr class="grp ${folded ? 'collapsed' : ''}" onclick="toggleVmGroup(decodeURIComponent('${encodeURIComponent(gk)}'))" title="${_clEsc(t(folded ? 'vm.group_expand' : 'vm.group_collapse'))}"><td colspan="6"><span class="grp-arrow">▾</span>${_clEsc(label)}<span class="grp-count">${groups[k].length}</span></td></tr>`
+      body += `<tr class="grp ${folded ? 'collapsed' : ''}" data-gk="${_clEsc(gk)}" onclick="toggleVmGroup(this.dataset.gk)" title="${_clEsc(t(folded ? 'vm.group_expand' : 'vm.group_collapse'))}"><td colspan="6"><span class="grp-arrow">▾</span>${_clEsc(label)}<span class="grp-count">${groups[k].length}</span></td></tr>`
             + (folded ? '' : groups[k].sort(cmp).map(row).join(''));
     }
   }
@@ -2463,17 +2518,18 @@ function renderVmCards() {
 
 // ─── load VMs + VSDs ───
 async function loadVMs() {
-  const h = vmHours;
+  const h = vmHours, cid = currentCluster;
   const [vmData, storageData] = await Promise.all([
     apiFetch(`/api/vms?hours=${h}`),
     fetchStorageSummary(h)
   ]);
-  
+  if (cid !== currentCluster) return;     // switched clusters meanwhile
   if (!vmData) { document.getElementById('vmCards').innerHTML = `<div class="empty-state">${t('empty.no_api')}</div>`; return; }
   cachedStorage = storageData || { vms: [], cluster: { history: [] } };
   cachedVmData = vmData;
   await loadVmPending();
-  if (vmQuery) { await loadVmIndex(_vmIndexForce); _vmIndexForce = false; }
+  if (vmQuery || _hasTagGrant(cid)) { await loadVmIndex(_vmIndexForce); _vmIndexForce = false; }
+  if (cid !== currentCluster) return;
 
   renderVmCards();
 
@@ -2633,8 +2689,10 @@ let _ve = null;                      // {uuid, data, form}
 const GIB = 1073741824;
 const VE_VM_LIVE = ['name', 'description', 'tags', 'snapshotScheduleUUID', 'affinityStrategy'];
 async function loadVmPending() {
-  if (!canSome('vm.view', currentCluster) || !currentCluster) { _vmPending = {}; return; }
+  const cid = currentCluster;
+  if (!canSome('vm.view', cid) || !cid) { _vmPending = {}; return; }
   const d = await apiFetch('/api/backup/vmedit/changes?limit=200');
+  if (cid !== currentCluster) return;
   _vmPending = {};
   for (const c of (d && d.changes) || []) if (c.status === 'scheduled' || c.status === 'running') _vmPending[c.vm_uuid] = c;
 }
@@ -2645,7 +2703,7 @@ async function openVmEdit(uuid) {
   document.getElementById('veTitle').textContent = t('ve.edit');
   document.getElementById('veFoot').hidden = true;
   bd.classList.add('visible');
-  const r = await fetch(_withCluster(`/api/backup/vmedit/vm?vm=${encodeURIComponent(uuid)}`));
+  const r = await _netFetch(_withCluster(`/api/backup/vmedit/vm?vm=${encodeURIComponent(uuid)}`));
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { document.getElementById('veBody').innerHTML = `<div class="ve-msg" style="color:var(--accent-red)">${_exEsc(d.error || 'HTTP ' + r.status)}</div>`; return; }
   _ve = {uuid, data: d, adds: [], nicAdds: [], remove: new Set(), boot: [...(d.vm.bootDevices || [])]};
@@ -2681,6 +2739,8 @@ function _veRender() {
   const isoOpts = [['', t('ve.iso_none')], ...isos.filter(i => i.ready !== false).map(i => [i.uuid, i.name])];
   const curIso = dv => { const m = /scribe\/([0-9a-f-]+)/.exec(dv.path || ''); return m ? m[1] : ''; };
   const pending = changes.find(c => c.status === 'scheduled' || c.status === 'running');
+  // each control on its own permission: one of vm.edit/power/delete/snapshot/clone opens the dialog
+  const may = p => canVm(p, currentCluster, _ve.uuid, _vmTags(_ve.uuid));
   const diskRows = devs.filter(dv => !['NVRAM', 'VTPM'].includes(dv.type)).map(dv => {
     const cd = dv.type === 'IDE_CDROM';
     return `<tr id="ve-d-${dv.uuid}" class="${_ve.remove.has(dv.uuid) ? 'removing' : ''}">
@@ -2694,7 +2754,7 @@ function _veRender() {
       <td>${sel('ve-add-type-' + i, ['VIRTIO_DISK', 'SCSI_DISK', 'IDE_DISK', 'IDE_CDROM'].map(x => [x, x]), a.type)}</td><td></td>
       <td><input type="number" id="ve-add-cap-${i}" min="1" value="${a.cap}" oninput="_veSummary()"> GB</td>
       <td>${sel('ve-add-cache-' + i, ['WRITETHROUGH', 'WRITEBACK', 'NONE'].map(x => [x, x]), a.cache)}</td><td></td><td></td>
-      <td><button class="um-action-btn" onclick="_ve.adds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
+      <td><button class="um-action-btn" aria-label="${_clEsc(t('ve.remove'))}" onclick="_veSync();_ve.adds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
   const nics = vm.netDevs || [];
   const nicRows = nics.map(n => `<tr id="ve-n-${n.uuid}" class="${_ve.remove.has(n.uuid) ? 'removing' : ''}">
       <td>${sel('ve-ntype-' + n.uuid, ['VIRTIO', 'INTEL_E1000', 'RTL8139', 'PCNET'].map(x => [x, x]), n.type)}</td>
@@ -2705,12 +2765,12 @@ function _veRender() {
       <td><button class="um-action-btn danger" onclick="_veToggleRemove('${n.uuid}')">${_ve.remove.has(n.uuid) ? t('ve.keep') : t('ve.remove')}</button></td></tr>`).join('')
     + _ve.nicAdds.map((a, i) => `<tr><td>${sel('ve-nadd-type-' + i, ['VIRTIO', 'INTEL_E1000', 'RTL8139', 'PCNET'].map(x => [x, x]), a.type)}</td>
       <td><input type="number" id="ve-nadd-vlan-${i}" min="0" max="4094" value="${a.vlan}" oninput="_veSummary()" style="width:70px"></td>
-      <td><input type="text" id="ve-nadd-mac-${i}" placeholder="${t('ve.mac_auto')}" oninput="_veSummary()" style="width:150px"></td>
-      <td><input type="checkbox" id="ve-nadd-conn-${i}" checked onchange="_veSummary()"></td><td><em>${t('ve.new')}</em></td>
-      <td><button class="um-action-btn" onclick="_ve.nicAdds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
+      <td><input type="text" id="ve-nadd-mac-${i}" value="${E(a.mac || '')}" placeholder="${t('ve.mac_auto')}" oninput="_veSummary()" style="width:150px"></td>
+      <td><input type="checkbox" id="ve-nadd-conn-${i}" ${a.conn === false ? '' : 'checked'} onchange="_veSummary()"></td><td><em>${t('ve.new')}</em></td>
+      <td><button class="um-action-btn" aria-label="${_clEsc(t('ve.remove'))}" onclick="_veSync();_ve.nicAdds.splice(${i},1);_veRender()">✕</button></td></tr>`).join('');
   const bootList = _ve.boot.map((u, i) => { const dv = devs.find(x => x.uuid === u); return `<li>${E(dv ? _veDevLabel(dv) : u)}
       <button class="um-action-btn" ${i === 0 ? 'disabled' : ''} onclick="_veBoot(${i},-1)">▲</button><button class="um-action-btn" ${i === _ve.boot.length - 1 ? 'disabled' : ''} onclick="_veBoot(${i},1)">▼</button>
-      <button class="um-action-btn" onclick="_ve.boot.splice(${i},1);_veRender()">✕</button></li>`; }).join('');
+      <button class="um-action-btn" aria-label="${_clEsc(t('ve.remove'))}" onclick="_veSync();_ve.boot.splice(${i},1);_veRender()">✕</button></li>`; }).join('');
   const notInBoot = devs.filter(dv => !_ve.boot.includes(dv.uuid) && !['NVRAM', 'VTPM'].includes(dv.type));
   const chg = changes.map(c => `<div class="ve-chg"><span class="st ${c.status}">${t('ve.st_' + c.status)}</span>
       <b>${E(c.run_at ? _exFmt(c.run_at) : t('ve.now'))}</b> · ${E(c.summary || c.kind)} · ${E(c.created_by || '?')}
@@ -2719,15 +2779,15 @@ function _veRender() {
       ${(c.result || []).length ? `<details style="margin-top:3px;"><summary style="cursor:pointer;color:var(--text-muted);">${t('ve.steps')}</summary>${c.result.map(x => `<div style="font-family:var(--font-ui);font-size:12px;color:${x.ok ? 'var(--text-secondary)' : 'var(--accent-red)'}">${_exFmt(x.at)} ${x.ok ? '✓' : '✕'} ${E(x.step)}${x.detail ? ' — ' + E(x.detail) : ''}</div>`).join('')}</details>` : ''}</div>`).join('');
   document.getElementById('veBody').innerHTML = `
     ${pending ? `<div class="ve-sec" style="border-color:var(--accent-amber);font-size:12px;color:var(--accent-amber);">${t('ve.has_pending')}</div>` : ''}
-    <div class="ve-power">
+    ${!may('vm.power') ? '' : `<div class="ve-power">
       <span style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);margin-right:6px;">${t('ve.power')}</span>
       <button class="um-action-btn" ${on ? 'disabled' : ''} onclick="vePower('START')">${t('ve.p_start')}</button>
       <button class="um-action-btn" ${on ? '' : 'disabled'} onclick="vePower('SHUTDOWN')" title="${E(t('ve.p_shutdown_hint'))}">${t('ve.p_shutdown')}</button>
       <button class="um-action-btn" ${on ? '' : 'disabled'} onclick="vePower('REBOOT')">${t('ve.p_reboot')}</button>
       <button class="um-action-btn danger" ${on ? '' : 'disabled'} onclick="vePower('STOP')" title="${E(t('ve.p_stop_hint'))}">${t('ve.p_stop')}</button>
       <button class="um-action-btn danger" ${on ? '' : 'disabled'} onclick="vePower('RESET')" title="${E(t('ve.p_reset_hint'))}">${t('ve.p_reset')}</button>
-    </div>
-    <div class="ve-sec"><h3>${t('ve.general')}</h3><div class="ve-grid">
+    </div>`}
+    ${!may('vm.edit') ? '' : `<div class="ve-sec"><h3>${t('ve.general')}</h3><div class="ve-grid">
       <label>${t('vmi.d_name')}<input type="text" id="ve-name" value="${E(vm.name)}" oninput="_veSummary()"></label>
       <label>${t('vmi.description')}<input type="text" id="ve-desc" value="${E(vm.description)}" oninput="_veSummary()"></label>
       <label>${t('vmi.tags')}<input type="text" id="ve-tags" value="${E(vm.tags)}" oninput="_veSummary()"><span class="ve-tag-access" id="veTagAccess"></span></label>
@@ -2742,9 +2802,9 @@ function _veRender() {
     <div class="ve-field" style="margin-top:12px;">${t('vmi.boot_order')} <span class="ve-cyc">⟳</span><ol class="ve-boot">${bootList}</ol>
       ${notInBoot.length ? `<div>${sel('ve-boot-add', [['', t('ve.boot_add')], ...notInBoot.map(dv => [dv.uuid, _veDevLabel(dv)])])} <button class="um-action-btn" onclick="_veBootAdd()">+</button></div>` : ''}</div>
     <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">⟳ ${t('ve.cycle_hint')}</div></div>
-    <div class="ve-sec"><h3>${t('vmi.disks')} <button class="um-action-btn" onclick="_ve.adds.push({type:'VIRTIO_DISK',cap:50,cache:'WRITETHROUGH'});_veRender()">+ ${t('ve.add_disk')}</button></h3>
+    <div class="ve-sec"><h3>${t('vmi.disks')} <button class="um-action-btn" onclick="_veSync();_ve.adds.push({type:'VIRTIO_DISK',cap:50,cache:'WRITETHROUGH'});_veRender()">+ ${t('ve.add_disk')}</button></h3>
       <table class="ve-tbl"><thead><tr><th>${t('vmi.d_name')}</th><th>${t('vmi.d_type')}</th><th>${t('vmi.d_slot')}</th><th>${t('ve.size_or_iso')}</th><th>${t('vmi.d_cache')} ⟳</th><th>${t('vmi.d_tier')}</th><th>${t('vmi.d_snap_off')}</th><th></th></tr></thead><tbody>${diskRows}</tbody></table></div>
-    <div class="ve-sec"><h3>${t('vmi.nics')} ⟳ <button class="um-action-btn" onclick="_ve.nicAdds.push({type:'VIRTIO',vlan:0});_veRender()">+ ${t('ve.add_nic')}</button></h3>
+    <div class="ve-sec"><h3>${t('vmi.nics')} ⟳ <button class="um-action-btn" onclick="_veSync();_ve.nicAdds.push({type:'VIRTIO',vlan:0});_veRender()">+ ${t('ve.add_nic')}</button></h3>
       <table class="ve-tbl"><thead><tr><th>${t('vmi.n_type')}</th><th>VLAN</th><th>${t('vmi.n_mac')}</th><th>${t('vmi.n_connected')}</th><th>${t('vmi.n_ip')}</th><th></th></tr></thead><tbody>${nicRows}</tbody></table></div>
     ${(_ve.data.connections || []).length || replications.length ? `<div class="ve-sec"><h3>${t('ve.replication')}</h3>
       <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--text-secondary);">
@@ -2752,22 +2812,45 @@ function _veRender() {
             <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="ve-rep-pause" ${rp.enable ? '' : 'checked'} onchange="_veSummary()"> ${t('ve.rep_pause')}</label>`)(replications[0])
           : sel('ve-rep', [['', t('ve.rep_none')], ...(_ve.data.connections || []).map(c => [c.uuid, c.cluster + (c.status && c.status !== 'ESTABLISHED' ? ` (${c.status.toLowerCase()})` : '')])], '')}
         <span id="ve-rep-hint" style="color:var(--text-muted);"></span>
-      </div>${replications.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">${t('ve.rep_end_note')}</div>` : ''}</div>` : ''}
+      </div>${replications.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">${t('ve.rep_end_note')}</div>` : ''}</div>` : ''}`}
     <div class="ve-sec"><h3>${t('ve.changes')}</h3>${chg || `<div style="font-size:12px;color:var(--text-muted);">${t('ve.no_changes_yet')}</div>`}</div>
-    <div class="ve-sec ve-danger"><h3 style="color:var(--accent-red)">${t('ve.danger')}</h3>
-      <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--text-secondary);"><button class="um-action-btn danger" onclick="veDelete()">${t('ve.delete_vm')}</button> ${t('ve.delete_hint')}</div></div>`;
+    ${!may('vm.delete') ? '' : `<div class="ve-sec ve-danger"><h3 style="color:var(--accent-red)">${t('ve.danger')}</h3>
+      <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--text-secondary);"><button class="um-action-btn danger" onclick="veDelete()">${t('ve.delete_vm')}</button> ${t('ve.delete_hint')}</div></div>`}`;
+  document.getElementById('veApply').hidden = !may('vm.edit');
+  // what was typed before a button redrew the form wins over the VM as loaded
+  for (const [id, v] of Object.entries(_ve.form || {})) {
+    const el = document.getElementById(id);
+    if (el) { if (el.type === 'checkbox') el.checked = v; else el.value = v; }
+  }
   document.getElementById('veFoot').hidden = false;
   document.getElementById('veMsg').textContent = '';
   _veSummary();
 }
-function _veToggleRemove(u) { if (_ve.remove.has(u)) _ve.remove.delete(u); else _ve.remove.add(u); _veRender(); }
-function _veBoot(i, d) { const b = _ve.boot; [b[i], b[i + d]] = [b[i + d], b[i]]; _veRender(); }
-function _veBootAdd() { const v = document.getElementById('ve-boot-add').value; if (v) { _ve.boot.push(v); _veRender(); } }
+// The form is drawn from the VM as loaded. Before a button redraws it (+ Add disk, + Add NIC, Remove/Keep, boot
+// order) the values typed so far are kept: the fields by id in _ve.form, the new disk and NIC rows in their objects
+// (their ids are row numbers, which shift when a row is removed).
+function _veSync() {
+  if (!_ve) return;
+  const form = {};
+  document.querySelectorAll('#veBody input[id^="ve-"], #veBody select[id^="ve-"]').forEach(el => {
+    if (/^ve-(add-|nadd-|boot-add$)/.test(el.id)) return;
+    form[el.id] = el.type === 'checkbox' ? el.checked : el.value;
+  });
+  _ve.form = form;
+  _ve.adds.forEach((a, i) => { if (document.getElementById('ve-add-cap-' + i)) {
+    a.type = _veVal('ve-add-type-' + i); a.cap = _veVal('ve-add-cap-' + i); a.cache = _veVal('ve-add-cache-' + i); } });
+  _ve.nicAdds.forEach((a, i) => { if (document.getElementById('ve-nadd-vlan-' + i)) {
+    a.type = _veVal('ve-nadd-type-' + i); a.vlan = _veVal('ve-nadd-vlan-' + i); a.mac = _veVal('ve-nadd-mac-' + i); a.conn = _veVal('ve-nadd-conn-' + i); } });
+}
+function _veToggleRemove(u) { _veSync(); if (_ve.remove.has(u)) _ve.remove.delete(u); else _ve.remove.add(u); _veRender(); }
+function _veBoot(i, d) { _veSync(); const b = _ve.boot; [b[i], b[i + d]] = [b[i + d], b[i]]; _veRender(); }
+function _veBootAdd() { const v = document.getElementById('ve-boot-add').value; if (v) { _veSync(); _ve.boot.push(v); _veRender(); } }
 const _veVal = id => { const el = document.getElementById(id); return el ? (el.type === 'checkbox' ? el.checked : el.value) : undefined; };
 function _veOps() {
   // compare the form with the VM as loaded; the backup service validates and classifies again
   const {vm, replications} = _ve.data;
   const ops = [], f = {};
+  if (!document.getElementById('ve-name')) return ops;      // no vm.edit: the form is not drawn
   const mark = (id, changed) => { const el = document.getElementById(id); if (el) el.classList.toggle('changed', !!changed); return changed; };
   if (mark('ve-name', _veVal('ve-name').trim() !== vm.name)) f.name = _veVal('ve-name').trim();
   if (mark('ve-desc', _veVal('ve-desc') !== (vm.description || ''))) f.description = _veVal('ve-desc');
@@ -2843,19 +2926,20 @@ function _veIsCycle(o) {
 }
 function _veOpText(o) {
   const {vm} = _ve.data;
-  const dv = u => { const d = (vm.blockDevs || []).find(x => x.uuid === u); return d ? _veDevLabel(d) : u; };
-  const nc = u => ((vm.netDevs || []).find(x => x.uuid === u) || {}).macAddress || u;
+  const dv = u => { const d = (vm.blockDevs || []).find(x => x.uuid === u); return _clEsc(d ? _veDevLabel(d) : u); };
+  const nc = u => _clEsc(((vm.netDevs || []).find(x => x.uuid === u) || {}).macAddress || u);
+  const kv = fields => Object.entries(fields).map(([k, v]) => `${_clEsc(k)} ${_clEsc(v)}`).join(', ');
   switch (o.op) {
     case 'vm': return Object.entries(o.fields).map(([k, v]) => k === 'mem' ? `${t('vmi.memory')} ${+(v / GIB).toFixed(2)} GB` : k === 'numVCPU' ? `${t('vmi.vcpus')} ${v}`
       : k === 'bootDevices' ? t('vmi.boot_order') : k === 'affinityStrategy' ? t('vmi.affinity') : k === 'snapshotScheduleUUID' ? t('vmi.schedule')
-      : k === 'operatingSystem' ? t('vmi.os') : `${k}: ${v}`).join(', ');
+      : k === 'operatingSystem' ? t('vmi.os') : `${_clEsc(k)}: ${_clEsc(v)}`).join(', ');
     case 'disk_resize': return `${t('ve.op_grow')} ${dv(o.device)} → ${+(o.capacity / GIB).toFixed(1)} GB`;
-    case 'disk_set': return `${dv(o.device)}: ${Object.entries(o.fields).map(([k, v]) => `${k} ${v}`).join(', ')}`;
-    case 'disk_add': return `${t('ve.add_disk')} ${o.type}${o.type !== 'IDE_CDROM' ? ' ' + +(o.capacity / GIB).toFixed(1) + ' GB' : ''}`;
-    case 'disk_remove': return `<b style="color:var(--accent-red)">${t('ve.op_remove_disk')} ${_clEsc(dv(o.device))}</b>`;
+    case 'disk_set': return `${dv(o.device)}: ${kv(o.fields)}`;
+    case 'disk_add': return `${t('ve.add_disk')} ${_clEsc(o.type)}${o.type !== 'IDE_CDROM' ? ' ' + +(o.capacity / GIB).toFixed(1) + ' GB' : ''}`;
+    case 'disk_remove': return `<b style="color:var(--accent-red)">${t('ve.op_remove_disk')} ${dv(o.device)}</b>`;
     case 'iso': return `${dv(o.device)}: ${o.iso_uuid ? _clEsc(o.iso_name) : t('ve.iso_none')}`;
-    case 'nic_set': return `NIC ${nc(o.device)}: ${Object.entries(o.fields).map(([k, v]) => `${k} ${v}`).join(', ')}`;
-    case 'nic_add': return `${t('ve.add_nic')} ${o.type} VLAN ${o.vlan}`;
+    case 'nic_set': return `NIC ${nc(o.device)}: ${kv(o.fields)}`;
+    case 'nic_add': return `${t('ve.add_nic')} ${_clEsc(o.type)} VLAN ${_clEsc(o.vlan)}`;
     case 'nic_remove': return `<b style="color:var(--accent-red)">${t('ve.op_remove_nic')} ${nc(o.device)}</b>`;
     case 'replication': return `${t('ve.replication')}: ${_clEsc(o.text || '')}`;
   }
@@ -2890,12 +2974,14 @@ async function _veSubmit(kind, ops, confirmName) {
   const body = Object.assign({cluster_id: currentCluster, vm_uuid: _ve.uuid, kind, ops, confirm_name: confirmName || '',
     force_off: document.getElementById('veForce').checked, shutdown_timeout_min: parseInt(document.getElementById('veTimeout').value, 10) || 10}, when);
   msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
-  const r = await fetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const r = await _netFetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return false; }
   msg.style.color = 'var(--accent-green)';
   msg.textContent = when.run_at ? t('ve.scheduled_ok', {when: _exFmt(when.run_at)}) : t('ve.started_ok');
   vmIndexStale();
+  // a VM deleted now is gone: close the dialog and reload the list rather than reopening it
+  if (kind === 'delete' && !when.run_at) { setTimeout(() => { closeVmEdit(); vmIndexStale(); loadVMs(); }, 2500); return true; }
   setTimeout(async () => { if (_ve) await openVmEdit(_ve.uuid); vmIndexStale(); loadVMs(); }, when.run_at ? 600 : 2500);
   return true;
 }
@@ -2913,7 +2999,7 @@ async function veDelete() {
   _veSubmit('delete', [], name);
 }
 async function veCancel(id) {
-  const r = await fetch(_withCluster(`/api/backup/vmedit/changes/${id}/cancel`), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({cluster_id: currentCluster})});
+  const r = await _netFetch(_withCluster(`/api/backup/vmedit/changes/${id}/cancel`), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({cluster_id: currentCluster})});
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { document.getElementById('veMsg').textContent = d.error || `HTTP ${r.status}`; return; }
   await openVmEdit(_ve.uuid);
@@ -2927,7 +3013,7 @@ async function openNewVm() {
   document.getElementById('vnBody').innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
   document.getElementById('vnFoot').hidden = true;
   bd.classList.add('visible');
-  const r = await fetch(_withCluster('/api/backup/vmedit/options'));
+  const r = await _netFetch(_withCluster('/api/backup/vmedit/options'));
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { document.getElementById('vnBody').innerHTML = `<div class="ve-msg" style="color:var(--accent-red)">${_exEsc(d.error || 'HTTP ' + r.status)}</div>`; return; }
   _vn = {opts: d, disks: [{type: 'VIRTIO_DISK', cap: 50, image: ''}], nics: [{type: 'VIRTIO', vlan: 0}], change: null};
@@ -2954,10 +3040,10 @@ function _vnRender() {
   const disks = _vn.disks.map((x, i) => `<tr><td>${sel('vn-dtype-' + i, ['VIRTIO_DISK', 'SCSI_DISK', 'IDE_DISK'].map(v => [v, v]), x.type)}</td>
       <td><input type="number" id="vn-dcap-${i}" min="1" value="${E(x.cap)}" style="width:80px"> GB</td>
       <td>${i === 0 ? sel('vn-dimg-0', imgOpts, x.image, 'onchange="_vnSync();_vnRender()"') : `<span style="color:var(--text-muted)">${t('vn.empty_disk')}</span>`}</td>
-      <td><button class="um-action-btn" onclick="_vnSync();_vn.disks.splice(${i},1);_vnRender()">✕</button></td></tr>`).join('');
+      <td><button class="um-action-btn" aria-label="${_clEsc(t('ve.remove'))}" onclick="_vnSync();_vn.disks.splice(${i},1);_vnRender()">✕</button></td></tr>`).join('');
   const nics = _vn.nics.map((x, i) => `<tr><td>${sel('vn-ntype-' + i, ['VIRTIO', 'INTEL_E1000', 'RTL8139', 'PCNET'].map(v => [v, v]), x.type)}</td>
       <td><input type="number" id="vn-nvlan-${i}" min="0" max="4094" value="${E(x.vlan)}" style="width:80px"></td>
-      <td><button class="um-action-btn" onclick="_vnSync();_vn.nics.splice(${i},1);_vnRender()">✕</button></td></tr>`).join('');
+      <td><button class="um-action-btn" aria-label="${_clEsc(t('ve.remove'))}" onclick="_vnSync();_vn.nics.splice(${i},1);_vnRender()">✕</button></td></tr>`).join('');
   const fromImage = !!(_vn.disks[0] && _vn.disks[0].image);
   document.getElementById('vnBody').innerHTML = `
     <div class="ve-sec"><h3>${t('ve.general')}</h3><div class="ve-grid">
@@ -3002,7 +3088,7 @@ async function vnCreate() {
     run_at = new Date(v).toISOString();
   }
   msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
-  const r = await fetch(_withCluster('/api/backup/vmedit/new'), {method: 'POST', headers: {'Content-Type': 'application/json'},
+  const r = await _netFetch(_withCluster('/api/backup/vmedit/new'), {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({cluster_id: currentCluster, spec, run_at})});
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return; }
@@ -3062,7 +3148,7 @@ async function openVmAct(kind, uuid) {
   document.getElementById('vaMsg').textContent = '';
   document.getElementById('vaGo').disabled = false;
   document.getElementById('vmActBackdrop').classList.add('visible');
-  const r = await fetch(_withCluster(`/api/backup/vmedit/vm?vm=${encodeURIComponent(uuid)}`));
+  const r = await _netFetch(_withCluster(`/api/backup/vmedit/vm?vm=${encodeURIComponent(uuid)}`));
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { document.getElementById('vaBody').innerHTML = `<div class="ve-msg" style="color:var(--accent-red)">${_exEsc(d.error || 'HTTP ' + r.status)}</div>`; return; }
   _va.data = d;
@@ -3109,7 +3195,7 @@ async function vaGo() {
     run_at = new Date(v).toISOString();
   }
   msg.style.color = 'var(--text-muted)'; msg.textContent = t('cc.working');
-  const r = await fetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'},
+  const r = await _netFetch(_withCluster('/api/backup/vmedit/changes'), {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({cluster_id: currentCluster, vm_uuid: _va.uuid, kind: _va.kind, ops, run_at})});
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { msg.style.color = 'var(--accent-red)'; msg.textContent = d.error || `HTTP ${r.status}`; return; }
@@ -3235,7 +3321,7 @@ async function renderVmDetailCharts() {
   }));
   vmDetailCharts.push(new Chart(document.getElementById('vmDetailIopsChart'), {
     type: 'line',
-    data: { datasets: iopsDatasets.length ? iopsDatasets : [{ label: 'No VSD data', data: [] }] },
+    data: { datasets: iopsDatasets.length ? iopsDatasets : [{ label: t('chart.no_vsd'), data: [] }] },
     options: { ...commonOpts, scales: { x: xAxis, y: { min: 0, ticks: { callback: v => v+' IOPS' }, grid: { color: chartGrid() } } } }
   }));
 
@@ -3248,7 +3334,7 @@ async function renderVmDetailCharts() {
   }));
   vmDetailCharts.push(new Chart(document.getElementById('vmDetailLatencyChart'), {
     type: 'line',
-    data: { datasets: latDatasets.length ? latDatasets : [{ label: 'No VSD data', data: [] }] },
+    data: { datasets: latDatasets.length ? latDatasets : [{ label: t('chart.no_vsd'), data: [] }] },
     options: { ...commonOpts, scales: { x: xAxis, y: { min: 0, ticks: { callback: v => v+' μs' }, grid: { color: chartGrid() } } } }
   }));
 }
@@ -3261,12 +3347,14 @@ function closeVmModal(evt) {
 
 // close modal on Escape key
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') document.getElementById('vmDetailBackdrop')?.classList.remove('visible');
+  if (e.key === 'Escape' && document.getElementById('vmDetailBackdrop')?.classList.contains('visible')) closeVmModal();
 });
 
 // ─── migration log ───
 async function loadMigrations() {
+  const cid = currentCluster;
   const data = await apiFetch('/api/migrations?days=7');
+  if (cid !== currentCluster) return;
   const container = document.getElementById('migrationLog');
   if (!data||!data.length) { container.innerHTML=`<div class="empty-state">${t('empty.no_migrations')}</div>`; return; }
   data.sort((a, b) => new Date(b.time) - new Date(a.time));
@@ -3276,26 +3364,28 @@ async function loadMigrations() {
     </tr></thead><tbody>
     ${data.map(e=>`<tr>
       <td>${formatDateTime(e.time)}</td>
-      <td style="color:var(--text-primary)">${e.vm_name}${e.dry_run==='true'?' <span class="dry-run-tag">DRY</span>':''}</td>
-      <td>${e.source_ip} <span class="arrow">→</span> ${e.target_ip}</td>
-      <td><span class="engine-tag engine-${e.engine}">${e.engine}</span></td>
-      <td>${e.mode}</td>
-      <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e.reason}">${e.reason}</td>
+      <td style="color:var(--text-primary)">${_clEsc(e.vm_name)}${e.dry_run==='true'?` <span class="dry-run-tag">${t('flog.dry')}</span>`:''}</td>
+      <td>${_clEsc(e.source_ip)} <span class="arrow">→</span> ${_clEsc(e.target_ip)}</td>
+      <td><span class="engine-tag engine-${_clEsc(e.engine)}">${_clEsc(e.engine)}</span></td>
+      <td>${_clEsc(e.mode)}</td>
+      <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_clEsc(e.reason)}">${_clEsc(e.reason)}</td>
     </tr>`).join('')}
     </tbody></table>`;
 }
 
 // ─── forecast log: Oracle run summaries ───
 async function loadForecastRuns() {
+  const cid = currentCluster;
   const data = await apiFetch('/api/forecast_runs?days=7');
+  if (cid !== currentCluster) return;
   const container = document.getElementById('forecastRunsLog');
   if (!container) return;
-  if (!data||!data.length) { container.innerHTML=`<div class="empty-state">No Oracle runs in the selected window.</div>`; return; }
+  if (!data||!data.length) { container.innerHTML=`<div class="empty-state">${t('flog.no_runs')}</div>`; return; }
   data.sort((a, b) => new Date(b.time) - new Date(a.time));
   container.innerHTML = `
     <table class="log-table"><thead><tr>
-      <th>Time</th><th>Result</th><th>VMs forecast</th><th>Skipped (history)</th><th>Skipped (other)</th>
-      <th>Nodes flagged</th><th>Recs</th><th>Peak predicted</th><th>Threshold</th><th>Duration</th>
+      <th>${t('mig.time')}</th><th>${t('flog.result')}</th><th>${t('flog.vms_forecast')}</th><th>${t('flog.skipped_history')}</th><th>${t('flog.skipped_other')}</th>
+      <th>${t('flog.nodes_flagged')}</th><th>${t('flog.recs')}</th><th>${t('flog.peak_predicted')}</th><th>${t('flog.threshold')}</th><th>${t('flog.duration')}</th>
     </tr></thead><tbody>
     ${data.map(r=>{
       const ok = String(r.success).toLowerCase()==='true';
@@ -3305,16 +3395,16 @@ async function loadForecastRuns() {
       const peakIp = r.peak_node_ip||'';
       const peakColor = Number(r.peak_node_load_percent||0) > Number(r.threshold_used||0)
         ? 'var(--accent-amber)' : 'var(--text-secondary)';
-      const errTitle = r.error ? ` title="${String(r.error).replace(/"/g,'&quot;')}"` : '';
+      const errTitle = r.error ? ` title="${_clEsc(r.error)}"` : '';
       return `<tr${errTitle}>
         <td>${formatDateTime(r.time)}</td>
-        <td><span class="engine-tag" style="background:${ok?'var(--ok-bg)':'var(--bad-bg)'};color:${ok?'var(--ok)':'var(--bad)'}">${ok?'OK':'ERROR'}</span></td>
+        <td><span class="engine-tag" style="background:${ok?'var(--ok-bg)':'var(--bad-bg)'};color:${ok?'var(--ok)':'var(--bad)'}">${ok?t('flog.ok'):t('flog.error')}</span></td>
         <td style="color:var(--text-primary)">${r.vms_forecast||0}<span style="color:var(--text-muted);"> / ${r.vms_total||0}</span></td>
         <td>${r.vms_skipped_short_history||0}</td>
         <td>${r.vms_skipped_other||0}</td>
         <td>${r.nodes_flagged||0}</td>
         <td style="color:var(--text-primary)">${r.recommendations||0}</td>
-        <td style="color:${peakColor}">${peakLoad}%${peakIp?` <span style="color:var(--text-muted);">(${peakIp})</span>`:''}</td>
+        <td style="color:${peakColor}">${peakLoad}%${peakIp?` <span style="color:var(--text-muted);">(${_clEsc(peakIp)})</span>`:''}</td>
         <td>${thr}%</td>
         <td>${dur}s</td>
       </tr>`;
@@ -3324,27 +3414,29 @@ async function loadForecastRuns() {
 
 // ─── forecast log: queued recommendations ───
 async function loadPredictions() {
+  const cid = currentCluster;
   const data = await apiFetch('/api/predictions?days=7');
+  if (cid !== currentCluster) return;
   const container = document.getElementById('predictionsLog');
   if (!container) return;
-  if (!data||!data.length) { container.innerHTML=`<div class="empty-state">The Oracle has not queued any recommendations in the selected window.</div>`; return; }
+  if (!data||!data.length) { container.innerHTML=`<div class="empty-state">${t('flog.no_predictions')}</div>`; return; }
   data.sort((a, b) => new Date(b.time) - new Date(a.time));
   container.innerHTML = `
     <table class="log-table"><thead><tr>
-      <th>Queued at</th><th>VM</th><th>Move</th><th>Predicted peak</th><th>VM peak CPU</th><th>Lead time</th><th>Reason</th>
+      <th>${t('flog.queued_at')}</th><th>${t('mig.vm')}</th><th>${t('flog.move')}</th><th>${t('flog.predicted_peak')}</th><th>${t('flog.vm_peak_cpu')}</th><th>${t('flog.lead_time')}</th><th>${t('mig.reason')}</th>
     </tr></thead><tbody>
     ${data.map(p=>{
       const peakWhen = p.peak_time_unix ? formatDateTime(new Date(Number(p.peak_time_unix)*1000).toISOString()) : '—';
       const lead = Number(p.lead_seconds||0);
       const leadStr = lead<60 ? `${lead.toFixed(0)}s` : lead<3600 ? `${(lead/60).toFixed(0)}m` : `${(lead/3600).toFixed(1)}h`;
       return `<tr>
-        <td>${formatDateTime(p.time)}<div style="font-size:11px;color:var(--text-muted);">peak ${peakWhen}</div></td>
-        <td style="color:var(--text-primary)">${p.vm_name}</td>
-        <td>${p.source_ip} <span class="arrow">→</span> ${p.target_ip}</td>
+        <td>${formatDateTime(p.time)}<div style="font-size:11px;color:var(--text-muted);">${t('flog.peak_at', {when: peakWhen})}</div></td>
+        <td style="color:var(--text-primary)">${_clEsc(p.vm_name)}</td>
+        <td>${_clEsc(p.source_ip)} <span class="arrow">→</span> ${_clEsc(p.target_ip)}</td>
         <td style="color:var(--accent-amber)">${Number(p.predicted_peak_load||0).toFixed(1)}%</td>
         <td>${Number(p.vm_predicted_cpu||0).toFixed(1)}%</td>
         <td>${leadStr}</td>
-        <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(p.reason||'').replace(/"/g,'&quot;')}">${p.reason||''}</td>
+        <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_clEsc(p.reason)}">${_clEsc(p.reason)}</td>
       </tr>`;
     }).join('')}
     </tbody></table>`;
@@ -3357,9 +3449,9 @@ async function loadModules() {
   if (!data||!data.measurements||!data.measurements.length) { container.innerHTML=`<div class="empty-state">${t('empty.no_measurements')}</div>`; return; }
   container.innerHTML = data.measurements.map(name => {
     const m = getModuleMeta(name);
-    return `<div class="module-item" onclick="hcmAlert('Module: ${name}\\nQuery: GET /api/query/${name}?hours=1&limit=100', {title: 'Module'})">
-      <div class="module-icon" style="background:${m.color}20;color:${m.color}">${m.icon}</div>
-      <div><div class="module-name">${name}</div><div class="module-desc">${m.desc}</div></div>
+    return `<div class="module-item" data-name="${_clEsc(name)}" onclick="showModuleInfo(this.dataset.name)">
+      <div class="module-icon" style="background:color-mix(in srgb, ${m.color} 12%, transparent);color:${m.color}">${m.icon}</div>
+      <div><div class="module-name">${_clEsc(name)}</div><div class="module-desc">${m.desc}</div></div>
     </div>`;
   }).join('');
 }
@@ -3373,7 +3465,9 @@ function setStatus(c) {
 // ─── Cluster activity (REST v2 task feed) ───
 async function loadActivity() {
   const card = document.getElementById('ivActivityCard'); if (!card) return;
+  const cid = currentCluster;
   const d = await apiFetch('/api/cluster/tasks');
+  if (cid !== currentCluster) return;
   if (!d || !d.v2) {
     document.getElementById('ivActivityNote').textContent = '';
     document.getElementById('ivActivityBody').innerHTML = `<div style="font-size:12px;color:var(--text-muted);">${t(d ? 'iv.activity_needs_v2' : 'empty.no_api')}</div>`;
@@ -3383,7 +3477,7 @@ async function loadActivity() {
   const active = tasks.filter(t => t.state === 'RUNNING' || t.state === 'QUEUED');
   const done = tasks.filter(t => !(t.state === 'RUNNING' || t.state === 'QUEUED')).slice(0, 30);
   document.getElementById('ivActivityNote').textContent = active.length ? t('iv.activity_running', {n: active.length}) : t('iv.activity_idle');
-  const fmt = iso => iso ? new Date(iso).toLocaleTimeString() : '';
+  const fmt = iso => iso ? new Date(iso).toLocaleTimeString(_hcmLocale()) : '';
   const row = (x, live) => `<div class="iv-task">
       <span class="engine-tag engine-external" style="min-width:64px;text-align:center;">${_clEsc(x.kind)}</span>
       <span style="flex:1;">${_clEsc(x.description)}</span>
@@ -3642,6 +3736,14 @@ function _markDirty(groupId) {
   if (btn)   btn.classList.add('dirty');
 }
 
+// A settings form that is rendered again shows the server's values for whatever is selected now. Edits
+// staged on the previous form (another cluster, or the defaults) are dropped with it: left in place they
+// were sent with the next Apply of that group, to a cluster whose form never showed them (an unapplied
+// "Dry run off" on cluster A went live on cluster B).
+function _dropStaged(groups) {
+  groups.forEach(g => { delete _staged[g.id]; });
+}
+
 function _clearDirty(groupId) {
   const badge = document.getElementById(`dirty-${groupId}`);
   const btn   = document.getElementById(`apply-${groupId}`);
@@ -3676,7 +3778,7 @@ function onToggle(key, cbEl) {
   if (!_staged[gid]) _staged[gid] = {};
   _staged[gid][key] = cbEl.checked;
   const lbl = document.getElementById(`tgl-lbl-${key}`);
-  if (lbl) { lbl.textContent = cbEl.checked ? 'ON' : 'OFF'; lbl.style.color = cbEl.checked ? 'var(--accent-blue)' : 'var(--text-secondary)'; }
+  if (lbl) { lbl.textContent = _tunOnOff(cbEl.checked); lbl.style.color = cbEl.checked ? 'var(--accent-blue)' : 'var(--text-secondary)'; }
   _markDirty(gid);
 }
 
@@ -3726,17 +3828,22 @@ function showToast(msg, type='ok') {
 
 function _infoBtn(key) {
   return (CTRL_INFO[key] || SENT_INFO[key])
-    ? `<button class="info-btn" onclick="toggleInfo(event,'${key}')" title="More info">ⓘ</button>`
+    ? `<button class="info-btn" onclick="toggleInfo(event,'${key}')" title="${_clEsc(t('info.more'))}" aria-label="${_clEsc(t('info.more'))}">ⓘ</button>`
     : '';
 }
+// a tunable's label, unit and on/off state in the reader's language (tun.<KEY> in lang/*.js; the English of
+// CTRL_GROUPS / the Sentinel settings API is the fallback)
+function _tunLabel(key, fallback) { const k = 'tun.' + key, v = t(k); return v !== k ? v : fallback; }
+function _tunUnit(u) { return u === 'days' ? t('unit.days') : u === 'months' ? t('unit.months') : (u || ''); }
+const _tunOnOff = on => t(on ? 'settings.on' : 'settings.off');
 
 function _renderControl(def, value, readOnly = false) {
-  const labelRow = `<div class="ctrl-label-row"><div class="ctrl-label">${def.label}</div>${_infoBtn(def.key)}</div>`;
+  const labelRow = `<div class="ctrl-label-row"><div class="ctrl-label">${_clEsc(_tunLabel(def.key, def.label))}</div>${_infoBtn(def.key)}</div>`;
   const dis = readOnly ? ' disabled' : '';
 
   if (def.type === 'bool') {
     const checked = value ? 'checked' : '';
-    const stateLabel = value ? 'ON' : 'OFF';
+    const stateLabel = _tunOnOff(value);
     const stateColor = value ? 'var(--accent-blue)' : 'var(--text-secondary)';
     return `
       <div class="ctrl-strip ctrl-strip-bool">
@@ -3767,7 +3874,7 @@ function _renderControl(def, value, readOnly = false) {
         <input type="number" class="ctrl-value-input" id="vi_${def.key}"
                min="${def.min}" max="${def.max}" step="${def.step}" value="${value}"${dis}
                oninput="onValueInput('${def.key}', this)">
-        ${def.unit ? `<div class="ctrl-unit">${def.unit}</div>` : ''}
+        ${def.unit ? `<div class="ctrl-unit">${_tunUnit(def.unit)}</div>` : ''}
       </div>`;
   }
 
@@ -3784,12 +3891,12 @@ function _renderControl(def, value, readOnly = false) {
   }
 
   if (def.type === 'text') {
-    const safeVal = (value || '').toString().replace(/"/g, '&quot;');
+    const safeVal = _clEsc(value || '');
     return `
       <div class="ctrl-strip ${def.wide ? 'ctrl-strip-wide' : ''}">
         ${labelRow}
         <input type="text" class="ctrl-text-input" id="vi_${def.key}"
-               value="${safeVal}" placeholder="${def.hint || ''}"${dis}
+               value="${safeVal}" placeholder="${_clEsc(def.hint ? _tunLabel(def.key + '.hint', def.hint) : '')}"${dis}
                oninput="onTextInput('${def.key}', this)">
       </div>`;
   }
@@ -3816,7 +3923,7 @@ function toggleInfo(evt, key) {
     if (c) { label = c.label; break; }
   }
   if (label === key && SENT_INFO[key]) label = SENT_INFO[key].label;
-  document.getElementById('infoPopupTitle').textContent   = label;
+  document.getElementById('infoPopupTitle').textContent   = _tunLabel(key, label);
   const wKey = 'info.' + key + '.what';
   const bKey = 'info.' + key + '.benefits';
   const cKey = 'info.' + key + '.careful';
@@ -3920,8 +4027,10 @@ async function loadSentinelOverview() {
 
   // fetch status before summary so we can show a waiting message if the
   // analysis loop hasn't completed its first run yet
+  const cid = currentCluster;
   const status  = await apiFetch('/api/sentinel/status');
   const summary = await apiFetch('/api/sentinel/summary');
+  if (cid !== currentCluster) return;
 
   // no summary data AND analysis has never completed → show waiting state
   // status may be null (proxy error) or {status:'unavailable'} (Sentinel unreachable);
@@ -3954,7 +4063,7 @@ async function loadSentinelOverview() {
           ${t('sentinel.warming_running')}<br><br>
           ${countdownStr}
         </div>
-        ${startTime ? `<div style="font-size:12px;color:var(--text-muted)">${t('sentinel.warming_started')} ${startTime.toLocaleString('en-GB')}</div>` : ''}
+        ${startTime ? `<div style="font-size:12px;color:var(--text-muted)">${t('sentinel.warming_started')} ${startTime.toLocaleString(_hcmLocale())}</div>` : ''}
       </div>`;
 
     // auto-refresh every 30 s while waiting (only while this cluster is still selected)
@@ -4064,7 +4173,7 @@ async function loadSentinelOverview() {
         </div>
         <div class="health-meta-row">
           <span class="health-meta-label">${t('sentinel.as_of')}</span>
-          <span class="health-meta-value" style="color:var(--text-muted)">${h.as_of ? new Date(h.as_of).toLocaleString('en-GB') : '—'}</span>
+          <span class="health-meta-value" style="color:var(--text-muted)">${h.as_of ? new Date(h.as_of).toLocaleString(_hcmLocale()) : '—'}</span>
         </div>
       </div>
     </div>
@@ -4151,7 +4260,9 @@ async function loadSentinelForecasts() {
   if (dim) url += `&dimension=${dim}`;
   if (hz)  url += `&horizon=${hz}`;
 
+  const cid = currentCluster;
   const data = await apiFetch(url);
+  if (cid !== currentCluster) return;
   const el   = document.getElementById('sentinelForecastTable');
   if (!data || !data.length) { el.innerHTML = `<div class="empty-state">${t('empty.no_forecasts')}</div>`; return; }
 
@@ -4175,7 +4286,7 @@ async function loadSentinelForecasts() {
         <tr>
           <td>${dimLabel(f.resource_dimension)}</td>
           <td>${f.forecast_horizon_days}d</td>
-          <td style="color:var(--text-muted)">${f.entity_label || shortUuid(f.node_uuid) || '—'}</td>
+          <td style="color:var(--text-muted)">${_clEsc(f.entity_label || shortUuid(f.node_uuid) || '—')}</td>
           <td>${fmtMetricVal(f.current_usage, f.resource_dimension)}</td>
           <td>${fmtMetricVal(f.forecast_value, f.resource_dimension)}</td>
           <td>${f.confidence_score != null ? (f.confidence_score*100).toFixed(0)+'%' : '—'}</td>
@@ -4193,7 +4304,9 @@ async function loadSentinelForecasts() {
 // ── right-sizing and resize advice ─────────────────────────────────────
 
 async function loadSentinelRightsizing() {
+  const cid = currentCluster;
   const rezData = await apiFetch('/api/sentinel/resize?limit=100');
+  if (cid !== currentCluster) return;
   const rezEl   = document.getElementById('sentinelResizeTable');
 
   if (!rezData || !rezData.length) {
@@ -4208,7 +4321,7 @@ async function loadSentinelRightsizing() {
     </tr></thead>
     <tbody>${rezData.map(a => `
       <tr>
-        <td class="vm-name">${a.vm_name || '—'}</td>
+        <td class="vm-name">${_clEsc(a.vm_name || '—')}</td>
         <td class="${a.sizing_direction === 'over_provisioned' ? 'direction-over' : 'direction-under'}">
           ${a.sizing_direction === 'over_provisioned' ? t('rs.reduce') : t('rs.increase')}
         </td>
@@ -4228,7 +4341,9 @@ async function loadSentinelRightsizing() {
 // ── exhaustion ───────────────────────────────────────────────────────
 
 async function loadSentinelExhaustion() {
+  const cid = currentCluster;
   const data = await apiFetch('/api/sentinel/exhaustion?limit=50');
+  if (cid !== currentCluster) return;
   const el   = document.getElementById('sentinelExhaustionTable');
   if (!data || !data.length) { el.innerHTML = `<div class="empty-state">${t('empty.no_exhaustion')}</div>`; return; }
 
@@ -4244,7 +4359,7 @@ async function loadSentinelExhaustion() {
         <td style="color:${severityColor(e.severity)};font-weight:600;">
           ${e.days_until_exhaustion != null ? e.days_until_exhaustion + 'd' : '—'}
         </td>
-        <td>${e.exhaustion_date || '—'}</td>
+        <td>${_clEsc(e.exhaustion_date || '—')}</td>
         <td style="color:var(--text-muted)">${e.growth_rate_per_day != null ? parseFloat(e.growth_rate_per_day).toFixed(3) : '—'}</td>
         <td>${sevBadge(e.severity)}</td>
       </tr>`).join('')}
@@ -4311,7 +4426,7 @@ async function saveBranding() {
   const msg     = document.getElementById('brandingSaveMsg');
 
   try {
-    const resp = await fetch('/api/sentinel/branding', {
+    const resp = await fetch(_withCluster('/api/sentinel/branding'), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -4327,7 +4442,7 @@ async function saveBranding() {
     msg.style.color  = 'var(--accent-green)';
     setTimeout(() => { msg.textContent = ''; }, 3000);
   } catch (e) {
-    msg.textContent = `Error: ${e.message}`;
+    msg.textContent = t('msg.error', {msg: e.message});
     msg.style.color = 'var(--accent-red)';
   }
 }
@@ -4350,7 +4465,7 @@ async function pdfBtnClick(btn) {
   if (msg) msg.textContent = t('reports.building');
 
   try {
-    const resp = await fetch('/api/sentinel/report.pdf');
+    const resp = await fetch(_withCluster('/api/sentinel/report.pdf'));
     if (!resp.ok) {
       let detail = `HTTP ${resp.status}`;
       try { const j = await resp.json(); detail = j.error || detail; } catch (_) {}
@@ -4366,7 +4481,7 @@ async function pdfBtnClick(btn) {
     URL.revokeObjectURL(url);
     if (msg) msg.textContent = '';
   } catch (e) {
-    if (msg) { msg.textContent = `Error: ${e.message}`; msg.style.color = 'var(--accent-red)'; }
+    if (msg) { msg.textContent = t('msg.error', {msg: e.message}); msg.style.color = 'var(--accent-red)'; }
     console.error('PDF download failed:', e);
   } finally {
     btn.classList.remove('loading');
@@ -4391,12 +4506,15 @@ function _whatifUpdateOptions() {
 
 async function _loadWhatifVmList() {
   try {
-    const resp = await fetch('/api/sentinel/vms');
+    const cid = currentCluster;
+    const resp = await fetch(_withCluster('/api/sentinel/vms'));
     if (!resp.ok) return;
-    _whatifVmData = await resp.json();
+    const vms = await resp.json();
+    if (cid !== currentCluster) return;
+    _whatifVmData = vms;
     const dl = document.getElementById('whatifVmList');
     if (!dl) return;
-    dl.innerHTML = _whatifVmData.map(v => `<option value="${v.vm_name}">`).join('');
+    dl.innerHTML = _whatifVmData.map(v => `<option value="${_clEsc(v.vm_name)}">`).join('');
   } catch (_) {}
 }
 
@@ -4469,7 +4587,7 @@ async function runWhatIf() {
   loadingEl.style.display  = 'block';
 
   try {
-    const resp = await fetch('/api/sentinel/whatif', {
+    const resp = await fetch(_withCluster('/api/sentinel/whatif'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -4500,13 +4618,13 @@ function _renderWhatIfResult(d) {
     <div style="background:var(--bg-nested);border:1px solid var(--border);border-radius:8px;padding:16px;">
       <div style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted);margin-bottom:8px;">${t('whatif.baseline')}</div>
       <div style="font-size:28px;font-weight:700;color:var(--text-primary);">${(bl.health_score||0).toFixed(1)}</div>
-      <div style="font-size:12px;margin-top:4px;">${_sevBadge(bl.severity)} &nbsp;·&nbsp; ${t('whatif.bottleneck')} <span style="color:var(--text-secondary)">${bl.bottleneck||t('whatif.none')}</span></div>
+      <div style="font-size:12px;margin-top:4px;">${_sevBadge(bl.severity)} &nbsp;·&nbsp; ${t('whatif.bottleneck')} <span style="color:var(--text-secondary)">${_clEsc(bl.bottleneck||t('whatif.none'))}</span></div>
       <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${bl.node_count ?? '?'} ${t('whatif.nodes_label')} · ${bl.vm_count ?? '?'} ${t('whatif.vms_label')}</div>
     </div>
     <div style="background:var(--bg-nested);border:1px solid var(--accent-purple);border-radius:8px;padding:16px;">
-      <div style="font-family:var(--font-ui);font-size:12px;color:var(--accent-purple);margin-bottom:8px;">${t('whatif.simulated')} (+${d.count} ${d.scenario === 'add_nodes' ? t('whatif.nodes') : (d.scenario === 'add_vms_like' && sm.source_vm ? t('whatif.vms_like') + ' ' + sm.source_vm : t('whatif.vms'))})</div>
+      <div style="font-family:var(--font-ui);font-size:12px;color:var(--accent-purple);margin-bottom:8px;">${t('whatif.simulated')} (+${d.count} ${d.scenario === 'add_nodes' ? t('whatif.nodes') : (d.scenario === 'add_vms_like' && sm.source_vm ? t('whatif.vms_like') + ' ' + _clEsc(sm.source_vm) : t('whatif.vms'))})</div>
       <div style="font-size:28px;font-weight:700;color:var(--text-primary);">${(sm.health_score||0).toFixed(1)} <span style="font-size:14px;">${scoreDelta}</span></div>
-      <div style="font-size:12px;margin-top:4px;">${_sevBadge(sm.severity)} &nbsp;·&nbsp; ${t('whatif.bottleneck')} <span style="color:var(--text-secondary)">${sm.bottleneck||t('whatif.none')}</span>${dt.bottleneck_changed ? ` <span style="color:var(--accent-amber)">${t('whatif.bottleneck_changed')}</span>` : ''}</div>
+      <div style="font-size:12px;margin-top:4px;">${_sevBadge(sm.severity)} &nbsp;·&nbsp; ${t('whatif.bottleneck')} <span style="color:var(--text-secondary)">${_clEsc(sm.bottleneck||t('whatif.none'))}</span>${dt.bottleneck_changed ? ` <span style="color:var(--accent-amber)">${t('whatif.bottleneck_changed')}</span>` : ''}</div>
       <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${sm.node_count != null ? sm.node_count+' '+t('whatif.nodes_label') : ''} ${sm.vm_count != null ? '· '+sm.vm_count+' '+t('whatif.vms_label') : ''}</div>
     </div>`;
 
@@ -4582,15 +4700,13 @@ function _renderGroups(groups, vals, isAdmin = true) {
 }
 
 async function loadSettings() {
-  const [data, me] = await Promise.all([
-    apiFetch('/api/config'),
-    apiFetch('/api/users/me'),
-  ]);
-  if (!data) { document.getElementById('settingsContent').innerHTML = `<div class="empty-state">${t('empty.settings_failed')}</div>`; return; }
-  const vals = {};
-  data.forEach(item => { vals[item.key] = item.value; });
-  const groups = CTRL_GROUPS.filter(g => g.tab === 'general');
+  // which sub-tabs this user gets is known before anything is fetched: someone who reaches Settings only for
+  // guest console requests (an App Manager) may not read the tunables, and must not get "settings failed"
+  const me = await apiFetch('/api/users/me');
   _accSet(me);
+  const groups = CTRL_GROUPS.filter(g => g.tab === 'general');
+  _dropStaged(groups);
+  const vals = {};
   const isAdmin = can('cluster.settings', currentCluster) || (_settingsTarget === 'defaults' && can('install.manage'));
 
   if (me && !canSettings()) {
@@ -4606,6 +4722,11 @@ async function loadSettings() {
     console: can('console_check.manage') || can('console.audit') || canAnyVmPerm('console.audit'),
     mail: can('install.manage'),
   };
+  if (show.tunables) {
+    const data = await apiFetch('/api/config');
+    if (!data) { document.getElementById('settingsContent').innerHTML = `<div class="empty-state">${t('empty.settings_failed')}</div>`; return; }
+    data.forEach(item => { vals[item.key] = item.value; });
+  }
   for (const [k, v] of Object.entries(show)) {
     const tab = document.querySelector(`[data-setpanel="${k}"]`);
     if (tab) tab.style.display = v ? '' : 'none';
@@ -4625,8 +4746,9 @@ let _cc = { data: null, refsOpen: null, showSystem: false };
 async function _loadConsolePanel() {
   const el = document.getElementById('setpanel-console');
   if (!el) return;
+  const mayCheck = can('console_check.manage', currentCluster);   // the console.audit holder sees the log only
   const [check, log] = await Promise.all([
-    fetch(_withCluster('/api/console/check')).then(r => r.ok ? r.json() : r.json().then(d => ({error: d.error || `HTTP ${r.status}`}))).catch(e => ({error: e.message})),
+    !mayCheck ? Promise.resolve({}) : fetch(_withCluster('/api/console/check')).then(r => r.ok ? r.json() : r.json().then(d => ({error: d.error || `HTTP ${r.status}`}))).catch(e => ({error: e.message})),
     fetch(_withCluster(`/api/console/sessions?include_system=${_cc.showSystem ? 1 : 0}&limit=200`)).then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
   if (check.error) { el.innerHTML = `<div class="empty-state">${t('cc.unavailable')} (${_exEsc(check.error)})</div>`; return; }
@@ -4659,7 +4781,7 @@ async function _loadConsolePanel() {
   const logRows = sessions.map(s => `<tr><td style="font-size:12px;">${_exFmt(s.started_at)}</td><td>${(s.hidden || []).includes('username') ? `<span style="color:var(--text-muted)">${_clEsc(t('acc.actor_above'))}</span>` : _clEsc(s.username)}</td><td>${_clEsc(s.vm_name || s.vm_uuid)}</td>
       <td>${s.kind === 'screenshot' ? t('cc.kind_screenshot') : t('cc.kind_interactive')}</td><td>${dur(s)}</td>
       <td style="font-size:12px;color:var(--text-muted);">${_clEsc(s.end_reason || '')}</td><td style="font-size:12px;color:var(--text-muted);">${_clEsc(s.client_ip || '')}</td></tr>`).join('');
-  el.innerHTML = `
+  el.innerHTML = (!mayCheck ? '' : `
     <div class="settings-group">
       <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--chart-3)"></div>
         <span class="settings-group-title">${t('cc.title')}</span><span style="font-size:12px;color:var(--text-muted);">${_clEsc(cur ? cur.name : '')}</span></div>
@@ -4680,7 +4802,7 @@ async function _loadConsolePanel() {
       </div>
       ${vms.length ? `<table class="um-table"><thead><tr><th>${t('cc.vm')}</th><th>${t('cc.state')}</th><th>${t('cc.open_since')}</th><th>${t('cc.last_check')}</th><th>${t('cc.refs_count')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
                    : `<div style="color:var(--text-muted);font-size:12px;">${st.enabled ? t('cc.no_vms_yet') : t('cc.off_hint')}</div>`}
-    </div>
+    </div>`) + `
     <div class="settings-group">
       <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div>
         <span class="settings-group-title">${t('cc.log_title')}</span>
@@ -4691,7 +4813,7 @@ async function _loadConsolePanel() {
   if (_cc.refsOpen) _ccLoadRefs(_cc.refsOpen);
 }
 async function _ccPost(path, body, method = 'POST') {
-  const r = await fetch(_withCluster(path), {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.assign({cluster_id: currentCluster}, body || {}))});
+  const r = await _netFetch(_withCluster(path), {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.assign({cluster_id: currentCluster}, body || {}))});
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
   return d;
@@ -4730,7 +4852,7 @@ async function _ccLoadRefs(vm) {
     : `<div style="font-size:12px;color:var(--text-muted);">${t('cc.refs_none')}</div>`;
 }
 async function ccRefDelete(id) {
-  await fetch(_withCluster(`/api/console/check/refs/${id}`), {method: 'DELETE'});
+  await _netFetch(_withCluster(`/api/console/check/refs/${id}`), {method: 'DELETE'});
   _loadConsolePanel();
 }
 
@@ -4748,14 +4870,14 @@ async function _loadSharesPanel() {
   SHARES = (await apiFetch('/api/backup/targets')) || [];
   const rows = SHARES.map(sh => `
     <tr>
-      <td class="um-username">${_clEsc(sh.name)}${sh.default_for_unfiled ? ` <span class="um-badge um-badge-user" title="${_clEsc(t('shares.assign_unfiled_title'))}">no_folder</span>` : ''}<div style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted);">${_clEsc(sh.uri_base)}</div>${_isNfs(sh.uri_base) ? `<div class="sh-nfs-warn" style="font-size:12px;">${t('shares.nfs_badge')}</div>` : ''}</td>
+      <td class="um-username">${_clEsc(sh.name)}${sh.default_for_unfiled ? ` <span class="um-badge um-badge-user" title="${_clEsc(t('shares.assign_unfiled_title'))}">${t('folders.unfiled')}</span>` : ''}<div style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted);">${_clEsc(sh.uri_base)}</div>${_isNfs(sh.uri_base) ? `<div class="sh-nfs-warn" style="font-size:12px;">${t('shares.nfs_badge')}</div>` : ''}</td>
       <td>${_clEsc(sh.username || '—')}</td>
       <td>${_clEsc(sh.prune_path || '—')}</td>
       <td>${sh.folder_count}</td>
       <td style="white-space:nowrap;">
         <button class="um-action-btn" onclick="shTest(${sh.id})">${t('clusters.test')}</button>
         <button class="um-action-btn" onclick="shOpen(${sh.id})">${t('clusters.edit')}</button>
-        <button class="um-action-btn danger" onclick="shRemove(${sh.id}, '${_clEsc(sh.name)}')">${t('clusters.remove')}</button>
+        <button class="um-action-btn danger" data-name="${_clEsc(sh.name)}" onclick="shRemove(${sh.id}, this.dataset.name)">${t('clusters.remove')}</button>
         <div class="cl-msg" id="sh-${sh.id}-msg"></div>
       </td>
     </tr>`).join('');
@@ -4810,7 +4932,7 @@ function pxMenu(ev, id) {
     <div class="popmenu-item" title="${_clEsc(t('proxies.bench_hint'))}" onclick="_closeMenus(); pxBench(${p.id})">${t('proxies.bench')}</div>
     <div class="popmenu-item" title="${_clEsc(t('proxies.logs_hint'))}" onclick="_closeMenus(); pxLogs(${p.id})">${t('proxies.logs')}</div>
     <div class="popmenu-sep"></div>
-    <div class="popmenu-item danger" onclick="_closeMenus(); pxRemove(${p.id}, '${_clEsc(p.name)}', '${_clEsc(p.vm_uuid || '')}', '${_clEsc(p.kind || '')}')">${t('clusters.remove')}</div>`);
+    <div class="popmenu-item danger" data-name="${_clEsc(p.name)}" data-vm="${_clEsc(p.vm_uuid || '')}" data-kind="${_clEsc(p.kind || '')}" onclick="_closeMenus(); pxRemove(${p.id}, this.dataset.name, this.dataset.vm, this.dataset.kind)">${t('clusters.remove')}</div>`);
 }
 function pxAddOpen() {
   hcmModal({
@@ -4950,7 +5072,7 @@ async function pxRemove(id, name, vmUuid, kind) {
   if (!await hcmConfirm(t('proxies.confirm_remove', {name}), {danger: true})) return;
   // a deployed proxy's VM goes with it unless the admin keeps it; the stack's own container has no VM
   const vm = vmUuid ? vmUuid.slice(0, 8) : '';
-  const withVm = !!vmUuid && kind !== 'local' && await hcmConfirm(t('proxies.confirm_remove_vm', {vm}), {danger: true});
+  const withVm = !!vmUuid && kind !== 'local' && await hcmConfirm(t('proxies.confirm_remove_vm', {vm}), {danger: true, typeToConfirm: name});
   try {
     const r = await _exCall('DELETE', `/api/backup/proxies/${id}${withVm ? '?vm=delete' : ''}`);
     if (r && r.vm === 'deleted') showToast(t('proxies.removed_vm', {vm}), 'ok');
@@ -5011,7 +5133,7 @@ async function shTest(id) {
   catch (e) { _shMsg(`sh-${id}-msg`, e.message, 'err'); }
 }
 async function shRemove(id, name) {
-  if (!await hcmConfirm(t('shares.confirm_remove', {name}), {danger: true})) return;
+  if (!await hcmConfirm(t('shares.confirm_remove', {name}), {danger: true, typeToConfirm: name})) return;
   try { await _exCall('DELETE', `/api/backup/targets/${id}`); await _loadSharesPanel(); await loadClusters(); } catch (e) { hcmAlert(e.message); }
 }
 
@@ -5088,8 +5210,9 @@ function _renderMyAccountCard(me) {
         <div class="chart-title-dot" style="background:var(--accent-cyan)"></div>
         <span class="settings-group-title">${_esc(t('acct.title'))}</span>
         <span style="font-size:12px;color:var(--text-muted);">${_esc(me.username)}${devBadge}</span>
-        <a href="/logout" style="margin-left:auto;font-size:12px;color:var(--text-muted);text-decoration:none;"
-           onmouseover="this.style.color='var(--accent-blue)'" onmouseout="this.style.color='var(--text-muted)'">${_esc(t('acct.sign_out'))}</a>
+        <form method="post" action="/logout" class="logout-form" style="margin-left:auto">
+          <button type="submit" class="logout-link">${_esc(t('acct.sign_out'))}</button>
+        </form>
       </div>
       ${profileSection}${pwSection}${otpSection}
     </div>`;
@@ -5125,7 +5248,7 @@ async function umChangePassword() {
   const msg  = document.getElementById('umPwMsg');
   if (np !== np2) { msg.innerHTML = `<div class="um-error">${_esc(t('acct.pw_mismatch'))}</div>`; return; }
   if (np.length < 8) { msg.innerHTML = `<div class="um-error">${_esc(t('acct.pw_short'))}</div>`; return; }
-  const r = await fetch(`${API_BASE}/api/users/me/password`, {
+  const r = await _netFetch(`${API_BASE}/api/users/me/password`, {
     method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ current_password: cur, new_password: np })
   });
   const d = await r.json().catch(() => ({}));
@@ -5139,12 +5262,20 @@ async function umChangePassword() {
 }
 
 async function umShowOtpSetup() {
+  // the secret is handed out only against the current password: a borrowed session cannot enrol its own app
+  const pw = await hcmPrompt(t('acct.otp_setup_pw'), {type: 'password'});
+  if (pw === null) return;
   const box = document.getElementById('umOtpSetup');
   box.innerHTML = `<div style="color:var(--text-muted);font-size:12px;">${_esc(t('acct.loading'))}</div>`;
   box.style.display = 'block';
-  const r = await fetch(`${API_BASE}/api/users/me/otp/setup`);
-  const d = await r.json();
-  if (!r.ok) { box.innerHTML = `<div class="um-error">${_esc(d.error)}</div>`; return; }
+  const r = await _netFetch(`${API_BASE}/api/users/me/otp/setup`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({password: pw})
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    box.innerHTML = `<div class="um-error">${_esc(d.password_required ? t('acct.pw_wrong_current') : (d.error || t('acct.otp_setup_failed')))}</div>`;
+    return;
+  }
   box.innerHTML = `
     <div class="um-otp-qr">
       <img src="${d.qr_data_url}" width="160" height="160" alt="OTP QR code">
@@ -5165,7 +5296,7 @@ async function umShowOtpSetup() {
 async function umConfirmOtp() {
   const code = (document.getElementById('umOtpCode') || {}).value || '';
   const msg  = document.getElementById('umOtpMsg');
-  const r = await fetch(`${API_BASE}/api/users/me/otp/enable`, {
+  const r = await _netFetch(`${API_BASE}/api/users/me/otp/enable`, {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({code})
   });
   const d = await r.json();
@@ -5180,7 +5311,7 @@ async function umConfirmOtp() {
 async function umDisableOtp() {
   const pw = await hcmPrompt(t('acc.otp_disable_pw'), {type: 'password'});
   if (pw === null) return;
-  const r = await fetch(`${API_BASE}/api/users/me/otp/disable`, {
+  const r = await _netFetch(`${API_BASE}/api/users/me/otp/disable`, {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({password: pw})
   });
   const d = await r.json();
@@ -5213,13 +5344,13 @@ const SENT_INFO = {
     label: 'Over-prov CPU threshold',
     what: 'VMs consistently using less than this % of allocated CPU over the analysis window are flagged as over-provisioned.',
     benefits: 'Identifies VMs with too many vCPUs allocated, freeing up capacity that can be reassigned to under-provisioned VMs or allow higher VM density on the same hardware.',
-    careful: 'Set too high and intentionally reserved VMs (standby servers, batch jobs with variable load) get incorrectly flagged. Consider your workload mix before lowering below 20%.',
+    careful: 'Set too high and intentionally reserved VMs (standby servers, batch jobs with variable load) get incorrectly flagged. Consider your workload mix before raising it above 20%.',
   },
   SENTINEL_CPU_UNDER_PROVISIONED_AVG_THRESHOLD: {
     label: 'Under-prov CPU avg',
     what: 'Average CPU usage above this % over the analysis window triggers Signal 1 of the under-provisioned model. Either avg or P95 threshold can fire independently.',
     benefits: 'Catches VMs that are consistently near capacity — sustained high utilisation is the strongest indicator that a VM needs more vCPUs.',
-    careful: 'Set too low and VMs with occasional spikes but healthy averages will be missed. This signal works best alongside the P95 threshold, which catches burst patterns the average smooths out.',
+    careful: 'Set too high and VMs that are near capacity only part of the time are missed; set too low and VMs with healthy averages are flagged. This signal works best alongside the P95 threshold, which catches burst patterns the average smooths out.',
   },
   SENTINEL_CPU_UNDER_PROVISIONED_P95_THRESHOLD: {
     label: 'Under-prov CPU P95',
@@ -5283,7 +5414,7 @@ const SENT_INFO = {
   },
   SENTINEL_RETENTION_MONTHS: {
     label: 'Retention',
-    what: 'How many months forecast snapshots and right-sizing records are kept before the automated cleanup job removes them. Audit records (recommendation_events) are kept indefinitely regardless.',
+    what: 'How many months Foresight keeps its audit history (recommendation events, outcomes and webhook deliveries) before the hourly cleanup removes it. Current forecasts and right-sizing results are replaced by every analysis cycle.',
     benefits: 'Prevents the PostgreSQL database from growing unboundedly. 12 months is sufficient for trend analysis and historical report generation.',
     careful: 'Lowering aggressively (e.g. 1–2 months) removes older recommendations from the dashboard and API, limiting historical comparison. Raising it increases database storage proportionally.',
   },
@@ -5391,7 +5522,7 @@ function onSentToggle(key, gid, cbEl) {
   if (!_sStagedSent[gid]) _sStagedSent[gid] = {};
   _sStagedSent[gid][key] = cbEl.checked;
   const lbl = document.getElementById(`stgl-lbl-${key}`);
-  if (lbl) { lbl.textContent = cbEl.checked ? 'ON' : 'OFF'; lbl.style.color = cbEl.checked ? 'var(--accent-cyan)' : 'var(--text-secondary)'; }
+  if (lbl) { lbl.textContent = _tunOnOff(cbEl.checked); lbl.style.color = cbEl.checked ? 'var(--accent-cyan)' : 'var(--text-secondary)'; }
   _sentMarkDirty(gid);
 }
 function onSentSelect(key, gid, selEl) {
@@ -5401,12 +5532,12 @@ function onSentSelect(key, gid, selEl) {
 }
 
 function _renderSentControl(meta, gid, readOnly = false) {
-  const labelRow = `<div class="ctrl-label-row"><div class="ctrl-label">${meta.label}${meta.unit ? '<span style="color:var(--text-muted);margin-left:3px;">'+meta.unit+'</span>' : ''}</div>${_infoBtn(meta.key)}</div>`;
+  const labelRow = `<div class="ctrl-label-row"><div class="ctrl-label">${_clEsc(_tunLabel(meta.key, meta.label))}${meta.unit ? '<span style="color:var(--text-muted);margin-left:3px;">'+_clEsc(_tunUnit(meta.unit))+'</span>' : ''}</div>${_infoBtn(meta.key)}</div>`;
   const dis = readOnly ? ' disabled' : '';
 
   if (meta.type === 'bool') {
     const checked    = meta.value ? 'checked' : '';
-    const stateLabel = meta.value ? 'ON' : 'OFF';
+    const stateLabel = _tunOnOff(meta.value);
     const stateColor = meta.value ? 'var(--accent-cyan)' : 'var(--text-secondary)';
     return `
       <div class="ctrl-strip ctrl-strip-bool">
@@ -5462,7 +5593,7 @@ async function applySentGroup(gid) {
   const updates = _sStagedSent[gid];
   if (!updates || !Object.keys(updates).length) return;
   try {
-    const r = await fetch(`${API_BASE}/api/sentinel/tunables`, {
+    const r = await fetch(_withCluster('/api/sentinel/tunables'), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -5482,7 +5613,7 @@ async function triggerSentinelAnalysisRun(btnEl) {
   const originalLabel = btnEl ? btnEl.innerHTML : '';
   if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = `<span class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:6px;"></span>${t('sentinel.analysis_triggering')}`; }
   try {
-    const r = await fetch(`${API_BASE}/api/sentinel/trend/run`, { method: 'POST' });
+    const r = await fetch(_withCluster('/api/sentinel/trend/run'), { method: 'POST' });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.error || `HTTP ${r.status}`);
@@ -5499,6 +5630,7 @@ async function loadSentinelSettings() {
   const el = document.getElementById('sentSettingsContent');
   try {
     const data = await apiFetch('/api/sentinel/tunables');
+    Object.keys(_sStagedSent).forEach(k => { delete _sStagedSent[k]; });   // as _dropStaged: the form is rendered anew
     if (!data) { el.innerHTML = `<div class="empty-state">${t('empty.sentinel_settings_unavail')}</div>`; return; }
 
     // index by key
@@ -5533,7 +5665,7 @@ async function loadSentinelSettings() {
         </div>`;
     }).join('');
   } catch(e) {
-    el.innerHTML = `<div class="empty-state">${t('empty.settings_load_failed', {msg: e.message})}</div>`;
+    el.innerHTML = `<div class="empty-state">${t('empty.settings_load_failed', {msg: _clEsc(e.message)})}</div>`;
   }
 }
 
@@ -5544,6 +5676,7 @@ async function loadBalancerSettings() {
   const vals = {};
   data.forEach(item => { vals[item.key] = item.value; });
   const groups = CTRL_GROUPS.filter(g => g.tab === 'balancer');
+  _dropStaged(groups);
   const isAdmin = can('cluster.settings', currentCluster) || (_settingsTarget === 'defaults' && can('install.manage'));
   document.getElementById('balancerSettingsContent').innerHTML = _settingsTargetBar(isAdmin) + _renderGroups(groups, vals, isAdmin);
 }
@@ -5572,9 +5705,12 @@ function _clAgo(iso) {
   if (s < 5400) return t('clusters.status_seen', {ago: Math.round(s / 60) + 'm'});
   return t('clusters.status_seen', {ago: Math.round(s / 3600) + 'h'});
 }
+// a colour as the picker gives it; anything else stored (from before the server checked) is not used:
+// these values go into style attributes
+function _safeColour(v) { return /^#[0-9a-fA-F]{6}$/.test(v || '') ? v : ''; }
 function _clColour(c, i) {
   // a cluster without a colour of its own takes the next chart colour of the theme
-  return c.colour || CHART_COLORS[i % CHART_COLORS.length];
+  return _safeColour(c.colour) || CHART_COLORS[i % CHART_COLORS.length];
 }
 
 async function loadClusters() {
@@ -5596,6 +5732,8 @@ async function loadClusters() {
   // there is one, which hid the tab for two minutes from anyone without backup rights on the whole installation
   if (typeof _exProbe === 'function') _exProbe();
   if (!window._alertsPrimed && enabled.length) { window._alertsPrimed = true; loadClusterAlerts(); }
+  // the data-quality banner names the cluster: it is first checked once the clusters are known
+  if (!window._dqPrimed && enabled.length) { window._dqPrimed = true; checkDataQuality(); }
   return d;
 }
 
@@ -5622,7 +5760,8 @@ function _renderClusterRail(enabled) {
 
   const group = (key, name, colour, members, adminMenu) => {
     const collapsed = !(_railQuery || '').trim() && _collapsedFolders.has(key);
-    const vars = colour ? `--fc:${_clEsc(colour)};--fc-tint:${_tint(colour, 0.16)}` : '';
+    colour = _safeColour(colour);
+    const vars = colour ? `--fc:${colour};--fc-tint:${_tint(colour, 0.16)}` : '';
     return `
     <div class="cluster-folder ${collapsed ? 'collapsed' : ''}" style="${vars}" onclick="toggleFolder('${key}')" title="${_clEsc(name)}">
       <span class="folder-chevron">▾</span>
@@ -5708,7 +5847,7 @@ function _updateBreadcrumbs() {
   const clusterScoped = !['settings', 'modules', 'account'].includes(activeTab);
   if (cur && clusterScoped) {
     const f = FOLDERS.find(x => x.folder_id === cur.folder_id);
-    if (f) parts.push(`<span class="crumb folder"><span class="crumb-dot" style="background:${_clEsc(f.colour || 'var(--text-muted)')}"></span>${_clEsc(f.name)}</span>`);
+    if (f) parts.push(`<span class="crumb folder"><span class="crumb-dot" style="background:${_safeColour(f.colour) || 'var(--text-muted)'}"></span>${_clEsc(f.name)}</span>`);
     parts.push(`<span class="crumb cluster"><span class="crumb-dot" style="background:${_clColour(cur, enabled.indexOf(cur))}"></span>${_clEsc(cur.name)}</span>`);
   }
   const tabEl = document.querySelector(`.nav-tab[data-tab="${activeTab}"], .rail-nav[data-tab="${activeTab}"]`);
@@ -5784,7 +5923,7 @@ function _clusterMenuRows(clusterId, q) {
   if (!list.length)    return `<div class="popmenu-item" style="color:var(--text-muted);cursor:default;">${t('folders.no_match')}</div>`;
   return list.map(f => `
     <div class="popmenu-item" onclick="moveClusterToFolder('${clusterId}', '${f.folder_id}')">
-      <span class="cluster-dot" style="background:${_clEsc(f.colour || 'var(--text-muted)')}"></span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_clEsc(f.name)}</span>${c && c.folder_id === f.folder_id ? '✓' : ''}
+      <span class="cluster-dot" style="background:${_safeColour(f.colour) || 'var(--text-muted)'}"></span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_clEsc(f.name)}</span>${c && c.folder_id === f.folder_id ? '✓' : ''}
     </div>`).join('');
 }
 function clusterMenuSearch(clusterId, q) { const box = document.getElementById('clusterMenuRows'); if (box) box.innerHTML = _clusterMenuRows(clusterId, q); }
@@ -5846,7 +5985,7 @@ function openFolderMenu(ev, folderId) {
 }
 
 async function _folderCall(method, path, body) {
-  const r = await fetch(`${API_BASE}${path}`, { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
+  const r = await _netFetch(`${API_BASE}${path}`, { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { hcmAlert(d.error || `HTTP ${r.status}`); return null; }
   return d;
@@ -5926,14 +6065,14 @@ function _clusterFormHtml(prefix, c) {
       <div><label>${t('clusters.username')}</label><input type="text" id="${prefix}-username" value="${_clEsc(c.username)}" autocomplete="off"></div>
       <div><label>${t('clusters.password')}</label><input type="password" id="${prefix}-password" autocomplete="new-password" placeholder="${c.cluster_id ? _clEsc(t('clusters.password_keep')) : ''}"></div>
       <div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="${prefix}-verify" ${c.verify_tls ? 'checked' : ''}><label for="${prefix}-verify" style="margin:0;">${t('clusters.verify_tls')}</label></div>
-      <div><label>${t('clusters.colour')}</label><input type="color" id="${prefix}-colour" value="${_clEsc(c.colour || '#3b82f6')}"/* token-ok: default of a user-picked colour */ style="width:48px;height:30px;border:none;background:none;"></div>
+      <div><label>${t('clusters.colour')}</label><input type="color" id="${prefix}-colour" value="${_safeColour(c.colour) || '#3b82f6'}"/* token-ok: default of a user-picked colour */ style="width:48px;height:30px;border:none;background:none;"></div>
       <div><label>${t('clusters.api')}</label><select id="${prefix}-api" style="width:100%;padding:7px 9px;border-radius:6px;font-size:12px;background:var(--bg-input, var(--bg-primary));border:1px solid var(--border);color:var(--text-primary);">
         <option value="auto" ${(c.api_version || 'auto') === 'auto' ? 'selected' : ''}>${t('clusters.api_auto')}</option>
         <option value="v1" ${c.api_version === 'v1' ? 'selected' : ''}>${t('clusters.api_v1')}</option>
         <option value="v2" ${c.api_version === 'v2' ? 'selected' : ''}>${t('clusters.api_v2')}</option></select>
         <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">${t('clusters.api_hint')}</div></div>
       <div><label>${t('clusters.timezone')}</label><input type="text" id="${prefix}-timezone" value="${c.timezone_override ? _clEsc(c.timezone || '') : ''}" placeholder="${_clEsc(c.timezone || t('clusters.timezone_unknown'))}" list="tz-list" autocomplete="off">
-        <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">${c.timezone && !c.timezone_override ? t('clusters.timezone_detected', {tz: c.timezone}) : t('clusters.timezone_hint')}</div></div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">${c.timezone && !c.timezone_override ? t('clusters.timezone_detected', {tz: _clEsc(c.timezone)}) : t('clusters.timezone_hint')}</div></div>
       <div><label>${t('folders.folder')}</label><select id="${prefix}-folder" style="width:100%;padding:7px 9px;border-radius:6px;font-size:12px;background:var(--bg-input, var(--bg-primary));border:1px solid var(--border);color:var(--text-primary);">
         <option value="">${t('folders.unfiled')}</option>
         ${FOLDERS.map(f => `<option value="${f.folder_id}" ${c.folder_id === f.folder_id ? 'selected' : ''}>${_clEsc(f.name)}</option>`).join('')}
@@ -5989,7 +6128,7 @@ function _clMsg(prefix, text, cls) { const el = document.getElementById(`${prefi
 
 async function clTest(prefix) {
   _clMsg(prefix, t('clusters.testing'), '');
-  const r = await fetch(`${API_BASE}/api/clusters/test`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(_clRead(prefix)) });
+  const r = await _netFetch(`${API_BASE}/api/clusters/test`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(_clRead(prefix)) });
   const d = await r.json().catch(() => ({}));
   if (d.ok) _clMsg(prefix, t('clusters.test_ok', {name: d.cluster_name || '?', nodes: d.node_count ?? '?', version: d.version || '?'}) + ' · ' + t(d.api_v2 ? 'clusters.api_v2_yes' : 'clusters.api_v2_no'), 'ok');
   else _clMsg(prefix, t('clusters.test_fail', {error: d.error || r.status}), 'err');
@@ -6002,7 +6141,7 @@ async function clSave(prefix, clusterId) {
   const newFolder = !clusterId ? body.folder_id : null;   // create() has no folder arg; set it after
   const url = clusterId ? `${API_BASE}/api/clusters/${clusterId}` : `${API_BASE}/api/clusters`;
   _clMsg(prefix, t('clusters.testing'), '');
-  const r = await fetch(url, { method: clusterId ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  const r = await _netFetch(url, { method: clusterId ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { _clMsg(prefix, d.error || `HTTP ${r.status}`, 'err'); return; }
   if (!clusterId && d.cluster) {
@@ -6016,7 +6155,7 @@ async function clSave(prefix, clusterId) {
 
 async function clTestExisting(id) {
   _clMsg('cl-' + id, t('clusters.testing'), '');
-  const r = await fetch(`${API_BASE}/api/clusters/${id}/test`, { method: 'POST' });
+  const r = await _netFetch(`${API_BASE}/api/clusters/${id}/test`, { method: 'POST' });
   const d = await r.json().catch(() => ({}));
   const perNode = d.nodes_total ? ' · ' + t('clusters.test_nodes', {ok: d.nodes_ok, total: d.nodes_total}) : '';
   const failed = (d.nodes_tested || []).filter(n => !n.ok).map(n => `${n.address}: ${n.error || '?'}`).join('; ');
@@ -6049,7 +6188,7 @@ function _clNodesHtml(c, isAdmin) {
   }).join('')}</div>`;
 }
 async function clForgetNode(id, uuid) {
-  const r = await fetch(`${API_BASE}/api/clusters/${id}/nodes/${encodeURIComponent(uuid)}`, { method: 'DELETE' });
+  const r = await _netFetch(`${API_BASE}/api/clusters/${id}/nodes/${encodeURIComponent(uuid)}`, { method: 'DELETE' });
   if (!r.ok) { const d = await r.json().catch(() => ({})); _clMsg('cl-' + id, d.error || `HTTP ${r.status}`, 'err'); return; }
   loadClusters();
   if (typeof _ac !== 'undefined' && _ac.tab === 'tree' && document.getElementById('acTbPane')) _acClustersChanged();
@@ -6098,7 +6237,7 @@ function _renderRailFooter(isAdmin) {
     <div class="rail-nav" data-tab="account" onclick="switchTab('account'); closeTopMenus()"><span class="rail-nav-icon">👤</span><span>${t('nav.account')}</span></div>
     <a class="rail-nav" href="/manual/" target="_blank" rel="noopener"><span class="rail-nav-icon">📖</span><span>${t('nav.manual')}</span></a>
     <div class="user-menu-sep"></div>
-    <a class="rail-nav" href="/logout"><span class="rail-nav-icon">⏻</span><span>${t('nav.sign_out')}</span></a>`;
+    <form method="post" action="/logout" class="logout-form"><button type="submit" class="rail-nav"><span class="rail-nav-icon">⏻</span><span>${t('nav.sign_out')}</span></button></form>`;
   const st = document.getElementById('navTabSettings');
   if (st) st.hidden = !canSettings();
   const btn = document.getElementById('userBtn');
@@ -6306,10 +6445,10 @@ function _alertRow(it, cid) {
   const consoleBtns = it.kind === 'console' ? `
       ${canVm('vm.console', cid, it.vm_uuid) ? `<button class="um-action-btn" onclick="openVmConsole('${cid}', '${_clEsc(it.vm_uuid)}')">${t('console.open')}</button>` : ''}
       ${can('console_check.manage', cid) ? `<button class="um-action-btn" onclick="alertLearnLocked('${cid}', '${_clEsc(it.vm_uuid)}', this)" title="${_clEsc(t('cc.learn_hint'))}">${t('cc.learn')}</button>` : ''}` : '';
-  const muteCtl = it.muted_until
-    ? `<button class="um-action-btn" onclick="muteAlert('${cid}', '${k}', 0)">${t('alerts.unmute')}</button>`
-    : `<span>${t('notice.mute_for')}</span><input type="number" min="1" max="365" value="7" id="mute-${k}"><span>${t('notice.days')}</span>
-       <button class="um-action-btn" onclick="muteAlert('${cid}', '${k}')">${t('notice.mute')}</button>`;
+  const muteCtl = !can('cluster.alerts.mute', cid) ? '' : it.muted_until
+    ? `<button class="um-action-btn" data-k="${_clEsc(k)}" onclick="muteAlert('${cid}', this.dataset.k, 0)">${t('alerts.unmute')}</button>`
+    : `<span>${t('notice.mute_for')}</span><input type="number" min="1" max="365" value="7" id="mute-${_clEsc(k)}"><span>${t('notice.days')}</span>
+       <button class="um-action-btn" data-k="${_clEsc(k)}" onclick="muteAlert('${cid}', this.dataset.k)">${t('notice.mute')}</button>`;
   return `<div class="alert-row"><span class="alert-dot ${it.severity}">${ALERT_ICON[it.severity]}</span>
     <div class="alert-row-main">${_alertText(it)}<div class="alert-row-meta">${meta.join(' · ')}</div></div>
     <div class="alert-row-actions">${consoleBtns}${muteCtl}</div></div>`;
@@ -6429,15 +6568,33 @@ function exSetOnly(cid) { _exOnly = cid; switchExportsPanel(_exPanel); }
 async function _exCall(method, path, body) {
   if (method === 'GET' && _exOnly && /^\/api\/backup\/(plans|chains|runs|restores)(\?|$)/.test(path))
     path += (path.includes('?') ? '&' : '?') + 'only=' + encodeURIComponent(_exOnly);
-  const r = await fetch(_withCluster(path), { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
+  const r = await _netFetch(_withCluster(path), { method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { const err = new Error(d.error || `HTTP ${r.status}`); err.status = r.status; err.data = d; throw err; }
   return d;
 }
 const _exEsc = v => _clEsc(v);
-const _exIsAdmin = () => true;   // users of a folder may schedule exports and run imports; shares are admin-only
+// What the signed-in user may do with a backup row (a plan, chain or VM of the folder): the permission its route
+// needs, on the row's cluster or on its VM. The server checks again; this only hides what would be refused.
+function _exCan(perm, row) {
+  const cid = (row && row.cluster_id) || currentCluster;
+  if (can(perm, cid)) return true;
+  const vm = row && (row.vm_uuid || row.uuid);
+  if (!vm) return false;
+  if (_vmIndexFor === cid) return canVm(perm, cid, vm, _vmTags(vm));
+  // tags not known here (a VM of another cluster of the folder): a grant on any tag may cover it
+  return canVm(perm, cid, vm, []) || _hasTagGrant(cid) && (((window.HCM_ACCESS || {}).clusters || {})[cid].grants || []).some(g => g.tag && g.perms.includes(perm));
+}
+// policies, test restores and verification belong to the folder of the selected cluster
+const _exFolderCan = perm => can(perm, currentCluster);
 let _exLocation = null;
-const _exFmt = iso => iso ? new Date(iso).toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '—';
+// day, month and time; the year too when it is not this year (restore points kept over a year apart collided)
+const _exFmt = iso => {
+  if (!iso) return '—';
+  const d = new Date(iso), o = {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'};
+  if (d.getFullYear() !== new Date().getFullYear()) o.year = 'numeric';
+  return d.toLocaleString(_hcmLocale(), o);
+};
 function _exStatusBadge(status, message) {
   if (status === 'COMPLETE') return `<span class="ex-badge ok">${t('ex.status_ok')}</span>`;
   if (status === 'ERROR')    return `<span class="ex-badge err">${t('ex.status_failed')}</span>`;
@@ -6473,8 +6630,9 @@ async function loadExports() {
 async function exLoadSchedules() {
   const el = document.getElementById('expanel-schedules');
   let rows;
+  const cid = currentCluster;
   try { rows = await _exCall('GET', '/api/backup/plans'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
-  const admin = _exIsAdmin();
+  if (cid !== currentCluster) return;      // switched clusters meanwhile
   if (!rows.length) {
     el.innerHTML = _exLocationLine(null) + `<div class="empty-state">${t('ex.no_schedules')}<br><span style="font-size:12px;color:var(--text-muted)">${t('ex.no_schedules_hint')}</span></div>`;
     return;
@@ -6483,17 +6641,17 @@ async function exLoadSchedules() {
       <th>${t('ex.col_vm')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_retention')}</th><th>${t('ex.col_daily_at')}</th><th>${t('ex.col_last_run')}</th><th>${t('ex.col_next_run')}</th><th></th>
     </tr></thead><tbody>${rows.map(s => `
       <tr>
-        <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="qcow2 compression">zip</span>` : ''}${_exClusterHint(s)}<div><span class="ex-badge ${s.mode === 'incremental' ? 'run' : 'off'}" title="${_exEsc(t('ex.f_mode'))}">${t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')}</span></div></td>
+        <td class="um-username">${_exEsc(s.vm_name)}${s.enabled ? '' : ` <span class="ex-badge off">${t('ex.paused')}</span>`}${s.compress ? ` <span class="ex-badge off" title="${_exEsc(t('ex.compress_hint'))}">zip</span>` : ''}${_exClusterHint(s)}<div><span class="ex-badge ${s.mode === 'incremental' ? 'run' : 'off'}" title="${_exEsc(t('ex.f_mode'))}">${t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')}</span></div></td>
         <td style="font-family:var(--font-ui);font-size:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_exLocation ? `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/` : _exEsc(s.effective_base || s.path_uri_base || '—')}</td>
         <td><span class="ex-slots">${'<i></i>'.repeat(Math.min(s.retention, 14))}</span><span style="font-size:12px;color:var(--text-muted)">×${s.retention}${s.retention_days ? ` / ${s.retention_days}d` : ''}${s.mode === 'incremental' ? ` · ${t('ex.full_every', {n: s.full_every_n})}` : ''}</span></td>
         <td style="font-family:var(--font-ui);">${s.policy_id ? `<span class="ex-badge run" title="${_exEsc(t('ex.pol_member_hint'))}">${t('ex.pol_member_of', {name: _exEsc(s.policy_name || '')})}</span>` : _exTimeLabel(s.run_time, s.timezone)}</td>
         <td>${s.last_run ? `${_exStatusBadge(s.last_run.status, s.last_run.message)}${s.last_run.notice ? ' ' + _exNoticeBadge(s.last_run.notice) : ''}<div style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);">${_exFmt(s.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:12px;">${t('ex.never')}</span>`}</td>
         <td style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted)">${_exFmt(s.next_run)}</td>
-        <td style="white-space:nowrap;">${admin ? `
-          <button class="um-action-btn" onclick="exRunNow(${s.id})" ${s.enabled ? '' : 'disabled'}>${t('ex.run_now')}</button>
+        <td style="white-space:nowrap;">${_exCan('backup.run', s) ? `
+          <button class="um-action-btn" onclick="exRunNow(${s.id})" ${s.enabled ? '' : 'disabled'}>${t('ex.run_now')}</button>` : ''}${_exCan('backup.schedule', s) ? `
           <button class="um-action-btn" onclick="exToggle(${s.id})">${s.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
           <button class="um-action-btn" onclick="exHistory(${s.id})">${t('ex.history')}</button>
-          ${admin ? `<button class="um-action-btn danger" onclick="exRemove(${s.id}, '${_exEsc(s.vm_name)}')">${t('ex.remove')}</button>` : ''}
+          ${_exCan('backup.schedule', s) ? `<button class="um-action-btn danger" data-name="${_exEsc(s.vm_name)}" onclick="exRemove(${s.id}, this.dataset.name)">${t('ex.remove')}</button>` : ''}
         </td>
       </tr>`).join('')}</tbody></table></div>`;
 }
@@ -6550,8 +6708,8 @@ function _polDescribe(rule) {
 function _polWhen(iso, tz) {
   if (!iso) return '—';
   const d = new Date(iso);
-  const zone = d.toLocaleString('en-GB', {timeZone: tz, weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'});
-  return tz && tz !== _exViewerZone() ? `${_exEsc(zone)} <span style="opacity:0.7">(${t('ex.your_time', {time: d.toLocaleString('en-GB', {hour: '2-digit', minute: '2-digit'})})})</span>` : _exEsc(zone);
+  const zone = d.toLocaleString(_hcmLocale(), {timeZone: tz, weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'});
+  return tz && tz !== _exViewerZone() ? `${_exEsc(zone)} <span style="opacity:0.7">(${t('ex.your_time', {time: d.toLocaleString(_hcmLocale(), {hour: '2-digit', minute: '2-digit'})})})</span>` : _exEsc(zone);
 }
 function _polBlackoutText(b) {
   const days = b.days.length === 7 ? t('ex.pol_every_day') : b.days.map(d => _polDayName(d.slice(0, 2))).join(', ');
@@ -6568,7 +6726,11 @@ function _polOcc(iso, p) {
 
 async function exLoadPolicies() {
   const el = document.getElementById('expanel-policies');
-  try { _polData = await _exCall('GET', '/api/backup/policies'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  const cid = currentCluster;
+  let pol;
+  try { pol = await _exCall('GET', '/api/backup/policies'); } catch (e) { if (cid === currentCluster) el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  if (cid !== currentCluster) return;      // switched clusters meanwhile
+  _polData = pol;
   const scope = _polData.folder_name ? t('ex.pol_scope_folder', {folder: _exEsc(_polData.folder_name)}) : t('ex.pol_scope_unfiled');
   const section = (kind) => {
     const rows = _polData.policies.filter(p => p.kind === kind);
@@ -6577,7 +6739,7 @@ async function exLoadPolicies() {
     return `<div class="settings-group">
       <div class="settings-group-header"><div class="chart-title-dot" style="background:${kind === 'incremental' ? 'var(--accent-cyan)' : 'var(--accent-purple)'}"></div>
         <span class="settings-group-title">${title}</span>
-        <button class="um-action-btn" onclick="exPolicyEdit('new-${kind}')" ${disabled ? `disabled title="${_exEsc(t('ex.mode_hint_no_proxy'))}"` : ''}>${t('ex.pol_new')}</button></div>
+        ${_exFolderCan('backup.schedule') ? `<button class="um-action-btn" onclick="exPolicyEdit('new-${kind}')" ${disabled ? `disabled title="${_exEsc(t('ex.mode_hint_no_proxy'))}"` : ''}>${t('ex.pol_new')}</button>` : ''}</div>
       ${rows.length ? rows.map(_polCard).join('') : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.pol_none')}</div>`}
     </div>`;
   };
@@ -6586,7 +6748,7 @@ async function exLoadPolicies() {
   if (_polMembersOpen) exPolicyMembers(_polMembersOpen, true);
   if (_polNightOpen) exPolicyNight(_polNightOpen[0], _polNightOpen[1], true);
 }
-const _polHM = (iso, tz) => iso ? new Date(iso).toLocaleTimeString('en-GB', {timeZone: tz || undefined, hour: '2-digit', minute: '2-digit'}) : '—';
+const _polHM = (iso, tz) => iso ? new Date(iso).toLocaleTimeString(_hcmLocale(), {timeZone: tz || undefined, hour: '2-digit', minute: '2-digit'}) : '—';
 const _polDur = sec => sec == null ? '—' : sec < 90 ? `${Math.round(sec)} s` : sec < 5400 ? `${Math.round(sec / 60)} min` : `${(sec / 3600).toFixed(1)} h`;
 function _polNightLine(p) {
   const n = p.night;
@@ -6655,10 +6817,10 @@ function _polCard(p) {
       <span class="pol-actions">
         <button class="um-action-btn" onclick="exPolicyMembers(${p.id})">${t('ex.pol_members', {n: p.members.length})}</button>
         ${p.members.length ? `<button class="um-action-btn" onclick="exPolicyNight(${p.id}, 'current')">${t('ex.pol_night_plan')}</button>` : ''}
-        <button class="um-action-btn" onclick="exPolicyRunNow(${p.id}, '${_exEsc(p.name)}')" ${p.members.length && !p.manual_at ? '' : 'disabled'} title="${_exEsc(t('ex.pol_run_now_hint'))}">${t('ex.run_now')}</button>
-        <button class="um-action-btn" onclick="exPolicyEdit(${p.id})">${t('ex.pol_edit')}</button>
+        ${_exFolderCan('backup.run') ? `<button class="um-action-btn" data-name="${_exEsc(p.name)}" onclick="exPolicyRunNow(${p.id}, this.dataset.name)" ${p.members.length && !p.manual_at ? '' : 'disabled'} title="${_exEsc(t('ex.pol_run_now_hint'))}">${t('ex.run_now')}</button>` : ''}
+        ${_exFolderCan('backup.schedule') ? `<button class="um-action-btn" onclick="exPolicyEdit(${p.id})">${t('ex.pol_edit')}</button>
         <button class="um-action-btn" onclick="exPolicyToggle(${p.id})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
-        <button class="um-action-btn danger" onclick="exPolicyDelete(${p.id}, '${_exEsc(p.name)}')">${t('ex.remove')}</button>
+        <button class="um-action-btn danger" data-name="${_exEsc(p.name)}" onclick="exPolicyDelete(${p.id}, this.dataset.name)">${t('ex.remove')}</button>` : ''}
       </span>
     </div>
     <div class="pol-meta">
@@ -6768,7 +6930,7 @@ function _polBlackoutRow(b) {
   const days = (b && b.days) || ['mon', 'tue', 'wed', 'thu', 'fri'];
   return `<div class="pol-blackout"><span class="pol-days">${_POL_BDAYS.map(d => `<label><input type="checkbox" class="polb-day" value="${d}" ${days.includes(d) ? 'checked' : ''}>${_polDayName(d.slice(0, 2))}</label>`).join('')}</span>
     <input type="time" class="polb-from" value="${_exEsc((b && b.from) || '07:00')}"> – <input type="time" class="polb-to" value="${_exEsc((b && b.to) || '19:00')}">
-    <button class="um-action-btn danger" onclick="this.parentElement.remove()">×</button></div>`;
+    <button class="um-action-btn danger" aria-label="${_exEsc(t('ve.remove'))}" onclick="this.parentElement.remove()">×</button></div>`;
 }
 function _polAddBlackout() { document.getElementById('polf-blackouts')?.insertAdjacentHTML('beforeend', _polBlackoutRow(null)); }
 function _polPresetChanged() {
@@ -6858,12 +7020,12 @@ async function exPolicyMembers(id, keepOpen) {
         <td style="font-size:12px;">${_exEsc(m.cluster_name)}</td>
         <td style="font-size:12px;">${!m.prediction ? '—' : m.prediction.learned ? `<span title="${_exEsc(t('ex.pol_tl_planned', {start: _polHM(m.prediction.planned_start, p.timezone), dur: _polDur(m.prediction.seconds)}))}">~${_polDur(m.prediction.seconds)}</span>` : `<span class="ex-badge off" title="${_exEsc(t('ex.pol_learning_hint'))}">${t('ex.pol_tl_learning', {n: m.prediction.samples, of: m.prediction.needed || 5})}</span>`}</td>
         <td>${m.last_run ? `${_exStatusBadge(m.last_run.status, m.last_run.message)}${m.last_run.notice ? ' ' + _exNoticeBadge(m.last_run.notice) : ''}<div style="font-size:12px;color:var(--text-muted);font-family:var(--font-ui);">${_exFmt(m.last_run.started_at)}</div>` : `<span style="color:var(--text-muted);font-size:12px;">${t('ex.never')}</span>`}</td>
-        <td style="white-space:nowrap;">${m.cluster_id === currentCluster ? `<button class="um-action-btn" onclick="exToggle(${m.id}).then(exLoadPolicies)">${m.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
-          <button class="um-action-btn danger" onclick="exPolicyRemoveMember(${id}, ${m.id}, '${_exEsc(m.vm_name)}')">${t('ex.pol_remove_member')}</button></td></tr>`).join('')}
+        <td style="white-space:nowrap;">${m.cluster_id === currentCluster && _exCan('backup.schedule', m) ? `<button class="um-action-btn" onclick="exToggle(${m.id}).then(exLoadPolicies)">${m.enabled ? t('ex.pause') : t('ex.resume')}</button>` : ''}
+          ${_exCan('backup.schedule', m) ? `<button class="um-action-btn danger" data-name="${_exEsc(m.vm_name)}" onclick="exPolicyRemoveMember(${id}, ${m.id}, this.dataset.name)">${t('ex.pol_remove_member')}</button>` : ''}</td></tr>`).join('')}
     </tbody></table>` : `<div style="color:var(--text-muted);font-size:12px;">${t('ex.pol_no_members')}</div>`}
     <div style="margin-top:10px;"><label style="font-size:12px;color:var(--text-muted);">${t('ex.pol_add_from', {cluster: _exEsc(cur ? cur.name : '')})}</label>
       <div class="ex-hint">${t('ex.pol_add_hint')}</div>
-      ${candidates.length ? `<div class="ex-folder-list">${candidates.map(vm => {
+      ${candidates.length && _exFolderCan('backup.schedule') ? `<div class="ex-folder-list">${candidates.map(vm => {
         const s = vm.schedule;
         const note = !s ? '' : s.policy_id ? t('ex.pol_moves_from', {name: _exEsc(s.policy_name || '')}) : t('ex.pol_joins_own_plan', {mode: t(s.mode === 'incremental' ? 'ex.mode_incremental' : 'ex.mode_export')});
         return `<label><input type="checkbox" class="pol-add" value="${_exEsc(vm.uuid)}" data-name="${_exEsc(vm.name)}">${_exEsc(vm.name)}${note ? ` <span class="ex-hint" style="display:inline;">— ${note}</span>` : ''}</label>`;
@@ -6898,8 +7060,9 @@ async function exLoadVms() {
   const el = document.getElementById('expanel-vms');
   el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
   let vms;
+  const cid = currentCluster;
   try { vms = await _exCall('GET', '/api/backup/vms'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
-  const admin = _exIsAdmin();
+  if (cid !== currentCluster) return;      // switched clusters meanwhile
   if (!vms.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_vms')}</div>`; return; }
   _exVmList = vms;
   el.innerHTML = `<div class="settings-group"><table class="um-table"><thead><tr>
@@ -6917,8 +7080,8 @@ async function exLoadVms() {
         <td style="white-space:nowrap;">${vm.schedule && vm.schedule.policy_id
           ? `<span class="ex-badge run">${t('ex.pol_member_of', {name: _exEsc(vm.schedule.policy_name || '')})}</span>`
           : vm.schedule
-          ? `<span class="ex-badge run" title="${_exEsc(vm.schedule.timezone || '')}">${t('ex.daily_at', {time: vm.schedule.run_time + (vm.schedule.timezone && vm.schedule.timezone !== _exViewerZone() ? ' ' + vm.schedule.timezone : '')})}</span>`
-          : (admin ? `<button class="um-action-btn" onclick="exToggleForm(${i})">${t('ex.schedule_export')}</button>` : `<span style="color:var(--text-muted);font-size:12px;">—</span>`)}</td>
+          ? `<span class="ex-badge run" title="${_exEsc(vm.schedule.timezone || '')}">${_exEsc(t('ex.daily_at', {time: vm.schedule.run_time + (vm.schedule.timezone && vm.schedule.timezone !== _exViewerZone() ? ' ' + vm.schedule.timezone : '')}))}</span>`
+          : (_exCan('backup.schedule', {vm_uuid: vm.uuid}) ? `<button class="um-action-btn" onclick="exToggleForm(${i})">${t('ex.schedule_export')}</button>` : `<span style="color:var(--text-muted);font-size:12px;">—</span>`)}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
 }
@@ -7024,7 +7187,9 @@ let _exRunsFilter = null;
 async function exLoadRuns() {
   const el = document.getElementById('expanel-runs');
   let d;
+  const cid = currentCluster;
   try { d = await _exCall('GET', `/api/backup/runs?limit=100${_exRunsFilter ? '&schedule_id=' + _exRunsFilter : ''}`); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  if (cid !== currentCluster) return;      // switched clusters meanwhile
   const runs = d.runs || [], imports = d.imports || [], restores = d.restores || [];
   const table = (title, rows, kind) => `
     <div class="settings-group">
@@ -7044,12 +7209,12 @@ async function exLoadRuns() {
     </div>`;
   let tests = [];
   if (!_exRunsFilter) { try { tests = await _exCall('GET', '/api/backup/test-runs?limit=100'); } catch (e) { tests = []; } }
+  if (cid !== currentCluster) return;
   el.innerHTML = table(t('ex.runs_title'), runs, 'run') + (_exRunsFilter ? '' : _trHistory(tests) + table(t('ex.restores_title'), restores, 'rst') + table(t('ex.imports_title'), imports, 'imp') + _vfHistory(d.verifications || []));
   clearTimeout(_exPollTimer);
   // poll every 5 s while anything runs, every 20 s otherwise (a run started by a schedule or another user shows up
   // with its progress bar), but only while this panel is on screen and the cluster unchanged
   const busy = [...runs, ...imports, ...restores].some(r => r.status === 'RUNNING') || tests.some(r => r.status === 'running' || r.status === 'queued');
-  const cid = currentCluster;
   _exPollTimer = setTimeout(() => { if (currentCluster === cid && document.getElementById('expanel-runs')?.classList.contains('active')) exLoadRuns(); }, busy ? 5000 : 20000);
 }
 
@@ -7067,7 +7232,7 @@ function _vfSection() {
   const dr = (d.clusters || []).filter(c => c.role === 'dr');
   const head = `<div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-green)"></div>
       <span class="settings-group-title">${t('vf.title')}</span>
-      <button class="um-action-btn" onclick="vfEdit()">${t('vf.edit')}</button></div>`;
+      ${_exFolderCan('backup.schedule') ? `<button class="um-action-btn" onclick="vfEdit()">${t('vf.edit')}</button>` : ''}</div>`;
   const rule = iv ? t('vf.rule', {n: iv, from: _exEsc(st.hours_from), until: _exEsc(st.hours_until)}) : t('vf.off');
   const badges = !sm.points ? `<span class="ex-hint">${t('vf.no_points')}</span>` : [
     sm.failed ? `<span class="ex-badge err">${t('vf.n_failed', {n: sm.failed})}</span>` : '',
@@ -7196,7 +7361,7 @@ function _trSection() {
   if (!d) return '';
   const head = `<div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-amber)"></div>
       <span class="settings-group-title">${t('tr.title')}</span>
-      <button class="um-action-btn" onclick="trEdit(null)">${t('tr.new')}</button></div>`;
+      ${_exFolderCan('backup.schedule') ? `<button class="um-action-btn" onclick="trEdit(null)">${t('tr.new')}</button>` : ''}</div>`;
   const body = (d.plans || []).map(_trCard).join('');
   return `<div class="settings-group">${head}
     <div class="ex-hint" style="margin-bottom:8px;">${t('tr.intro')}</div>
@@ -7212,8 +7377,9 @@ function _trCard(p) {
   ];
   if (p.level === 'network') opts.push(t('tr.net_line', {vlan: p.test_vlan, probe: _exEsc(p.probe_address || '?'), ports: (p.default_ports || []).join(', ') || t('tr.ports_ping')}));
   const vms = (_trData.vms || []);
+  const sched = _exFolderCan('backup.schedule');
   const member = m => `<span class="ex-badge ${m.mode === 'fixed' ? 'ok' : 'off'}" style="margin:2px;">${m.mode === 'exclude' ? '✕ ' : ''}${_exEsc(m.vm_name || m.vm_uuid.slice(0, 8))}${m.ports ? ` · ${m.ports.join(',')}` : ''}
-      <a href="#" title="${_exEsc(t('tr.remove_vm'))}" onclick="event.preventDefault(); trVmRemove(${p.id}, '${m.cluster_id}', '${_exEsc(m.vm_uuid)}')" style="margin-left:4px;color:inherit;">×</a></span>`;
+      ${sched ? `<a href="#" title="${_exEsc(t('tr.remove_vm'))}" onclick="event.preventDefault(); trVmRemove(${p.id}, '${m.cluster_id}', '${_exEsc(m.vm_uuid)}')" style="margin-left:4px;color:inherit;">×</a>` : ''}</span>`;
   return `<div class="pol-card" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <strong>${_exEsc(p.name)}</strong>
@@ -7221,18 +7387,18 @@ function _trCard(p) {
       <span class="ex-badge run">${t(p.level === 'network' ? 'tr.level_network' : 'tr.level_boot')}</span>
       ${p.level === 'network' && !netReady ? `<span class="ex-badge warn" title="${_exEsc(t('tr.net_not_ready_hint'))}">${t('tr.net_not_ready')}</span>` : ''}
       <span style="flex:1"></span>
-      <button class="um-action-btn" onclick="trRun(${p.id})">${t('tr.run_now')}</button>
-      <button class="um-action-btn" onclick="trEdit(${p.id})">${t('vf.edit')}</button>
-      <button class="um-action-btn danger" onclick="trDelete(${p.id}, '${_exEsc(p.name)}')">${t('users.delete')}</button></div>
+      ${_exFolderCan('backup.run') ? `<button class="um-action-btn" onclick="trRun(${p.id})">${t('tr.run_now')}</button>` : ''}
+      ${sched ? `<button class="um-action-btn" onclick="trEdit(${p.id})">${t('vf.edit')}</button>
+      <button class="um-action-btn danger" data-name="${_exEsc(p.name)}" onclick="trDelete(${p.id}, this.dataset.name)">${t('users.delete')}</button>` : ''}</div>
     <div class="ex-hint" style="margin-top:4px;">${t('tr.rule', {n: p.interval_days, fixed: fixed.length, random: p.random_count, weeks: p.rest_weeks})} ${_trTargetLine(p)}</div>
     <div class="ex-hint">${opts.join(' · ')}${p.last_run_at ? ` · ${t('tr.last_round', {when: _exFmt(p.last_run_at)})}` : ''}</div>
     <div style="margin-top:6px;">${fixed.map(member).join('')}${excl.map(member).join('')}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">
+    ${!sched ? '' : `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">
       <select class="um-select" id="tr-${p.id}-vm" style="max-width:260px;">${vms.map(v => `<option value="${v.cluster_id}|${_exEsc(v.vm_uuid)}|${_exEsc(v.vm_name || '')}">${_exEsc(v.vm_name || v.vm_uuid)}</option>`).join('')}</select>
       <select class="um-select" id="tr-${p.id}-mode"><option value="fixed">${t('tr.mode_fixed')}</option><option value="exclude">${t('tr.mode_exclude')}</option></select>
       ${p.level === 'network' ? `<input class="um-input" id="tr-${p.id}-ports" placeholder="${_exEsc(t('tr.ports_vm_ph'))}" style="width:150px;">` : ''}
       <button class="um-action-btn" onclick="trVmAdd(${p.id})" ${vms.length ? '' : 'disabled'}>${t('tr.add_vm')}</button>
-      <div class="cl-msg" id="tr-${p.id}-msg"></div></div>
+      <div class="cl-msg" id="tr-${p.id}-msg"></div></div>`}
   </div>`;
 }
 function _trForm(p) {
@@ -7334,7 +7500,7 @@ function _trHistory(rows) {
           ${r.detail ? `<div>${_exEsc(r.detail)}</div>` : ''}
           ${(r.checks || []).length ? `<div>${r.checks.map(c => `${_exEsc(c.ip)}: ${t(c.ping ? 'tr.ping_ok' : 'tr.ping_no')}${Object.entries(c.ports || {}).map(([pt, ok]) => ` · ${pt} ${ok ? '✓' : '✕'}`).join('')}`).join('<br>')}</div>` : ''}
           ${r.keep_until && !r.cleaned_at ? `<div>${t('tr.kept_until', {when: _exFmt(r.keep_until)})}</div>` : ''}
-          ${r.has_screenshot ? `<button class="um-action-btn" style="margin-top:4px;" onclick="trScreenshot(${r.id}, '${_exEsc(r.vm_name || '')}')">${t('tr.screenshot')}</button>` : ''}</td></tr>`).join('')}</tbody></table>`
+          ${r.has_screenshot ? `<button class="um-action-btn" style="margin-top:4px;" data-name="${_exEsc(r.vm_name || '')}" onclick="trScreenshot(${r.id}, this.dataset.name)">${t('tr.screenshot')}</button>` : ''}</td></tr>`).join('')}</tbody></table>`
       : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('tr.history_none')}</div>`}</div>`;
 }
 function trScreenshot(id, vm) {
@@ -7355,10 +7521,11 @@ async function exLoadPoints() {
   const el = document.getElementById('expanel-points');
   el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
   let chains;
+  const cid = currentCluster;
   try { chains = await _exCall('GET', '/api/backup/chains'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
+  if (cid !== currentCluster) return;      // switched clusters meanwhile
   _exChains = Object.fromEntries(chains.map(c => [c.id, c]));
   if (!chains.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_points')}</div>`; return; }
-  const admin = _exIsAdmin();
   el.innerHTML = `<div class="settings-group"><div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-cyan)"></div><span class="settings-group-title">${t('ex.points_title')}</span></div>
     <table class="um-table"><thead><tr><th>${t('ex.col_vm')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_destination')}</th><th>${t('ex.col_points')}</th><th>${t('ex.col_last_point')}</th><th>${t('ex.col_verified')}</th><th>${t('tr.col_tested')}</th><th></th></tr></thead>
     <tbody>${chains.map(c => `
@@ -7371,9 +7538,9 @@ async function exLoadPoints() {
         <td style="font-size:12px;">${_vfChainCell(c)}</td>
         <td style="font-size:12px;">${_trChainCell(c)}</td>
         <td style="white-space:nowrap;">
-          <button class="um-action-btn" onclick="exPointsOpen(${c.id}, '${_exEsc(c.vm_name)}')">${t('ex.show_points')}</button>
-          ${admin ? `<button class="um-action-btn" onclick="exVerifyChain(${c.id})">${t('ex.verify')}</button>
-          <button class="um-action-btn danger" onclick="exDeleteChain(${c.id}, '${_exEsc(c.vm_name)}')">${t('ex.delete_data')}</button>` : ''}
+          <button class="um-action-btn" data-name="${_exEsc(c.vm_name)}" onclick="exPointsOpen(${c.id}, this.dataset.name)">${t('ex.show_points')}</button>
+          ${_exCan('backup.verify', c) ? `<button class="um-action-btn" onclick="exVerifyChain(${c.id})">${t('ex.verify')}</button>` : ''}
+          ${_exCan('backup.delete', c) ? `<button class="um-action-btn danger" data-name="${_exEsc(c.vm_name)}" onclick="exDeleteChain(${c.id}, this.dataset.name)">${t('ex.delete_data')}</button>` : ''}
           <div class="cl-msg" id="ch-${c.id}-msg"></div>
         </td>
       </tr>`).join('')}</tbody></table></div>`;
@@ -7394,11 +7561,13 @@ async function exPointsOpen(id, vm) {
     const pts = await _exCall('GET', `/api/backup/chains/${id}/points`);
     if (!_pts || _pts.chain !== id || _flr) return;   // closed or moved on meanwhile
     _pts.points = pts;
+    const chain = _exChains[id] || {};
+    const mayRestore = _exCan('backup.restore.full', chain), mayBrowse = _exCan('backup.browse', chain);
     body.innerHTML = pts.length ? `<table class="um-table"><thead><tr><th>#</th><th>${t('ex.col_kind')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_changed')}</th><th>${t('ex.col_written')}</th><th>${t('ex.col_verified')}</th><th></th></tr></thead><tbody>${pts.map(p => `
       <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:var(--font-ui);font-size:12px;color:var(--text-muted)">${_exEsc(p.dir)}</span>${p.synthetic ? ` <span class="ex-badge off" title="${_exEsc(t('ex.synthetic_hint'))}">${t('ex.synthetic')}</span>` : ''}${(p.short_disks || []).length ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.short_disk_hint', {n: Math.round((p.short_disks[0].guest_size - p.short_disks[0].image_size) / 1024)}))}">${t('ex.short_disk')}</span>` : ''}${p.quiesced === true ? ` <span class="ex-badge off" title="${_exEsc(t('ex.quiesced_hint'))}">${t('ex.quiesced')}</span>` : p.quiesced === false ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.crash_consistent_hint'))}">${t('ex.crash_consistent')}</span>` : ''}</td>
       <td style="font-family:var(--font-ui);font-size:12px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
       <td style="font-size:12px;color:var(--text-muted)">${p.verify_error ? `<span class="ex-badge err" title="${_exEsc(p.verify_error)}">${t('ex.point_corrupt')}</span>` : p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
-      <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" onclick="exFilesOpen(${p.id}, ${p.seq}, '${_exEsc(_exFmt(p.created_at))}')">${t('ex.files')}</button></td></tr>`).join('')}</tbody></table>` : `<div class="empty-state">${t('ex.no_points')}</div>`;
+      <td style="white-space:nowrap;">${mayRestore ? `<button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button>` : ''} ${mayBrowse ? `<button class="um-action-btn" data-date="${_exEsc(_exFmt(p.created_at))}" onclick="exFilesOpen(${p.id}, ${p.seq}, this.dataset.date)">${t('ex.files')}</button>` : ''}</td></tr>`).join('')}</tbody></table>` : `<div class="empty-state">${t('ex.no_points')}</div>`;
   } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
 }
 let _exChains = {};
@@ -7524,13 +7693,13 @@ function _flrRender() {
   const crumbs = ['/'].concat(st.path.split('/').filter(Boolean));
   let acc = '';
   const back = _pts ? `<a href="#" onclick="exFilesBack(); return false;" style="color:var(--accent-cyan);">← ${t('ex.tab.points')}</a> <span style="color:var(--text-muted)">·</span> ` : '';
-  const crumbHtml = back + crumbs.map((c, i) => { if (i > 0) acc += '/' + c; const p = i === 0 ? '/' : acc; return `<a href="#" onclick="_flrLoad('${_exEsc(p)}'); return false;" style="color:var(--accent-cyan);">${_exEsc(i === 0 ? t('ex.flr_root') : c)}</a>`; }).join(' <span style="color:var(--text-muted)">/</span> ');
+  const crumbHtml = back + crumbs.map((c, i) => { if (i > 0) acc += '/' + c; const p = i === 0 ? '/' : acc; return `<a href="#" data-path="${_exEsc(p)}" onclick="_flrLoad(this.dataset.path); return false;" style="color:var(--accent-cyan);">${_exEsc(i === 0 ? t('ex.flr_root') : c)}</a>`; }).join(' <span style="color:var(--text-muted)">/</span> ');
   const rows = st.entries.map(e => {
     const full = _flrJoin(st.path, e.name); const sel = st.selected.has(full);
     const icon = e.kind === 'dir' ? '📁' : e.kind === 'link' ? '🔗' : '📄';
-    const name = e.kind === 'dir' ? `<a href="#" onclick="_flrLoad('${_exEsc(full)}'); return false;" style="color:var(--text-primary);">${_exEsc(e.name)}</a>` : _exEsc(e.name);
+    const name = e.kind === 'dir' ? `<a href="#" data-path="${_exEsc(full)}" onclick="_flrLoad(this.dataset.path); return false;" style="color:var(--text-primary);">${_exEsc(e.name)}</a>` : _exEsc(e.name);
     const size = e.size != null ? (e.size >= 1048576 ? (e.size / 1048576).toFixed(1) + ' MiB' : e.size >= 1024 ? (e.size / 1024).toFixed(0) + ' KiB' : e.size + ' B') : (e.fstype ? `${_exEsc(e.fstype)} · ${(e.size || 0) / 1073741824 | 0} GiB` : '');
-    return `<tr><td style="width:24px;"><input type="checkbox" ${sel ? 'checked' : ''} onchange="_flrToggle('${_exEsc(full)}', this.checked)"></td>
+    return `<tr><td style="width:24px;"><input type="checkbox" ${sel ? 'checked' : ''} data-path="${_exEsc(full)}" onchange="_flrToggle(this.dataset.path, this.checked)"></td>
       <td>${icon} ${name}</td><td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">${size}</td>
       <td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">${e.mtime ? _exFmt(new Date(e.mtime * 1000).toISOString()) : ''}</td>
       <td style="white-space:nowrap;">${e.kind === 'file' ? `<a class="um-action-btn" href="${API_BASE}/api/backup/flr/mounts/${st.mount}/file?path=${encodeURIComponent(full)}&cluster=${currentCluster}">${t('ex.flr_download')}</a>` : ''}</td></tr>`;
@@ -7599,7 +7768,7 @@ async function exVerifyChain(id) {
   } catch (e) { _shMsg(`ch-${id}-msg`, e.message, 'err'); }
 }
 async function exDeleteChain(id, name) {
-  if (!await hcmConfirm(t('ex.confirm_delete_data', {name}), {danger: true})) return;
+  if (!await hcmConfirm(t('ex.confirm_delete_data', {name}), {danger: true, typeToConfirm: name})) return;
   try { await _exCall('DELETE', `/api/backup/chains/${id}`); exLoadPoints(); } catch (e) { showToast(e.message, 'err'); }
 }
 
@@ -7640,6 +7809,10 @@ async function acknowledgeCommunityNotice() {
 let _updatePollTimer = null;
 
 async function loadUpdateStatus() {
+  // the status (version in the footer) is for everyone; checking and applying need install.manage, so only a
+  // user who holds it sees the Update button that leads to them
+  const badge = document.getElementById('updateBadgeBtn');
+  if (badge) badge.hidden = !can('install.manage');
   try {
     const d = await apiFetch('/api/update/status');
     if (d) _applyUpdateState(d);
@@ -7659,7 +7832,7 @@ function _applyUpdateState(d) {
   if (d.repo_url) { REPO_URL = d.repo_url; const l = document.getElementById('communityIssuesLink'); if (l) l.href = REPO_URL + '/issues'; }
   if (d.current_label || d.current_sha) currentSha.textContent = d.current_label || d.current_sha;
   if (d.remote_label  || d.remote_sha)  remoteSha.textContent  = d.remote_label  || d.remote_sha;
-  if (d.last_checked) lastChecked.textContent = 'checked ' + _timeAgo(new Date(d.last_checked));
+  if (d.last_checked) lastChecked.textContent = t('update.checked', {ago: _timeAgo(new Date(d.last_checked))});
 
   const appVersionEl = document.getElementById('appVersion');
   if (appVersionEl && d.current_version) {
@@ -7668,7 +7841,7 @@ function _applyUpdateState(d) {
 
   if (d.update_available && d.changelog && d.changelog.length) {
     changelogEl.innerHTML =
-      '<div class="update-changelog-title">What\'s in this update</div>' +
+      `<div class="update-changelog-title">${_escHtml(t('update.whats_in'))}</div>` +
       d.changelog.map(c => `<div class="update-changelog-entry">${_escHtml(c)}</div>`).join('');
     changelogEl.classList.add('visible');
   } else {
@@ -7676,7 +7849,7 @@ function _applyUpdateState(d) {
   }
 
   if (d.apply_in_progress) {
-    statusTxt.textContent = '⟳ Update in progress...';
+    statusTxt.textContent = '⟳ ' + t('update.in_progress');
     statusTxt.className = 'update-status-text checking';
     applyBtn.style.display = ''; applyBtn.disabled = true;
     badgeBtn.classList.add('has-update');
@@ -7689,22 +7862,22 @@ function _applyUpdateState(d) {
     badgeBtn.classList.add('has-update');
     badgeBtn.title = t('update.blocked_short');
   } else if (d.update_available) {
-    statusTxt.textContent = '● Update available';
+    statusTxt.textContent = '● ' + t('update.available');
     statusTxt.className = 'update-status-text available';
     applyBtn.style.display = ''; applyBtn.disabled = false;
     badgeBtn.classList.add('has-update');
-    badgeBtn.title = 'Update available — click to apply';
+    badgeBtn.title = t('update.available_click');
   } else if (d.error) {
-    statusTxt.textContent = '⚠ Check failed: ' + d.error;
+    statusTxt.textContent = '⚠ ' + t('update.check_failed', {error: d.error});
     statusTxt.className = 'update-status-text error';
     applyBtn.style.display = 'none';
     badgeBtn.classList.remove('has-update');
   } else {
-    statusTxt.textContent = '✓ Up to date';
+    statusTxt.textContent = '✓ ' + t('update.up_to_date');
     statusTxt.className = 'update-status-text uptodate';
     applyBtn.style.display = 'none';
     badgeBtn.classList.remove('has-update');
-    badgeBtn.title = 'Software update';
+    badgeBtn.title = t('update.software_update');
   }
 
   if (d.apply_log && d.apply_log.length) {
@@ -7716,10 +7889,10 @@ function _applyUpdateState(d) {
 
 function _timeAgo(date) {
   const s = Math.floor((Date.now() - date) / 1000);
-  if (s < 60)    return 'just now';
-  if (s < 3600)  return Math.floor(s / 60) + 'm ago';
-  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-  return Math.floor(s / 86400) + 'd ago';
+  if (s < 60)    return t('ago.now');
+  if (s < 3600)  return t('ago.m', {n: Math.floor(s / 60)});
+  if (s < 86400) return t('ago.h', {n: Math.floor(s / 3600)});
+  return t('ago.d', {n: Math.floor(s / 86400)});
 }
 
 function _escHtml(s) {
@@ -7742,7 +7915,7 @@ function closeUpdateModal(e) {
 
 async function checkUpdateNow() {
   const btn = document.getElementById('updateCheckNowBtn');
-  btn.disabled = true; btn.textContent = '⟳ Checking...';
+  btn.disabled = true; btn.textContent = '⟳ ' + t('update.checking');
   try {
     await fetch(API_BASE + '/api/update/check', { method: 'POST' });
     let attempts = 0;
@@ -7751,7 +7924,7 @@ async function checkUpdateNow() {
       if (++attempts >= 15) clearInterval(poll);
     }, 2000);
   } finally {
-    setTimeout(() => { btn.disabled = false; btn.textContent = '↻ Check now'; }, 4000);
+    setTimeout(() => { btn.disabled = false; btn.textContent = t('update.check_now'); }, 4000);
   }
 }
 
@@ -7764,7 +7937,7 @@ async function applyUpdate() {
     const r = await fetch(API_BASE + '/api/update/apply', { method: 'POST' });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
-      showToast(err.error || 'Update failed to start', 'err');
+      showToast(err.error || t('update.start_failed'), 'err');
       btn.disabled = false; return;
     }
     _startApplyPoll();
@@ -7787,7 +7960,42 @@ function _startApplyPoll() {
 
 // refresh badge every 5 minutes while page is open; initial check after 6s
 setInterval(loadUpdateStatus, 300000);
-setTimeout(loadUpdateStatus, 6000);
+// (the first check waits for the access summary, which says whether this user may install updates)
+setTimeout(function firstUpdateCheck(tries = 0) {
+  if (!window.HCM_ACCESS && tries < 10) { setTimeout(firstUpdateCheck, 2000, tries + 1); return; }
+  loadUpdateStatus();
+}, 6000);
+
+// =============================================================================
+// keyboard reach: tabs, sub-tabs, language options, sortable headers, VM group rows, menu items and the
+// cluster list are <div>/<th>/<tr onclick>. One helper gives each a role and a tab stop, and Enter or Space
+// clicks it; a MutationObserver marks what later renders add.
+// =============================================================================
+const _KBD_TABS = '.nav-tab, .rail-nav, .iv-sub-tab, .cb-sub-tab, .sentinel-sub-tab, .settings-sub-tab, .exports-sub-tab';
+const _KBD_SEL = _KBD_TABS + ', .lang-opt, th[onclick], tr.grp, .popmenu-item, .cluster-item, .cluster-folder, .module-item, .crumb.link, .node-alert-list, .vm-console-open';
+function _kbdMark(root) {
+  (root || document).querySelectorAll(_KBD_SEL).forEach(el => {
+    if (el.dataset.kbd) return;
+    el.dataset.kbd = '1';
+    if (!el.hasAttribute('tabindex')) el.tabIndex = 0;
+    if (!el.hasAttribute('role')) el.setAttribute('role', el.matches(_KBD_TABS) ? 'tab' : 'button');
+  });
+}
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target instanceof Element && e.target.matches(_KBD_SEL)) {
+    e.preventDefault();
+    e.target.click();
+  }
+});
+document.addEventListener('DOMContentLoaded', () => {
+  _kbdMark();
+  let queued = false;
+  new MutationObserver(() => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; _kbdMark(); });
+  }).observe(document.body, {childList: true, subtree: true});
+});
 
 // =============================================================================
 // data quality banner
@@ -7797,13 +8005,14 @@ setTimeout(loadUpdateStatus, 6000);
 async function checkDataQuality() {
   const banner = document.getElementById('dataQualityBanner');
   if (!banner) return;
-  if (window.HCM_ACCESS && !can('cluster.view', currentCluster)) { banner.classList.remove('visible'); return; }
   try {
+    if (window.HCM_ACCESS && !can('cluster.view', currentCluster)) { banner.classList.remove('visible'); return; }
     const q = await apiFetch('/api/data-quality');
     banner.classList.remove('visible', 'info', 'warn');
     if (!q || (currentCluster && q.cluster_id && q.cluster_id !== currentCluster)) return;
     const cl      = CLUSTERS.find(c => c.cluster_id === q.cluster_id);
     const name    = cl ? cl.name : '';
+    if (!name) return;                      // a banner about an unnamed cluster ("history for : 9.5 d") says nothing
     const have    = q.window_hours || 0;
     const need    = q.required_hours || 336;
     const haveStr = have < 48 ? `${Math.round(have)} h` : `${(have / 24).toFixed(1)} d`;
@@ -7821,9 +8030,11 @@ async function checkDataQuality() {
       banner.textContent = t('quality.warning', {cluster: name, gaps: q.gap_count, hours: q.checked_hours, pct: gapPct, days: Math.round(need / 24)});
       banner.classList.add('visible');
     }
-  } catch (_) {}
+  } catch (_) {
+  } finally {
+    document.body.classList.toggle('has-dq-banner', banner.classList.contains('visible'));
+  }
 }
-document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality, 1500));
 </script>
 <script src="/static/access.js"></script>
 <script src="/static/mail.js"></script>
@@ -7834,19 +8045,19 @@ document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality,
 <div class="update-modal-backdrop" id="updateModalBackdrop" onclick="closeUpdateModal(event)">
   <div class="update-modal">
     <div class="update-modal-header">
-      <span class="update-modal-title">HyperCore Update</span>
-      <button class="update-modal-close" onclick="closeUpdateModal()">✕</button>
+      <span class="update-modal-title" data-i18n="update.title">Software update</span>
+      <button class="update-modal-close" onclick="closeUpdateModal()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
     </div>
     <div class="update-meta">
-      <span>Current: <span class="update-sha" id="updateCurrentSha">—</span></span>
-      <span>Remote: <span class="update-sha" id="updateRemoteSha">—</span></span>
-      <span id="updateLastChecked" style="margin-left:auto;">never checked</span>
+      <span><span data-i18n="update.current">Current:</span> <span class="update-sha" id="updateCurrentSha">—</span></span>
+      <span><span data-i18n="update.remote">Remote:</span> <span class="update-sha" id="updateRemoteSha">—</span></span>
+      <span id="updateLastChecked" style="margin-left:auto;" data-i18n="update.never_checked">never checked</span>
     </div>
     <div class="update-status-row">
       <span class="update-status-text" id="updateStatusText">—</span>
       <div class="update-actions">
-        <button class="refresh-btn" id="updateCheckNowBtn" onclick="checkUpdateNow()">↻ Check now</button>
-        <button class="update-apply-btn" id="updateApplyBtn" onclick="applyUpdate()" style="display:none;">⬆ Apply update</button>
+        <button class="refresh-btn" id="updateCheckNowBtn" onclick="checkUpdateNow()" data-i18n="update.check_now">↻ Check now</button>
+        <button class="update-apply-btn" id="updateApplyBtn" onclick="applyUpdate()" style="display:none;" data-i18n="update.apply">⬆ Apply update</button>
       </div>
     </div>
     <div class="update-changelog" id="updateChangelog"></div>
@@ -7878,7 +8089,7 @@ document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality,
       <span class="update-modal-title" id="alertsTitle"></span>
       <div style="display:flex;gap:8px;align-items:center;">
         <button class="refresh-btn" id="alertsHistBtn" onclick="toggleAlertsHistory()" data-i18n="alerts.history">History</button>
-        <button class="update-modal-close" onclick="closeClusterAlerts()">✕</button>
+        <button class="update-modal-close" onclick="closeClusterAlerts()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
       </div>
     </div>
     <div class="alerts-hist-filters" id="alertsHistFilters" hidden>
@@ -7902,7 +8113,7 @@ document.addEventListener('DOMContentLoaded', () => setTimeout(checkDataQuality,
   <div class="update-modal flr-modal" role="dialog" aria-modal="true" aria-labelledby="flrTitle">
     <div class="update-modal-header">
       <span class="update-modal-title" id="flrTitle"></span>
-      <button class="update-modal-close" onclick="exFilesClose()" aria-label="Close">✕</button>
+      <button class="update-modal-close" onclick="exFilesClose()" aria-label="Close" data-i18n-aria-label="acc.close">✕</button>
     </div>
     <div id="flrToolbar" class="flr-toolbar"></div>
     <div class="cl-msg" id="flrMsg"></div>

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import threading
 
 from flask import jsonify, render_template, request, session
 
@@ -174,6 +175,11 @@ def register(app, requires, public, h):
     def account_forgot():
         if not mailer.configured():
             return page('no_mail')
+        base = mailer.link_base()
+        if not base:
+            # the link is never built from this request's Host header (anyone can set it): no address, no link
+            app.logger.warning('password reset by mail is off: %s', mailer.LINK_ADDRESS_MISSING)
+            return page('no_mail')
         if request.method == 'GET':
             return page('forgot')
         raw = request.form.get('email', '')
@@ -185,10 +191,19 @@ def register(app, requires, public, h):
         u = access_db.user(uid) if uid else None
         # only an enabled account with a confirmed address, and not more than a few links an hour
         if u and u['enabled'] and not u['awaiting_email'] and '@' in u['username'] and _recent_resets(uid) < RESETS_PER_HOUR:
-            token = _new_token('reset', uid, RESET_MINUTES)
-            link = f"{mailer.link_base(request.host_url)}/account/reset/{token}"
-            mailer.deliver(u['username'], 'reset', _lang(), by=u['username'], link=link, minutes=RESET_MINUTES)
-            _audit(u['username'], 'user.reset_requested', u['username'])
+            # in the background: the SMTP conversation takes seconds, and an answer that slow only for addresses
+            # with an account would tell which addresses have one
+            lang = _lang()
+            token = _new_token('reset', uid, RESET_MINUTES)       # here: the hourly limit counts these rows
+
+            def send():
+                try:
+                    mailer.deliver(u['username'], 'reset', lang, by=u['username'], link=f"{base}/account/reset/{token}",
+                                   minutes=RESET_MINUTES)
+                    _audit(u['username'], 'user.reset_requested', u['username'])
+                except Exception:  # noqa: BLE001
+                    app.logger.warning('password reset mail for %s failed', u['username'], exc_info=True)
+            threading.Thread(target=send, daemon=True, name='reset-mail').start()
         return page('forgot_sent', email=email)
 
     @app.route('/account/reset/<token>', methods=['GET', 'POST'])
@@ -208,6 +223,7 @@ def register(app, requires, public, h):
             return page('invalid', 404)
         import user_db
         user_db.set_password(tok['username'], pw)
+        user_db.bump_session_gen(tok['username'])      # whoever held a session with the old password is out
         _audit(tok['username'], 'user.password_reset_self', tok['username'])
         session.clear()
         return page('reset_done')
@@ -231,7 +247,9 @@ def register(app, requires, public, h):
         if not mailer.configured():
             raise AccessError('changing your address needs mail, which is not set up here: ask an administrator', 409)
         token = _new_token('email', session['user_id'], EMAIL_MINUTES, new_email=new)
-        link = f"{mailer.link_base(request.host_url)}/account/email/{token}"
+        # the person asked from their own signed-in browser, with their password, for a mail to an address they
+        # typed: the address they reach HCM on is a fair fallback here (never on the public routes)
+        link = f"{mailer.link_base() or request.host_url.rstrip('/')}/account/email/{token}"
         r = mailer.deliver(new, 'email_confirm', b.get('lang') or _lang(), by=me, link=link, minutes=EMAIL_MINUTES, new=new)
         _audit(me, 'user.email_requested', me, detail={'to': new})
         if not r['sent']:
@@ -253,6 +271,8 @@ def register(app, requires, public, h):
             access_db.change_address(tok['user_id'], new, actor=old, verified=True)
         except AccessError:
             return page('email_taken', new=new)
+        import user_db
+        user_db.bump_session_gen(new)
         mailer.deliver(old, 'email_notice', _lang(), by=new, new=new)
         if session.get('user_id') == tok['user_id']:
             session.clear()
@@ -274,6 +294,9 @@ def register(app, requires, public, h):
         if len(new) < 8:
             raise AccessError('the password needs at least 8 characters')
         user_db.set_password(me, new)
+        gen = user_db.bump_session_gen(me)           # every other session of this account ends; this one goes on
+        if gen is not None:
+            session['gen'] = gen
         _audit(me, 'user.password_changed_self', me)
         return jsonify({'ok': True})
 
@@ -297,7 +320,9 @@ def register(app, requires, public, h):
             raise AccessError('not found', 404)
         if u['user_id'] == h.me_id():
             raise AccessError('turn off your own two-factor on your Account page', 409)
+        h.require_touch_account(h.access(), u)      # resetting someone's 2FA is half of signing in as them
         user_db.disable_otp(u['username'])
+        user_db.bump_session_gen(u['username'])
         _audit(h.actor(), 'user.otp_reset', u['username'])
         access_db.invalidate()
         return jsonify({'ok': True})

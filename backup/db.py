@@ -170,15 +170,17 @@ def delete_schedule(schedule_id: int) -> None:
     _exec('DELETE FROM backup.plans WHERE id = %s', (schedule_id,))
 
 
-def get_known_smb_locations() -> list[dict]:
-    """Distinct SMB destinations (base + user) saved on schedules, across all clusters, so
-    an import can reuse them (cross-cluster restore) without re-entering credentials.
+def get_known_smb_locations(cluster_ids: list[str]) -> list[dict]:
+    """Distinct SMB destinations (base + user) saved on the schedules of these clusters (the
+    importing cluster's folder), so an import can reuse them without re-entering credentials.
     ref_id is the newest schedule holding the stored password for that location."""
+    if not cluster_ids:
+        return []
     return _all(
         '''SELECT path_uri_base, smb_user, MAX(id) AS ref_id
              FROM backup.plans
-            WHERE path_uri_base ILIKE 'smb://%%' AND smb_user IS NOT NULL
-            GROUP BY path_uri_base, smb_user ORDER BY path_uri_base''')
+            WHERE path_uri_base ILIKE 'smb://%%' AND smb_user IS NOT NULL AND cluster_id::text = ANY(%s)
+            GROUP BY path_uri_base, smb_user ORDER BY path_uri_base''', (list(cluster_ids),))
 
 
 # ----------------------------------------------------------------------- runs
@@ -212,6 +214,12 @@ def get_runs(cluster_id: Optional[str] = None, schedule_id: Optional[int] = None
         sql += ' WHERE ' + ' AND '.join(where)
     sql += ' ORDER BY r.id DESC LIMIT %s'; params.append(limit)
     return _all(sql, params)
+
+
+def export_paths(schedule_id: int) -> list[str]:
+    """Every export folder (tenant/folder) this plan's runs recorded."""
+    return [r['export_path'] for r in _all('SELECT DISTINCT export_path FROM backup.runs WHERE schedule_id = %s AND export_path IS NOT NULL',
+                                           (schedule_id,))]
 
 
 def get_run(run_id: int) -> Optional[dict]:
@@ -255,6 +263,19 @@ def folder_of_cluster(cluster_id: str) -> tuple[bool, Optional[str]]:
 def folder_name(folder_id: str) -> Optional[str]:
     r = _one('SELECT name FROM config.folders WHERE folder_id = %s', (folder_id,))
     return r['name'] if r else None
+
+
+def folder_backup_dir(folder_id: str, new_dir: str) -> Optional[str]:
+    """The folder's directory on its target (migration 055). A folder without one gets new_dir, stored
+    once (COALESCE: a parallel first use keeps whichever was written first). None = no such folder."""
+    r = _one('SELECT backup_dir FROM config.folders WHERE folder_id = %s', (folder_id,))
+    if r is None:
+        return None
+    if r['backup_dir']:
+        return r['backup_dir']
+    r = _one('UPDATE config.folders SET backup_dir = COALESCE(backup_dir, %s) WHERE folder_id = %s RETURNING backup_dir',
+             (new_dir, folder_id))
+    return r['backup_dir'] if r else None
 
 
 def _policy_row(r):
@@ -720,6 +741,37 @@ def retire_chains_of_plan(plan_id: int) -> int:
     return _exec("UPDATE backup.chains SET status = 'retired', plan_id = NULL, updated_at = NOW() WHERE plan_id = %s AND status = 'active'", (plan_id,))
 
 
+def empty_chains(cluster_id: str, older_than: datetime) -> list[dict]:
+    """Chains of a cluster without a single point (also no pruned one), created before older_than, not deleted
+    and not in use by a running run: the partial data of a failed full that could not be removed at the time."""
+    return [_chain_row(r) for r in _all(
+        """SELECT ch.* FROM backup.chains ch
+            WHERE ch.cluster_id = %s AND ch.status <> 'deleted' AND ch.created_at < %s
+              AND NOT EXISTS (SELECT 1 FROM backup.points pt WHERE pt.chain_id = ch.id)
+              AND NOT EXISTS (SELECT 1 FROM backup.runs r WHERE r.chain_id = ch.id AND r.status = 'RUNNING')
+              AND NOT EXISTS (SELECT 1 FROM backup.runs r WHERE r.schedule_id = ch.plan_id AND r.status = 'RUNNING')""",
+        (cluster_id, older_than))]
+
+
+def chain_folders(cluster_id: str) -> list[dict]:
+    """Every (target, tenant directory) that holds chains of this cluster: where restore directories are made."""
+    return _all("""SELECT DISTINCT target_id, folder_slug FROM backup.chains
+                    WHERE cluster_id = %s AND target_id IS NOT NULL AND status <> 'deleted'""", (cluster_id,))
+
+
+def chains_on_target(target_id: int) -> int:
+    """Chains (not deleted) whose data lives on this target."""
+    r = _one("SELECT COUNT(*) AS n FROM backup.chains WHERE target_id = %s AND status <> 'deleted'", (target_id,))
+    return int(r['n']) if r else 0
+
+
+def chain_work(chain_id: int) -> dict:
+    """Running backups and restores that use this chain: {'runs': n, 'restores': n}."""
+    return _one("""SELECT (SELECT COUNT(*) FROM backup.runs WHERE chain_id = %s AND status = 'RUNNING') AS runs,
+                          (SELECT COUNT(*) FROM backup.restores WHERE chain_id = %s AND status = 'RUNNING') AS restores""",
+                (chain_id, chain_id)) or {'runs': 0, 'restores': 0}
+
+
 def chains_with_clones() -> list[dict]:
     return [_chain_row(r) for r in _all("SELECT * FROM backup.chains WHERE active_clones IS NOT NULL AND active_clones <> 'null'::jsonb AND jsonb_array_length(active_clones) > 0")]
 
@@ -809,8 +861,8 @@ def get_restores(cluster_id: Optional[str] = None, limit: int = 50) -> list[dict
 
 
 def update_restore(restore_id: int, **fields) -> None:
-    allowed = {'status', 'message', 'created_uuid', 'finished_at', 'progress'}
-    items = [(k, _json(v) if k == 'progress' else v) for k, v in fields.items() if k in allowed]
+    allowed = {'status', 'message', 'created_uuid', 'finished_at', 'progress', 'staging'}
+    items = [(k, _json(v) if k in ('progress', 'staging') else v) for k, v in fields.items() if k in allowed]
     if not items:
         return
     _exec(f'UPDATE backup.restores SET {", ".join(f"{k} = %s" for k, _ in items)} WHERE id = %s', [v for _, v in items] + [restore_id])
@@ -818,6 +870,13 @@ def update_restore(restore_id: int, **fields) -> None:
 
 def get_active_restores() -> list[dict]:
     return _all("SELECT * FROM backup.restores WHERE status = 'RUNNING' ORDER BY id")
+
+
+def restores_with_staging() -> list[dict]:
+    """Finished or failed restores whose staging disks are still recorded (migration 056)."""
+    return [dict(r, cluster_id=str(r['cluster_id'])) for r in _all(
+        """SELECT * FROM backup.restores WHERE status <> 'RUNNING' AND staging IS NOT NULL AND jsonb_typeof(staging) = 'array'
+             AND jsonb_array_length(staging) > 0 ORDER BY id""")]
 
 
 # ---------------------------------------------------------------- deployments

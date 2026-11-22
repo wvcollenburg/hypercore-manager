@@ -78,6 +78,28 @@ def test_update_refuses_busy_or_hookless_proxies(monkeypatch):
         _run(monkeypatch, {'id': 1, 'kind': 'remote', 'name': 'px'}, _Client(['0.3.1']), stack={'available': False, 'detail': 'dashboard down'})
 
 
+def test_update_takes_the_proxy_lock_and_skips_a_proxy_a_backup_holds(monkeypatch):
+    """A backup holds the proxy lock while it attaches clones, before its proxy job exists: an update in that
+    moment restarted the container under it."""
+    lock = pi.incremental.proxy_lock(1)
+    lock.acquire()
+    try:
+        client = _Client(['0.3.1', '0.4.0'])
+        with pytest.raises(pcm.ProxyError, match='job is running'):
+            _run(monkeypatch, {'id': 1, 'kind': 'remote', 'name': 'px'}, client)
+        assert client.pushed == []
+    finally:
+        lock.release()
+    held = []
+
+    class _Watch(_Client):
+        def push_image(self, tag, chunks, timeout=900):
+            held.append(lock.locked())
+            return super().push_image(tag, chunks, timeout)
+    db, r = _run(monkeypatch, {'id': 1, 'kind': 'remote', 'name': 'px'}, _Watch(['0.3.1', '0.4.0']))
+    assert r['ok'] and held == [True] and not lock.locked(), 'held during the push, released after'
+
+
 def test_update_reports_a_proxy_that_does_not_come_back(monkeypatch):
     clock = iter(range(0, 100000, 50))
     monkeypatch.setattr(pi.time, 'monotonic', lambda: next(clock))

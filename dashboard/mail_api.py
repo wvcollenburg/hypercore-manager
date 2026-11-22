@@ -21,7 +21,11 @@ def register(app, requires):
     @requires('install.manage', 'root')
     def mail_settings_get():
         out = mailer.settings()
-        out['suggested_public_url'] = request.host_url.rstrip('/')
+        out['suggested_public_url'] = request.host_url.rstrip('/')     # a placeholder for the admin, never used in a mail
+        # links in mails come from public_url only: without it no reset, invitation or approval link is mailed
+        out['public_url_missing'] = bool(out.get('configured') and not out.get('public_url'))
+        if out['public_url_missing']:
+            out['warning'] = mailer.LINK_ADDRESS_MISSING
         out['env_guest_url'] = (os.getenv('HCM_GUEST_BASE_URL') or '').strip().rstrip('/') or None
         return jsonify(out)
 

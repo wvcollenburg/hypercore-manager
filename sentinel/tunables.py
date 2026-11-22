@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 
 TEMPLATE_CLUSTER_ID = '00000000-0000-0000-0000-000000000001'
+MIN_PRUNE_INTERVAL_SECONDS = 60     # SENTINEL_VM_PRUNE_INTERVAL_SECONDS of 0 made the pruning loop spin
 # the cluster whose tunables this process reads and writes; sentinel.py sets it once the
 # registry has yielded a cluster. Until then the Defaults template is used.
 DEFAULT_CLUSTER_ID = TEMPLATE_CLUSTER_ID
@@ -154,7 +155,7 @@ TUNABLES: dict = {
         default=12, type_hint='int', live_reload=True,
         cfg_field='retention_months',
         label='Retention', unit='months',
-        description='How long to keep forecast snapshots and right-sizing records before automated cleanup.',
+        description='How long to keep the audit history (recommendation events, outcomes, webhook deliveries) before the hourly cleanup.',
     ),
     'SENTINEL_OUTCOME_TRACKER_ENABLED': TunableDef(
         env_var='SENTINEL_OUTCOME_TRACKER_ENABLED',

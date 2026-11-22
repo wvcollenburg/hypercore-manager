@@ -43,7 +43,7 @@ async function loadMailPanel() {
         <button class="um-action-btn" onclick="mailTest()" ${d.configured ? '' : 'disabled'}>${_esc(t('mail.test'))}</button>
       </div>
       <div id="mlMsg" class="um-hint" style="margin-top:8px"></div>
-      ${d.updated_by ? `<div class="um-hint" style="margin-top:4px">${_esc(t('mail.updated', { who: d.updated_by, at: new Date(d.updated_at).toLocaleString() }))}</div>` : ''}
+      ${d.updated_by ? `<div class="um-hint" style="margin-top:4px">${_esc(t('mail.updated', { who: d.updated_by, at: new Date(d.updated_at).toLocaleString(_hcmLocale()) }))}</div>` : ''}
     </div>`;
 }
 

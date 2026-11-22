@@ -205,6 +205,16 @@ def test_api_requires_token_and_validates(stack):
     assert ident['service'] == 'hcm-proxy' and ident['backend'] == 'file' and 'backup' in ident['capabilities']['jobs']
 
 
+def test_the_bearer_token_is_compared_in_constant_time(stack, monkeypatch):
+    seen = []
+    real = P.api.hmac.compare_digest
+    monkeypatch.setattr(P.api.hmac, 'compare_digest', lambda a, b: seen.append((a, b)) or real(a, b))
+    assert stack.client.get('/identity', headers={'Authorization': 'Bearer t0x'}).status_code == 401
+    assert stack.client.get('/identity', headers={'Authorization': 'Bearer t0k€'}).status_code == 401
+    assert stack.client.get('/identity', headers={'Authorization': 'Bearer t0k'}).status_code == 200
+    assert seen and seen[-1] == (b't0k', b't0k')
+
+
 def test_backup_full_then_delta_then_flatten_verify_sweep(stack):
     H = {'Authorization': 'Bearer t0k'}
     disk = 'd0dd5d2c-9c7a-44ec-b6bc-d4ce06bb204d'; nvram = 'a26166e5-ddf9-4665-83f8-e6dd5254019a'
@@ -315,9 +325,264 @@ def test_prune_commits_forward_and_delete_chain(stack):
     assert open(os.path.join(chain, 'base', f'{disk}.qcow2'), 'rb').read() == open(srcs[2][1], 'rb').read(), 'base now holds point 2'
     ch = json.load(open(os.path.join(chain, 'chain.json')))
     assert [(p['seq'], p['dir']) for p in ch['points']] == [(2, 'base')]
-    assert json.load(open(os.path.join(chain, 'base', 'manifest.json')))['seq'] == 2
+    bm = json.load(open(os.path.join(chain, 'base', 'manifest.json')))
+    assert bm['seq'] == 2 and bm['note'].startswith('committed from ') and bm['checksums_after_commit'] is True
     d = _wait(stack, stack.client.post('/jobs/delete_chain', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
     assert d['result'] == {'removed': True} and not os.path.exists(chain)
+
+
+def test_finished_jobs_drop_their_request_and_only_the_newest_are_kept(stack, monkeypatch):
+    """Finished jobs stayed in memory forever, each with its full request (the target's password), and their
+    json files under <data_dir>/jobs were never removed."""
+    H = {'Authorization': 'Bearer t0k'}
+    monkeypatch.setattr(stack.engine, 'KEEP_FINISHED', 3)
+    tgt = {'uri': 'smb://nas/share/hcm', 'username': 'bk', 'password': 'hunter2'}
+    ids = [stack.client.post('/jobs/sweep', json={'target': tgt, 'folder': 'F'}, headers=H).get_json()['id'] for _ in range(6)]
+    for i in ids:
+        try:
+            _wait(stack, i)
+        except Exception:                               # an evicted job answers 404
+            pass
+    import time
+    t0 = time.time()
+    while len(stack.engine.jobs) > 3 and time.time() - t0 < 5:
+        time.sleep(0.05)
+    assert list(stack.engine.jobs) == ids[3:]
+    assert all(j.request == {} for j in stack.engine.jobs.values()), 'no password kept once a job has ended'
+    assert sorted(os.listdir(os.path.join(stack.cfg.data_dir, 'jobs'))) == sorted(f'{i}.json' for i in ids[3:])
+    assert stack.client.get(f'/jobs/{ids[0]}', headers=H).status_code == 404
+    assert 'hunter2' not in ''.join(open(os.path.join(stack.cfg.data_dir, 'jobs', f)).read() for f in os.listdir(os.path.join(stack.cfg.data_dir, 'jobs')))
+
+
+def test_a_job_cancelled_while_queued_never_runs_and_a_finished_one_is_not_called_cancelled(stack, monkeypatch):
+    """Cancel was not honoured for a queued job, and a job that completed was reported 'cancelled' (live: a
+    delete_chain cancelled while queued ended 'cancelled' with result {'removed': True})."""
+    import threading
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, _ = _three_point_chain(stack)
+    gate = threading.Event()
+
+    def blocking_sweep(job):
+        gate.wait(10); return {'removed': []}
+    monkeypatch.setattr(stack.engine, 'run_sweep', blocking_sweep)
+    first = stack.client.post('/jobs/sweep', json={'target': tgt, 'folder': 'F'}, headers=H).get_json()['id']
+    queued = stack.client.post('/jobs/delete_chain', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id']
+    assert stack.client.delete(f'/jobs/{queued}', headers=H).get_json()['cancel_requested']
+    stack.client.delete(f'/jobs/{first}', headers=H)    # too late for a job that does not look: it completes
+    gate.set()
+    j1, j2 = _wait(stack, first), _wait(stack, queued)
+    assert j1['state'] == 'done' and j1['result'] == {'removed': []}
+    assert j2['state'] == 'cancelled' and j2['result'] is None and os.path.isdir(chain), 'the chain was not deleted'
+
+
+def test_a_prune_cancelled_between_points_stops_with_a_consistent_chain(stack, monkeypatch):
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, srcs = _three_point_chain(stack)
+    real_persist = stack.engine._persist
+
+    def persist(job):
+        real_persist(job)
+        if job.kind == 'prune' and job.progress.get('dropped') == 1:
+            job.cancel()
+    monkeypatch.setattr(stack.engine, '_persist', persist)
+    j = _wait(stack, stack.client.post('/jobs/prune', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain', 'keep_min_seq': 2}, headers=H).get_json()['id'])
+    assert j['state'] == 'cancelled' and j['error'] == 'cancelled', j
+    ch = json.load(open(os.path.join(chain, 'chain.json')))
+    assert [(p['seq'], p['dir']) for p in ch['points']] == [(1, 'base'), (2, 'delta-0002')]
+    assert sorted(os.listdir(chain)) == ['base', 'chain.json', 'delta-0002']
+    assert json.load(open(os.path.join(chain, 'base', 'manifest.json')))['checksums_after_commit'] is True
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
+    assert v['result']['ok'], v
+
+
+def test_job_files_of_earlier_lives_are_trimmed_at_start(tmp_path, monkeypatch):
+    d = tmp_path / 'data' / 'jobs'; d.mkdir(parents=True)
+    for i in range(8):
+        (d / f'old{i}.json').write_text('{}'); os.utime(d / f'old{i}.json', (1000 + i, 1000 + i))
+    monkeypatch.setattr(P.jobs.Engine, 'KEEP_FINISHED', 5)
+    P.jobs.Engine(P.config.Config(data_dir=str(tmp_path / 'data'), backend='file'), P.images.FileBackend(), None)
+    assert sorted(os.listdir(d)) == [f'old{i}.json' for i in range(3, 8)]
+
+
+def _three_point_chain(stack):
+    """base, delta-0001, delta-0002 of one 3 MiB disk on the file backend -> (chain dir, target, source files)."""
+    H = {'Authorization': 'Bearer t0k'}
+    disk = 'd0dd5d2c-9c7a-44ec-b6bc-d4ce06bb204d'
+    srcs = []
+    for i, seed in enumerate((31, 32, 33)):
+        cu = f'{i:08d}-0000-0000-0000-000000000000'; p = stack.dev / f'virtio-{cu[:8]}'; _random_file(str(p), 3, seed); srcs.append((cu, str(p)))
+    tgt = {'uri': 'smb://nas/share/hcm'}
+    for i, (cu, _) in enumerate(srcs):
+        point = {'kind': 'full', 'seq': 0} if i == 0 else {'kind': 'delta', 'seq': i, 'previous_seq': i - 1}
+        req = {'target': tgt, 'folder': 'F', 'vm': {'uuid': 'vm-1', 'name': 'v'}, 'point': point,
+               'devices': [{'uuid': disk, 'type': 'VIRTIO_DISK', 'clone_uuid': cu, 'size': 3 * MiB, 'map': [{'lower': 0, 'upper': 2}]}]}
+        j = _wait(stack, stack.client.post('/jobs/backup', json=req, headers=H).get_json()['id']); assert j['state'] == 'done', j
+    return os.path.join(stack.mounter.root, P.targets.parse_uri(tgt['uri']).key, 'hcm', 'F', 'v_vm-1.chain'), tgt, [s for _, s in srcs]
+
+
+def test_a_prune_retried_after_a_crash_never_empties_the_base_manifest(stack):
+    """An older proxy saved chain.json only at the end: a crash after nxt's directory was removed left chain.json
+    naming it, and the retry read its missing manifest as {} and wrote that over the base. The point then
+    'verified OK' with no files and could not be restored."""
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, srcs = _three_point_chain(stack)
+    # the state such a crash leaves: base already holds delta-0001 (files and manifest), delta-0001 is gone,
+    # chain.json still lists it
+    import shutil
+    m1 = json.load(open(os.path.join(chain, 'delta-0001', 'manifest.json')))
+    for d in m1['devices']:
+        shutil.copyfile(os.path.join(chain, 'delta-0001', d['file']), os.path.join(chain, 'base', d['file']))
+    P.manifest.write_json(os.path.join(chain, 'base', 'manifest.json'), dict(m1, dir='base', note='committed from delta-0001 on t'))
+    shutil.rmtree(os.path.join(chain, 'delta-0001'))
+    j = _wait(stack, stack.client.post('/jobs/prune', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain', 'keep_min_seq': 1}, headers=H).get_json()['id'])
+    assert j['state'] == 'done', j
+    assert j['result']['dirs'] == {'1': 'base', '2': 'delta-0002'}
+    bm = json.load(open(os.path.join(chain, 'base', 'manifest.json')))
+    assert bm['seq'] == 1 and len(bm['devices']) == 1, bm
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
+    assert v['result']['ok'] and v['result']['points']['base']['checked'] == 1, v
+
+
+def test_a_prune_that_stops_at_any_step_can_be_run_again(stack, monkeypatch):
+    """chain.json is saved after every dropped point; a missing manifest stops the prune instead of being written as {}."""
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, srcs = _three_point_chain(stack)
+    real_save, calls = P.manifest.save_chain, []
+
+    def save_once_then_crash(d, c):                      # the second dropped point stops between manifest and chain.json
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError('share dropped')
+        real_save(d, c)
+    monkeypatch.setattr(P.manifest, 'save_chain', save_once_then_crash)
+    j = _wait(stack, stack.client.post('/jobs/prune', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain', 'keep_min_seq': 2}, headers=H).get_json()['id'])
+    assert j['state'] == 'failed'
+    assert [p['dir'] for p in json.load(open(os.path.join(chain, 'chain.json')))['points']] == ['base', 'delta-0002']
+    monkeypatch.setattr(P.manifest, 'save_chain', real_save)
+    j = _wait(stack, stack.client.post('/jobs/prune', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain', 'keep_min_seq': 2}, headers=H).get_json()['id'])
+    assert j['state'] == 'done' and j['result']['dirs'] == {'2': 'base'}, j
+    assert sorted(os.listdir(chain)) == ['base', 'chain.json']
+    assert open(os.path.join(chain, 'base', 'd0dd5d2c-9c7a-44ec-b6bc-d4ce06bb204d.qcow2'), 'rb').read() == open(srcs[2], 'rb').read()
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
+    assert v['result']['ok'] and v['result']['points']['base']['checked'] == 1, v
+
+
+def test_verify_heals_once_the_checksums_an_older_proxy_left_after_a_prune(stack):
+    """Before 0.6.3 a prune left stale checksums in the base (committed into) and the point after it (rebased);
+    they healed only on a next prune that may never come. The verify job re-takes exactly those two once."""
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, _ = _three_point_chain(stack)
+
+    def stale(point, **extra):
+        p = os.path.join(chain, point, 'manifest.json'); m = json.load(open(p))
+        m['devices'][0]['sha256'] = '0' * 64; m.update(extra); P.manifest.write_json(p, m)
+    stale('base', note='committed from delta-0000 on 2026-10-01T03:00:00Z')
+    stale('delta-0001')
+    stale('delta-0002')                                  # not one an old prune touched: stays a mismatch
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
+    r = v['result']
+    assert r['healed'] == ['base', 'delta-0001'], r
+    assert r['points']['base']['ok'] and r['points']['delta-0001']['ok'] and not r['points']['delta-0002']['ok']
+    bm = json.load(open(os.path.join(chain, 'base', 'manifest.json')))
+    assert bm['checksums_after_commit'] is True and bm['healed_at']
+    assert json.load(open(os.path.join(chain, 'delta-0001', 'manifest.json')))['healed_at']
+    # once: a base with the mark is never re-hashed again, so later damage is reported
+    stale('base')
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain', 'seq': 0}, headers=H).get_json()['id'])
+    assert v['result']['healed'] == [] and not v['result']['points']['base']['ok']
+
+
+def test_verify_leaves_a_chain_that_was_never_pruned_alone(stack):
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, _ = _three_point_chain(stack)
+    p = os.path.join(chain, 'base', 'manifest.json'); m = json.load(open(p)); m['devices'][0]['sha256'] = '0' * 64; P.manifest.write_json(p, m)
+    v = _wait(stack, stack.client.post('/jobs/verify', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain'}, headers=H).get_json()['id'])
+    assert v['result']['healed'] == [] and not v['result']['points']['base']['ok']
+
+
+def test_a_point_without_a_manifest_stops_the_prune_and_leaves_the_base_alone(stack):
+    H = {'Authorization': 'Bearer t0k'}
+    chain, tgt, _ = _three_point_chain(stack)
+    before = open(os.path.join(chain, 'base', 'manifest.json')).read()
+    os.unlink(os.path.join(chain, 'delta-0001', 'manifest.json'))
+    j = _wait(stack, stack.client.post('/jobs/prune', json={'target': tgt, 'chain_dir': 'F/v_vm-1.chain', 'keep_min_seq': 2}, headers=H).get_json()['id'])
+    assert j['state'] == 'failed' and 'no readable manifest' in j['error']
+    assert open(os.path.join(chain, 'base', 'manifest.json')).read() == before
+
+
+@pytest.mark.skipif(not (__import__('shutil').which('qemu-img') and __import__('shutil').which('qemu-io')), reason='qemu-img / qemu-io not installed')
+def test_prune_on_qcow2_leaves_checksums_that_verify(tmp_path):
+    """Retention on the real backend: the commit rewrites the base and the rebase rewrites the next delta's
+    header, so both manifests need fresh checksums. With the old ones every later verification reported
+    'checksum differs' and a restore with verification refused the chain."""
+    chain_dir, fname, engine, qemu_io = _qcow2_chain(tmp_path)
+    job = P.jobs.Job('prune', {'target': {}, 'chain_dir': 'F/v.chain', 'keep_min_seq': 2})
+    out = P.jobs.Engine.run_prune(engine, job)
+    assert out == {'dirs': {'2': 'base', '3': 'delta-0003'}, 'dropped': 2}
+    assert sorted(os.listdir(chain_dir)) == ['base', 'chain.json', 'delta-0003']
+    for name in ('base', 'delta-0003'):
+        v = P.manifest.verify_point(str(chain_dir / name))
+        assert v['ok'], f'{name}: {v["mismatches"]}'
+    # and the content is still each point's own
+    qemu_io(chain_dir / 'base' / fname, 'read -P 0xaa 0 1M', 'read -P 0xbb 1M 1M', 'read -P 0xcc 2M 1M', 'read -P 0xaa 3M 1M', readonly=True)
+    qemu_io(chain_dir / 'delta-0003' / fname, 'read -P 0xbb 1M 1M', 'read -P 0xcc 2M 1M', 'read -P 0xdd 3M 1M', readonly=True)
+
+
+@pytest.mark.skipif(not (__import__('shutil').which('qemu-img') and __import__('shutil').which('qemu-io')), reason='qemu-img / qemu-io not installed')
+def test_prune_on_qcow2_stopped_between_manifest_and_chain_json_finishes_with_checksums_that_verify(tmp_path, monkeypatch):
+    chain_dir, fname, engine, qemu_io = _qcow2_chain(tmp_path)
+    real_save, calls = P.manifest.save_chain, []
+
+    def crash_on_second(d, c):
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError('share dropped')
+        real_save(d, c)
+    monkeypatch.setattr(P.manifest, 'save_chain', crash_on_second)
+    with pytest.raises(OSError):
+        P.jobs.Engine.run_prune(engine, P.jobs.Job('prune', {'target': {}, 'chain_dir': 'F/v.chain', 'keep_min_seq': 2}))
+    monkeypatch.setattr(P.manifest, 'save_chain', real_save)
+    out = P.jobs.Engine.run_prune(engine, P.jobs.Job('prune', {'target': {}, 'chain_dir': 'F/v.chain', 'keep_min_seq': 2}))
+    assert out == {'dirs': {'2': 'base', '3': 'delta-0003'}, 'dropped': 1}
+    assert sorted(os.listdir(chain_dir)) == ['base', 'chain.json', 'delta-0003']
+    for name in ('base', 'delta-0003'):
+        v = P.manifest.verify_point(str(chain_dir / name))
+        assert v['ok'], f'{name}: {v["mismatches"]}'
+    qemu_io(chain_dir / 'delta-0003' / fname, 'read -P 0xaa 0 1M', 'read -P 0xbb 1M 1M', 'read -P 0xcc 2M 1M', 'read -P 0xdd 3M 1M', readonly=True)
+
+
+def _qcow2_chain(tmp_path):
+    """base + delta-0001..0003 of one 4 MiB qcow2 disk with manifests as a backup leaves them, and an
+    engine stand-in for run_prune -> (chain dir, file name, engine, qemu_io)."""
+    import subprocess
+    be = P.images.NbdBackend(P.images.NbdPool(0, str(tmp_path)))
+    root = tmp_path / 'target'; chain_dir = root / 'F' / 'v.chain'
+    fname = 'disk.qcow2'
+
+    def qemu_io(path, *cmds, readonly=False):
+        args = ['qemu-io'] + (['-r'] if readonly else []) + ['-f', 'qcow2'] + [x for c in cmds for x in ('-c', c)]
+        r = subprocess.run(args + [str(path)], capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, r.stdout + r.stderr
+
+    points, prev = [], None
+    for seq, (name, write) in enumerate((('base', 'write -P 0xaa 0 4M'), ('delta-0001', 'write -P 0xbb 1M 1M'),
+                                         ('delta-0002', 'write -P 0xcc 2M 1M'), ('delta-0003', 'write -P 0xdd 3M 1M'))):
+        d = chain_dir / name; d.mkdir(parents=True)
+        be.create(str(d / fname), 4 * MiB, backing=str(prev) if prev else None)
+        qemu_io(d / fname, write)
+        prev = d / fname
+        points.append({'kind': 'delta' if seq else 'full', 'seq': seq, 'dir': name, 'previous_seq': seq - 1 if seq else None, 'created_at': 't'})
+    for pt in points:                                   # checksums as the backup job leaves them: of the finished files
+        d = chain_dir / pt['dir']
+        P.manifest.write_json(str(d / P.manifest.POINT_FILE), dict(pt, devices=[
+            {'uuid': 'u', 'type': 'VIRTIO_DISK', 'file': fname, 'size': 4 * MiB, 'full': False, 'sha256': P.manifest.sha256_file(str(d / fname))}]))
+    P.manifest.save_chain(str(chain_dir), {'vm': {'uuid': 'vm'}, 'points': points})
+    for pt in points:
+        assert P.manifest.verify_point(str(chain_dir / pt['dir']))['ok']
+
+    engine = types.SimpleNamespace(backend=be, _with_target=lambda req: str(root), _release_target=lambda req: None,
+                                   _persist=lambda job: None, _rehash=getattr(P.jobs.Engine, '_rehash', None))
+    return chain_dir, fname, engine, qemu_io
 
 
 def test_synthesize_builds_a_new_chain_from_a_point_without_touching_the_old_one(stack):
@@ -523,6 +788,38 @@ def test_mount_browse_zip_and_unmount(flr):
     tail = [c[0] for c in flr.run.cmds[-8:]]
     assert tail.count('umount') == 2 and 'dmsetup' in tail and 'losetup' in tail and 'smb://nas/share/hcm' in flr.mounter.released
     assert not os.path.exists(m.root) and m.id not in flr.mm.mounts
+
+
+def test_links_in_the_guest_never_lead_out_of_the_backup(flr, tmp_path):
+    """Symbolic links are the guest's: followed with the kernel's resolver they lead into the proxy (its
+    token, its TLS key, every tenant's images under the mount directory). They are resolved inside the
+    filesystem they are on, as the guest itself would."""
+    outside = tmp_path / 'proxy-secret'; outside.mkdir(); (outside / 'token').write_text('s3cret')
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    root = m.filesystems[1]['mountpoint']
+    os.makedirs(os.path.join(root, 'usr', 'share')); open(os.path.join(root, 'usr', 'share', 'zone'), 'w').write('UTC')
+    os.symlink(str(outside / 'token'), os.path.join(root, 'etc', 'abs-file'))          # absolute, to a proxy file
+    os.symlink(str(outside), os.path.join(root, 'etc', 'abs-dir'))                     # absolute, to a proxy directory
+    os.symlink('../../../../../../..' + str(outside / 'token'), os.path.join(root, 'etc', 'rel-up'))
+    os.symlink('/usr/share/zone', os.path.join(root, 'etc', 'localtime'))              # absolute, exists in the guest
+    os.symlink('../usr/share', os.path.join(root, 'etc', 'rel-dir'))                   # relative, inside the guest
+    os.symlink('loop-b', os.path.join(root, 'etc', 'loop-a')); os.symlink('loop-a', os.path.join(root, 'etc', 'loop-b'))
+
+    for p in ('/disk1-p2/etc/abs-file', '/disk1-p2/etc/rel-up', '/disk1-p2/etc/abs-dir/token', '/disk1-p2/etc/loop-a'):
+        with pytest.raises(FileNotFoundError):
+            flr.mm.open_file(m.id, p)
+    with pytest.raises(FileNotFoundError):
+        flr.mm.ls(m.id, '/disk1-p2/etc/abs-dir')
+    # a link that stays inside the guest works, absolute or relative
+    fh, size, name = flr.mm.open_file(m.id, '/disk1-p2/etc/localtime'); assert fh.read() == b'UTC' and name == 'zone'; fh.close()
+    assert [e['name'] for e in flr.mm.ls(m.id, '/disk1-p2/etc/rel-dir')['entries']] == ['zone']
+    kinds = {e['name']: e['kind'] for e in flr.mm.ls(m.id, '/disk1-p2/etc')['entries']}
+    assert kinds['abs-file'] == 'link' and kinds['hostname'] == 'file', 'a link is listed as a link, not as its target'
+    import zipfile, io
+    names = zipfile.ZipFile(io.BytesIO(b''.join(flr.mm.iter_zip(m.id, ['/disk1-p2/etc'])))).namelist()
+    assert sorted(names) == ['disk1-p2/etc/hostname', 'disk1-p2/etc/hosts'], 'a zip holds files, never what a link points at'
+    assert not any(x.endswith(str(outside / 'token')) for x in flr.mm.iso_command(m.id, ['/disk1-p2/etc/abs-file', '/disk1-p2/etc/hosts']))
+    flr.mm.unmount(m.id)
 
 
 def test_nothing_mountable_names_the_reason_per_partition(flr):
@@ -798,6 +1095,100 @@ def test_idle_mounts_are_swept_and_api_routes_work(flr):
     assert flr.mm.sweep_idle() == 1 and c.get(f'/mounts/{mid}/ls', headers=H).status_code == 404
 
 
+def test_what_is_missing_is_named_in_the_404(flr):
+    app = P.api.create_app(flr.cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}), flr.mm)
+    c = app.test_client(); H = {'Authorization': 'Bearer t0k'}
+    mid = c.post('/mounts', json={'target': {'uri': 'smb://nas/share/hcm'}, 'chain_dir': 'F/v_vm-1.chain', 'seq': 0}, headers=H).get_json()['id']
+    r = c.get(f'/mounts/{mid}/file?path=/disk1-p2/etc/gone.txt', headers=H)
+    assert r.status_code == 404 and r.get_json()['error'] == 'file not found in this restore point: /disk1-p2/etc/gone.txt'
+    r = c.get(f'/mounts/{mid}/ls?path=/disk1-p2/nope', headers=H)
+    assert r.status_code == 404 and r.get_json()['error'] == 'directory not found in this restore point: /disk1-p2/nope'
+    r = c.get('/mounts/0123abcd/file?path=/x', headers=H)
+    assert r.status_code == 404 and r.get_json()['error'].startswith('mount 0123abcd not found: it was unmounted')
+
+
+def test_a_file_named_outside_latin1_downloads_with_its_name(flr):
+    """The raw name went into Content-Disposition; an HTTP header is Latin-1, so 'Rapport – Q3.docx' or
+    'prijs €.txt' killed the response."""
+    from urllib.parse import unquote
+    app = P.api.create_app(flr.cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}), flr.mm)
+    c = app.test_client(); H = {'Authorization': 'Bearer t0k'}
+    mid = c.post('/mounts', json={'target': {'uri': 'smb://nas/share/hcm'}, 'chain_dir': 'F/v_vm-1.chain', 'seq': 0}, headers=H).get_json()['id']
+    mp = next(f['mountpoint'] for f in flr.mm.mounts[mid].filesystems if f['name'] == 'disk1-p2')
+    for name, fallback in (('Rapport – Q3.docx', 'Rapport  Q3.docx'), ('prijs €.txt', 'prijs .txt'), ('café "x".txt', 'cafe _x_.txt')):
+        open(os.path.join(mp, name), 'wb').write(b'data')
+        r = c.get('/mounts/%s/file' % mid, query_string={'path': f'/disk1-p2/{name}'}, headers=H)
+        assert r.status_code == 200 and r.data == b'data'
+        cd = r.headers['Content-Disposition']
+        cd.encode('ascii')
+        assert f'filename="{fallback}"' in cd, cd
+        assert unquote(cd.split("filename*=UTF-8''", 1)[1]) == name
+    z = c.get(f'/mounts/{mid}/zip', query_string={'paths': '/disk1-p2/etc', 'name': 'bestanden – €.zip'}, headers=H)
+    assert z.status_code == 200 and "filename*=UTF-8''bestanden%20%E2%80%93%20%E2%82%AC.zip" in z.headers['Content-Disposition']
+
+
+def test_a_zip_download_holds_one_piece_of_a_file_in_memory_not_the_whole_file(flr, monkeypatch):
+    """zf.write() returns only after the whole file: its compressed form sat in the stream buffer (measured 96 MiB
+    held for a 96 MiB file; a 20 GiB file OOM-killed the proxy). Entries are written in 1 MiB pieces now."""
+    import io, zipfile
+    m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
+    mp = next(f['mountpoint'] for f in m.filesystems if f['name'] == 'disk1-p2')
+    big = os.urandom(12 * MiB)                           # incompressible
+    open(os.path.join(mp, 'etc', 'big.bin'), 'wb').write(big)
+    peak = [0]
+    real_write = P.mounts._StreamBuffer.write
+
+    def spy(self, b):
+        n = real_write(self, b)
+        peak[0] = max(peak[0], sum(len(c) for c in self._chunks))
+        return n
+    monkeypatch.setattr(P.mounts._StreamBuffer, 'write', spy)
+    data = b''.join(flr.mm.iter_zip(m.id, ['/disk1-p2/etc']))
+    assert peak[0] < 3 * MiB, f'{peak[0]} bytes buffered'
+    z = zipfile.ZipFile(io.BytesIO(data))
+    assert z.testzip() is None and z.read('disk1-p2/etc/big.bin') == big and z.read('disk1-p2/etc/hostname') == b'exptest\n'
+    assert z.getinfo('disk1-p2/etc/big.bin').compress_type == zipfile.ZIP_DEFLATED
+    flr.mm.unmount(m.id)
+
+
+@pytest.mark.parametrize('kind', ['zip', 'file', 'iso'])
+def test_a_mount_that_is_still_streaming_is_neither_swept_nor_unmounted(flr, monkeypatch, kind):
+    """last_used was only set when a download started: a zip, ISO or file that streamed longer than the idle limit
+    was unmounted under it and arrived cut off without an error. DELETE during a download did the same."""
+    import io, zipfile
+    app = P.api.create_app(flr.cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}), flr.mm)
+    c = app.test_client(); H = {'Authorization': 'Bearer t0k'}
+    mid = c.post('/mounts', json={'target': {'uri': 'smb://nas/share/hcm'}, 'chain_dir': 'F/v_vm-1.chain', 'seq': 0}, headers=H).get_json()['id']
+    mp = next(f['mountpoint'] for f in flr.mm.mounts[mid].filesystems if f['name'] == 'disk1-p2')
+    for i in range(3):
+        open(os.path.join(mp, 'etc', f'big{i}'), 'wb').write(os.urandom(3 * MiB))
+
+    class FakeProc:                                      # genisoimage stand-in that reads the mount as it streams
+        def __init__(self, cmd, **kw):
+            self.stdout = io.BytesIO(open(os.path.join(mp, 'etc', 'big0'), 'rb').read()); self.stderr = io.BytesIO(b'')
+        def wait(self, timeout=None): return 0
+    monkeypatch.setattr(P.mounts.MountManager.iter_iso, '__defaults__', (1 << 20, FakeProc))   # popen=
+    monkeypatch.setattr(flr.mm, 'iso_size', lambda m, p: 3 * MiB)
+    url = {'zip': f'/mounts/{mid}/zip?paths=/disk1-p2/etc', 'file': f'/mounts/{mid}/file?path=/disk1-p2/etc/big0',
+           'iso': f'/mounts/{mid}/iso?paths=/disk1-p2/etc'}[kind]
+    r = c.get(url, headers=H, buffered=False)
+    it = iter(r.response)
+    got = [next(it)]                                     # the download has started ...
+    flr.mm.mounts[mid].last_used -= 3600                 # ... and runs past the idle limit
+    assert flr.mm.sweep_idle() == 0 and mid in flr.mm.mounts
+    d = c.delete(f'/mounts/{mid}', headers=H)
+    assert d.status_code == 409 and 'still running' in d.get_json()['error'] and mid in flr.mm.mounts
+    got += list(it)
+    r.close()
+    data = b''.join(got)
+    if kind == 'zip':
+        assert len(zipfile.ZipFile(io.BytesIO(data)).namelist()) == 5
+    else:
+        assert data == open(os.path.join(mp, 'etc', 'big0'), 'rb').read()
+    # the refused unmount happens once the download has ended
+    assert flr.mm.mounts[mid].streams == 0 and flr.mm.sweep_idle() == 1 and mid not in flr.mm.mounts
+
+
 def test_iso_command_size_and_stream(flr, monkeypatch):
     m = flr.mm.mount({'uri': 'smb://nas/share/hcm'}, 'F/v_vm-1.chain', 0)
     cmd = flr.mm.iso_command(m.id, ['/disk1-p2/etc', '/disk1-p2/etc/hosts'])
@@ -841,6 +1232,32 @@ def test_self_signed_certificate_and_fingerprint(tmp_path):
         tlsm.context_for(P.config.Config(data_dir=str(tmp_path), tls='cert', tls_cert='/nope.crt', tls_key='/nope.key'))
 
 
+def test_a_connection_that_never_speaks_tls_does_not_freeze_the_api(tmp_path):
+    """The handshake ran in werkzeug's single accept loop: one silent TCP connection (no token needed)
+    made /health and every other route time out for as long as it stayed open."""
+    import http.client, shutil, socket as _socket, ssl, subprocess
+    if not shutil.which('openssl'):
+        pytest.skip('openssl not installed')
+    crt, key = str(tmp_path / 'p.crt'), str(tmp_path / 'p.key')
+    subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-keyout', key, '-out', crt,
+                    '-subj', '/CN=localhost'], check=True, capture_output=True)
+    cfg = P.config.Config(api_token='t0k', data_dir=str(tmp_path / 'data'), backend='file')
+    app = P.api.create_app(cfg, types.SimpleNamespace(backend=P.images.FileBackend(), list=lambda: [], get=lambda i: None, jobs={}))
+    srv = P.api.start(app, 0, (crt, key), host='127.0.0.1')
+    silent = _socket.create_connection(('127.0.0.1', srv.port))
+    try:
+        ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+        c = http.client.HTTPSConnection('127.0.0.1', srv.port, timeout=5, context=ctx)
+        c.request('GET', '/health')
+        r = c.getresponse()
+        assert r.status == 200 and json.loads(r.read())['service'] == 'hcm-proxy'
+        c.close()
+        assert P.api._Handler.timeout, 'a silent connection must not hold its thread forever either'
+    finally:
+        silent.close()
+        srv.shutdown(); srv.server_close()
+
+
 # ---------------------------------------------------------------- stale nbd state (lab incident 2026-10-21)
 def test_copy_intervals_closes_every_descriptor(tmp_path):
     src = tmp_path / 'src'; dst = tmp_path / 'dst'
@@ -864,7 +1281,8 @@ def test_nbd_backend_retires_a_slot_that_refuses_io(tmp_path, monkeypatch):
         if slot in bad:
             raise OSError(5, 'Input/output error')
     monkeypatch.setattr(be, '_probe', probe)
-    with be._attached('img.qcow2', False) as slot:
+    img = tmp_path / 'img.qcow2'; img.write_bytes(b'')
+    with be._attached(str(img), False) as slot:
         assert slot == f'{tmp_path}/nbd2'
     assert pool.retired == [f'{tmp_path}/nbd0', f'{tmp_path}/nbd1'] and pool.free == 1
     assert ('disconnect', f'{tmp_path}/nbd0', False) in calls and ('disconnect', f'{tmp_path}/nbd2', True) in calls
@@ -882,11 +1300,90 @@ def test_nbd_backend_releases_slot_when_connect_fails(tmp_path, monkeypatch):
 
     def boom(slot, path, ro, cache=None):
         raise RuntimeError('qemu-nbd failed')
+    calls = []
     monkeypatch.setattr(be, '_connect', boom)
+    monkeypatch.setattr(be, '_disconnect', lambda slot, strict: calls.append((slot, strict)))
     with pytest.raises(RuntimeError, match='qemu-nbd'):
         with be._attached('img.qcow2', False):
             pass
     assert pool.free == 1 and not pool.retired
+    assert calls == [(f'{tmp_path}/nbd0', False)], 'a connect that failed halfway is disconnected before the slot goes back'
+
+
+def test_an_nbd_slot_that_may_still_be_connected_never_returns_to_the_pool(tmp_path, monkeypatch):
+    """`qemu-nbd -c` timing out kills only the parent and may leave the device connected; a strict disconnect that
+    fails leaves it connected for sure. Either slot went back to the pool as it was."""
+    import subprocess
+    pool = P.images.NbdPool(2, dev_dir=str(tmp_path))
+    be = P.images.NbdBackend(pool)
+    calls = []
+
+    def timeout(slot, path, ro, cache=None):
+        raise subprocess.TimeoutExpired(['qemu-nbd', '-c', slot], 120)
+    monkeypatch.setattr(be, '_connect', timeout)
+    monkeypatch.setattr(be, '_disconnect', lambda slot, strict: calls.append((slot, strict)))
+    with pytest.raises(subprocess.TimeoutExpired):
+        with be._attached('img.qcow2', True):
+            pass
+    assert calls == [(f'{tmp_path}/nbd0', False)] and pool.free == 2
+    # the strict disconnect after use fails: the slot is retired, not released
+    monkeypatch.setattr(be, '_connect', lambda slot, path, ro, cache=None: None)
+    monkeypatch.setattr(be, '_probe', lambda slot: None)
+
+    def strict_fails(slot, strict):
+        if strict:
+            raise RuntimeError('qemu-nbd -d failed (1)')
+    monkeypatch.setattr(be, '_disconnect', strict_fails)
+    with pytest.raises(RuntimeError, match='-d failed'):
+        with be._attached('img.qcow2', True) as slot:
+            pass
+    assert pool.retired == [slot] and pool.free == 1
+
+
+def test_a_hanging_udev_settle_does_not_skip_the_disconnect(tmp_path, monkeypatch):
+    import subprocess
+    be = P.images.NbdBackend(P.images.NbdPool(1, dev_dir=str(tmp_path)))
+    ran = []
+
+    def fake_run(cmd, **kw):
+        ran.append(cmd[0])
+        if cmd[0] == 'udevadm':
+            raise subprocess.TimeoutExpired(cmd, 60)
+        return types.SimpleNamespace(returncode=0, stdout='', stderr='')
+    monkeypatch.setattr(P.images.subprocess, 'run', fake_run)
+    monkeypatch.setattr(be, '_wait_server_gone', lambda slot: None)
+    be._disconnect(f'{tmp_path}/nbd0', strict=True)
+    assert 'qemu-nbd' in ran
+
+
+def test_a_write_error_at_writeback_fails_the_image_after_the_nbd_server_is_gone(tmp_path, monkeypatch):
+    """With --cache=unsafe nothing flushed the image: a writeback error (share full or dropped) went unseen and the
+    job reported done with a checksum read from the page cache. The image is fsynced after the disconnect."""
+    import errno
+    pool = P.images.NbdPool(1, dev_dir=str(tmp_path))
+    be = P.images.NbdBackend(pool)
+    order = []
+    monkeypatch.setattr(be, '_connect', lambda slot, path, ro, cache=None: None)
+    monkeypatch.setattr(be, '_probe', lambda slot: None)
+    monkeypatch.setattr(be, '_disconnect', lambda slot, strict: order.append('disconnect'))
+    img = tmp_path / 'img.qcow2'; img.write_bytes(b'x')
+    real_fsync = os.fsync
+
+    def failing_fsync(fd):
+        order.append('fsync')
+        raise OSError(errno.ENOSPC, 'No space left on device')
+    monkeypatch.setattr(P.images.os, 'fsync', failing_fsync)
+    with pytest.raises(RuntimeError, match='img.qcow2 to the target failed.*No space left'):
+        with be._attached(str(img), False):
+            pass
+    assert order == ['disconnect', 'fsync'] and pool.free == 1
+    order.clear()
+    with be._attached(str(img), True):                   # read-only attaches write nothing
+        pass
+    assert order == ['disconnect']
+    monkeypatch.setattr(P.images.os, 'fsync', real_fsync)
+    with be._attached(str(img), False):
+        pass
 
 
 def test_mount_manager_cleans_leftovers_of_a_previous_life(tmp_path):
@@ -1019,7 +1516,7 @@ def test_verify_upto_seq_reports_progress_and_names_the_corrupt_file(stack):
     assert list(v['result']['points']) == ['base'] and v['result']['points']['base']['mismatches'] == ['nvram-n.qcow2: missing']
     # an empty selection is not "ok"
     v = _wait(stack, stack.client.post('/jobs/verify', json={'target': target, 'chain_dir': 'Amsterdam/vm_v.chain', 'seq': 7}, headers=H).get_json()['id'])
-    assert v['state'] == 'done' and v['result'] == {'ok': False, 'points': {}, 'bytes': 0, 'duration_s': v['result']['duration_s']}
+    assert v['state'] == 'done' and v['result'] == {'ok': False, 'points': {}, 'bytes': 0, 'duration_s': v['result']['duration_s'], 'healed': []}
 
 
 def test_sha256_file_progress_and_cancel(tmp_path):
@@ -1254,7 +1751,7 @@ def test_support_bundle_route_needs_the_token(tmp_path):
     r = c.get('/support/bundle', headers={'Authorization': 'Bearer t0k'})
     assert r.status_code == 200 and r.mimetype == 'application/zip' and 'attachment; filename="hcm-proxy-' in r.headers['Content-Disposition']
     assert r.data[:2] == b'PK'
-    assert P.identity.VERSION == '0.6.2'
+    assert P.identity.VERSION == '0.6.5'
 
 
 def test_the_proxy_keeps_a_rotating_log_file(tmp_path):
@@ -1418,10 +1915,28 @@ def test_netcheck_binds_everything_to_the_test_nic_and_cleans_up(tmp_path):
                  ip_fn=lambda *a: calls.append(a), sys_net=sysnet)
     assert res['interface'] == 'ens4' and res['results'] == {'172.16.0.12': {'ping': False, 'ports': {3389: True, 445: False}}}
     assert all(p[-1] == 'ens4' for p in probes), 'never through the management NIC (a restored VM keeps its production IP)'
-    assert calls[:3] == [('link', 'set', 'ens4', 'up'), ('addr', 'add', '172.16.0.250/25', 'dev', 'ens4', 'noprefixroute'),
+    assert calls[:3] == [('link', 'set', 'ens4', 'up'), ('addr', 'replace', '172.16.0.250/25', 'dev', 'ens4', 'noprefixroute'),
                          ('route', 'replace', '172.16.0.12/32', 'dev', 'ens4', 'src', '172.16.0.250')]
     assert calls[-3:] == [('route', 'del', '172.16.0.12/32', 'dev', 'ens4'), ('addr', 'del', '172.16.0.250/25', 'dev', 'ens4'),
                           ('link', 'set', 'ens4', 'down')], 'the probe address and routes go again'
+
+
+def test_netcheck_cleans_up_when_setting_the_probe_address_fails(tmp_path):
+    """The link was brought up and the address added before the try: a failure there left the NIC up, and an
+    interrupted check left the address, after which 'ip addr add' failed ("Address already assigned") until reboot."""
+    nc = _netcheck()
+    sysnet = _sysnet(tmp_path, {'ens4': '7c:4c:58:00:00:99'})
+    calls = []
+
+    def ip_fn(*a):
+        calls.append(a)
+        if a[0] == 'addr' and a[1] != 'del':
+            raise nc.NetcheckError('ip addr: RTNETLINK answers: File exists')
+    with pytest.raises(nc.NetcheckError):
+        nc.run('7c:4c:58:00:00:99', '172.16.0.250/25', [{'ip': '172.16.0.12'}], settle_s=0, ip_fn=ip_fn, sys_net=sysnet,
+               ping_fn=lambda ip, dev: True, tcp_fn=lambda ip, port, dev: True)
+    assert calls[1][:2] == ('addr', 'replace')
+    assert calls[-2:] == [('addr', 'del', '172.16.0.250/25', 'dev', 'ens4'), ('link', 'set', 'ens4', 'down')]
 
 
 def test_netcheck_serves_dhcp_and_waits_until_the_vm_answers(tmp_path):

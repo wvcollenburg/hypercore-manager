@@ -159,3 +159,21 @@ def test_runner_keeps_retrying_a_failing_migration_until_it_is_fixed(init_dir):
     applied = migrations.apply_until_done(Ctx, str(init_dir), sleep=sleep, fast_attempts=4, slow_interval=300)
     assert applied == ['002_second.sql', '010_tenth.sql']
     assert waits[:3] == [2.0, 4.0, 8.0] and waits[3:] == [300] * 7
+
+
+def test_no_migration_recreates_what_a_later_one_drops(repo):
+    """The runner applies every file again on an install whose database was created by initdb (nothing is
+    recorded yet). A file that creates an index or constraint which a later file drops then runs against
+    the later file's data: 021's unique index on folder names failed on the two 'Default' nodes 044 seeds,
+    and with it every later migration and every in-app update of a fresh install."""
+    import re
+    files = sorted((repo / 'postgres' / 'init').glob('*.sql'))
+    strip = lambda sql: re.sub(r'--[^\n]*', '', sql)                      # noqa: E731 — comments may name what was removed
+    created: dict[str, str] = {}
+    for f in files:
+        sql = strip(f.read_text())
+        for name in re.findall(r'DROP\s+INDEX\s+(?:IF\s+EXISTS\s+)?(?:\w+\.)?(\w+)', sql, re.I):
+            assert name not in created or created[name] == f.name, \
+                f'{created[name]} creates index {name}, which {f.name} drops: remove it from {created[name]}'
+        for name in re.findall(r'CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(\w+)', sql, re.I):
+            created.setdefault(name, f.name)

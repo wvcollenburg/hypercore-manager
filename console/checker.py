@@ -57,6 +57,14 @@ async def check_vm(http: aiohttp.ClientSession, cluster_id: str, vm_uuid: str, s
         if verdict.state == 'open':
             log.info('console session open', extra={'cluster_id': cluster_id, 'vm': name, 'vm_uuid': vm_uuid})
         return {'state': verdict.state, 'detail': verdict.detail}
+    except Exception as e:  # noqa: BLE001 — without a verdict the VM stays most overdue and takes a slot every tick
+        detail = consoles.mask_session(f'check failed: {type(e).__name__}: {e}')[:300]
+        log.warning('open-session check of %s failed: %s', vm_uuid, detail, extra={'cluster_id': cluster_id})
+        try:
+            await asyncio.to_thread(store.record_verdict, cluster_id, vm_uuid, None, 'error', detail)
+        except Exception:  # noqa: BLE001 — database down: the next round tries again
+            log.warning('verdict for %s not recorded', vm_uuid, exc_info=True)
+        return {'state': 'error', 'detail': detail}
     finally:
         _busy.discard(key)
 

@@ -146,13 +146,34 @@ class ProxyClient:
     def cancel(self, job_id: str) -> None:
         self._request('DELETE', f'/jobs/{job_id}')
 
-    def wait(self, job_id: str, on_progress=None, timeout: float = 8 * 3600, poll: float = 3) -> dict:
+    def _cancel_quietly(self, job_id: str) -> None:
+        try:
+            self.cancel(job_id)
+        except ProxyError:
+            pass
+
+    def wait(self, job_id: str, on_progress=None, timeout: float = 8 * 3600, poll: float = 3, outage: float = 300) -> dict:
         """Poll until the job finishes. on_progress(progress_dict) when progress changes.
-        Returns the job; raises ProxyError when it failed or was cancelled."""
+        Returns the job; raises ProxyError when it failed or was cancelled. The proxy may be unreachable
+        for up to `outage` seconds in a row (a network blip must not throw away a multi-hour full); after
+        that, or at the timeout, the job is cancelled (best effort) and ProxyError raised."""
         deadline = time.monotonic() + timeout
         last = None
+        down_since = None
         while time.monotonic() < deadline:
-            j = self.job(job_id)
+            try:
+                j = self.job(job_id)
+            except ProxyError as e:
+                if e.kind != 'unreachable':
+                    raise
+                now = time.monotonic()
+                down_since = down_since if down_since is not None else now
+                if now - down_since >= outage:
+                    self._cancel_quietly(job_id)
+                    raise ProxyError(f'{e} (unreachable for {outage / 60:.0f} minutes; job cancelled)', kind='unreachable') from e
+                time.sleep(poll)
+                continue
+            down_since = None
             p = j.get('progress') or {}
             if on_progress and p != last:
                 on_progress(p)
@@ -162,10 +183,7 @@ class ProxyClient:
             if j['state'] in ('failed', 'cancelled'):
                 raise ProxyError(j.get('error') or f'proxy job {job_id} {j["state"]}')
             time.sleep(poll)
-        try:
-            self.cancel(job_id)
-        finally:
-            pass
+        self._cancel_quietly(job_id)
         raise ProxyError(f'proxy job {job_id} did not finish within {timeout / 3600:.1f}h')
 
 

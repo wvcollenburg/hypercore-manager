@@ -15,6 +15,7 @@ import re
 import threading
 import time
 
+import cluster_registry
 import rbac
 
 log = logging.getLogger(__name__)
@@ -232,8 +233,8 @@ def _heal_root_admin(cur, user_id: str) -> None:
 
 
 def user_state(user_id: str) -> dict | None:
-    """{username, enabled, awaiting_access} of a user id, or None when the user no longer exists (cached
-    briefly: every API call asks)."""
+    """{username, enabled, awaiting_access, session_gen} of a user id, or None when the user no longer exists
+    (cached briefly: every API call asks; any change bumps the shared version, which ends the cache)."""
     now = time.monotonic()
     ver = _version()
     with _lock:
@@ -244,15 +245,24 @@ def user_state(user_id: str) -> dict | None:
     try:
         with conn.cursor() as cur:
             try:
-                cur.execute('SELECT username, enabled, awaiting_access FROM config.users WHERE user_id = %s', (user_id,))
+                cur.execute('SELECT username, enabled, awaiting_access, session_gen FROM config.users WHERE user_id = %s',
+                            (user_id,))
                 row = cur.fetchone()
             except Exception as exc:  # noqa: BLE001
                 if not _missing(exc):
                     raise
                 conn.rollback()
-                cur.execute('SELECT username, TRUE AS enabled, FALSE AS awaiting_access FROM config.users WHERE user_id = %s',
-                            (user_id,))
-                row = cur.fetchone()
+                try:                                         # before migration 058: no session generation yet
+                    cur.execute('SELECT username, enabled, awaiting_access, 0 AS session_gen FROM config.users WHERE user_id = %s',
+                                (user_id,))
+                    row = cur.fetchone()
+                except Exception as exc2:  # noqa: BLE001
+                    if not _missing(exc2):
+                        raise
+                    conn.rollback()
+                    cur.execute('SELECT username, TRUE AS enabled, FALSE AS awaiting_access, 0 AS session_gen '
+                                'FROM config.users WHERE user_id = %s', (user_id,))
+                    row = cur.fetchone()
     finally:
         conn.close()
     state = dict(row) if row else None
@@ -316,10 +326,29 @@ def nodes() -> list[dict]:
         conn.close()
 
 
+def _colour(value):
+    """cluster_registry.clean_colour, as an AccessError (400)."""
+    try:
+        return cluster_registry.clean_colour(value)
+    except ValueError as e:
+        raise AccessError(str(e), 400) from None
+
+
+_CONTROL = re.compile('[\x00-\x1f\x7f\u2028\u2029]')
+
+
+def no_control(value, what: str = 'a name') -> None:
+    """Names go into mail subjects and texts (invitations, approvals): a line break there makes the mail
+    library refuse the whole message. Refused where they are entered."""
+    if value and _CONTROL.search(str(value)):
+        raise AccessError(f'{what} cannot contain line breaks or control characters')
+
+
 def create_node(name: str, level: str, parent_id: str | None, colour: str | None, actor: str) -> str:
     name = (name or '').strip()
     if not name or len(name) > 80:
         raise AccessError('a name is required (at most 80 characters)')
+    no_control(name)
     if level not in rbac.NODE_LEVELS:
         raise AccessError('unknown level')
     tree = load_tree()
@@ -331,7 +360,7 @@ def create_node(name: str, level: str, parent_id: str | None, colour: str | None
         with conn.cursor() as cur:
             try:
                 cur.execute('''INSERT INTO config.folders (name, level, parent_id, colour) VALUES (%s, %s, %s, %s)
-                               RETURNING folder_id::text AS id''', (name, level, parent_id, colour or None))
+                               RETURNING folder_id::text AS id''', (name, level, parent_id, _colour(colour)))
             except Exception as exc:  # noqa: BLE001
                 if 'ux_folders_parent_name' in str(exc) or 'duplicate key' in str(exc):
                     raise AccessError(f'there already is a {level} called {name!r} here', 409) from exc
@@ -357,6 +386,7 @@ def rename_node(node_id: str, name: str | None, colour, actor: str) -> None:
                 name = name.strip()
                 if not name or len(name) > 80:
                     raise AccessError('a name is required (at most 80 characters)')
+                no_control(name)
                 try:
                     cur.execute('UPDATE config.folders SET name = %s, updated_at = NOW() WHERE folder_id = %s', (name, node_id))
                 except Exception as exc:  # noqa: BLE001
@@ -365,7 +395,7 @@ def rename_node(node_id: str, name: str | None, colour, actor: str) -> None:
                     raise
                 audit(cur, actor, f"{row['level']}.rename", f"{row['name']} → {name}", node_id=node_id)
             if colour is not ...:
-                cur.execute('UPDATE config.folders SET colour = %s, updated_at = NOW() WHERE folder_id = %s', (colour or None, node_id))
+                cur.execute('UPDATE config.folders SET colour = %s, updated_at = NOW() WHERE folder_id = %s', (_colour(colour), node_id))
         conn.commit()
     finally:
         conn.close()
@@ -446,6 +476,7 @@ def save_role(role_id: str | None, name: str, description: str, node_id: str | N
     name = (name or '').strip()
     if not name or len(name) > 60:
         raise AccessError('a name is required (at most 60 characters)')
+    no_control(name)
     perms = sorted(rbac.expand(perms))
     if not perms:
         raise AccessError('a role needs at least one permission')
@@ -530,6 +561,7 @@ def save_group(group_id: str | None, name: str, description: str, node_id: str |
     name = (name or '').strip()
     if not name or len(name) > 60:
         raise AccessError('a name is required (at most 60 characters)')
+    no_control(name)
     conn = _connect()
     try:
         with conn.cursor() as cur:
@@ -695,6 +727,8 @@ def update_user(user_id: str, actor: str, *, enabled=None, display_name=None, em
                     raise AccessError('give the account its access first', 409)
                 if enabled and u['awaiting_email'] and email is None:
                     raise AccessError('give the account its email address first', 409)
+                if not enabled:
+                    _guard_last_root_admin(cur, removing_user=user_id)   # as delete and assignment removal do
                 cur.execute('UPDATE config.users SET enabled = %s, updated_at = NOW() WHERE user_id = %s', (bool(enabled), user_id))
                 audit(cur, actor, 'user.enable' if enabled else 'user.disable', u['username'])
             if display_name is not None:
@@ -940,14 +974,14 @@ def node_label(node_id, tree: rbac.Tree, visible: set | None = None) -> str:
     return ' / '.join(tree.name.get(n, n) for n in chain) or str(node_id)
 
 
-def assignment_in_reach(acc: rbac.Access, a: dict) -> bool:
-    """May this reader manage people on the scope of assignment `a` (users.manage there)?"""
+def assignment_in_reach(acc: rbac.Access, a: dict, perm: str = 'users.manage') -> bool:
+    """May this reader manage people on the scope of assignment `a` (`perm` there, users.manage by default)?"""
     k = a['scope_kind']
     if k == 'node':
-        return acc.can('users.manage', node_id=a['node_id'])
+        return acc.can(perm, node_id=a['node_id'])
     if k in ('cluster', 'tag', 'vm'):
-        return acc.can('users.manage', a['cluster_id'])
-    return acc.can('users.manage')                   # root: the whole installation
+        return acc.can(perm, a['cluster_id'])
+    return acc.can(perm)                             # root: the whole installation
 
 
 def manageable_user_ids(acc: rbac.Access) -> set | None:

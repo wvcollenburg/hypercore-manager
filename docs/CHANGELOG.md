@@ -4,6 +4,106 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.8.1]
+
+A maintenance release from a full review of 1.8.0: security, backup safety and robustness. Read the upgrade
+notes before applying it.
+
+### Upgrade notes
+- **The dashboard refuses to start while `HCM_SECRET_KEY`, `SC_DASHBOARD_SECRET_KEY` or
+  `SC_DASHBOARD_PASSWORD` still reads `CHANGE_ME`.** Check `.env` before updating.
+- **Mail: the "address in links" (Settings → Mail) is required.** Links in mails are never built from the
+  address a request came in on any more. Without it, password resets by mail are off and invitation links are
+  shown to the inviter instead of mailed.
+- **InfluxDB (8086), the Foresight API (8081) and the backup API (8082) are published on 127.0.0.1 only.**
+  `HCM_INTERNAL_BIND` in `.env` changes that (a Grafana on another machine).
+- **Behind a reverse proxy**, keep the `Host` header as sent: changes whose `Origin` is not the dashboard's own
+  address are refused. Set `HCM_TRUSTED_PROXIES=1` (client addresses for the audit and the sign-in limit) and,
+  over HTTPS only, `HCM_SESSION_COOKIE_SECURE=true`.
+- **The proxy image is only handed out with `BACKUP_API_TOKEN` set.** Deployed proxies update to 0.6.5 by
+  themselves after the update.
+- Fresh installs from 1.3.0 on could not apply later migrations (and so no in-app update finished): 1.8.1
+  repairs them on its first start.
+
+### Security
+- Login no longer switches off when PostgreSQL is unreachable while the dashboard starts (every anonymous
+  request was root admin until a restart).
+- Sign-in and two-factor attempts are limited per account and address; a two-factor code works once; the
+  sign-in page and password reset take the same time whether an address has an account or not.
+- Sessions end when a password, address or two-factor setting changes; the authenticator secret is only
+  handed out against the current password and never once two-factor is on; an open VM console closes when
+  its user loses the right.
+- Changes must come from the dashboard's own pages (Origin check, SameSite cookie, no wildcard CORS);
+  signing out is a form post.
+- Handing out access needs user management on that scope; only someone who outranks an account may set its
+  password, reset its two-factor, change its address or disable it; the last administrator cannot be disabled.
+- A backup plan's VM name and destination come from HCM, not the browser; only a root target manager assigns a
+  folder's target; imports stay inside the caller's folder and use the folder's credentials only for its own
+  directory; the clone tag guard checks the clone that is made.
+- Changing a cluster's address or account asks for its password again (the stored one was sent to the new
+  address); colours are `#rrggbb` only (they were written into every viewer's page); names above the reader,
+  target paths and session IDs stay out of answers, logs and the dashboard.
+- File-level restore resolves links inside the backup (a guest link reached the proxy's own files) and checks
+  the proxy's certificate; the proxy API compares its token in constant time and no longer freezes on a
+  connection that never speaks TLS.
+- Inline handlers no longer run names, tags, file names or addresses as script, and every server text in the
+  dashboard's tables is escaped.
+- The audit log records sign-ins, two-factor changes, cluster changes, target assignments and updates.
+
+### Backup and restore
+- After a retention prune, verification and restores with verification failed ("checksum differs"): the
+  proxy re-hashes what a prune rewrites, and heals chains pruned by an older proxy once at their next verify
+  (the verify result names the healed points).
+- A point the proxy wrote but HCM did not record no longer blocks a chain for good: the next run takes a full.
+- Backups and retention follow each chain's own target after a target change.
+- Each folder's directory on its target is stored on the folder (two customers' folders named "Production"
+  shared one); export folders carry the VM's uuid (namesakes on two clusters pruned each other's copies).
+- Long jobs have their own thread pool and a queued restore or run is never dropped for starting late.
+- An interrupted restore removes its staging disks and half-built VM; a restored VM gets its NIC type and disk
+  cache mode back (E1000 NICs came back as VIRTIO).
+- A proxy job rides out a network blip; a proxy update never restarts a proxy a job holds; downloads are no
+  longer cut off by the idle sweep, stream large files without holding them in memory, and keep names outside
+  Latin-1; a write error at writeback fails the job.
+- A target with chains, or a chain in use, cannot be deleted; purging a cluster is refused while it has chains.
+- Plans need a VM that exists; a missed standalone plan runs at start; a VM change set no longer leaves a VM off
+  after a late shutdown, nor runs outside its window; malformed input answers 400 instead of 500.
+
+### Clusterbalancer, collector and Foresight
+- A POST that may have reached HyperCore is never sent twice; one login per expiry instead of one per thread.
+- Predictive moves pass the same checks as reactive ones (no move to a maintenance, offline or excluded node,
+  nor of a pinned VM); a refused affinity move is not logged as done and dry run no longer starves the other
+  engines; a bad setting or cycle no longer kills the cluster's thread (and a login a minute).
+- Settings are checked before they are stored and read back per key (one bad value reset every setting of a
+  cluster to its default, dry run included).
+- A database outage no longer stops collection for good; conditions are written when they change, and the
+  alert history answers in time on real clusters.
+- Resize advice respects peaks and never shrinks an under-provisioned VM; What-If adding nodes never makes the
+  outlook worse; audit rows are written when a recommendation changes and pruned after the retention; the
+  webhook retries three times; the outcome tracker reads the vCPU count again; Webhook and Outcome Tracker
+  settings take effect without a restart; a 100 % threshold no longer stops analysis; the PDF report lists an
+  exhaustion already reached and accepts any company name.
+
+### Dashboard
+- A migrated VM is listed on the node it runs on now (a node could look empty); a cluster with every VM off
+  lists its VMs; a slow answer for the previous cluster no longer overwrites the new one.
+- Unapplied settings no longer follow you to another cluster; Foresight's report, What-If, settings and "Run
+  analysis now" use the selected cluster.
+- Settings opens on the first tab a user may use (an App Manager got "settings failed" instead of the guest
+  console); a removed cluster stays removed; a page whose session is gone goes to the login page; buttons show only with
+  the permission the server asks for; tag-scoped users see Edit and Console straight away; VM edit keeps typed
+  values; Enter on Cancel cancels and irreversible deletes ask for the name; a network error shows a message.
+- Balancer and Foresight settings, their help texts and dates follow the chosen language; icon buttons have
+  names and tabs work from the keyboard.
+- The updater keeps Apply on offer after a failed apply, leaves stopped services stopped, and shows the version
+  the running image was built from.
+
+### Installation
+- Every image installs the exact Python packages this release was tested with, on a named Debian release;
+  vendor downloads fail the build on a CDN error.
+- The installer writes every module's API tokens; the README and manual set `SC_REPO_PATH` when installing by
+  hand; CI runs the skipped tests and applies the migrations twice on a real PostgreSQL.
+- Copyright: William David van Collenburg, under the Apache License 2.0.
+
 ## [1.8.0]
 
 ### Changed

@@ -6,6 +6,8 @@ import logging
 import os
 import threading
 
+from apscheduler.events import EVENT_JOB_MISSED
+from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
 
 import db
@@ -14,11 +16,52 @@ import vmedit
 
 log = logging.getLogger('backup.scheduler')
 
-_scheduler = BackgroundScheduler(job_defaults={
-    'max_instances': 1,          # never run the same schedule twice at once
-    'coalesce': True,            # collapse missed runs into one
-    'misfire_grace_time': 3600,
-})
+# Work that takes minutes to hours (backups, exports, restores, imports, deployments) runs on its own, larger
+# pool: on the shared 10-thread pool a busy night left one-off jobs waiting for a thread, and a job that waited
+# longer than its grace time was dropped without a trace (a restore stayed RUNNING, a policy run blocked its
+# plan for good). The minute ticks keep the default pool, so they never wait behind a long job.
+LONG_WORKERS = 64
+_scheduler = BackgroundScheduler(
+    executors={'default': ThreadPoolExecutor(10), 'long': ThreadPoolExecutor(LONG_WORKERS)},
+    job_defaults={
+        'max_instances': 1,          # never run the same schedule twice at once
+        'coalesce': True,            # collapse missed runs into one
+        'misfire_grace_time': 3600,
+    })
+
+
+def _one_off(func, args: list, job_id: str) -> None:
+    """A job asked for now (run now, restore, import, policy run, ...): on the long pool, and never dropped for
+    starting late (misfire_grace_time None: however long it waited for a thread)."""
+    _scheduler.add_job(func, args=args, id=job_id, replace_existing=True, executor='long', misfire_grace_time=None)
+
+
+def _on_missed(event) -> None:
+    """A job APScheduler skipped (it started too late). Nothing else would ever close its row or its slot."""
+    jid = str(event.job_id or '')
+    head, _, num = jid.rpartition('-')
+    if not num.isdigit():
+        return
+    n = int(num)
+    msg = 'did not start: the backup service was too busy; start it again'
+    log.error('job %s was missed (started too late) and skipped', jid)
+    try:
+        if head == 'policy-run':
+            with _policy_runs_lock:
+                _policy_runs.pop(n, None)
+        elif head in ('restore', 'iso'):
+            db.update_restore(n, status='ERROR', finished_at=db.now_utc(), message=f'Restore {msg}.')
+        elif head in ('import', 'resume-import'):
+            db.update_import(n, status='ERROR', finished_at=db.now_utc(), message=f'Import {msg}.')
+        elif head == 'deploy':
+            db.update_deployment(n, status='ERROR', finished_at=db.now_utc(), message=f'Deployment {msg}.')
+        elif head == 'resume-run':
+            db.update_run(n, status='ERROR', finished_at=db.now_utc(), message=f'Resume after a restart {msg}.')
+    except Exception:                                   # noqa: BLE001 — a listener must never raise into APScheduler
+        log.exception('could not record the missed job %s', jid)
+
+
+_scheduler.add_listener(_on_missed, EVENT_JOB_MISSED)
 
 
 def _job_id(schedule_id: int) -> str:
@@ -40,7 +83,7 @@ def sync_jobs() -> int:
     for job_id, s in wanted.items():
         hour, minute = s['run_time'].split(':')
         _scheduler.add_job(jobs.run_plan, trigger='cron', hour=int(hour), minute=int(minute), timezone=plan_timezone(s),
-                           id=job_id, args=[s['id']], replace_existing=True)
+                           id=job_id, args=[s['id']], replace_existing=True, executor='long')
     return len(wanted)
 
 
@@ -81,8 +124,7 @@ def policy_tick() -> None:
         with _policy_runs_lock:
             _policy_runs[plan_id] = (cluster_id, kind)
         try:
-            _scheduler.add_job(_policy_run, args=[plan_id, policy_id, occurrence, full, manual], id=f'policy-run-{plan_id}',
-                               replace_existing=True)
+            _one_off(_policy_run, [plan_id, policy_id, occurrence, full, manual], f'policy-run-{plan_id}')
         except Exception:
             with _policy_runs_lock:
                 _policy_runs.pop(plan_id, None)
@@ -96,27 +138,27 @@ def policy_tick() -> None:
 
 
 def run_now(schedule_id: int) -> None:
-    _scheduler.add_job(jobs.run_plan, args=[schedule_id], id=f'manual-{schedule_id}', replace_existing=True)
+    _one_off(jobs.run_plan, [schedule_id], f'manual-{schedule_id}')
 
 
 def run_restore(restore_id: int) -> None:
     import restore
-    _scheduler.add_job(restore.run_restore, args=[restore_id], id=f'restore-{restore_id}', replace_existing=True)
+    _one_off(restore.run_restore, [restore_id], f'restore-{restore_id}')
 
 
 def run_iso_delivery(restore_id: int) -> None:
     import flr
-    _scheduler.add_job(flr.deliver_iso, args=[restore_id], id=f'iso-{restore_id}', replace_existing=True)
+    _one_off(flr.deliver_iso, [restore_id], f'iso-{restore_id}')
 
 
 def run_deployment(dep_id: int) -> None:
     import deploy
-    _scheduler.add_job(deploy.run_deployment, args=[dep_id], id=f'deploy-{dep_id}', replace_existing=True)
+    _one_off(deploy.run_deployment, [dep_id], f'deploy-{dep_id}')
 
 
 def run_proxy_update(proxy_id: int) -> None:
     import proxy_image
-    _scheduler.add_job(proxy_image.update_proxy, args=[proxy_id], id=f'proxy-update-{proxy_id}', replace_existing=True)
+    _one_off(proxy_image.update_proxy, [proxy_id], f'proxy-update-{proxy_id}')
 
 
 def update_proxies() -> None:
@@ -129,7 +171,7 @@ def update_proxies() -> None:
 
 
 def run_import(import_id: int) -> None:
-    _scheduler.add_job(jobs.run_import, args=[import_id], id=f'import-{import_id}', replace_existing=True)
+    _one_off(jobs.run_import, [import_id], f'import-{import_id}')
 
 
 def reconcile_interrupted() -> None:
@@ -138,12 +180,19 @@ def reconcile_interrupted() -> None:
     for r in db.get_active_runs():
         if r.get('mode') == 'incremental':
             # the proxy job may still be running, but its result is lost to us: fail the run, the
-            # sweep removes clones and the next run re-anchors (a full if the anchor is gone)
+            # sweep removes clones. A delta that reached the copy may exist on the target without being
+            # recorded; continuing would submit the same point again and the proxy refuses it every night,
+            # so that plan starts a new chain with a full (a lost full leaves a chain without points, which
+            # the next run replaces anyway)
+            copied = r.get('point_kind') == 'delta' and r.get('blocks_changed') is not None
+            if copied:
+                db.update_schedule(r['schedule_id'], force_full=True)
             db.update_run(r['id'], status='ERROR', finished_at=db.now_utc(),
-                          message='Interrupted by a restart; the next run continues the chain.')
+                          message='Interrupted by a restart; the next run '
+                                  + ('starts a new chain with a full.' if copied else 'continues the chain.'))
             continue
         if r['task_tag']:
-            _scheduler.add_job(jobs.resume_export, args=[r['id']], id=f"resume-run-{r['id']}", replace_existing=True)
+            _one_off(jobs.resume_export, [r['id']], f"resume-run-{r['id']}")
             log.info('Resuming interrupted export run %s (task %s)', r['id'], r['task_tag'])
         else:
             db.update_run(r['id'], status='ERROR', finished_at=db.now_utc(),
@@ -151,11 +200,17 @@ def reconcile_interrupted() -> None:
     for x in db.get_deployments():
         if x['status'] == 'RUNNING':
             db.update_deployment(x['id'], status='ERROR', finished_at=db.now_utc(), message='Interrupted by a restart; check the VM on the cluster and register the proxy by hand if it is up.')
+    interrupted = []
     for x in db.get_active_restores():
         db.update_restore(x['id'], status='ERROR', finished_at=db.now_utc(), message='Interrupted by a restart.')
+        interrupted.append(x['id'])
+    if interrupted:
+        # their staging disks on the proxy VM and the half-built VM go, off the start path (HyperCore calls)
+        import restore
+        _one_off(restore.cleanup_interrupted, [interrupted], 'restore-cleanup')
     for i in db.get_active_imports():
         if i['task_tag']:
-            _scheduler.add_job(jobs.resume_import, args=[i['id']], id=f"resume-import-{i['id']}", replace_existing=True)
+            _one_off(jobs.resume_import, [i['id']], f"resume-import-{i['id']}")
             log.info('Resuming interrupted import %s (task %s)', i['id'], i['task_tag'])
         else:
             db.update_import(i['id'], status='ERROR', finished_at=db.now_utc(),
@@ -173,6 +228,13 @@ def sweep_all() -> None:
                 log.info('sweep %s: %s', c.name, out)
         except Exception:        # noqa: BLE001
             log.exception('sweep failed for %s', c.name)
+    try:
+        import restore
+        n = restore.sweep_staging()
+        if n:
+            log.info('restore staging disks left on proxy VMs: %s removed', n)
+    except Exception:            # noqa: BLE001
+        log.exception('restore staging sweep failed')
     try:
         db.prune_nights(90)
     except Exception:            # noqa: BLE001
@@ -258,7 +320,7 @@ def _verify_reconcile() -> None:
 
 
 def enqueue_vm_change(change_id: int) -> None:
-    _scheduler.add_job(vmedit.run, args=[change_id], id=f'vmedit-{change_id}', replace_existing=True)
+    _one_off(vmedit.run, [change_id], f'vmedit-{change_id}')
 
 
 def _vm_changes_reconcile() -> None:
@@ -289,7 +351,7 @@ def start(sync_interval_seconds: int = 60) -> None:
                        next_run_time=_dt.now() + _td(seconds=20))
     _scheduler.add_job(sync_jobs, trigger='interval', seconds=sync_interval_seconds, id='sync', replace_existing=True)
     _scheduler.add_job(policy_tick, trigger='cron', second=5, id='policy-tick', replace_existing=True)
-    _scheduler.add_job(sweep_all, trigger='cron', hour=4, minute=30, id='sweep', replace_existing=True)
+    _scheduler.add_job(sweep_all, trigger='cron', hour=4, minute=30, id='sweep', replace_existing=True, executor='long')
     # planned verification (per folder, point by point); replaces the Sunday 05:00 re-read of every chain
     _scheduler.add_job(_verify_reconcile, trigger='date', run_date=_dt.now() + _td(seconds=10), id='verify-reconcile',
                        replace_existing=True)
@@ -306,19 +368,65 @@ def start(sync_interval_seconds: int = 60) -> None:
                        next_run_time=_dt.now() + _td(seconds=900))
     # first sweep a little after start: the dashboard applies new migrations at the same moment
     from datetime import datetime, timedelta
-    _scheduler.add_job(sweep_all, trigger='date', run_date=datetime.now() + timedelta(seconds=120), id='sweep-start', replace_existing=True)
+    _scheduler.add_job(sweep_all, trigger='date', run_date=datetime.now() + timedelta(seconds=120), id='sweep-start', replace_existing=True, executor='long')
     # proxies follow the stack's version: one pass shortly after every (re)start, when the dashboard is up again
-    _scheduler.add_job(update_proxies, trigger='date', run_date=datetime.now() + timedelta(seconds=180), id='proxy-update-start', replace_existing=True)
+    _scheduler.add_job(update_proxies, trigger='date', run_date=datetime.now() + timedelta(seconds=180), id='proxy-update-start', replace_existing=True, executor='long')
     # on an upgrade the dashboard may still be applying the migrations this code reads: log and let
     # the periodic sync (and a delayed reconcile) catch up instead of taking the service down
     try:
         n = sync_jobs()
-        reconcile_interrupted()
+        _after_start()
         log.info('Scheduler started with %d active schedule(s)', n)
     except Exception:                                   # noqa: BLE001
         log.exception('Scheduler start: database not ready, retrying with the periodic sync')
-        _scheduler.add_job(reconcile_interrupted, trigger='date', run_date=datetime.now() + timedelta(seconds=90),
+        _scheduler.add_job(_after_start, trigger='date', run_date=datetime.now() + timedelta(seconds=90),
                            id='reconcile-start', replace_existing=True)
+
+
+def _after_start() -> None:
+    reconcile_interrupted()
+    catch_up()
+
+
+# Standalone plans live in APScheduler's memory job store: a run time that passed while the service was down
+# (a stack update at night) was simply skipped until the next day. One missed within this window runs at start.
+CATCH_UP_HOURS = 4
+
+
+def missed_fire(run_time: str, tz: str, now):
+    """The plan's last daily run time before `now` (aware), when it lies within CATCH_UP_HOURS; else None."""
+    from datetime import timedelta as _td
+    from zoneinfo import ZoneInfo
+    local = now.astimezone(ZoneInfo(tz))
+    hh, mm = (int(x) for x in run_time.split(':'))
+    fire = local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if fire > local:
+        fire -= _td(days=1)
+    return fire if local - fire <= _td(hours=CATCH_UP_HOURS) else None
+
+
+def catch_up(now=None) -> list[int]:
+    """Start every standalone plan whose run time passed in the last CATCH_UP_HOURS without a run since."""
+    from datetime import datetime as _dt, timezone as _tz
+    now = now or _dt.now(_tz.utc)
+    started = []
+    for s in db.get_schedules():
+        if not s['enabled'] or not s.get('cluster_enabled', True) or s.get('policy_id'):
+            continue                                     # policy members: the dispatcher works from its windows
+        try:
+            fire = missed_fire(s['run_time'], plan_timezone(s), now)
+        except (ValueError, AttributeError):
+            continue
+        if fire is None:
+            continue
+        last = db.last_run_for(s['id'])
+        if last and last.get('started_at') and last['started_at'] >= fire:
+            continue
+        log.warning('plan %s (%s) missed its run at %s while the service was down: running it now', s['id'], s['vm_name'],
+                    fire.isoformat(timespec='minutes'))
+        run_now(s['id'])
+        started.append(s['id'])
+    return started
 
 
 def next_run_time(schedule_id: int):

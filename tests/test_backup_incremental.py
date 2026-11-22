@@ -89,6 +89,45 @@ def test_pinned_client_reports_a_restarting_proxy_as_unreachable(monkeypatch):
         pcm.ProxyClient('https://10.0.0.5:8083', 't', tls_fingerprint='ab' * 32).identity()
 
 
+def _clocked_client(monkeypatch, answers):
+    """A ProxyClient whose job() polls play `answers` (dicts or ProxyErrors) on a fake clock (3 s per poll)."""
+    clock = [0.0]
+    monkeypatch.setattr(pcm.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(pcm.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s))
+    c = pcm.ProxyClient('http://px:8083', 't')
+    c.cancelled = []
+    seq = iter(answers)
+
+    def job(jid):
+        a = next(seq)
+        if isinstance(a, Exception):
+            clock[0] += 30                                  # a request that times out
+            raise a
+        return a
+    c.job = job
+    c.cancel = lambda jid: c.cancelled.append(jid)
+    return c
+
+
+def test_proxy_wait_rides_out_a_network_blip(monkeypatch):
+    """One failed poll threw away a multi-hour full and left the job running on the proxy."""
+    down = pcm.ProxyError('proxy unreachable at http://px:8083: timed out', kind='unreachable')
+    c = _clocked_client(monkeypatch, [{'state': 'running'}, down, down, down, {'state': 'done', 'result': {'ok': 1}}])
+    assert c.wait('j1')['result'] == {'ok': 1} and c.cancelled == []
+
+
+def test_proxy_wait_gives_up_after_a_long_outage_and_cancels_the_job(monkeypatch):
+    down = pcm.ProxyError('proxy unreachable at http://px:8083: refused', kind='unreachable')
+    c = _clocked_client(monkeypatch, [{'state': 'running'}] + [down] * 50)
+    with pytest.raises(pcm.ProxyError, match='job cancelled'):
+        c.wait('j1')
+    assert c.cancelled == ['j1']
+    # any other refusal is not waited out
+    c = _clocked_client(monkeypatch, [pcm.ProxyError('proxy returned 404: no such job')])
+    with pytest.raises(pcm.ProxyError, match='404'):
+        c.wait('j2')
+
+
 def test_proxy_client_fingerprint_and_mac_match():
     assert pcm.normalise_fingerprint('AB:CD ef') == 'abcdef' and pcm.normalise_fingerprint(None) is None
     vms = [{'uuid': '1', 'name': 'a', 'netDevs': [{'macAddress': '02:00:5e:4b:5c:5e'}]}, {'uuid': '2', 'name': 'b', 'netDevs': []}]
@@ -596,6 +635,135 @@ def test_pick_proxy_prefers_an_idle_proxy(monkeypatch):
         assert inc.pick_proxy('c')['id'] == 72, 'a busy proxy goes last'
     finally:
         lock.release()
+
+
+def test_a_point_the_catalogue_never_recorded_starts_a_new_chain(world, monkeypatch):
+    """The proxy finished delta 1 but HCM did not record it (restart, Postgres stall): every later run submitted
+    delta 1 again and the proxy refused it ("already exists") for good."""
+    world.db.update_schedule = lambda pid, **f: world.db.plan.update(f)
+    inc.run_incremental(4)
+    real = world.pc.wait
+
+    def exists(job_id, on_progress=None, timeout=0, poll=0):
+        kind, body = world.pc.jobs[int(job_id.split('-')[1]) - 1]
+        if kind == 'backup' and body['point']['kind'] == 'delta':
+            raise inc.ProxyError('point delta-0001 already exists in /mnt/t/Amsterdam/exptest_vm-1_x.chain')
+        return real(job_id, on_progress, timeout, poll)
+    monkeypatch.setattr(world.pc, 'wait', exists)
+    run = _next_run(world)
+    assert run['status'] == 'ERROR' and 'new chain with a full' in run['message']
+    assert world.db.plan['force_full'] is True
+    run = _next_run(world)
+    assert run['status'] == 'COMPLETE' and run['point_kind'] == 'full', run
+    assert [c['status'] for c in world.db.chains.values()] == ['retired', 'active'] and world.db.plan['force_full'] is False
+    assert inc.chain_out_of_step(inc.ProxyError('previous point 3 not in chain'))
+    assert not inc.chain_out_of_step(inc.ProxyError('disk full on target'))
+
+
+def test_a_target_change_starts_a_new_chain_and_old_chains_are_pruned_on_their_own_target(world, monkeypatch):
+    """After the folder got another target the next delta went to the new share and failed every night, and
+    retention deleted old chains on the new share (a missing directory "deletes" fine) while the data stayed."""
+    shares = {9: {'id': 9, 'uri_base': 'smb://old/share', 'username': 'u', 'password': 'p'},
+              10: {'id': 10, 'uri_base': 'smb://new/share', 'username': 'u2', 'password': 'p2'}}
+    monkeypatch.setattr(world.db, 'get_share', lambda sid, with_secret=False: shares.get(sid))
+    monkeypatch.setattr(world.db, 'share_for_cluster', lambda cid: shares[9])
+    inc.run_incremental(4)
+    monkeypatch.setattr(world.db, 'share_for_cluster', lambda cid: shares[10])
+    world.db.plan['retention'] = 1
+    run = _next_run(world)
+    assert run['status'] == 'COMPLETE' and run['point_kind'] == 'full' and 'target changed' in run['message'], run
+    backups = [b for k, b in world.pc.jobs if k == 'backup']
+    assert backups[1]['target']['uri'] == 'smb://new/share' and backups[1]['point']['kind'] == 'full'
+    assert world.db.chains[1]['status'] == 'deleted' and world.db.chains[2]['target_id'] == 10
+    deletes = [b for k, b in world.pc.jobs if k == 'delete_chain']
+    assert [d['target']['uri'] for d in deletes] == ['smb://old/share'], 'the old chain goes on its own target'
+    # a chain whose target was deleted is left alone, not "deleted" on the current one
+    world.db.chains[2]['target_id'] = None
+    world.pc.jobs.clear()
+    world.db.add_point(2, 1, 'delta', 'delta-0001', {}, 1, 1, 1.0, [], {}, 9)
+    msg = inc.apply_retention(world.db.plan, world.pc, shares[10])
+    assert world.pc.jobs == [] and 'no longer exists' in msg
+
+
+def test_daily_sweep_removes_chains_without_points_and_old_restore_dirs_on_their_own_targets(world, monkeypatch):
+    """Partial data of a failed full stayed on the share for good when discard_empty_chain could not run."""
+    shares = {9: {'id': 9, 'uri_base': 'smb://old/share', 'username': 'u', 'password': 'p'},
+              10: {'id': 10, 'uri_base': 'nfs://nas/export', 'username': None, 'password': ''}}
+    monkeypatch.setattr(world.db, 'get_share', lambda sid, with_secret=False: shares.get(sid))
+    cid = world.db.add_chain(world.db.plan, 9, 'Amsterdam', 'Amsterdam/exptest_vm-1_x.chain')
+    asked = []
+    world.db.empty_chains = lambda c, older: asked.append(older) or [world.db.chains[cid]]
+    world.db.chain_folders = lambda c: [{'target_id': 9, 'folder_slug': 'Amsterdam'}, {'target_id': 10, 'folder_slug': 'Lab'}]
+    out = inc.sweep_targets('c1', now=NOW)
+    assert out['empty_chains'] == 1 and world.db.chains[cid]['status'] == 'deleted'
+    assert asked == [NOW - timedelta(days=1)]
+    assert world.pc.jobs[0] == ('delete_chain', {'target': {'uri': 'smb://old/share', 'username': 'u', 'password': 'p'},
+                                                 'chain_dir': 'Amsterdam/exptest_vm-1_x.chain'})
+    assert world.pc.jobs[1] == ('sweep', {'target': {'uri': 'smb://old/share', 'username': 'u', 'password': 'p'},
+                                          'folder': 'Amsterdam', 'older_than_hours': 24})
+    assert len(world.pc.jobs) == 2, 'no restore directories on an NFS target'
+
+
+def test_an_interrupted_delta_makes_the_next_run_a_full(monkeypatch):
+    sys.path.insert(0, _BACKUP)
+    try:
+        saved = {n: sys.modules.pop(n) for n in _CLASH if n in sys.modules}
+        sch = importlib.import_module('scheduler')
+    finally:
+        sys.path.remove(_BACKUP)
+        for n in _CLASH:
+            sys.modules.pop(n, None)
+        sys.modules.update(saved)
+    runs = [{'id': 1, 'schedule_id': 4, 'mode': 'incremental', 'point_kind': 'delta', 'blocks_changed': 12, 'task_tag': None},
+            {'id': 2, 'schedule_id': 5, 'mode': 'incremental', 'point_kind': 'delta', 'blocks_changed': None, 'task_tag': None}]
+    plans, msgs = {}, {}
+    monkeypatch.setattr(sch, 'db', types.SimpleNamespace(
+        get_active_runs=lambda: runs, update_run=lambda rid, **f: msgs.__setitem__(rid, f['message']),
+        update_schedule=lambda pid, **f: plans.__setitem__(pid, f), now_utc=lambda: NOW, get_deployments=lambda: [],
+        get_active_restores=lambda: [], get_active_imports=lambda: []))
+    sch.reconcile_interrupted()
+    assert plans == {4: {'force_full': True}}, 'only the delta that reached the copy'
+    assert 'new chain' in msgs[1] and 'continues the chain' in msgs[2]
+
+
+def test_the_proxy_lock_is_released_when_the_cleanup_itself_fails(world, monkeypatch):
+    """A failed proxy job followed by a database error while recording the clones left the proxy locked until the
+    service restarted: every later backup and restore on it waited for ever."""
+    def boom(job_id, on_progress=None, timeout=0, poll=0):
+        raise inc.ProxyError('connection reset')
+    monkeypatch.setattr(world.pc, 'wait', boom)
+    real = world.db.update_chain
+
+    def stalled(cid, **f):
+        if f.get('active_clones') == []:
+            raise RuntimeError('server closed the connection unexpectedly')
+        real(cid, **f)
+    monkeypatch.setattr(world.db, 'update_chain', stalled)
+    inc.run_incremental(4)
+    locked = inc.proxy_lock(7).locked()
+    if locked:
+        inc.proxy_lock(7).release()                 # keep the other tests from waiting on it
+    assert not locked
+    assert world.db.runs[1]['status'] == 'ERROR' and 'connection reset' in world.db.runs[1]['message']
+    assert not world.hc.snaps, 'the new anchor is removed as well'
+
+
+def test_the_proxy_lock_is_released_once_on_the_no_change_path(world, monkeypatch):
+    """An error after the lock was released by hand on the "no blocks changed" path released it a second time
+    (RuntimeError, or releasing a lock another job had taken meanwhile)."""
+    inc.run_incremental(4)
+    monkeypatch.setattr(world.hc, 'snap_diff', lambda dev, a, b: [{'lower': 0, 'upper': 3}] if a == 0 else [])
+    world.db.runs.clear(); world.db.start_run(4)
+    real = world.db.update_run
+
+    def failing(rid, **f):
+        if f.get('status') == 'COMPLETE':
+            raise RuntimeError('postgres stalled')
+        real(rid, **f)
+    monkeypatch.setattr(world.db, 'update_run', failing)
+    inc.run_incremental(4)
+    assert 'postgres stalled' in world.db.runs[1]['message'] and 'release' not in world.db.runs[1]['message']
+    assert not inc.proxy_lock(7).locked()
 
 
 def test_disk_images_are_not_capped_and_short_points_are_named():

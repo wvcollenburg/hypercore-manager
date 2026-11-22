@@ -207,6 +207,24 @@ def build_schema() -> list[Section]:
                         "host and need to keep them isolated."
                     ),
                 ),
+                Field(
+                    key="HCM_INTERNAL_BIND",
+                    label="Internal APIs published on",
+                    default="127.0.0.1",
+                    description=(
+                        "Host address InfluxDB (8086), the Foresight API (8081) and the backup API "
+                        "(8082) are published on. The dashboard reaches them over the compose "
+                        "network, so they only need to answer on this host."
+                    ),
+                    why_default=(
+                        "127.0.0.1 keeps them off the network. Docker's published ports bypass host "
+                        "firewalls such as ufw, so 'block them in the firewall' does not work."
+                    ),
+                    when_change=(
+                        "Set 0.0.0.0 only to read InfluxDB from a Grafana on another machine, and "
+                        "restrict the ports in a firewall in front of the host."
+                    ),
+                ),
             ],
         ),
 
@@ -223,7 +241,7 @@ def build_schema() -> list[Section]:
                     default="CHANGE_ME",
                     must_change=True,
                     description=(
-                        "HyperCore clusters are registered in the dashboard (Settings -> Clusters); "
+                        "HyperCore clusters are registered in the dashboard (Settings -> Access -> Tenants); "
                         "their passwords are stored in PostgreSQL encrypted with this key. Every "
                         "service that talks to a cluster receives it."
                     ),
@@ -629,7 +647,7 @@ def build_schema() -> list[Section]:
                     description=(
                         "Username for the first admin account, seeded into the "
                         "users table on first start. After that, manage users from "
-                        "Settings → Users in the dashboard. Leave BLANK to disable "
+                        "Settings → Access in the dashboard. Leave BLANK to disable "
                         "authentication entirely (dev/local mode)."
                     ),
                     why_default=(
@@ -665,14 +683,13 @@ def build_schema() -> list[Section]:
                     default="CHANGE_ME",
                     must_change=True,
                     description=(
-                        "Secret used to sign session cookies. If left blank or "
-                        "regenerated, every existing user session is invalidated "
-                        "and everyone has to log in again."
+                        "Secret used to sign session cookies. If regenerated, every "
+                        "existing user session is invalidated and everyone has to "
+                        "log in again."
                     ),
                     why_default=(
-                        "Placeholder — the dashboard will auto-generate a random one "
-                        "at startup if blank, but sessions then don't survive "
-                        "container restarts."
+                        "Placeholder: the dashboard refuses to start while it reads "
+                        "CHANGE_ME. Left blank, it is derived from HCM_SECRET_KEY."
                     ),
                     when_change=(
                         "Generate once and keep stable. Press G."
@@ -704,6 +721,24 @@ def build_schema() -> list[Section]:
                     description="One-time console access for outsiders: the public address guests use, e.g. https://console.your-domain.com (publish only /guest/ there).",
                     why_default="Blank: the links use the address the granting administrator's browser used.",
                     when_change="Set it when guests reach HCM by another name than your staff do.",
+                ),
+                Field(
+                    key="HCM_TRUSTED_PROXIES",
+                    label="Reverse proxies in front of HCM",
+                    type="int",
+                    default="0",
+                    description="How many reverse proxies stand in front of the dashboard. HCM then reads the client's address from X-Forwarded-For for the audit log and the sign-in attempt limit.",
+                    why_default="0: browsers connect to port 5000 directly, and a client could otherwise forge X-Forwarded-For.",
+                    when_change="Set 1 behind one nginx, Caddy or Traefik; otherwise every sign-in seems to come from the proxy and shares one attempt limit.",
+                ),
+                Field(
+                    key="HCM_SESSION_COOKIE_SECURE",
+                    label="Session cookie over HTTPS only",
+                    type="bool",
+                    default="false",
+                    description="true: the session cookie is only ever sent over HTTPS.",
+                    why_default="false keeps plain-HTTP installs working; the cookie is marked Secure anyway on a request that arrived over HTTPS.",
+                    when_change="Set true once HCM is only reached over HTTPS.",
                 ),
             ],
         ),

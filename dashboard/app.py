@@ -54,13 +54,14 @@ from functools import wraps
 import psycopg2
 import psycopg2.extras
 from flask import Flask, g, jsonify, redirect, render_template, request, send_from_directory, Response, session, url_for
-from flask_cors import CORS
+from flask.sessions import SecureCookieSessionInterface
 from flask_sock import Sock
 import simple_websocket
 from influxdb_client import InfluxDBClient
 import config_db
 import user_db
 import backup_scope
+import vm_rows
 import rbac
 import access_db
 import cluster_registry
@@ -72,7 +73,28 @@ from forwarding import body_cluster
 from alerts import ALERT_LEVELS, ALERT_SEVERITY, active_items, condition_episodes, ms_iso
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
-CORS(app)
+# No CORS: every page that calls this API is served by it (the guest pages too), so no other origin needs to
+# read its answers. The session cookie is not sent on cross-site requests (SameSite=Lax), and is marked Secure
+# when the request came over HTTPS (directly or through a TLS proxy), so plain-HTTP installs keep working.
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('HCM_SESSION_COOKIE_SECURE', '').strip().lower() in ('1', 'true', 'yes')
+
+
+def _request_is_https() -> bool:
+    return request.is_secure or request.headers.get('X-Forwarded-Proto', '').split(',')[0].strip().lower() == 'https'
+
+
+class _SessionInterface(SecureCookieSessionInterface):
+    def get_cookie_secure(self, app):              # called while the response of a request is made
+        if app.config.get('SESSION_COOKIE_SECURE'):
+            return True
+        try:
+            return _request_is_https()
+        except RuntimeError:                       # outside a request
+            return False
+
+
+app.session_interface = _SessionInterface()
 # websockets (VM console): pings keep reverse proxies with a read timeout from closing an idle console
 app.config['SOCK_SERVER_OPTIONS'] = {'ping_interval': 25, 'max_message_size': None}
 sock = Sock(app)
@@ -105,9 +127,41 @@ INFLUX_BUCKET = os.getenv('INFLUX_BUCKET', 'metrics')
 # fallback stale threshold — live value is read from config_db per request
 STALE_SECONDS = int(os.getenv('SC_DASHBOARD_STALE_SECONDS', 120))
 
-# session signing key — generated randomly at startup if not set (sessions won't
-# survive restarts in that case, but everything still works for dev)
-_secret_key = os.getenv('SC_DASHBOARD_SECRET_KEY', '') or secrets.token_hex(32)
+_PLACEHOLDER_SECRETS = ('HCM_SECRET_KEY', 'SC_DASHBOARD_SECRET_KEY', 'SC_DASHBOARD_PASSWORD')
+
+
+def _placeholder_secrets(env=os.environ) -> list[str]:
+    """The secrets still set to the .env.template placeholder: a key everyone knows signs everyone's sessions
+    (or decrypts the stored cluster passwords), and the first admin would get a password everyone knows."""
+    return [k for k in _PLACEHOLDER_SECRETS if (env.get(k) or '').strip() == 'CHANGE_ME']
+
+
+def _session_secret(env=os.environ) -> str:
+    """SC_DASHBOARD_SECRET_KEY, else one derived from HCM_SECRET_KEY: the four gunicorn workers must sign with
+    the same key (a random key per worker made a login work only on the worker that issued it)."""
+    key = (env.get('SC_DASHBOARD_SECRET_KEY') or '').strip()
+    if key:
+        return key
+    base = (env.get(hcm_crypto.ENV_VAR) or '').strip()
+    if base:
+        return hmac.new(base.encode(), b'hcm-internal:dashboard-session', hashlib.sha256).hexdigest()
+    app.logger.warning('neither SC_DASHBOARD_SECRET_KEY nor %s is set: each worker signs sessions with its own random '
+                       'key, so logins fail now and then; set SC_DASHBOARD_SECRET_KEY in .env', hcm_crypto.ENV_VAR)
+    return secrets.token_hex(32)
+
+
+_placeholders = _placeholder_secrets()
+if _placeholders:
+    _msg = (f"refusing to start: {', '.join(_placeholders)} in .env still has the placeholder CHANGE_ME. Set each to a "
+            'long random value (python3 -c "import secrets; print(secrets.token_hex(32))"; for SC_DASHBOARD_PASSWORD '
+            'the first admin\'s password), then start the stack again.')
+    import sys as _sys
+    print(_msg, file=_sys.stderr, flush=True)
+    app.logger.critical(_msg)
+    raise SystemExit(_msg)
+
+# session signing key: the same in every worker and across restarts
+_secret_key = _session_secret()
 app.secret_key = _secret_key
 
 # bootstrap the users table and seed the admin account from env vars on first run
@@ -121,9 +175,39 @@ try:
 except Exception as _exc:  # noqa: BLE001 — before migration 046, or the database is not up yet
     app.logger.info('email address check skipped: %s', _exc)
 
-# auth is enabled iff at least one user row exists. Cached at startup — restart
-# is required if the table goes from empty to populated outside of the UI
-_AUTH_ENABLED = user_db.has_any_users()
+# auth is enabled iff at least one user row exists. Cached once the database has answered — restart
+# is required if the table goes from empty to populated outside of the UI. Until it has answered
+# (Postgres still starting, or down) authentication stays ON: an unreachable database is not "no users".
+_AUTH_ENABLED = True
+_auth_known = False
+_auth_checked_at = 0.0
+_auth_lock = threading.Lock()
+
+
+def _refresh_auth_enabled(min_interval: float = 5.0) -> None:
+    """Ask the database whether accounts exist, until it has answered once. While the answer is unknown
+    every request is treated as needing a login; the question is repeated at most every few seconds."""
+    global _AUTH_ENABLED, _auth_known, _auth_checked_at
+    if _auth_known:
+        return
+    with _auth_lock:
+        if _auth_known or time.monotonic() - _auth_checked_at < min_interval:
+            return
+        first = _auth_checked_at == 0.0
+        _auth_checked_at = time.monotonic()
+        if not first:
+            # the start-up bootstrap ran against a database that was not there: do it now, before
+            # concluding that there are no accounts
+            user_db.ensure_table()
+            user_db.seed_admin_from_env()
+        state = user_db.has_any_users()
+        if state is None:
+            app.logger.warning('user store unreachable: logins stay required until it answers')
+            return
+        _AUTH_ENABLED, _auth_known = bool(state), True
+
+
+_refresh_auth_enabled()
 
 
 class AccessDenied(Exception):
@@ -169,7 +253,22 @@ def _login_problem():
         if request.path.startswith('/api/'):
             return jsonify({'error': 'Your account is waiting for an administrator to assign its access'}), 401
         return redirect(url_for('login_page'))
+    if int(state.get('session_gen') or 0) != int(session.get('gen') or 0):
+        # the account's sessions were ended (password changed or reset, two-factor off or reset, new address):
+        # a cookie from before, also a stolen one, no longer signs in
+        session.clear()
+        if request.path.startswith('/api/'):
+            return jsonify({'error': 'Authentication required'}), 401
+        return redirect(url_for('login_page'))
     return None
+
+
+def _start_session(u: dict) -> None:
+    """Sign `u` in on this session (after the password, and the code when two-factor is on)."""
+    session['user_id']  = str(u['user_id'])
+    session['username'] = u['username']
+    session['role']     = u['role']
+    session['gen']      = int(u.get('session_gen') or 0)
 
 
 _ROUTE_PERMS: dict = {}         # view function name -> (permission or None, scope); read by /api/access/routes
@@ -202,13 +301,12 @@ def requires(perm: str | None, scope: str = 'cluster'):
                 elif scope == 'any':
                     ok = acc.held_anywhere(perm)
                 else:
+                    problem = _write_cluster_problem(perm, need=True)
+                    if problem is not None:
+                        return problem
+                    # reads fall back to the first allowed cluster (the UI recovers after a cluster was taken
+                    # away); a write was checked above: it names a cluster the user may use for this route
                     ok = bool(_visible_clusters(perm))
-                    wanted = (request.args.get('cluster') or '').strip()
-                    if ok and wanted and cluster_registry.is_uuid(wanted) and \
-                            wanted not in {c.cluster_id for c in _visible_clusters(perm)}:
-                        # reads fall back to the first allowed cluster (the UI recovers after a cluster was
-                        # taken away); anything that changes something is refused
-                        ok = request.method in ('GET', 'HEAD')
                 if not ok:
                     if request.path.startswith('/api/'):
                         return jsonify({'error': 'Access denied', 'permission': perm}), 403
@@ -230,8 +328,74 @@ def public(reason: str):
     return deco
 
 
+_UNSAFE_METHODS = frozenset({'POST', 'PUT', 'PATCH', 'DELETE'})
+
+
+def _host_of(url_or_host: str) -> str:
+    """'https://Hcm.Example:443/x' -> 'hcm.example' (scheme and default ports left out: a TLS proxy changes
+    the scheme, not who the site is)."""
+    v = (url_or_host or '').strip().lower()
+    if '://' in v:
+        v = urllib.parse.urlsplit(v).netloc
+    v = v.rsplit('@', 1)[-1]
+    for port in (':80', ':443'):
+        if v.endswith(port):
+            v = v[:-len(port)]
+    return v
+
+
+def _own_hosts() -> set:
+    """The names this request may legitimately come from: the Host it was sent to and the one a reverse proxy
+    names in X-Forwarded-Host (a cross-site page can set neither: X-Forwarded-Host is not a header a browser
+    lets another origin add without a CORS preflight, which this app never answers)."""
+    hosts = {_host_of(request.host)}
+    fwd = (request.headers.get('X-Forwarded-Host') or '').split(',')[0].strip()
+    if fwd:
+        hosts.add(_host_of(fwd))
+    return hosts
+
+
+def _configured_hosts() -> set:
+    """The addresses in Settings -> Mail (links and guest links): a proxy that rewrites Host still works."""
+    import mailer
+    out = set()
+    try:
+        s = mailer.settings()
+        for k in ('public_url', 'guest_url'):
+            if s.get(k):
+                out.add(_host_of(s[k]))
+    except Exception:  # noqa: BLE001 — no database: only the request's own host counts
+        pass
+    env = (os.getenv('HCM_GUEST_BASE_URL') or '').strip()
+    if env:
+        out.add(_host_of(env))
+    return out
+
+
+@app.before_request
+def _same_origin_only():
+    """Cross-site request forgery: a request that changes something must come from a page of this site.
+    Browsers send Origin on such requests (Referer when they leave Origin out); a value naming another site is
+    refused. A request with neither is a script or a non-browser client, which holds no victim's cookie."""
+    if request.method not in _UNSAFE_METHODS or request.path.startswith('/internal/'):
+        return None
+    source = request.headers.get('Origin')
+    if source is None:
+        source = request.headers.get('Referer')
+        if not source:
+            return None
+    source_host = _host_of(source) if source != 'null' else 'null'
+    if source_host and (source_host in _own_hosts() or source_host in _configured_hosts()):
+        return None
+    app.logger.warning('refused a cross-site %s %s from %r', request.method, request.path, source[:200])
+    if request.path.startswith('/api/'):
+        return jsonify({'error': 'cross-site request refused'}), 403
+    return Response('Cross-site request refused', status=403, mimetype='text/plain')
+
+
 @app.before_request
 def _access_fresh():
+    _refresh_auth_enabled()
     access_db.begin_request()
 
 
@@ -240,8 +404,10 @@ def _access_denied(e):
     return jsonify({'error': str(e)}), e.status
 
 
-def get_influx_client():
-    return InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
+def get_influx_client(timeout: int | None = None):
+    """timeout: milliseconds per query (the client's default is 10 s)."""
+    kw = {'timeout': timeout} if timeout else {}
+    return InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG, **kw)
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +487,15 @@ def _hours_arg(default: int = 1) -> int:
         raise BadRequest(f'hours must be a whole number of hours, not {raw!r}')
 
 
+def _int_arg(name: str, default: int, lo: int, hi: int) -> int:
+    """?name= as a whole number clamped to lo..hi; anything else is the caller's mistake (400), not a 500."""
+    raw = request.args.get(name, str(default))
+    try:
+        return max(lo, min(int(raw), hi))
+    except (TypeError, ValueError):
+        raise BadRequest(f'{name} must be a whole number, not {raw!r}')
+
+
 @app.errorhandler(BadRequest)
 def _bad_request(e):
     return jsonify({'error': str(e)}), 400
@@ -352,6 +527,21 @@ def _cluster_id() -> str:
         if any(c.cluster_id == wanted for c in visible):
             return wanted
     return visible[0].cluster_id if visible else cluster_registry.TEMPLATE_CLUSTER_ID
+
+
+def _write_cluster_problem(perm: str, need: bool):
+    """For a request that changes something on a cluster: the cluster in ?cluster= must be one the user may use
+    for `perm` (403), and with `need` it must be there at all (400). Never the first visible cluster instead:
+    a write that names no cluster, or one taken away, would otherwise act on some other cluster. Reads are not
+    checked here (they fall back, so the UI recovers). Returns an error response or None."""
+    if request.method in ('GET', 'HEAD', 'OPTIONS'):
+        return None
+    wanted = (request.args.get('cluster') or '').strip()
+    if not wanted:
+        return (jsonify({'error': 'cluster is required'}), 400) if need else None
+    if not cluster_registry.is_uuid(wanted) or wanted not in {c.cluster_id for c in _visible_clusters(perm)}:
+        return jsonify({'error': 'Access denied', 'permission': perm}), 403
+    return None
 
 
 def _named_cluster(perm: str) -> str:
@@ -500,15 +690,22 @@ def get_nodes():
                 if 'num_threads' not in nodes[node_uuid]:
                     nodes[node_uuid]['num_threads'] = int(record.values.get('num_threads') or 0)
 
-        # fetch latest allocated vCPUs per node from vm_inventory
+        # fetch latest allocated vCPUs per node from vm_inventory. Node and state are tags, so a VM that
+        # migrated or stopped inside the hour has several series: only its newest one counts, or it would be
+        # added to every node it ran on
+        # (and only the last polls are read, as in _vm_sizes: a deleted VM stops counting when it stops reporting)
+        fresh = max(60, int(_stale_seconds()))
         vcpu_query = f'''
         from(bucket: "{INFLUX_BUCKET}")
-          |> range(start: -1h)
+          |> range(start: -{fresh}s)
           {_flux_cluster()}
           |> filter(fn: (r) => r["_measurement"] == "vm_inventory")
           |> filter(fn: (r) => r["_field"] == "num_vcpu")
-          |> filter(fn: (r) => r["vm_state"] == "RUNNING")
           |> last()
+          |> group(columns: ["vm_uuid"])
+          |> sort(columns: ["_time"])
+          |> last()
+          |> filter(fn: (r) => r["vm_state"] == "RUNNING")
           |> group(columns: ["node_uuid"])
           |> sum()
         '''
@@ -558,9 +755,8 @@ def _vm_sizes(client, vms: dict) -> None:
     """Adds mem_bytes, num_vcpu, os, state and disk_bytes to each VM of the list, and the VMs that are
     not running (from vm_inventory, which lists every VM). Memory and vCPUs come from
     vm_inventory; a VM's disks from its per-disk I/O samples (vsd_metrics carry vm_uuid and vsd_uuid),
-    their sizes from block_device_metrics by vsd_uuid. CD-ROMs (mounted ISOs) do not count."""
-    if not vms:
-        return
+    their sizes from block_device_metrics by vsd_uuid. CD-ROMs (mounted ISOs) do not count.
+    Also when no VM is running (a passive DR cluster): the stopped ones are still listed."""
     q = client.query_api()
     # the inventory as of the last polls only: a deleted VM drops out as fast as a stopped one shows up
     fresh = max(60, int(_stale_seconds()))
@@ -626,35 +822,10 @@ def get_vms():
         '''
         result = client.query_api().query(org=INFLUX_ORG, query=query)
         
-        vms = {}
-        for table in result:
-            for record in table.records:
-                vm_uuid = record.values.get('vm_uuid', 'unknown')
-                vm_name = record.values.get('vm_name', 'Unknown')
-                node_uuid = record.values.get('node_uuid', 'unknown')
+        # one row per VM, described as of its newest sample: a VM that migrated inside the range has a
+        # series per node and belongs to the node it is on now (vm_rows.py)
+        vms = vm_rows.fold((record.get_time(), record.values) for table in result for record in table.records)
 
-                # skip records from in-flight migration state (no node assignment yet)
-                if node_uuid == 'unknown':
-                    continue
-
-                if vm_uuid not in vms:
-                    vms[vm_uuid] = {
-                        'uuid': vm_uuid,
-                        'name': vm_name,
-                        'node_uuid': node_uuid,
-                        'node_peer_id': record.values.get('node_peer_id', 'unknown'),
-                        'tag': record.values.get('vm_tag', ''),
-                        'vlan': record.values.get('vm_vlan', '0'),
-                        'history': []
-                    }
-
-                vms[vm_uuid]['history'].append({
-                    'time': record.get_time().isoformat(),
-                    'cpu_usage': record.values.get('cpu_usage'),
-                    'rx_bit_rate': record.values.get('rx_bit_rate'),
-                    'tx_bit_rate': record.values.get('tx_bit_rate')
-                })
-        
         # fetch true current CPU per VM (last measurement, independent of time range)
         current_query = f'''
         from(bucket: "{INFLUX_BUCKET}")
@@ -665,11 +836,12 @@ def get_vms():
           |> last()
         '''
         current_result = client.query_api().query(org=INFLUX_ORG, query=current_query)
-        for table in current_result:
-            for record in table.records:
-                vid = record.values.get('vm_uuid', 'unknown')
-                if vid in vms:
-                    vms[vid]['current_cpu'] = record.get_value()
+        # a VM that migrated in the last 5 minutes has a last() on its old node too: the newest one counts
+        current = vm_rows.newest_per((record.get_time(), record.values, record.get_value())
+                                     for table in current_result for record in table.records)
+        for vid, cpu in current.items():
+            if vid in vms:
+                vms[vid]['current_cpu'] = cpu
 
         # filter out VMs that haven't reported recently (deleted/stopped)
         stale_secs = _stale_seconds()
@@ -767,34 +939,10 @@ def get_vsds():
           |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
         '''
         result = client.query_api().query(org=INFLUX_ORG, query=query)
-        
-        vsds = {}
-        for table in result:
-            for record in table.records:
-                vsd_uuid = record.values.get('vsd_uuid', 'unknown')
-                
-                if vsd_uuid not in vsds:
-                    vsds[vsd_uuid] = {
-                        'uuid': vsd_uuid,
-                        'name': record.values.get('vsd_name', 'unknown'),
-                        'type': record.values.get('vsd_type', 'unknown'),
-                        'vm_uuid': record.values.get('vm_uuid', 'unknown'),
-                        'vm_name': record.values.get('vm_name', 'Unknown'),
-                        'node_uuid': record.values.get('node_uuid', 'unknown'),
-                        'history': []
-                    }
-                
-                vsds[vsd_uuid]['history'].append({
-                    'time': record.get_time().isoformat(),
-                    'read_kbps': record.values.get('read_kbps'),
-                    'write_kbps': record.values.get('write_kbps'),
-                    'read_latency_us': record.values.get('read_latency_us'),
-                    'write_latency_us': record.values.get('write_latency_us'),
-                    'read_iops': record.values.get('read_iops'),
-                    'write_iops': record.values.get('write_iops'),
-                    'capacity_bytes': record.values.get('capacity_bytes'),
-                })
-        
+
+        # one row per disk, described as of its newest sample (its VM may have moved node: vm_rows.py)
+        vsds = vm_rows.fold_vsds((record.get_time(), record.values) for table in result for record in table.records)
+
         # filter out VSDs that haven't reported recently
         stale_secs = _stale_seconds()
         active = [v for v in vsds.values() if not is_stale(v['history'], stale_secs)]
@@ -1196,11 +1344,17 @@ def get_config():
 @app.route('/api/config', methods=['POST'])
 @requires('cluster.settings', 'any')
 def post_config():
-    """Update one or more tunables. Accepts {key: value, ...} JSON body."""
+    """Update one or more tunables. Accepts {key: value, ...} JSON body. Every value is cast and
+    range-checked before anything is stored: one value no reader can cast (an emptied number
+    field arrived as null and was stored as 'None') cost the cluster all its settings."""
     try:
-        updates = request.get_json(force=True)
+        updates = request.get_json(force=True, silent=True)
         if not isinstance(updates, dict):
             return jsonify({'error': 'Expected a JSON object'}), 400
+        try:
+            updates = {k: config_db.validate(k, v) for k, v in updates.items()}
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
         acc = _access()
         if request.args.get('cluster') == 'defaults':
             if not acc.can('install.manage'):
@@ -1244,7 +1398,7 @@ def _rail_folders(acc, folders: list) -> list:
                         path=(tree.path(fid) if see_all else acc.path(fid))[:-1],   # never the layers above the user
                         can_manage_tree=acc.can('tree.manage', node_id=fid),
                         can_manage_clusters=acc.can('cluster.manage', node_id=fid),
-                        can_assign_share=acc.can('backup.targets.manage', node_id=fid)))
+                        can_assign_share=acc.can('backup.targets.manage')))   # targets are listed at root only
     return out
 
 
@@ -1254,6 +1408,18 @@ def _cluster_payload(c, extras=None):
     if extras:
         d.update(extras.get(c.cluster_id, {}))
     return d
+
+
+def _audit(action: str, target: str, node_id: str | None = None, detail: dict | None = None,
+           actor: str | None = None) -> None:
+    """One row in the access audit (Settings -> Access -> Audit), best effort: a failed audit write is logged
+    and never fails the action it describes. node_id: where in the tree it happened (who may read the row)."""
+    try:
+        with _pg() as conn, conn.cursor() as cur:
+            access_db.audit(cur, actor or session.get('username') or ('anonymous' if not _AUTH_ENABLED else 'system'),
+                            action, str(target)[:300], node_id=node_id, detail=detail)
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning('audit %s %s not written: %s', action, target, exc)
 
 
 def _set_cluster_role(cluster_id: str, role: str) -> None:
@@ -1349,7 +1515,7 @@ def _cluster_form(body: dict) -> dict:
 @app.route('/api/clusters', methods=['POST'])
 @requires('cluster.manage', 'any')
 def api_clusters_create():
-    body = request.get_json(force=True, silent=True) or {}
+    body = request.get_json(silent=True) or {}
     target_folder = (body.get('folder_id') or '').strip() or None
     if target_folder and not cluster_registry.is_uuid(target_folder):
         return jsonify({'error': 'invalid folder id'}), 400
@@ -1388,6 +1554,8 @@ def api_clusters_create():
                                       verify_tls=f['verify_tls'], colour=f['colour'], hc_cluster_uuid=hc_uuid,
                                       api_version=f['api_version'], api_v2_available=probe.get('api_v2') if probe.get('ok') else None,
                                       hc_version=probe.get('version') or None, folder_id=target_folder)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         msg = str(e)
         if 'ux_clusters_folder_name' in msg or 'duplicate key' in msg:
@@ -1397,6 +1565,8 @@ def api_clusters_create():
         cluster_registry.upsert_nodes(cid, probe_nodes, seed_host=f['host'])
     if probe.get('timezone'):
         cluster_registry.mark_seen(cid, timezone=probe['timezone'])
+    _audit('cluster.register', f['name'], node_id=target_folder,
+           detail={'cluster_id': cid, 'host': f['host'], 'forced': bool(body.get('force')) and not probe.get('ok')})
     _invalidate_registry_cache()
     c = cluster_registry.get(cid)
     return jsonify({'ok': True, 'cluster': _cluster_payload(c), 'probe': probe}), 201
@@ -1405,12 +1575,13 @@ def api_clusters_create():
 @app.route('/api/clusters/<cluster_id>', methods=['PUT'])
 @requires('cluster.manage', 'any')
 def api_clusters_update(cluster_id):
-    if not cluster_registry.get(cluster_id):
+    before = cluster_registry.get(cluster_id)
+    if not before:
         return jsonify({'error': 'cluster not found'}), 404
     acc = _access()
     if not acc.can('cluster.manage', cluster_id):
         return jsonify({'error': 'cluster not found'}), 404
-    body = request.get_json(force=True, silent=True) or {}
+    body = request.get_json(silent=True) or {}
     if 'folder_id' in body and not _may_move_cluster(acc, cluster_id, body['folder_id'] or None):
         return jsonify({'error': 'Access denied'}), 403
     fields = {}
@@ -1426,7 +1597,8 @@ def api_clusters_update(cluster_id):
     if role is not None and role not in ('production', 'dr'):
         return jsonify({'error': "role must be 'production' or 'dr'"}), 400
     try:
-        cluster_registry.update(cluster_id, **fields)
+        if cluster_registry.update(cluster_id, **fields) == 0:
+            return jsonify({'error': 'cluster not found'}), 404      # removed: not changed, not enabled again
         if role is not None:
             _set_cluster_role(cluster_id, role)
     except ValueError as e:
@@ -1436,20 +1608,52 @@ def api_clusters_update(cluster_id):
         if 'ux_clusters_folder_name' in msg or 'duplicate key' in msg:
             return jsonify({'error': 'that folder already has a cluster with that name'}), 409
         return jsonify({'error': msg}), 500
+    changed = sorted(k for k in fields if k != 'folder_id' and (k != 'password' or fields[k]))
+    if role is not None:
+        changed.append('role')
+    if changed:
+        detail = {'cluster_id': cluster_id, 'fields': changed}
+        if 'host' in fields:
+            detail.update(host_from=before.host, host_to=fields['host'])
+        if 'enabled' in fields:
+            detail['enabled'] = fields['enabled']
+        _audit('cluster.edit', before.name, node_id=before.folder_id, detail=detail)
+    if 'folder_id' in fields and (fields['folder_id'] or None) != (before.folder_id or None):
+        _audit('cluster.move', before.name, node_id=fields['folder_id'] or before.folder_id,
+               detail={'cluster_id': cluster_id, 'from': before.folder_id, 'to': fields['folder_id']})
     _invalidate_registry_cache()
     return jsonify({'ok': True, 'cluster': _cluster_payload(cluster_registry.get(cluster_id))})
+
+
+def _backup_chain_count(cluster_id: str) -> int:
+    """Backup chains in the catalogue for this cluster (0 before the backup schema exists)."""
+    try:
+        with _pg() as conn, conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) AS n FROM backup.chains WHERE cluster_id = %s', (cluster_id,))
+            return int(cur.fetchone()['n'])
+    except psycopg2.Error as exc:
+        if getattr(exc, 'pgcode', None) == '42P01':
+            return 0
+        raise
 
 
 @app.route('/api/clusters/<cluster_id>', methods=['DELETE'])
 @requires('cluster.manage', 'any')
 def api_clusters_delete(cluster_id):
-    if not cluster_registry.get(cluster_id) or not _access().can('cluster.manage', cluster_id):
+    c = cluster_registry.get(cluster_id)
+    if not c or not _access().can('cluster.manage', cluster_id):
         return jsonify({'error': 'cluster not found'}), 404
     purge = request.args.get('purge') == '1'
+    if purge and _backup_chain_count(cluster_id):
+        # purging cascades to the backup catalogue (chains, points): the data would stay on the target with
+        # nothing left that knows it is there
+        return jsonify({'error': 'this cluster still has backups in the catalogue: delete its backup chains first '
+                                 '(Backup -> Restore points), or remove the cluster without purging'}), 409
     try:
         cluster_registry.delete(cluster_id, purge=purge)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    _audit('cluster.purge' if purge else 'cluster.remove', c.name, node_id=c.folder_id, detail={'cluster_id': cluster_id})
     _invalidate_registry_cache()
     return jsonify({'ok': True, 'purged': purge})
 
@@ -1458,7 +1662,7 @@ def api_clusters_delete(cluster_id):
 @requires('cluster.manage', 'any')
 def api_clusters_test_new():
     """Connection test for the add/edit form (credentials from the body)."""
-    f = _cluster_form(request.get_json(force=True, silent=True) or {})
+    f = _cluster_form(request.get_json(silent=True) or {})
     if not (f['host'] and f['username']):
         return jsonify({'ok': False, 'error': 'host and username are required'}), 400
     return jsonify(cluster_registry.test_connection(f['host'], f['username'], f['password'], f['verify_tls']))
@@ -1594,7 +1798,7 @@ def api_folders_list():
 @app.route('/api/folders', methods=['POST'])
 @requires('tree.manage', 'any')
 def api_folders_create():
-    body = request.get_json(force=True, silent=True) or {}
+    body = request.get_json(silent=True) or {}
     acc = _access()
     parent = (body.get('parent_id') or '').strip() or None
     if parent is None:
@@ -1622,16 +1826,32 @@ def api_folders_update(folder_id):
     acc = _access()
     if not acc.can('tree.manage', node_id=folder_id):
         return jsonify({'error': 'Access denied'}), 403
-    body = request.get_json(force=True, silent=True) or {}
-    if 'share_id' in body and not acc.can('backup.targets.manage', node_id=folder_id):
-        return jsonify({'error': 'Access denied'}), 403
+    body = request.get_json(silent=True) or {}
+    share = ...
+    if 'share_id' in body:
+        # a folder's backup target decides where its VMs' backups are written: targets are an installation
+        # matter (listed to root target managers only), so a folder admin may not pick one, not even by id
+        if not acc.can('backup.targets.manage'):
+            return jsonify({'error': 'Access denied'}), 403
+        share = body['share_id']
+        if share not in (None, '', 0):
+            try:
+                share = int(share)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'share_id must be a backup target id'}), 400
     try:
-        cluster_registry.update_folder(folder_id, name=body.get('name'), colour=body.get('colour'),
-                                       share_id=body['share_id'] if 'share_id' in body else ...)
+        cluster_registry.update_folder(folder_id, name=body.get('name'), colour=body.get('colour'), share_id=share)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         if 'ux_folders_name' in str(e) or 'duplicate key' in str(e):
             return jsonify({'error': 'a folder with that name already exists'}), 409
+        if 'foreign key' in str(e).lower() and 'share' in str(e).lower():
+            return jsonify({'error': 'no such backup target'}), 404
         return jsonify({'error': str(e)}), 500
+    if share is not ...:
+        _audit('folder.target', acc.tree.name.get(folder_id, folder_id), node_id=folder_id,
+               detail={'target_id': share if share not in (None, '', 0) else None})
     _invalidate_registry_cache()
     return jsonify({'ok': True})
 
@@ -1661,7 +1881,23 @@ _BACKUP_MUTATING = {'POST', 'PUT', 'DELETE'}
 
 # keys that would reveal a target's path or account to a non-admin; the UI shows alias/folder only
 _BACKUP_SENSITIVE_KEYS = frozenset({'base', 'user', 'username', 'path_uri_base', 'prune_path', 'smb_user',
-                                    'source_uri', 'uri_base', 'uri'})
+                                    'source_uri', 'uri_base', 'uri', 'effective_base'})
+# who did something, in the backup service's answers: names above the reader are not shown (as elsewhere)
+_BACKUP_NAME_KEYS = ('created_by', 'requested_by', 'updated_by', 'muted_by')
+
+
+def _hide_backup_names(obj, names):
+    """Every dict in a backup API answer: the _BACKUP_NAME_KEYS the reader may not see named become None."""
+    if isinstance(obj, list):
+        for v in obj:
+            _hide_backup_names(v, names)
+    elif isinstance(obj, dict):
+        if any(k in obj for k in _BACKUP_NAME_KEYS):
+            access_db.hide_names([obj], _BACKUP_NAME_KEYS, names)
+        for v in obj.values():
+            if isinstance(v, (dict, list)):
+                _hide_backup_names(v, names)
+    return obj
 
 
 def _strip_sensitive(obj):
@@ -1700,9 +1936,13 @@ def _proxy_image_version() -> str | None:
 
 
 def _internal_token_ok() -> bool:
+    """Bearer BACKUP_API_TOKEN. Without a token configured nothing is accepted: these routes are reachable on
+    the dashboard's public port and hand out the proxy image (with its token-checking code)."""
     _, token = _backup_env()
+    if not token:
+        return False
     auth = request.headers.get('Authorization', '')
-    return not token or auth == f'Bearer {token}'
+    return hmac.compare_digest(auth.encode(), f'Bearer {token}'.encode())
 
 
 @app.route('/internal/proxy-image/version')
@@ -1902,10 +2142,10 @@ def _tag_guard(cid: str, vm: str | None, payload: dict, kind: str) -> str | None
             return None
         touched = (old ^ new) & set(scoped)
     elif kind == 'clone':
-        new = set()
-        for o in payload.get('ops') or []:
-            if 'tags' in (o or {}):
-                new = _tags_of(o['tags'])
+        # the backup service clones from ops[0] only (and a clone set has one op: _backup_check refuses more)
+        ops = payload.get('ops') or []
+        first = ops[0] if ops and isinstance(ops[0], dict) else {}
+        new = _tags_of(first.get('tags'))
         touched = (new - old) & set(scoped)
     elif kind == 'create':
         touched = _tags_of(((payload.get('spec') or {}).get('tags'))) & set(scoped)
@@ -1967,6 +2207,12 @@ def _backup_check(method: str, sub: str, cid: str, payload: dict | None):
         vm = str(payload.get('vm_uuid') or '')
         if not vm:
             return None, (jsonify({'error': 'vm_uuid required'}), 400)
+        ops = payload.get('ops')
+        if ops is not None and not isinstance(ops, list):
+            return None, (jsonify({'error': 'ops must be a list'}), 400)
+        if str(payload.get('kind') or 'edit') in ('clone', 'snapshot') and len(ops or []) > 1:
+            # the service acts on the first op only: what the guard checks must be all there is
+            return None, (jsonify({'error': 'a clone or snapshot is one operation'}), 400)
         ok = all(_can_vm(p, body_cid, vm) for p in _vmchange_perms(payload))
         if not ok:
             return None, denied
@@ -2031,6 +2277,34 @@ def _narrow_backup(sub: str, data, scope, cid: str):
     return data
 
 
+# writes that create or change a VM's backup plan (directly, or by adding the VM to a schedule)
+_PLAN_WRITE_RE = re.compile(r'plans|plans/\d+|policies/\d+/members|test-plans/\d+/vms')
+# where a plan writes: only a root target manager chooses that; everyone else gets the folder's target
+_BACKUP_DEST_KEYS = ('path_uri_base', 'smb_user', 'smb_password', 'prune_path')
+
+
+def _clean_plan_payload(payload: dict, cid: str):
+    """The VM's name comes from the cluster, not the browser: it is the export prefix and the key the plan's
+    pruning deletes by, so a user allowed one VM could otherwise name another VM and have that VM's backups
+    pruned. A destination of the browser's choosing is dropped unless the user manages targets on the whole
+    installation (else a backup.schedule holder could send a VM's export to an SMB server of their own).
+    Returns an error response or None."""
+    if not _access().can('backup.targets.manage'):
+        for k in _BACKUP_DEST_KEYS:
+            payload.pop(k, None)
+    vm = str(payload.get('vm_uuid') or '').strip()
+    if not vm:
+        payload.pop('vm_name', None)              # an update of an existing plan keeps the plan's own name
+        return None
+    def find(rows):
+        return next((v.get('name') for v in rows if v.get('uuid') == vm), None)
+    name = find(_vm_index_rows(cid)) or find(_vm_index_rows(cid, fresh=True))
+    if not name:
+        return jsonify({'error': 'that VM is not on the cluster'}), 404
+    payload['vm_name'] = name
+    return None
+
+
 @app.route('/api/backup/status')
 @requires('backup.view')
 def backup_status():
@@ -2066,6 +2340,12 @@ def backup_proxy(sub):
     url, token = _backup_env()
     route = _backup_route(request.method, sub)
     g.hcm_perm = route[0] if route and route[0] else 'vm.view'
+    if route is not None and route[1] not in ('root', 'any'):
+        # a write acts on the cluster it names, never on the user's first one; a resource found by its id
+        # ('owner') is checked on its own cluster, so it needs no cluster in the query, but may not name a wrong one
+        problem = _write_cluster_problem(g.hcm_perm, need=not isinstance(route[1], tuple))
+        if problem is not None:
+            return problem
     cid = _cluster_id()
     payload = None
     if request.method in ('POST', 'PUT'):
@@ -2107,6 +2387,10 @@ def backup_proxy(sub):
             return jsonify({'error': err}), 403
         if body_cid:
             payload['cluster_id'] = body_cid
+        if request.method in ('POST', 'PUT') and _PLAN_WRITE_RE.fullmatch(sub):
+            problem = _clean_plan_payload(payload, body_cid or cid)
+            if problem is not None:
+                return problem
         user = session.get('username') or ('anonymous' if not _AUTH_ENABLED else None)
         if sub == 'notices/mute':                    # who muted it is the session's user, not the body's
             payload['muted_by'] = user
@@ -2156,6 +2440,10 @@ def backup_proxy(sub):
         return Response(raw, status=status, mimetype='application/json')
     if scope not in (None, 'all'):
         data = _narrow_backup(sub, data, scope, cid)
+    if any(k.encode() in raw for k in _BACKUP_NAME_KEYS):
+        names = access_db.nameable_usernames(_access(), session.get('username'))
+        if names is not None:
+            _hide_backup_names(data, names)
     return jsonify(data if sees_targets else _strip_sensitive(data)), status
 
 
@@ -2284,6 +2572,12 @@ def cluster_alerts():
                 counts[it['severity']] += 1
         items.sort(key=lambda i: (ALERT_LEVELS.index(i['severity']), i.get('since') or '', i['key']))
         out[cid] = {'items': items, 'counts': counts}
+    if mutes:
+        # who muted it: not named to a reader below that person (an MSP's staff stay unnamed to a customer)
+        names = access_db.nameable_usernames(_access(), session.get('username'))
+        if names is not None:
+            for v in out.values():
+                access_db.hide_names(v['items'], ('muted_by',), names)
     return jsonify({'clusters': out})
 
 
@@ -2315,6 +2609,26 @@ def cluster_alert_mute():
     return jsonify({'ok': True})
 
 
+_ALERT_HISTORY_TIMEOUT_MS = 60_000      # 30 days of a busy cluster's conditions: more than the 10 s default
+_ALERT_LATEST_RANGE = '1d'
+
+
+def _alert_history_query(start: str, fields, raw_levels, tail: str) -> str:
+    """A condition_metrics query for the alert history. The filters InfluxDB can push down to storage come
+    first, as equality tests: measurement, then _field, then severity as an `or` chain. contains() is not
+    pushed down: with it right after the measurement, the field filter, unique() and last() ran in the Flux
+    engine over every field of every condition series (16 s on one real cluster, a 503 after 28 s on another)."""
+    flt = lambda col, values: ' or '.join(f'r["{col}"] == {json.dumps(v)}' for v in values) or 'false'   # noqa: E731
+    return f"""
+        from(bucket: "{INFLUX_BUCKET}")
+          |> range(start: {start})
+          {_flux_cluster()}
+          |> filter(fn: (r) => r["_measurement"] == "condition_metrics")
+          |> filter(fn: (r) => {flt('_field', fields)})
+          |> filter(fn: (r) => {flt('severity', raw_levels)})
+          {tail}"""
+
+
 @app.route('/api/cluster-alerts/history')
 @requires('cluster.view')
 def cluster_alert_history():
@@ -2327,30 +2641,25 @@ def cluster_alert_history():
     levels = {s for s in (request.args.get('severity') or '').split(',') if s in ALERT_LEVELS} or set(ALERT_LEVELS)
     raw_levels = [k for k, v in ALERT_SEVERITY.items() if v in levels]
     since_ms = int((time.time() - days * 86400) * 1000)
-    base = f"""
-        from(bucket: "{INFLUX_BUCKET}")
-          |> range(start: -{days}d)
-          {_flux_cluster()}
-          |> filter(fn: (r) => r["_measurement"] == "condition_metrics")
-          |> filter(fn: (r) => contains(value: r["severity"], set: {_flux_set(raw_levels)}))"""
     set_times: dict = {}
     clear_times: dict = {}
     latest: dict = {}
     meta: dict = {}
-    client = get_influx_client()
+    client = get_influx_client(timeout=_ALERT_HISTORY_TIMEOUT_MS)
     try:
         q = client.query_api()
-        for field, target in (('last_set_time', set_times), ('last_clear_time', clear_times)):
-            for table in q.query(org=INFLUX_ORG, query=base + f"""
-          |> filter(fn: (r) => r["_field"] == "{field}")
-          |> unique(column: "_value")"""):
-                for rec in table.records:
-                    key = (rec.values.get('condition_name'), rec.values.get('node_uuid') or '')
-                    target.setdefault(key, set()).add(int(rec.get_value() or 0))
-                    meta.setdefault(key, {'severity': rec.values.get('severity'), 'node_ip': rec.values.get('node_lan_ip') or ''})
-        for table in q.query(org=INFLUX_ORG, query=base + """
-          |> filter(fn: (r) => r["_field"] == "value" or r["_field"] == "is_ok" or r["_field"] == "last_set_time" or r["_field"] == "description")
-          |> last()"""):
+        # one query for both kinds of times (unique() works per series, and _field is part of the series)
+        for table in q.query(org=INFLUX_ORG, query=_alert_history_query(
+                f'-{days}d', ('last_set_time', 'last_clear_time'), raw_levels, '|> unique(column: "_value")')):
+            for rec in table.records:
+                key = (rec.values.get('condition_name'), rec.values.get('node_uuid') or '')
+                target = set_times if rec.get_field() == 'last_set_time' else clear_times
+                target.setdefault(key, set()).add(int(rec.get_value() or 0))
+                meta.setdefault(key, {'severity': rec.values.get('severity'), 'node_ip': rec.values.get('node_lan_ip') or ''})
+        # the latest point of each condition: the Collector writes every condition on every poll, so a day
+        # holds the latest of every one still reported (a longer range only made last() read more)
+        for table in q.query(org=INFLUX_ORG, query=_alert_history_query(
+                f'-{_ALERT_LATEST_RANGE}', ('value', 'is_ok', 'last_set_time', 'description'), raw_levels, '|> last()')):
             for rec in table.records:
                 key = (rec.values.get('condition_name'), rec.values.get('node_uuid') or '')
                 latest.setdefault(key, {})[rec.get_field()] = rec.get_value()
@@ -2400,9 +2709,26 @@ def _console_binding(create: bool) -> str:
     return hashlib.sha256(f"{session.get('user_id') or ''}:{nonce}".encode()).hexdigest()
 
 
+def _trusted_proxies() -> int:
+    try:
+        return max(0, int(os.getenv('HCM_TRUSTED_PROXIES', '0') or 0))
+    except ValueError:
+        return 0
+
+
 def _client_ip() -> str:
-    fwd = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
-    return fwd or request.headers.get('X-Real-IP') or request.remote_addr or ''
+    """The client's address: the connecting peer, unless HCM_TRUSTED_PROXIES (how many reverse proxies stand
+    in front of HCM) says which X-Forwarded-For entry a proxy of ours wrote. The leftmost entry is whatever
+    the client sent, so it is never believed (it would let anyone pick the address that sign-in limits count
+    and the audit records)."""
+    peer = request.remote_addr or ''
+    n = _trusted_proxies()
+    if n <= 0:
+        return peer
+    hops = [h.strip() for h in (request.headers.get('X-Forwarded-For') or '').split(',') if h.strip()]
+    if not hops:
+        return peer
+    return hops[-n] if len(hops) >= n else hops[0]
 
 
 def _console_user() -> str:
@@ -2454,7 +2780,20 @@ def console_ticket():
     status, raw, ctype = _console_call('POST', 'tickets', payload={
         'cluster_id': cid, 'vm_uuid': vm, 'username': _console_user(),
         'binding': _console_binding(create=True), 'client_ip': _client_ip()}, timeout=30)
+    if status == 200:
+        try:
+            ticket = json.loads(raw.decode() or '{}').get('ticket')
+        except ValueError:
+            ticket = None
+        if ticket:
+            # which VM a ticket opens, so the websocket can re-check the right to it while the console is open
+            seen = dict(session.get('console_vms') or {})
+            seen[hashlib.sha256(ticket.encode()).hexdigest()[:16]] = [cid, vm]
+            session['console_vms'] = dict(list(seen.items())[-4:])
     return Response(raw, status=status, mimetype=ctype)
+
+
+_CONSOLE_RECHECK_SECONDS = 120
 
 
 @sock.route('/console/ws')
@@ -2472,12 +2811,27 @@ def console_ws(ws):
     if not binding or not ticket:
         ws.close(reason=4401, message='console ticket required')
         return
-    _relay_pipe(ws, ticket, binding)
+    target = (session.get('console_vms') or {}).get(hashlib.sha256(ticket.encode()).hexdigest()[:16])
+    recheck = None
+    if _AUTH_ENABLED and target:
+        cid, vm = target
+
+        def recheck() -> bool:
+            # an open console outlives the checks made when it opened: every few minutes the login must still
+            # be live (not disabled, sessions not ended) and the user must still hold vm.console on this VM
+            access_db.begin_request()
+            g.pop('hcm_access', None)
+            try:
+                return _login_problem() is None and _can_vm('vm.console', cid, vm)
+            except Exception:  # noqa: BLE001 — the database is down: keep the console, check again later
+                return True
+    _relay_pipe(ws, ticket, binding, recheck=recheck)
 
 
-def _relay_pipe(ws, ticket: str, binding: str) -> None:
+def _relay_pipe(ws, ticket: str, binding: str, recheck=None) -> None:
     """Pipe a browser websocket to the console service's relay for a ticket bound to `binding`. The
-    ticket is checked (and consumed) there. Shared by the users' console and the guest console."""
+    ticket is checked (and consumed) there. Shared by the users' console and the guest console.
+    recheck(): called every _CONSOLE_RECHECK_SECONDS; False closes the console."""
     url = CONSOLE_API_URL.replace('http://', 'ws://', 1).replace('https://', 'wss://', 1)
     qs = urllib.parse.urlencode({'ticket': ticket, 'binding': binding})
     try:
@@ -2507,9 +2861,18 @@ def _relay_pipe(ws, ticket: str, binding: str) -> None:
 
     pump = threading.Thread(target=upstream_to_browser, daemon=True, name='console-pump')
     pump.start()
+    checked = time.monotonic()
     try:
         while True:
-            data = ws.receive()
+            data = ws.receive(timeout=30 if recheck else None)
+            if recheck and time.monotonic() - checked >= _CONSOLE_RECHECK_SECONDS:
+                checked = time.monotonic()
+                if not recheck():
+                    try:
+                        ws.close(reason=4403, message='console access ended')
+                    except Exception:  # noqa: BLE001
+                        pass
+                    break
             if data is None:
                 continue
             up.send(data if isinstance(data, (bytes, bytearray)) else data.encode())
@@ -2574,10 +2937,10 @@ def console_proxy(sub):
     if sub == 'sessions' and not request.args.get('cluster'):
         cid = None                                    # the audit log across every cluster the user may audit
     else:
+        problem = _write_cluster_problem(perm, need=True)
+        if problem is not None:
+            return problem
         cid = _cluster_id()
-        wanted = (request.args.get('cluster') or '').strip()
-        if wanted and wanted != cid and request.method not in ('GET', 'HEAD'):
-            return jsonify({'error': 'Access denied'}), 403
         if perm != 'console.audit' and not acc.can(perm, cid):
             return jsonify({'error': 'Access denied'}), 403
     args = [(k, v) for k, v in request.args.items(multi=True) if k != 'cluster']
@@ -2749,18 +3112,18 @@ def sentinel_summary():
 @requires('cluster.view')
 def sentinel_forecasts():
     """E1 — Latest forecast snapshots, optionally filtered by ?dimension= or ?horizon="""
+    limit = _int_arg('limit', 200, 1, 1000)
+    horizon = _int_arg('horizon', 0, 0, 3650) if request.args.get('horizon') else None
     try:
         cid       = _cluster_id()
         dimension = request.args.get('dimension')
-        horizon   = request.args.get('horizon')
-        limit     = max(1, min(int(request.args.get('limit', 200)), 1000))
 
         where  = ['cluster_id = %s', 'expires_at > NOW()']
         params: list = [cid]
         if dimension:
             where.append('resource_dimension = %s'); params.append(dimension)
         if horizon:
-            where.append('forecast_horizon_days = %s'); params.append(int(horizon))
+            where.append('forecast_horizon_days = %s'); params.append(horizon)
         params.append(limit)
 
         rows = _sentinel_query(
@@ -2782,10 +3145,10 @@ def sentinel_forecasts():
 @requires('cluster.view')
 def sentinel_rightsizing():
     """E2 — Right-sizing results (C1, C2)."""
+    limit = _int_arg('limit', 200, 1, 1000)
     try:
         cid       = _cluster_id()
         direction = request.args.get('direction')
-        limit     = max(1, min(int(request.args.get('limit', 200)), 1000))
 
         where  = ['cluster_id = %s', 'expires_at > NOW()']
         params: list = [cid]
@@ -2812,9 +3175,9 @@ def sentinel_rightsizing():
 @requires('cluster.view')
 def sentinel_resize():
     """E2 — Concrete resize advice (C3-C6)."""
+    limit = _int_arg('limit', 200, 1, 1000)
     try:
         cid   = _cluster_id()
-        limit = max(1, min(int(request.args.get('limit', 200)), 1000))
         rows  = _sentinel_query(
             '''SELECT id, vm_uuid, vm_name, node_uuid, sizing_direction,
                       current_vcpu, recommended_vcpu,
@@ -2835,9 +3198,9 @@ def sentinel_resize():
 @requires('cluster.view')
 def sentinel_exhaustion():
     """E4 — Resource exhaustion alerts, most urgent first."""
+    limit = _int_arg('limit', 100, 1, 500)
     try:
         cid   = _cluster_id()
-        limit = max(1, min(int(request.args.get('limit', 100)), 500))
         rows  = _sentinel_query(
             '''SELECT id, node_uuid, resource_dimension, days_until_exhaustion,
                       exhaustion_date, current_usage_pct, growth_rate_per_day,
@@ -2860,9 +3223,9 @@ def sentinel_exhaustion():
 @requires('cluster.view')
 def sentinel_cluster_health():
     """E3 — Cluster health score history."""
+    limit = _int_arg('limit', 50, 1, 500)
     try:
         cid   = _cluster_id()
-        limit = max(1, min(int(request.args.get('limit', 50)), 500))
         rows  = _sentinel_query(
             '''SELECT id, health_score, bottleneck_resource, growth_rates,
                       efficiency_index, component_scores, cluster_count,
@@ -3161,8 +3524,13 @@ def sentinel_put_tunables():
             f'{sentinel_api_url}/api/v1/tunables?cluster={_cluster_id()}',
             data=payload, headers=headers, method='PUT',
         )
+        cid = _cluster_id()
         with _req.urlopen(rq, timeout=10) as resp:
-            return jsonify(json.loads(resp.read().decode()))
+            out = json.loads(resp.read().decode())
+        _audit('tunables.foresight', cid, node_id=_access().tree.cluster_folder.get(cid),
+               detail={'cluster_id': cid, 'changes': {str(k)[:80]: v for k, v in list(body.items())[:50]}
+                       if isinstance(body, dict) else None})
+        return jsonify(out)
     except urllib.error.HTTPError as e:
         body_err = e.read().decode(errors='replace')
         return jsonify({'error': body_err}), e.code
@@ -3201,6 +3569,9 @@ def sentinel_trigger_trend_run():
 # auth routes
 # =============================================================================
 
+_OTP_PENDING_SECONDS = 300          # the code must follow the password within five minutes
+
+
 @app.route('/login', methods=['GET', 'POST'])
 @public('the login page')
 def login_page():
@@ -3213,26 +3584,49 @@ def login_page():
     error = None
 
     if request.method == 'POST':
+        client = _client_ip()
         if step == 'otp':
-            # guard: must have completed the password step first
+            # guard: must have completed the password step first, a few minutes ago at most
             pending_username = session.get('otp_pending')
-            if not pending_username:
+            pending_at = float(session.get('otp_pending_at') or 0)
+            if not pending_username or time.time() - pending_at > _OTP_PENDING_SECONDS:
+                session.pop('otp_pending', None)
+                session.pop('otp_pending_at', None)
                 return redirect(url_for('login_page'))
+            # wrong codes are counted in the database since this password step: replaying an older cookie
+            # (the session lives in the client) does not give more guesses
+            if user_db.otp_failures_since(pending_username, pending_at) >= user_db.MAX_OTP_FAILURES:
+                session.pop('otp_pending', None)
+                session.pop('otp_pending_at', None)
+                return _login_render('password', 'err_otp_restart', False)
             code = request.form.get('otp', '').strip()
             if user_db.verify_otp_code(pending_username, code):
                 u = user_db.get_by_username(pending_username)
                 session.pop('otp_pending', None)
+                session.pop('otp_pending_at', None)
+                user_db.clear_login_failures(pending_username)
                 dest = _after_login(session.pop('next', None))
-                session['user_id']  = str(u['user_id'])
-                session['username'] = u['username']
-                session['role']     = u['role']
+                _start_session(u)
+                _audit('login', u['username'], detail={'ip': client, 'otp': True}, actor=u['username'])
                 return redirect(dest)
+            user_db.record_login_failure(pending_username, client, 'otp')
+            _audit('login.otp_failed', pending_username, detail={'ip': client}, actor=pending_username)
+            if user_db.otp_failures_since(pending_username, pending_at) >= user_db.MAX_OTP_FAILURES:
+                session.pop('otp_pending', None)
+                session.pop('otp_pending_at', None)
+                return _login_render('password', 'err_otp_restart', False)
             error = 'err_otp'
         else:
-            found = user_db.get_by_login(request.form.get('username', ''))
-            username = found['username'] if found else request.form.get('username', '').strip()
+            typed = request.form.get('username', '')
+            if user_db.login_locked(typed, client):
+                # counted by what was typed and by address, so the answer is the same for an unknown account
+                _audit('login.locked', typed.strip()[:254], detail={'ip': client}, actor='anonymous')
+                return _login_render('password', 'err_locked', False)
+            found = user_db.get_by_login(typed)
+            username = found['username'] if found else typed.strip()
             password = request.form.get('password', '')
-            if found and user_db.verify_password(username, password):
+            # always one password check, also for an unknown address (against a dummy hash): same time either way
+            if user_db.verify_password(username, password) and found:
                 u = found
                 if u.get('enabled') is False:
                     # only after a correct password: say why, so they do not retry into a lockout
@@ -3242,12 +3636,16 @@ def login_page():
                     return _login_render('password', error, False)
                 if u['otp_enabled']:
                     session['otp_pending'] = username
+                    session['otp_pending_at'] = time.time()
                     return redirect(url_for('login_page', step='otp'))
+                user_db.clear_login_failures(typed)
                 dest = _after_login(session.pop('next', None))
-                session['user_id']  = str(u['user_id'])
-                session['username'] = u['username']
-                session['role']     = u['role']
+                _start_session(u)
+                _audit('login', u['username'], detail={'ip': client}, actor=u['username'])
                 return redirect(dest)
+            user_db.record_login_failure(typed, client, 'password')
+            # what was typed, never the password; an unknown address is recorded as typed (that is the attempt)
+            _audit('login.failed', typed.strip()[:254], detail={'ip': client}, actor='anonymous')
             error = 'err_login'
 
     # pass otp_enabled=True only when on the OTP step (drives login.html hint text)
@@ -3271,10 +3669,10 @@ def _after_login(dest):
     return dest if ok else url_for('index')
 
 
-@app.route('/logout')
+@app.route('/logout', methods=['GET', 'POST'])        # POST: a form button (cross-site safe); GET: the old link
 @public('logging out')
 def logout():
-    nxt = request.args.get('next')
+    nxt = request.values.get('next')
     session.clear()
     if _after_login(nxt) != url_for('index'):
         session['next'] = nxt                 # 'sign out and switch' on an invitation for another address
@@ -3320,10 +3718,21 @@ def api_me_community_ack():
     return jsonify({'ok': True, 'dev_mode': False})
 
 
-@app.route('/api/users/me/otp/setup', methods=['GET'])
+@app.route('/api/users/me/otp/setup', methods=['GET', 'POST'])
 @requires(None)
 def api_otp_setup():
+    """The secret to enrol an authenticator: POST {"password": <current password>}. Never once two-factor is
+    on (the secret would let whoever holds the session make codes), and never without the password (a stolen
+    session could otherwise enrol its own authenticator and lock the person out)."""
     username = session.get('username', 'dev')
+    if _AUTH_ENABLED:
+        u = user_db.get_by_username(username)
+        if u and u.get('otp_enabled'):
+            return jsonify({'error': 'two-factor authentication is already on; turn it off first to set it up again'}), 409
+        data = (request.get_json(silent=True) or {}) if request.method == 'POST' else {}
+        if not user_db.verify_password(username, str(data.get('password') or '')):
+            return jsonify({'error': 'enter your current password to set up two-factor authentication',
+                            'password_required': True}), 403
     try:
         return jsonify(user_db.build_otp_setup(username))
     except Exception as e:
@@ -3334,11 +3743,16 @@ def api_otp_setup():
 @requires(None)
 def api_otp_enable():
     username = session.get('username', 'dev')
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True) or {}
     code = (data.get('code') or '').strip()
     if not code:
         return jsonify({'error': 'code is required'}), 400
     if user_db.enable_otp(username, code):
+        _audit('user.otp_enabled', username, actor=username)
+        if _AUTH_ENABLED:
+            gen = user_db.bump_session_gen(username)     # other sessions signed in without the code end
+            if gen is not None:
+                session['gen'] = gen
         return jsonify({'ok': True})
     return jsonify({'error': 'Invalid code — check your authenticator app and try again'}), 400
 
@@ -3347,14 +3761,19 @@ def api_otp_enable():
 @requires(None)
 def api_otp_disable():
     username = session.get('username', 'dev')
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True) or {}
     if _AUTH_ENABLED and not user_db.verify_password(username, data.get('password', '')):
         return jsonify({'error': 'Incorrect password'}), 403
     try:
         user_db.disable_otp(username)
-        return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    _audit('user.otp_disabled', username, actor=username)
+    if _AUTH_ENABLED:
+        gen = user_db.bump_session_gen(username)         # every other session of the account ends
+        if gen is not None:
+            session['gen'] = gen
+    return jsonify({'ok': True})
 
 
 # =============================================================================
@@ -3364,6 +3783,7 @@ def api_otp_disable():
 _REPO_PATH       = os.getenv('SC_REPO_PATH', '/repo')
 _UPDATE_FILE     = '/tmp/hcm_update.json'
 _UPDATE_FILE_LOCK = threading.Lock()
+_APPLY_MAX_SECONDS = 2 * 3600            # an apply still "in progress" after this was interrupted
 
 
 def _read_update_file():
@@ -3374,12 +3794,74 @@ def _read_update_file():
         return {}
 
 
-def _write_update_patch(patch):
+@contextmanager
+def _update_lock():
+    """The updater state is one file shared by four gunicorn workers: a thread lock within the worker and an
+    flock across them, so a read-modify-write (and Apply's check-and-set) is never interleaved."""
+    import fcntl
     with _UPDATE_FILE_LOCK:
+        with open(_UPDATE_FILE + '.lock', 'w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def _store_update_file(state: dict) -> None:
+    """Write through a temporary file and os.replace: a reader never sees a half-written file."""
+    tmp = f'{_UPDATE_FILE}.{os.getpid()}.{threading.get_ident()}.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(state, f)
+    os.replace(tmp, _UPDATE_FILE)
+
+
+def _write_update_patch(patch):
+    with _update_lock():
         state = _read_update_file()
         state.update(patch)
-        with open(_UPDATE_FILE, 'w') as f:
-            json.dump(state, f)
+        _store_update_file(state)
+
+
+def _container_marker() -> str:
+    """Something that changes when this container starts again: PID 1's start time (field 22 of /proc/1/stat)."""
+    try:
+        with open('/proc/1/stat') as f:
+            return f.read().rsplit(')', 1)[1].split()[19]
+    except (OSError, IndexError):
+        return ''
+
+
+def _apply_is_stale(state: dict) -> bool:
+    """An apply marked in progress whose thread cannot be running any more: started in an earlier life of this
+    container (a restart during the build), by a worker that is gone, or longer ago than any apply takes."""
+    if not state.get('apply_in_progress'):
+        return False
+    if state.get('apply_marker') != _container_marker():
+        return True
+    pid = state.get('apply_pid')
+    if pid:
+        try:
+            os.kill(int(pid), 0)
+        except (OSError, ValueError):
+            return True
+    return time.time() - float(state.get('apply_started') or 0) > _APPLY_MAX_SECONDS
+
+
+def _clear_stale_apply() -> None:
+    try:
+        with _update_lock():
+            state = _read_update_file()
+            if _apply_is_stale(state):
+                state['apply_in_progress'] = False
+                state.setdefault('apply_log', []).append('The previous apply was interrupted (the dashboard restarted); '
+                                                         'it can be applied again.')
+                _store_update_file(state)
+    except OSError as exc:
+        app.logger.warning('updater state not checked: %s', exc)
+
+
+_clear_stale_apply()
 
 
 def _git(*args, timeout=10):
@@ -3399,14 +3881,23 @@ _DB_SERVICES = ('influxdb', 'postgres')
 
 
 def restart_command(fallback=_APP_SERVICES) -> str:
-    """Shell command the restart container runs: recreate every service of the compose file that was
-    just pulled, except the databases. The list comes from that new file, not from this (old) code:
-    an updater from 1.1.x had a fixed list without `console` and never started 1.2.0's new service.
-    The fixed list is the fallback when the file cannot be read."""
+    """Shell command the restart container runs: recreate the services of the compose file that was just
+    pulled, except the databases. The list comes from that new file, not from this (old) code: an updater
+    from 1.1.x had a fixed list without `console` and never started 1.2.0's new service. The fixed list is
+    the fallback when the file cannot be read.
+
+    Of those, only the ones running now and the ones that have no container yet (new in this release): a
+    service the administrator stopped stays stopped (the manual says `docker compose stop balancer`; starting
+    it again with DRY_RUN false would resume migrating VMs)."""
     skip = '|'.join(_DB_SERVICES)
     return ("S=$(docker-compose config --services 2>/dev/null | grep -vxE '" + skip + "' | tr '\\n' ' '); "
             "[ -n \"$S\" ] || S='" + ' '.join(fallback) + "'; "
-            "exec docker-compose up -d --no-deps $S")
+            "R=\" $(docker-compose ps --services --filter status=running 2>/dev/null | tr '\\n' ' ') \"; "
+            "A=\" $(docker-compose ps -a --services 2>/dev/null | tr '\\n' ' ') \"; "
+            "U=''; for s in $S; do case \"$R\" in *\" $s \"*) U=\"$U $s\";; "
+            "*) case \"$A\" in *\" $s \"*) ;; *) U=\"$U $s\";; esac;; esac; done; "
+            "[ -n \"$U\" ] || exit 0; "
+            "exec docker-compose up -d --no-deps $U")
 
 
 # Services added after 1.1.x. A stack updated by a 1.1.x dashboard has their images (the update builds
@@ -3444,9 +3935,11 @@ def _self_heal_services(delay: float = 30) -> None:
         host_repo = os.getenv('SC_HOST_REPO_PATH', _REPO_PATH)
         # the same way as the updater: a helper container with the host's path of the checkout, which the
         # Docker daemon needs for build contexts and bind mounts
+        # no --env-file: docker run parses .env differently from Compose (quotes, $$); Compose in the helper
+        # reads /repo/.env itself
         r = subprocess.run(['docker', 'run', '-d', '--rm', '--name', 'hcm-self-heal',
                             '-v', '/var/run/docker.sock:/var/run/docker.sock', '-v', f'{host_repo}:/repo',
-                            '--env-file', f'{_REPO_PATH}/.env', '-w', '/repo', f'{project}-dashboard',
+                            '-w', '/repo', f'{project}-dashboard',
                             'docker-compose', 'up', '-d', '--no-deps', '--build', *missing],
                            capture_output=True, text=True, timeout=60)
         if r.returncode != 0:
@@ -3492,12 +3985,29 @@ def _restore_ownership(log=None) -> None:
 
 
 def _read_version_file() -> str:
-    """Return the project version from <repo>/VERSION, or '' if unreadable."""
+    """Return the version of the checkout (<repo>/VERSION), or '' if unreadable."""
     try:
         with open(os.path.join(_REPO_PATH, 'VERSION')) as f:
             return f.read().strip()
     except (FileNotFoundError, OSError):
         return ''
+
+
+def _image_version() -> str:
+    """The version this dashboard image was built from (VERSION copied in by the Dockerfile), or '' for an
+    image from before 1.8.1. This, not the checkout, is what runs: a checkout moved to a release whose build
+    failed (or was never built) showed the new number for a day while the old containers ran."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'VERSION')) as f:
+            return f.read().strip()
+    except OSError:
+        return ''
+
+
+def _versions() -> tuple[str, str]:
+    """(running, checkout): the image's version, else the checkout's; and the checkout's."""
+    checkout = _read_version_file()
+    return (_image_version() or checkout), checkout
 
 
 def _latest_remote_tag() -> str:
@@ -3518,12 +4028,13 @@ def _changelog_between(local_tag: str, remote_tag: str) -> list[str]:
 
 
 def _check_for_update():
-    # the running version comes from the local VERSION file and must be published even
-    # when the remote check fails, so the footer always shows what is installed
-    current_version = _read_version_file()
+    # the running version is the image's and must be published even when the remote check fails, so the
+    # footer always shows what is installed (not what the checkout says)
+    current_version, checkout_version = _versions()
     _write_update_patch({
         'current_version': current_version or None,
         'current_label':   f'v{current_version}' if current_version else None,
+        'checkout_version': checkout_version or None,
     })
     try:
         r = subprocess.run(
@@ -3546,15 +4057,23 @@ def _check_for_update():
         local_tag       = f'v{current_version}' if current_version else ''
 
         update_available = is_newer(remote_version, current_version)
+        # the checkout is ahead of what runs (an apply whose build or restart failed, or a manual git pull
+        # without a rebuild): Apply builds and restarts it
+        rebuild = is_newer(checkout_version, current_version)
+        if rebuild and not update_available:
+            update_available, remote_version = True, checkout_version
+            remote_tag = remote_tag or f'v{checkout_version}'
 
         changelog = _changelog_between(local_tag, remote_tag) if update_available else []
         # applying moves the checkout to exactly that tag: say now if it would refuse (another branch,
         # local commits, an inconsistent release) instead of after the administrator presses Apply
-        blocked = resolve_apply(_REPO_PATH, remote_tag)['error'] if update_available else None
+        blocked = resolve_apply(_REPO_PATH, _latest_remote_tag())['error'] if update_available else None
 
         _write_update_patch({
             'update_available': update_available,
+            'rebuild_needed':   rebuild,
             'current_version':  current_version or None,
+            'checkout_version': checkout_version or None,
             'remote_version':   remote_version  or None,
             # rendered by the existing frontend; keep populated for back-compat
             'current_label':    f'v{current_version}' if current_version else None,
@@ -3629,11 +4148,15 @@ threading.Thread(target=_apply_migrations_on_startup, daemon=True, name='hcm-mig
 def _do_apply_update():
     def log(msg):
         ts = datetime.now(timezone.utc).strftime('%H:%M:%S')
-        with _UPDATE_FILE_LOCK:
+        with _update_lock():
             state = _read_update_file()
             state.setdefault('apply_log', []).append(f'[{ts}] {msg}')
-            with open(_UPDATE_FILE, 'w') as f:
-                json.dump(state, f)
+            _store_update_file(state)
+
+    def failed(why: str):
+        # the old containers still run: keep the old version on show and Apply on offer
+        log(why)
+        _write_update_patch({'apply_in_progress': False, 'apply_failed': why[:500]})
 
     try:
         # exactly the advertised release: fetch the tags, decide before touching anything, then move the
@@ -3678,24 +4201,27 @@ def _do_apply_update():
                 capture_output=True, text=True, timeout=30,
             )
             if pop.returncode != 0:
-                log(f'Warning: stash pop had conflicts — manual resolve needed on server.')
-                log('Run: git -C /path/to/repo stash pop')
+                # building now would bake conflict markers into the images
+                _restore_ownership(log)
+                failed(f"Your local changes conflict with {plan['tag']}: nothing was built or restarted. On the server, "
+                       'resolve them (git status; the changes are kept in git stash list), then apply again.')
+                return
 
         _restore_ownership(log)
-        # what is installed now: the dialog must not keep showing the old version until the restart
         now = _read_version_file()
-        _write_update_patch({'current_version': now or None, 'current_label': f'v{now}' if now else None,
-                             'update_available': False, 'apply_blocked': None, 'changelog': []})
 
         log('Building new images (no downtime yet)...')
-        r = subprocess.run(
-            ['docker-compose', 'build'],
-            capture_output=True, text=True, timeout=600,
-            cwd=_REPO_PATH,
-        )
+        try:
+            r = subprocess.run(
+                ['docker-compose', 'build'],
+                capture_output=True, text=True, timeout=600,
+                cwd=_REPO_PATH,
+            )
+        except subprocess.TimeoutExpired:
+            failed('docker-compose build did not finish within 10 minutes; the running version is unchanged. Apply again.')
+            return
         if r.returncode != 0:
-            log(f'docker-compose build failed: {(r.stderr or r.stdout).strip()}')
-            _write_update_patch({'apply_in_progress': False})
+            failed(f'docker-compose build failed: {(r.stderr or r.stdout).strip()[-2000:]}')
             return
 
         log('Applying pending database migrations...')
@@ -3710,12 +4236,10 @@ def _do_apply_update():
                 log('Schema already up-to-date — no migrations to apply.')
         except Exception as exc:
             log(f'Migration step failed: {exc}')
-            log('Aborting recreate — fix the migration error and re-run Apply Update.')
-            _write_update_patch({'apply_in_progress': False})
+            failed('Aborting recreate — fix the migration error and re-run Apply Update.')
             return
 
         log('Build done. Spawning restart container...')
-        _write_update_patch({'update_available': False})
         project = os.getenv('COMPOSE_PROJECT_NAME', 'drsproject')
         # _REPO_PATH is /repo inside the container, but the Docker daemon needs
         # the real host-side path for volume mounts
@@ -3723,13 +4247,14 @@ def _do_apply_update():
         # remove stale updater container if a previous run left one behind
         subprocess.run(['docker', 'rm', '-f', 'hcm-auto-updater'],
                        capture_output=True)
+        # no --env-file: docker run parses .env differently from Compose (quotes, $$); Compose in the helper
+        # reads /repo/.env itself
         r = subprocess.run(
             [
                 'docker', 'run', '-d', '--rm',
                 '--name', 'hcm-auto-updater',
                 '-v', '/var/run/docker.sock:/var/run/docker.sock',
                 '-v', f'{host_repo}:/repo',
-                '--env-file', f'{_REPO_PATH}/.env',
                 '-w', '/repo',
                 f'{project}-dashboard',
                 'sh', '-c', restart_command(),
@@ -3737,14 +4262,15 @@ def _do_apply_update():
             capture_output=True, text=True, timeout=30,
         )
         if r.returncode != 0:
-            log(f'docker run failed: {(r.stderr or r.stdout).strip()}')
-            _write_update_patch({'apply_in_progress': False})
+            failed(f'docker run failed: {(r.stderr or r.stdout).strip()}')
             return
         log(f'Restart container spawned ({r.stdout.strip()[:12]}); the databases keep running. Page will reload shortly.')
-        _write_update_patch({'apply_in_progress': False})
+        # only now is the new version on its way in: say so (until the restart replaces this container)
+        _write_update_patch({'apply_in_progress': False, 'apply_failed': None, 'update_available': False,
+                             'current_version': now or None, 'current_label': f'v{now}' if now else None,
+                             'apply_blocked': None, 'changelog': []})
     except Exception as exc:
-        log(f'Error: {exc}')
-        _write_update_patch({'apply_in_progress': False})
+        failed(f'Error: {exc}')
 
 
 @app.route('/api/update/status')
@@ -3761,9 +4287,12 @@ def api_update_status():
         'repo_url':          state.get('repo_url'),
         'last_checked':      state.get('last_checked'),
         'error':             state.get('error'),
-        'apply_in_progress': state.get('apply_in_progress', False),
+        'apply_in_progress': bool(state.get('apply_in_progress')) and not _apply_is_stale(state),
         'apply_log':         state.get('apply_log', []),
         'apply_blocked':     state.get('apply_blocked'),
+        'apply_failed':      state.get('apply_failed'),
+        'checkout_version':  state.get('checkout_version'),
+        'rebuild_needed':    state.get('rebuild_needed', False),
     })
 
 
@@ -3777,10 +4306,15 @@ def api_update_check():
 @app.route('/api/update/apply', methods=['POST'])
 @requires('install.manage', 'root')
 def api_update_apply():
-    state = _read_update_file()
-    if state.get('apply_in_progress'):
-        return jsonify({'error': 'Update already in progress'}), 409
-    _write_update_patch({'apply_in_progress': True, 'apply_log': []})
+    with _update_lock():                     # check-and-set: two clicks (or two workers) start one apply
+        state = _read_update_file()
+        if state.get('apply_in_progress') and not _apply_is_stale(state):
+            return jsonify({'error': 'Update already in progress'}), 409
+        state.update({'apply_in_progress': True, 'apply_log': [], 'apply_failed': None, 'apply_pid': os.getpid(),
+                      'apply_marker': _container_marker(), 'apply_started': time.time()})
+        _store_update_file(state)
+    _audit('install.update_apply', state.get('remote_label') or 'update',
+           detail={'from': state.get('current_version'), 'to': state.get('remote_version')})
     threading.Thread(target=_do_apply_update, daemon=True).start()
     return jsonify({'ok': True})
 

@@ -193,3 +193,139 @@ def test_timezone_helpers():
     assert c.effective_timezone == 'Europe/Amsterdam'
     c.timezone = 'US/Eastern'
     assert c.effective_timezone == 'US/Eastern'
+
+
+def test_bookkeeping_survives_an_unreachable_database(monkeypatch):
+    """These six are called from poll loops and from their except handlers, and promise never to raise.
+    They opened their connection outside the try: with Postgres unreachable for a minute the collector's
+    worker died in its own error handler (2026-11-22, both real clusters) and nothing started it again."""
+    import cluster_registry as cr
+    if not hasattr(cr, '_connect'):
+        pytest.skip('the registry is stubbed in this run')
+
+    def down(*a, **k):
+        raise RuntimeError('could not translate host name "postgres" to address')
+    monkeypatch.setattr(cr, '_connect', down)
+    cid = '11111111-1111-4111-8111-111111111111'
+    cr.mark_seen(cid, active_host='10.0.0.1')
+    cr.set_active_host(cid, '10.0.0.1')
+    cr.upsert_nodes(cid, [{'uuid': 'n1', 'lanIP': '10.0.0.1', 'peerID': 1}])
+    cr.record_tasks(cid, [{'task_tag': '1', 'state': 'RUNNING'}])
+    cr.settle_stale_tasks(cid, set())
+    cr.mark_error(cid, 'login failed')
+
+
+def test_the_collector_replaces_a_worker_that_died(repo):
+    src = (repo / 'Collector' / 'collector.py').read_text()
+    assert 'not workers[cid][0].is_alive()' in src, 'a dead worker must be started again'
+
+
+@pytest.mark.parametrize('value,clean', [
+    ('#3B82F6', '#3b82f6'), (' #000000 ', '#000000'), (None, None), ('', None), ('   ', None),
+])
+def test_a_colour_is_what_the_picker_gives(value, clean):
+    import cluster_registry as cr
+    assert cr.clean_colour(value) == clean
+
+
+@pytest.mark.parametrize('value', [
+    'red', '#fff', '#3b82f6;background:url(//x)', 'red;background:url(//x)', 'javascript:alert(1)',
+    '"><img src=x onerror=alert(1)>', 'var(--accent-blue)', '#3b82f6 !important', 7, ['#000000'],
+])
+def test_anything_else_is_not_a_colour(value):
+    """The value goes into style attributes on every viewer's page (2026-11-22: a cluster colour of
+    'red;background:url(//x)' made the browser fetch //x)."""
+    import cluster_registry as cr
+    with pytest.raises(ValueError):
+        cr.clean_colour(value)
+
+
+@pytest.mark.parametrize('fields', [
+    {'name': ''}, {'name': '   '}, {'name': 'A' * 300}, {'name': 5}, {'host': ''}, {'host': '  '},
+    {'colour': 'red;background:url(//x)'},
+])
+def test_an_update_is_checked_like_a_new_cluster(monkeypatch, fields):
+    """PUT /api/clusters/<id> stored an empty name, a 300-character name and an empty address (https:///rest/v1)."""
+    import cluster_registry as cr
+    if not hasattr(cr, '_connect'):
+        pytest.skip('the registry is stubbed in this run')
+    monkeypatch.setattr(cr, '_connect', lambda: pytest.fail('nothing may be written'))
+    with pytest.raises(ValueError):
+        cr.update('11111111-1111-4111-8111-111111111111', **fields)
+
+
+class _RecordingConn:
+    def __init__(self, sql: list, rows=None):
+        self.sql, self.rows = sql, list(rows or [])
+
+    def cursor(self):
+        conn = self
+
+        class Cur:
+            rowcount = 1
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+            def execute(s, sql, params=None): conn.sql.append(sql)
+            def fetchone(s): return conn.rows.pop(0) if conn.rows else None
+            def fetchall(s): return []
+        return Cur()
+
+    def commit(self): pass
+    def rollback(self): pass
+    def close(self): pass
+
+
+def test_moving_an_entry_to_another_address_needs_the_password(monkeypatch):
+    """The stored HyperCore password followed a changed address: a folder admin could point the entry at a
+    server of their own and have 'Test' (and every service's next login) send them the credential."""
+    import cluster_registry as cr
+    if not hasattr(cr, '_connect'):
+        pytest.skip('the registry is stubbed in this run')
+    cid = '11111111-1111-4111-8111-111111111111'
+    current = cr.Cluster(cluster_id=cid, name='c', host='10.0.0.1', username='admin', verify_tls=False, enabled=True,
+                         is_template=False, hc_cluster_uuid=None, colour=None, last_seen_at=None, last_error=None,
+                         registered_at=None, updated_at=None)
+    monkeypatch.setattr(cr, 'get', lambda c: current)
+    written = []
+    monkeypatch.setattr(cr, '_connect', lambda: _RecordingConn(written))
+    monkeypatch.setattr(cr.hcm_crypto, 'encrypt', lambda pw: 'enc', raising=False)
+    for fields in ({'host': 'evil.example'}, {'username': 'other'}, {'host': 'evil.example', 'password': ''}):
+        with pytest.raises(ValueError, match='password'):
+            cr.update(cid, **fields)
+    assert written == []
+    cr.update(cid, host='10.0.0.1', username='admin', name='renamed')      # unchanged values: no password needed
+    cr.update(cid, host='evil.example', password='new-secret')
+    assert len(written) == 2
+
+
+def test_a_removed_cluster_is_not_listed_changed_or_removed_again(monkeypatch):
+    """A removed (not purged) cluster stayed in list_all(): '/api/clusters' showed 'X (removed ...)' with an
+    Enable button, Enable set enabled=TRUE on a row without a password (every service then tried an
+    empty-password login each poll), and a second remove appended another '(removed ...)'."""
+    import cluster_registry as cr
+    if not hasattr(cr, '_connect'):
+        pytest.skip('the registry is stubbed in this run')
+    sql = []
+    monkeypatch.setattr(cr, '_connect', lambda: _RecordingConn(sql))
+    cr.list_all()
+    assert 'c.is_active = TRUE' in sql[-1]
+    cr.update('11111111-1111-4111-8111-111111111111', enabled=True)
+    assert 'is_active = TRUE' in sql[-1]
+    cr.delete('11111111-1111-4111-8111-111111111111')
+    assert 'is_active = TRUE' in sql[-1] and '(removed' in sql[-1]
+
+
+def test_purge_deletes_rows_before_the_rows_they_reference(monkeypatch):
+    """audit.webhook_deliveries and audit.action_log reference audit.recommendation_events: deleting the events
+    first failed on the foreign key (500) for a cluster with webhook rows."""
+    import cluster_registry as cr
+    if not hasattr(cr, '_connect'):
+        pytest.skip('the registry is stubbed in this run')
+    sql = []
+    monkeypatch.setattr(cr, '_connect', lambda: _RecordingConn(sql))
+    cr.delete('11111111-1111-4111-8111-111111111111', purge=True)
+    first = lambda table: next(i for i, s in enumerate(sql) if s.startswith(f'DELETE FROM {table} '))   # noqa: E731
+    assert first('audit.webhook_deliveries') < first('audit.recommendation_events')
+    assert first('audit.action_log') < first('audit.recommendation_events')
+    assert first('recommendations.resize_recommendations') < first('recommendations.right_sizing')
+    assert sql[-1].startswith('DELETE FROM config.clusters')

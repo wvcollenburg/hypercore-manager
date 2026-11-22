@@ -92,6 +92,16 @@ def _severity(composite: float) -> SeverityLevel:
     return 'INFO'
 
 
+def _exceedance(value: float, threshold: float) -> float:
+    """How far value lies above threshold, as a fraction of the room up to 100 %. A threshold of
+    100 % (the settings allow 0..100) left no room and divided by zero, which stopped the whole
+    analysis cycle every hour."""
+    if value < threshold:
+        return 0.0
+    room = 100.0 - threshold
+    return 1.0 if room <= 0 else max(0.0, (value - threshold) / room)
+
+
 def _weighted_composite(scores_weights: list[tuple[float, float]]) -> float:
     """
     Compute a weighted mean of (score, weight) pairs.
@@ -124,8 +134,12 @@ def _cpu_signal(vm: VMTimeSeries, cfg: cfg_module.Config, direction: str) -> tup
 
     if direction == 'over_provisioned':
         threshold = cfg.cpu_over_provisioned_threshold
-        if mean >= threshold:
+        if mean >= threshold or threshold <= 0:
             return 0.0, {'reason': 'not_over_provisioned', 'mean': round(mean, 2)}
+        # a low average with peaks at the under-provisioned level is a bursty VM, not an idle
+        # one: 8 vCPU at 100 % for 90 min a night averages 8 % and must keep its vCPUs
+        if p95 >= cfg.cpu_under_provisioned_p95_threshold:
+            return 0.0, {'reason': 'peaks_too_high', 'mean': round(mean, 2), 'p95': round(p95, 2)}
         # score = how far below threshold, normalised to [0,1]
         score = min(1.0, (threshold - mean) / threshold)
         return round(score, 4), {'mean': round(mean, 2), 'threshold': threshold, 'n': n}
@@ -141,8 +155,8 @@ def _cpu_signal(vm: VMTimeSeries, cfg: cfg_module.Config, direction: str) -> tup
             return 0.0, {'reason': 'below_thresholds', 'mean': round(mean, 2), 'p95': round(p95, 2)}
 
         # score = normalised max exceedance above the relevant threshold
-        avg_exc = max(0.0, (mean - avg_thresh) / (100.0 - avg_thresh)) if avg_breach else 0.0
-        p95_exc = max(0.0, (p95  - p95_thresh) / (100.0 - p95_thresh)) if p95_breach else 0.0
+        avg_exc = _exceedance(mean, avg_thresh)
+        p95_exc = _exceedance(p95, p95_thresh)
         score   = min(1.0, max(avg_exc, p95_exc))
 
         return round(score, 4), {
@@ -361,7 +375,9 @@ def run_rightsizing(
                     vm_name=vm.vm_name,
                     node_uuid=vm.node_uuid,
                     sizing_direction='over_provisioned',
-                    severity=_severity(composite),
+                    # spare capacity is never an emergency: an idle VM (avg <= 4 %) scored CRITICAL
+                    # and set off the CRITICAL webhook
+                    severity='WARNING' if _severity(composite) == 'CRITICAL' else _severity(composite),
                     analysis_window_days=cfg.analysis_window_days,
                     cpu_signal_score=cpu_score,
                     cpu_avg_usage_pct=round(cpu_mean, 2),
@@ -394,7 +410,9 @@ def run_rightsizing(
                 (s3_score or 0.0, s3_weight),
             ])
 
-            if composite > 0.0:
+            # a VM is under-provisioned only when its CPU says so; latency or spikes alone (avg 24 %,
+            # p95 50 %) produced advice to shrink it
+            if composite > 0.0 and s1_score:
                 results.append(RightSizingResult(
                     cluster_id=cfg.cluster_id,
                     vm_uuid=vm.vm_uuid,

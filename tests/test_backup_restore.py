@@ -72,7 +72,7 @@ class _FakeHC:
     def import_vm(self, uri, name=None, description=None, tags=None, definition_file=None):
         self.calls.append(('import', definition_file, name, tags))
         self.new_vm = {'uuid': 'new-vm', 'name': name, 'blockDevs': [{'uuid': 'new-nv', 'type': 'NVRAM'}, {'uuid': 'new-tpm', 'type': 'VTPM'}, {'uuid': 'new-cd', 'type': 'IDE_CDROM'}],
-                       'netDevs': [{'uuid': 'new-nic', 'macAddress': '02:00:5E:AA:AA:AA', 'connected': True}]}
+                       'netDevs': [{'uuid': 'new-nic', 'type': 'VIRTIO', 'macAddress': '02:00:5E:AA:AA:AA', 'connected': True}]}
         self.vms.append(self.new_vm); return 'task', 'new-vm'
     def get_vm(self, u): return self.new_vm
     def create_block_device(self, vm, cap, dev_type='VIRTIO_DISK', tiering=None):
@@ -147,7 +147,8 @@ def test_fast_restore_end_to_end(world):
     r = world.db.restore
     assert r['status'] == 'COMPLETE', r
     kinds = [k for k, _ in world.pc.jobs]
-    assert kinds == ['verify', 'flatten', 'stage', 'sweep'], 'the backing chain is re-hashed before anything is created'
+    assert kinds == ['verify', 'flatten', 'stage', 'delete_chain'], 'the backing chain is re-hashed before anything is created'
+    assert world.pc.jobs[3][1]['chain_dir'] == world.pc.jobs[1][1]['out_dir'], 'only its own restore directory is removed'
     ver = world.pc.jobs[0][1]
     assert ver['upto_seq'] == 1 and ver['chain_dir'] == 'Amsterdam/exptest_src-vm.chain'
     assert all(p['verified_at'] and p.get('verify_error') is None for p in world.db.points), 'passing points are stamped'
@@ -171,6 +172,18 @@ def test_fast_restore_end_to_end(world):
     nic = [c for c in world.hc.calls if c[0] == 'patch_nic'][0]
     assert nic[2] == {'connected': False, 'vlan': 7, 'macAddress': '02:00:5E:4B:5C:5E'}, 'original MAC on request'
     assert ('action', 'new-vm', 'START') in world.hc.calls and r['created_uuid'] == 'new-vm' and 'MAC original' in r['message']
+
+
+def test_nic_type_and_disk_cache_mode_come_back_as_recorded(world):
+    """The template always renders a virtio NIC and the clone gets HyperCore's default cache mode: an E1000 guest
+    came back as VIRTIO, without network."""
+    world.db.point['definition'] = dict(DEF, blockDevs=[dict(b, cacheMode='WRITEBACK') if b['uuid'] == 'disk-1' else b for b in DEF['blockDevs']],
+                                        netDevs=[dict(DEF['netDevs'][0], type='INTEL_E1000')])
+    rs.run_restore(9)
+    assert world.db.restore['status'] == 'COMPLETE', world.db.restore
+    nic = [c for c in world.hc.calls if c[0] == 'patch_nic'][0]
+    assert nic[2]['type'] == 'INTEL_E1000'
+    assert ('patch_dev', world.hc.new_devs[0], {'tieringPriorityFactor': 8, 'cacheMode': 'WRITEBACK'}) in world.hc.calls
 
 
 def test_disks_come_back_on_their_original_bus(world):
@@ -236,6 +249,69 @@ def test_restore_refuses_existing_name_and_cleans_up_on_failure(world, monkeypat
     assert world.hc.proxy_devs == [], 'staging disks removed after a failed stage'
 
 
+def _failing_stage(world, monkeypatch):
+    def boom(jid, on_progress=None, timeout=0, poll=0):
+        kind, _ = world.pc.jobs[int(jid[1:]) - 1]
+        if kind == 'stage':
+            raise rs.ProxyError('target unreachable')
+        return {'state': 'done', 'result': dict(world.pc.verify_result) if kind == 'verify' else {'files': []}}
+    monkeypatch.setattr(world.pc, 'wait', boom)
+
+
+def test_a_failed_restore_deletes_its_half_built_vm_and_records_staging_disks_it_could_not_remove(world, monkeypatch):
+    """Staging disks (each as large as the VM's disk) were recorded nowhere, and the half-built VM blocked a retry
+    with the same name."""
+    _failing_stage(world, monkeypatch)
+    world.db.restore['cluster_id'] = 'c1'
+    deleted = []
+    world.hc.delete_vm = lambda u: deleted.append(u) or 'task'
+    real_delete = world.hc.delete_block_device
+
+    def stuck(u):
+        raise hcm.HyperCoreError('timed out waiting for CV refresh')
+    world.hc.delete_block_device = stuck
+    state = ['RUNNING']
+    real_import = world.hc.import_vm
+
+    def import_vm(*a, **k):
+        out = real_import(*a, **k)
+        world.hc.new_vm['state'] = state[0]
+        return out
+    world.hc.import_vm = import_vm
+    rs.run_restore(9)
+    r = world.db.restore
+    assert r['status'] == 'ERROR' and r['staging'] == ['stage-1'], 'the disk that could not be detached stays recorded'
+    assert r['created_uuid'] == 'new-vm'
+    assert deleted == [] and 'kept' in r['message'], 'a running VM is never deleted'
+    state[0] = 'SHUTOFF'
+    world.db.restore.update(status='RUNNING'); world.hc.vms.pop()
+    rs.run_restore(9)
+    assert deleted == ['new-vm'] and 'half-restored VM was deleted' in world.db.restore['message']
+    # the daily sweep removes what is left, and a disk that is gone already counts as removed
+    world.hc.delete_block_device = real_delete
+    world.hc.get_block_device = lambda u: {'uuid': u} if u in world.hc.proxy_devs else None
+    world.db.restores_with_staging = lambda: [dict(world.db.restore, cluster_id='c1')]
+    assert world.db.restore['staging'] == ['stage-2']
+    world.hc.proxy_devs.remove('stage-1')                  # (the fake reuses one row: stage-1 belonged to the first run)
+    world.db.restore['staging'] = ['stage-1', 'stage-2']
+    assert rs.sweep_staging() == 2 and world.db.restore['staging'] == [] and world.hc.proxy_devs == []
+    assert ('delete_dev', 'stage-1') not in world.hc.calls, 'a disk that is gone already is not deleted again'
+
+
+def test_an_interrupted_restore_loses_its_vm_only_before_its_last_step(world):
+    deleted = []
+    world.hc.delete_vm = lambda u: deleted.append(u) or 'task'
+    world.hc.new_vm = {'uuid': 'new-vm', 'name': 'exptest-copy', 'state': 'SHUTOFF'}
+    world.db.restores_with_staging = lambda: []
+    world.db.restore.update(status='ERROR', message='Interrupted by a restart.', created_uuid='new-vm', cluster_id='c1',
+                            progress={'phase': 'finish'})
+    rs.cleanup_interrupted([9])
+    assert deleted == [], 'a restore in its last step has a complete VM'
+    world.db.restore['progress'] = {'phase': 'write'}
+    rs.cleanup_interrupted([9])
+    assert deleted == ['new-vm'] and world.db.restore['message'].endswith('the half-restored VM was deleted')
+
+
 def test_iso_name_and_hypercore_iso_calls():
     sys.path.insert(0, _BACKUP)
     try:
@@ -255,6 +331,32 @@ def test_iso_name_and_hypercore_iso_calls():
     client.set_cdrom('cd-1', 'iso-1'); assert calls[-1] == ('PATCH', '/VirDomainBlockDevice/cd-1', {'path': 'scribe/iso-1'})
     client.set_cdrom('cd-1', None); assert calls[-1][2] == {'path': ''}
     client.ready_iso('iso-1'); assert calls[-1] == ('PATCH', '/ISO/iso-1', {'readyForInsert': True})
+
+
+def test_file_downloads_check_the_pinned_proxy_certificate(monkeypatch):
+    """flr.stream talked to the proxy with verify=False and never checked the pin: anything answering at the
+    proxy's address received the bearer token and could serve any file."""
+    sys.path.insert(0, _BACKUP)
+    try:
+        saved = {n: sys.modules.pop(n) for n in _CLASH if n in sys.modules}
+        flr = importlib.import_module('flr')
+        pcm = importlib.import_module('proxy_client')
+    finally:
+        sys.path.remove(_BACKUP)
+        for n in _CLASH:
+            sys.modules.pop(n, None)
+        sys.modules.update(saved)
+    pc = pcm.ProxyClient('https://10.0.0.5:8083', 'secret', tls_fingerprint='ab' * 32)
+    monkeypatch.setattr(flr, 'client_for_mount', lambda mid: ({'id': mid}, pc))
+    monkeypatch.setattr(pcm, 'certificate_fingerprint', lambda url, timeout=10: 'cd' * 32)
+    import requests
+    monkeypatch.setattr(requests, 'get', lambda *a, **k: pytest.fail('the request must not be sent'))
+    with pytest.raises(pcm.ProxyError, match='does not match'):
+        flr.stream('m1', 'file', {'path': '/x'})
+    unpinned = pcm.ProxyClient('https://10.0.0.5:8083', 'secret')
+    monkeypatch.setattr(flr, 'client_for_mount', lambda mid: ({'id': mid}, unpinned))
+    with pytest.raises(flr.ProxyError, match='pinned'):
+        flr.stream('m1', 'file', {'path': '/x'})
 
 
 def test_length_stream_reads_exactly_and_reports_len():
@@ -292,7 +394,7 @@ def test_restore_can_skip_the_verify_and_says_so(world):
     world.db.restore['params'] = {'mac_policy': 'new', 'start': False, 'nic_connected': False, 'verify': False}
     rs.run_restore(9)
     r = world.db.restore
-    assert r['status'] == 'COMPLETE' and [k for k, _ in world.pc.jobs] == ['flatten', 'stage', 'sweep']
+    assert r['status'] == 'COMPLETE' and [k for k, _ in world.pc.jobs] == ['flatten', 'stage', 'delete_chain']
     assert 'chain not verified (skipped)' in r['message']
 
 

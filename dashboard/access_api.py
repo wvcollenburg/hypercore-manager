@@ -30,6 +30,28 @@ def _uuid_or_none(v):
     return v
 
 
+def outranks(acc: rbac.Access, target_grants, target_is_admin: bool = False) -> bool:
+    """May `acc` act on another account itself (password, two-factor, address, enabled, delete)? Whoever sets
+    a password can sign in as that person, so: a root Admin, or someone who holds every permission the
+    target holds, at every scope the target holds it (the no-escalation rule of rbac.may_grant, applied to
+    each of the target's grants). A legacy role='admin' row counts as a root Admin."""
+    if acc.is_root_admin():
+        return True
+    if target_is_admin:
+        return False
+    for g in target_grants:
+        if not g.effective():
+            continue
+        ok, _ = rbac.may_grant(acc, g.perms, g.kind, node_id=g.node_id, cluster_id=g.cluster_id, vm_uuid=g.vm_uuid)
+        if not ok:
+            return False
+    return True
+
+
+ACCOUNT_DENIED = ('only an administrator of the whole installation, or a user manager who holds everything this '
+                  'account holds, changes this account')
+
+
 def register(app, requires, access, clusters, vm_index_rows):
     """access(): the request's rbac.Access; clusters(): enabled clusters; vm_index_rows(cid): VMs with tags."""
 
@@ -58,6 +80,15 @@ def register(app, requires, access, clusters, vm_index_rows):
         """A user manager of the whole installation: the only one who touches an account itself (enable,
         delete, address, password). Everyone else manages the access people hold in their reach."""
         return acc.can('users.manage')
+
+    def may_touch_account(acc: rbac.Access, u: dict) -> bool:
+        """A top-level user manager who also outranks the account (see outranks): a custom root role with
+        users.manage alone would otherwise set an Admin's password and sign in as them."""
+        return top(acc) and outranks(acc, access_db.grants_of_principal(user_id=u['user_id']), u.get('role') == 'admin')
+
+    def require_touch_account(acc: rbac.Access, u: dict) -> None:
+        if not may_touch_account(acc, u):
+            raise AccessError(ACCOUNT_DENIED, 403)
 
     def may_manage_group(acc: rbac.Access, g: dict) -> bool:
         return acc.can('groups.manage', node_id=g.get('node_id')) or acc.can('users.manage', node_id=g.get('node_id'))
@@ -124,10 +155,17 @@ def register(app, requires, access, clusters, vm_index_rows):
             out['vm_name'] = name or str(s.get('vm_name') or '')[:200] or None
         return out
 
-    def grant_check(acc: rbac.Access, r: dict, scope: dict) -> None:
+    def grant_check(acc: rbac.Access, r: dict, scope: dict, perm: str = 'users.manage') -> None:
+        """May `acc` hand role `r` to someone on `scope`? Two conditions: they manage people there (`perm` on
+        the scope: users.manage, or groups.manage when the access comes with a group), and they hold every
+        permission of the role there themselves. The second alone is not enough: an Admin of customer A who
+        is a Viewer at customer B holds Viewer's permissions at B, but B's people are not theirs to manage."""
         tree = acc.tree
         if not role_usable_at(r, scope, tree):
             raise AccessError('that role is not defined for this part of the tree', 403)
+        if not access_db.assignment_in_reach(acc, {'scope_kind': scope['kind'], 'node_id': scope.get('node_id'),
+                                                   'cluster_id': scope.get('cluster_id')}, perm):
+            raise AccessError('you do not manage access on that scope', 403)
         tags = []
         if scope['kind'] == 'vm':
             tags = next((v.get('tags') or [] for v in vm_index_rows(scope['cluster_id']) if v.get('uuid') == scope['vm_uuid']), [])
@@ -138,7 +176,17 @@ def register(app, requires, access, clusters, vm_index_rows):
 
     def visible_roles(acc: rbac.Access) -> list[dict]:
         nodes = acc.visible_nodes() | acc.nodes_above()
-        return [r for r in access_db.roles() if r['node_id'] is None or r['node_id'] in nodes or acc.superuser]
+        vis = seen(acc)
+        out = []
+        for r in access_db.roles():
+            if not (r['node_id'] is None or r['node_id'] in nodes or acc.superuser):
+                continue
+            if vis is not None and r['node_id'] not in vis:
+                # defined above the reader (an MSP's or the installation's role): usable, but where it is defined,
+                # who made it, what it was copied from and how widely it is used are not theirs to know
+                r = dict(r, node_id=None, created_by=None, copied_from=None, in_use=None, defined_above=True)
+            out.append(r)
+        return out
 
     def node_payload(acc: rbac.Access) -> list[dict]:
         visible = acc.visible_nodes() if not acc.is_root_admin() else None
@@ -293,6 +341,8 @@ def register(app, requires, access, clusters, vm_index_rows):
         kw = {}
         if ('enabled' in b or 'email' in b) and not top(acc):
             raise AccessError('only an administrator of the whole installation changes the account itself', 403)
+        if 'enabled' in b or 'email' in b:
+            require_touch_account(acc, u)
         if 'enabled' in b:
             if u['user_id'] == me_id():
                 raise AccessError('you cannot disable your own account', 409)
@@ -311,6 +361,9 @@ def register(app, requires, access, clusters, vm_index_rows):
                 raise AccessError('the name is the person\'s own: they or an administrator of the whole installation set it', 403)
             kw['display_name'] = str(b['display_name'] or '')
         access_db.update_user(u['user_id'], actor(), **kw)
+        if 'email' in kw:
+            import user_db
+            user_db.bump_session_gen(access_db.normalise_email(kw['email']))   # a new login: the old sessions end
         return jsonify(dict({'ok': True}, **({'invitation': activation} if activation else {})))
 
     @app.route('/api/access/users/<user_id>', methods=['DELETE'])
@@ -319,6 +372,7 @@ def register(app, requires, access, clusters, vm_index_rows):
         u = managed_user(user_id)
         if u['user_id'] == me_id():
             raise AccessError('you cannot delete your own account', 409)
+        require_touch_account(access(), u)
         access_db.delete_user(u['user_id'], actor())
         return jsonify({'ok': True})
 
@@ -338,10 +392,12 @@ def register(app, requires, access, clusters, vm_index_rows):
         """Credentials are never a tenant matter (PLAN-roles, Accounts 5): top-level admins only."""
         import user_db
         u = managed_user(user_id)
+        require_touch_account(access(), u)
         pw = (request.get_json(silent=True) or {}).get('new_password') or ''
         if len(pw) < 8:
             raise AccessError('the password needs at least 8 characters')
         user_db.set_password(u['username'], pw)
+        user_db.bump_session_gen(u['username'])          # the person's open sessions end with the old password
         conn = access_db._connect()
         try:
             with conn.cursor() as cur:
@@ -528,7 +584,7 @@ def register(app, requires, access, clusters, vm_index_rows):
             for a in access_db.assignments(group_id=g['group_id']):
                 scope = {'kind': a['scope_kind'], 'node_id': a['node_id'], 'cluster_id': a['cluster_id'], 'tag': a['tag'],
                          'vm_uuid': a['vm_uuid']}
-                grant_check(acc, access_db.role(a['role_id']), scope)
+                grant_check(acc, access_db.role(a['role_id']), scope, 'groups.manage')
         access_db.set_group_member(g['group_id'], u['user_id'], bool(b.get('member', True)), actor())
         return jsonify({'ok': True})
 
@@ -715,4 +771,5 @@ def register(app, requires, access, clusters, vm_index_rows):
 
     # the checks the invitations (invite_api) share with this module
     return SimpleNamespace(grant_check=grant_check, parse_scope=parse_scope, scope_node=scope_node, seen=seen,
-                           nameable=nameable, may_manage_group=may_manage_group, top=top, actor=actor, me_id=me_id)
+                           nameable=nameable, may_manage_group=may_manage_group, top=top, actor=actor, me_id=me_id,
+                           require_touch_account=require_touch_account, access=access)

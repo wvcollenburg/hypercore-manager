@@ -86,6 +86,21 @@ class Cluster:
 # helpers
 # ---------------------------------------------------------------------------
 
+NAME_MAX = 100
+_COLOUR_RE = re.compile(r'#[0-9a-fA-F]{6}')
+
+
+def clean_colour(value) -> Optional[str]:
+    """A cluster's or tree node's colour as the picker gives it ('#rrggbb'), None for no colour. Anything
+    else is refused: the value is written into style attributes of every viewer's page, where
+    'red;background:url(//x)' is a request to someone else's server and markup is script."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if not isinstance(value, str) or not _COLOUR_RE.fullmatch(value.strip()):
+        raise ValueError("a colour is written as '#rrggbb'")
+    return value.strip().lower()
+
+
 def is_uuid(value: str) -> bool:
     return bool(value) and bool(_UUID_RE.match(str(value)))
 
@@ -162,9 +177,11 @@ def _row_to_cluster(r: dict) -> Cluster:
 # ---------------------------------------------------------------------------
 
 def list_all(include_template: bool = False) -> list[Cluster]:
-    sql = f'SELECT {_COLUMNS} {_FROM}'
+    """The registered clusters. A removed one (Remove keeps its row, renamed '(removed ...)', so history stays
+    valid) is not registered any more and is left out: it showed up with an Enable button."""
+    sql = f'SELECT {_COLUMNS} {_FROM} WHERE c.is_active = TRUE'
     if not include_template:
-        sql += ' WHERE c.is_template = FALSE'
+        sql += ' AND c.is_template = FALSE'
     sql += ' ORDER BY c.is_template DESC, lower(c.cluster_name)'
     conn = _connect()
     try:
@@ -238,7 +255,10 @@ def create(name: str, host: str, username: str, password: str,
     host = normalize_host(host)
     if not name or not host or not username:
         raise ValueError('name, host and username are required')
+    if len(name) > NAME_MAX:
+        raise ValueError(f'a cluster needs a name of at most {NAME_MAX} characters')
     enc = hcm_crypto.encrypt(password or '')
+    colour = clean_colour(colour)
     conn = _connect()
     try:
         with conn.cursor() as cur:
@@ -270,10 +290,11 @@ def update(cluster_id: str, *, name: Optional[str] = None, host: Optional[str] =
            username: Optional[str] = None, password: Optional[str] = None,
            verify_tls: Optional[bool] = None, colour: Optional[str] = None,
            enabled: Optional[bool] = None, folder_id: Optional[str] = ..., api_version: Optional[str] = None,
-           timezone: Optional[str] = None) -> None:
+           timezone: Optional[str] = None) -> Optional[int]:
     """Update the given fields; password is re-encrypted only when provided (non-empty).
     folder_id: a folder uuid to move the cluster, None to unfile it, omitted to leave it.
-    timezone: an IANA name to override what the cluster reports, '' to follow the cluster again."""
+    timezone: an IANA name to override what the cluster reports, '' to follow the cluster again.
+    Returns the number of rows changed (0: no such registered cluster), None when nothing was asked."""
     sets, params = [], []
     if timezone is not None:
         tz = timezone.strip()
@@ -287,8 +308,12 @@ def update(cluster_id: str, *, name: Optional[str] = None, host: Optional[str] =
     if folder_id is not ...:
         sets.append('folder_id = %s'); params.append(folder_id if folder_id and is_uuid(folder_id) else None)
     if name is not None:
+        if not isinstance(name, str) or not name.strip() or len(name.strip()) > NAME_MAX:
+            raise ValueError(f'a cluster needs a name of at most {NAME_MAX} characters')
         sets.append('cluster_name = %s'); params.append(name.strip())
     if host is not None:
+        if not isinstance(host, str) or not normalize_host(host):
+            raise ValueError('a cluster needs an address')
         sets.append('hc_host = %s'); params.append(normalize_host(host))
     if username is not None:
         sets.append('hc_username = %s'); params.append(username.strip())
@@ -297,13 +322,20 @@ def update(cluster_id: str, *, name: Optional[str] = None, host: Optional[str] =
     if verify_tls is not None:
         sets.append('verify_tls = %s'); params.append(bool(verify_tls))
     if colour is not None:
-        sets.append('colour = %s'); params.append(colour or None)
+        sets.append('colour = %s'); params.append(clean_colour(colour))
     if enabled is not None:
         sets.append('enabled = %s'); params.append(bool(enabled))
     if api_version is not None:
         if api_version not in API_VERSIONS:
             raise ValueError("api_version must be auto, v1 or v2")
         sets.append('api_version = %s'); params.append(api_version)
+    if (host is not None or username is not None) and not password:
+        # the stored password follows the entry: pointed at another address (or user) it would be sent there by
+        # the next connection test and by every service's next login. Whoever moves it supplies the password.
+        current = get(cluster_id)
+        if current and ((host is not None and normalize_host(host) != current.host)
+                        or (username is not None and username.strip() != current.username)):
+            raise ValueError('changing the address or the user name needs the password in the same request')
     if not sets:
         return
     sets.append('updated_at = NOW()')
@@ -314,11 +346,15 @@ def update(cluster_id: str, *, name: Optional[str] = None, host: Optional[str] =
     conn = _connect()
     try:
         with conn.cursor() as cur:
+            # a removed cluster is not changed (enabling one, with no password left, made every service try an
+            # empty-password login each poll)
             cur.execute(f'UPDATE config.clusters SET {", ".join(sets)} '
-                        f'WHERE cluster_id = %s AND is_template = FALSE', params)
+                        f'WHERE cluster_id = %s AND is_template = FALSE AND is_active = TRUE', params)
+            changed = cur.rowcount
         conn.commit()
     finally:
         conn.close()
+    return changed
 
 
 def delete(cluster_id: str, purge: bool = False) -> None:
@@ -335,20 +371,26 @@ def delete(cluster_id: str, purge: bool = False) -> None:
             cur.execute('DELETE FROM config.module_toggles WHERE cluster_id = %s', (cluster_id,))
             cur.execute('DELETE FROM config.branding WHERE cluster_id = %s', (cluster_id,))
             if purge:
+                # children before the rows they reference: webhook deliveries and the action log point at
+                # recommendation events, resize advice at right-sizing rows
+                events = 'SELECT id FROM audit.recommendation_events WHERE cluster_id = %s'
+                for table in ('audit.webhook_deliveries', 'audit.action_log'):
+                    cur.execute(f'DELETE FROM {table} WHERE cluster_id = %s OR recommendation_event_id IN ({events})',
+                                (cluster_id, cluster_id))
                 for table in ('recommendations.resize_recommendations', 'recommendations.right_sizing',
                               'recommendations.forecast_snapshots', 'recommendations.resource_exhaustion',
-                              'recommendations.cluster_health_scores', 'audit.recommendation_events',
-                              'audit.action_log', 'audit.webhook_deliveries'):
+                              'recommendations.cluster_health_scores', 'audit.recommendation_events'):
                     cur.execute(f'DELETE FROM {table} WHERE cluster_id = %s', (cluster_id,))
                 cur.execute('DELETE FROM config.clusters WHERE cluster_id = %s AND is_template = FALSE',
                             (cluster_id,))
             else:
-                # keep the row so FK-bound history stays valid, but take it out of service
+                # keep the row so FK-bound history stays valid, but take it out of service (once: removing it
+                # again would append a second '(removed ...)')
                 cur.execute('''UPDATE config.clusters
                                   SET enabled = FALSE, is_active = FALSE, hc_password_enc = NULL,
                                       cluster_name = cluster_name || ' (removed ' || to_char(NOW(), 'YYYY-MM-DD HH24:MI') || ')',
                                       updated_at = NOW()
-                                WHERE cluster_id = %s AND is_template = FALSE''', (cluster_id,))
+                                WHERE cluster_id = %s AND is_template = FALSE AND is_active = TRUE''', (cluster_id,))
         conn.commit()
     finally:
         conn.close()
@@ -413,15 +455,17 @@ def mark_seen(cluster_id: str, hc_cluster_uuid: Optional[str] = None, *, api_v2_
     if timezone and zone_is_valid(timezone):
         # what the cluster reports, unless an admin typed a zone (timezone_override)
         sets.append('timezone = CASE WHEN timezone_override THEN timezone ELSE %s END'); params.append(timezone)
-    conn = _connect()
+    conn = None
     try:
+        conn = _connect()        # inside the try: an unreachable database is one more thing bookkeeping survives
         with conn.cursor() as cur:
             cur.execute(f'UPDATE config.clusters SET {", ".join(sets)} WHERE cluster_id = %s', params + [cluster_id])
         conn.commit()
     except Exception as exc:  # never let bookkeeping break a poll loop
         log.warning('cluster_registry.mark_seen(%s): %s', cluster_id, exc)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
     if hc_cluster_uuid:
         try:
             me = get(cluster_id)
@@ -535,8 +579,9 @@ def candidate_hosts(cluster_id: str, current: Optional[str] = None) -> list[str]
 
 def set_active_host(cluster_id: str, host: str) -> None:
     """Record the node the cluster is currently reached on (written on every switch)."""
-    conn = _connect()
+    conn = None
     try:
+        conn = _connect()        # inside the try: an unreachable database is one more thing bookkeeping survives
         with conn.cursor() as cur:
             cur.execute('UPDATE config.clusters SET active_host = %s WHERE cluster_id = %s',
                         (normalize_host(host), cluster_id))
@@ -544,7 +589,8 @@ def set_active_host(cluster_id: str, host: str) -> None:
     except Exception as exc:
         log.warning('cluster_registry.set_active_host(%s): %s', cluster_id, exc)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 def upsert_nodes(cluster_id: str, api_nodes: list[dict], seed_host: Optional[str] = None) -> None:
@@ -553,8 +599,9 @@ def upsert_nodes(cluster_id: str, api_nodes: list[dict], seed_host: Optional[str
     or per changed LAN IP, never per poll. Never raises."""
     rows = [dict(n) if 'node_uuid' in n else node_from_api(n) for n in api_nodes or []]   # raw API or slim
     rows = [r for r in rows if r.get('node_uuid')]
-    conn = _connect()
+    conn = None
     try:
+        conn = _connect()        # inside the try: an unreachable database is one more thing bookkeeping survives
         with conn.cursor() as cur:
             if seed_host is None:
                 cur.execute('SELECT hc_host FROM config.clusters WHERE cluster_id = %s', (cluster_id,))
@@ -592,7 +639,8 @@ def upsert_nodes(cluster_id: str, api_nodes: list[dict], seed_host: Optional[str
     except Exception as exc:  # bookkeeping must never break a poll loop
         log.warning('cluster_registry.upsert_nodes(%s): %s', cluster_id, exc)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 _NODE_COLUMNS = '''cluster_id::text AS cluster_id, node_uuid, peer_id, lan_ip, backplane_ip, address, network_status,
@@ -671,8 +719,9 @@ def record_tasks(cluster_id: str, rows: list[dict]) -> None:
     """Upsert normalised task rows (see hypercore_tasks.normalise) for one cluster."""
     if not rows:
         return
-    conn = _connect()
+    conn = None
     try:
+        conn = _connect()        # inside the try: an unreachable database is one more thing bookkeeping survives
         with conn.cursor() as cur:
             psycopg2.extras.execute_batch(cur, '''
                 INSERT INTO config.cluster_tasks (cluster_id, task_tag, kind, description, vm_name, object_uuid, state, progress,
@@ -689,14 +738,16 @@ def record_tasks(cluster_id: str, rows: list[dict]) -> None:
     except Exception as exc:  # the feed is informational; never break a poll loop
         log.warning('cluster_registry.record_tasks(%s): %s', cluster_id, exc)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 def settle_stale_tasks(cluster_id: str, active_tags: set[str], older_than_seconds: int = 180) -> None:
     """A task that was active but is no longer listed as active and has not been seen for a while
     is marked COMPLETE (the v2 feed drops finished tasks from the active list)."""
-    conn = _connect()
+    conn = None
     try:
+        conn = _connect()        # inside the try: an unreachable database is one more thing bookkeeping survives
         with conn.cursor() as cur:
             cur.execute('''UPDATE config.cluster_tasks SET state = 'COMPLETE', progress = 100, completed_at = COALESCE(completed_at, NOW())
                            WHERE cluster_id = %s AND state IN ('QUEUED', 'RUNNING') AND NOT (task_tag = ANY(%s))
@@ -707,7 +758,8 @@ def settle_stale_tasks(cluster_id: str, active_tags: set[str], older_than_second
     except Exception as exc:
         log.warning('cluster_registry.settle_stale_tasks(%s): %s', cluster_id, exc)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 def list_tasks(cluster_id: str, limit: int = 40) -> list[dict[str, Any]]:
@@ -733,8 +785,9 @@ def list_tasks(cluster_id: str, limit: int = 40) -> list[dict[str, Any]]:
 
 
 def mark_error(cluster_id: str, message: str) -> None:
-    conn = _connect()
+    conn = None
     try:
+        conn = _connect()        # inside the try: an unreachable database is one more thing bookkeeping survives
         with conn.cursor() as cur:
             cur.execute('UPDATE config.clusters SET last_error = %s WHERE cluster_id = %s',
                         ((message or '')[:500], cluster_id))
@@ -742,7 +795,8 @@ def mark_error(cluster_id: str, message: str) -> None:
     except Exception as exc:
         log.warning('cluster_registry.mark_error(%s): %s', cluster_id, exc)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -836,7 +890,7 @@ def create_folder(name: str, colour: Optional[str] = None) -> str:
     try:
         with conn.cursor() as cur:
             cur.execute('INSERT INTO config.folders (name, colour) VALUES (%s, %s) RETURNING folder_id::text AS folder_id',
-                        (name, colour or None))
+                        (name, clean_colour(colour)))
             fid = cur.fetchone()['folder_id']
         conn.commit()
         return fid
@@ -851,7 +905,7 @@ def update_folder(folder_id: str, name: Optional[str] = None, colour: Optional[s
     if name is not None:
         sets.append('name = %s'); params.append(name.strip())
     if colour is not None:
-        sets.append('colour = %s'); params.append(colour or None)
+        sets.append('colour = %s'); params.append(clean_colour(colour))
     if share_id is not ...:
         sets.append('share_id = %s'); params.append(int(share_id) if share_id not in (None, '', 0) else None)
     if not sets:

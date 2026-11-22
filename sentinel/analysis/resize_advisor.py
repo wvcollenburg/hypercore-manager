@@ -29,6 +29,7 @@ C6 — Risk classification
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 
 import config as cfg_module
@@ -125,22 +126,32 @@ def _risk(rs: RightSizingResult) -> tuple[str, dict]:
 # C3 + C5: concrete recommendation and reclaim calculations
 # ---------------------------------------------------------------------------
 
+def _target_p95(p95_threshold: float) -> float:
+    """The p95 a resized VM should land at: 85 % of the under-provisioned p95 threshold (76.5)."""
+    return max(1.0, p95_threshold * _TARGET_P95_HEADROOM_FACTOR)
+
+
 def _over_provisioned_advice(
     rs: RightSizingResult,
+    p95_threshold: float = 90.0,
 ) -> tuple[float, float, float]:
     """
     Returns (suggested_cpu_change_pct, target_cpu_avg_pct, capacity_reclaim_cpu_pct).
 
     Suggest reducing allocation so that the current workload lands at
-    _TARGET_CPU_AVG (50%) utilisation.
+    _TARGET_CPU_AVG (50%) utilisation, but never so far that the p95 would rise above the
+    resize target (_target_p95): the average alone told an 8-vCPU VM that runs at 100 % for
+    90 minutes a night to go to 1 vCPU.
 
-    Example: current_avg = 8% → need allocation ~16% of current capacity
-    → change_pct = (8 / 50) - 1 = -0.84  (reduce by 84%)
-    → reclaim    = 0.84 * 8% = 6.72 percentage points freed
+    Example: current_avg = 8%, p95 = 20% → need allocation ~16% of current capacity
+    → change_pct = (8 / 50) - 1 = -0.84  (reduce by 84%); p95 floor 20 / 76.5 - 1 = -0.74
+    → change_pct = -0.74, reclaim = 0.74 * 8% = 5.9 percentage points freed
     """
     current_avg = max(rs.cpu_avg_usage_pct or 0.0, 1.0)   # guard div-by-zero
+    current_p95 = rs.cpu_p95_usage_pct or 0.0
 
     change_pct = (current_avg / _TARGET_CPU_AVG) - 1.0    # negative
+    change_pct = min(0.0, max(change_pct, current_p95 / _target_p95(p95_threshold) - 1.0))
     reclaim    = max(0.0, abs(change_pct) * current_avg)   # CPU % points freed
 
     return round(change_pct, 4), round(_TARGET_CPU_AVG, 1), round(reclaim, 2)
@@ -148,6 +159,7 @@ def _over_provisioned_advice(
 
 def _under_provisioned_advice(
     rs: RightSizingResult,
+    p95_threshold: float = 90.0,
 ) -> tuple[float, float, None]:
     """
     Returns (suggested_cpu_change_pct, target_cpu_avg_pct, None).
@@ -158,15 +170,16 @@ def _under_provisioned_advice(
     Example: p95=95%, threshold=90%, target=76.5%
     → needed multiplier = 95 / 76.5 ≈ 1.24  → change_pct = +0.24
     → new avg (estimated) = current_avg / 1.24
+
+    Never negative: an under-provisioned VM is not told to shrink.
     """
-    p95_threshold = 90.0   # default; aligns with cfg default
-    target_p95    = p95_threshold * _TARGET_P95_HEADROOM_FACTOR   # 76.5
+    target_p95 = _target_p95(p95_threshold)   # 76.5 at the default threshold
 
     current_p95 = rs.cpu_p95_usage_pct or 0.0
     current_avg = rs.cpu_avg_usage_pct or 0.0
 
     if current_p95 > 0:
-        change_pct = (current_p95 / target_p95) - 1.0
+        change_pct = max(0.0, (current_p95 / target_p95) - 1.0)
     else:
         change_pct = 0.25   # default 25% increase when p95 not available
 
@@ -190,11 +203,12 @@ def run_resize_advisor(
     """
     advice: list[ResizeAdvice] = []
 
+    p95_threshold = cfg.cpu_under_provisioned_p95_threshold
     for rs in rightsizing_results:
         if rs.sizing_direction == 'over_provisioned':
-            cpu_change, target_avg, reclaim = _over_provisioned_advice(rs)
+            cpu_change, target_avg, reclaim = _over_provisioned_advice(rs, p95_threshold)
         else:
-            cpu_change, target_avg, reclaim = _under_provisioned_advice(rs)
+            cpu_change, target_avg, reclaim = _under_provisioned_advice(rs, p95_threshold)
 
         confidence        = _confidence(rs)
         risk_level, risks = _risk(rs)
@@ -204,6 +218,12 @@ def run_resize_advisor(
         current_vcpu    = rs.current_vcpu
         if current_vcpu and current_vcpu > 0:
             recommended_vcpu = max(1, round(current_vcpu * (1.0 + cpu_change)))
+            if rs.sizing_direction == 'over_provisioned':
+                # enough vCPUs to carry today's p95 at the resize target, rounded up
+                floor = math.ceil(current_vcpu * (rs.cpu_p95_usage_pct or 0.0) / _target_p95(p95_threshold))
+                recommended_vcpu = min(current_vcpu, max(recommended_vcpu, floor))
+            else:
+                recommended_vcpu = max(current_vcpu, recommended_vcpu)
         else:
             recommended_vcpu = None
 

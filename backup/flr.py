@@ -75,6 +75,11 @@ def stream(mount_id: str, kind: str, params: dict):
     """(requests.Response streaming) for file or zip downloads."""
     import requests
     m, pc = client_for_mount(mount_id)
+    if pc.url.startswith('https://'):
+        # the same transport rules as every other proxy call: verify=False below relies on the pin check
+        if not pc.fingerprint and not pc.tls_verify:
+            raise ProxyError('https proxy without a pinned certificate fingerprint or CA verification; probe it first')
+        pc._check_pin()
     headers = {'Authorization': f'Bearer {pc.token}'} if pc.token else {}
     verify = pc.tls_verify if pc.url.startswith('https://') and not pc.fingerprint else (False if pc.fingerprint else True)
     try:

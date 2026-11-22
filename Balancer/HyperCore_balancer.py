@@ -47,6 +47,18 @@ def get_config(key: str, default: Any, cast_type: type = str) -> Any:
 # clusters (host + credentials) live in the registry, configured in the dashboard;
 # the balancer runs one LoadBalancer per enabled cluster
 REGISTRY_POLL_SECONDS = 60
+# a cluster thread that died (crash or refused login) is restarted after 1, 2, 4 … minutes, at most
+# every half hour: each restart is a new login, and HyperCore limits logins per hour
+RESTART_BACKOFF_MAX_SECONDS = 1800
+HEALTHY_RUN_SECONDS = 900           # a thread that ran this long before dying starts the backoff afresh
+# a migration task the cluster no longer reports on must not hold the balancer forever
+TASK_DEADLINE_SECONDS = 1800
+TASK_MAX_UNKNOWN = 30               # consecutive UNKNOWN/UNINITIALIZED answers (~5 min at 10 s)
+# an affinity move the cluster refused is retried for that VM after 5, 10, 20 … minutes, at most hourly
+AFFINITY_RETRY_BASE_SECONDS = 300
+AFFINITY_RETRY_MAX_SECONDS = 3600
+# in dry-run a lasting affinity violation is reported once a day, not every sample interval
+AFFINITY_DRY_REPORT_SECONDS = 86400
 
 # influxdb target for migration events — configurables
 INFLUX_URL = get_config('INFLUX_URL', "http://influxdb:8086")
@@ -199,7 +211,7 @@ class LoadBalancer:
         self.cluster_id = cluster.cluster_id if cluster is not None else TEMPLATE_CLUSTER_ID
         self.cluster_name = cluster.name if cluster is not None else 'cluster'
         self.stop = stop_event or threading.Event()
-        self.max_history = int((config['AVG_WINDOW_MINUTES'] * 60) / config['SAMPLE_INTERVAL_SECONDS'])
+        self.max_history = self._window_samples()
 
         self.node_cpu_history = {}
         self.node_ram_history = {}
@@ -208,6 +220,8 @@ class LoadBalancer:
         self.vm_cooldowns = {}
         self.last_migration_time = 0
         self.active_task = None
+        self._affinity_backoff = {}       # vm_uuid -> (refusals in a row, earliest next attempt)
+        self._affinity_reported = {}      # dry-run: vm_uuid -> when its violation was last reported
 
         self.last_predictive_run = 0
         self.reserved_nodes = {}
@@ -227,13 +241,19 @@ class LoadBalancer:
                 self.log(1, f"[CONFIG] {key}: {self.config[key]} → {new[key]}")
                 self.config[key] = new[key]
         # recalculate derived window size; clear histories if it changed
-        new_max = int((self.config['AVG_WINDOW_MINUTES'] * 60) / self.config['SAMPLE_INTERVAL_SECONDS'])
+        new_max = self._window_samples()
         if new_max != self.max_history:
             self.max_history = new_max
             self.node_cpu_history.clear()
             self.node_ram_history.clear()
             self.vm_cpu_history.clear()
             self.log(0, f"[CONFIG] History window resized to {self.max_history} samples — buffers cleared.")
+
+    def _window_samples(self) -> int:
+        """Samples in the averaging window; at least one. A window shorter than one sample interval
+        (1 min at 120 s, both allowed by the settings) gave 0: a deque of length 0, whose mean()
+        raised and killed the cluster's thread, and the supervisor logged in again every minute."""
+        return max(1, int((self.config['AVG_WINDOW_MINUTES'] * 60) / self.config['SAMPLE_INTERVAL_SECONDS']))
 
     def log(self, level: int, message: str):
         if level == 0 or self.config['VERBOSITY'] >= level:
@@ -280,7 +300,7 @@ class LoadBalancer:
                         "tags": vm.get('tags', "")
                     })
             
-            threads = n.get('numThreads', 1)
+            threads = n.get('numThreads') or 1     # 0 or missing would divide by zero below
             allocated_vcpus = sum(vm['vcpus'] for vm in vms_on_node)
             is_usable = n.get('networkStatus') == 'ONLINE' and n.get('allowRunningVMs', True)
             
@@ -331,37 +351,16 @@ class LoadBalancer:
                         self.log(3, f"  - Skipping {vm['name']} (cooldown active)")
                         continue
 
-                    # anti-affinity sets for the candidate VM
-                    vm_anti = {t.strip()[5:] for t in vm['tags'].split(',') if t.strip().startswith('anti_')}
-
                     tol = self.config.get('CPU_TARGET_TOLERANCE_PERCENT', 5.0)
                     targets = sorted(usable, key=lambda x: x['avg_ram'] if mode == "RAM_FOCUS" else (int(x['avg_cpu'] / tol), x['avg_ram']))
                     for tgt in targets:
-                        if tgt['name'] == src['name']: continue
-
-                        if tgt['uuid'] in self.reserved_nodes:
-                            if time.time() < self.reserved_nodes[tgt['uuid']]:
-                                self.log(3, f"  - Skipping target node {tgt['name']} (Reserved for impending predicted spike)")
-                                continue
-                            else:
-                                del self.reserved_nodes[tgt['uuid']]
-
-                        # anti-affinity: skip if candidate's anti_X tag matches a VM name on target,
-                        # or if any VM on target has anti_<candidate> pointing back at us
-                        tgt_names = {v['name'] for v in tgt['vms']}
-                        tgt_anti  = {t.strip()[5:] for v in tgt['vms'] for t in v['tags'].split(',') if t.strip().startswith('anti_')}
-                        if vm_anti & tgt_names:
-                            self.log(2, f"  - Skipping target {tgt['name']}: anti-affinity ({vm_anti & tgt_names})")
-                            continue
-                        if vm['name'] in tgt_anti:
-                            self.log(2, f"  - Skipping target {tgt['name']}: anti-affinity (reverse block on {vm['name']})")
+                        refusal = self.target_refusal(vm, src, tgt)
+                        if refusal:
+                            level, why = refusal
+                            self.log(level, f"  - Skipping target {tgt['name']}: {why}")
                             continue
 
                         p_ram = ((tgt['used_ram'] + vm['mem']) / tgt['total_ram']) * 100
-                        p_ratio = (sum(v['vcpus'] for v in tgt['vms']) + vm['vcpus']) / tgt['threads']
-
-                        if p_ram > self.config['RAM_LIMIT_PERCENT'] or p_ratio > self.config['MAX_VCPU_RATIO']:
-                            continue
                         # reject targets whose post-move RAM would exceed the upper threshold —
                         # landing there makes them a RAM_FOCUS source candidate next cycle
                         if mode == "RAM_FOCUS" and p_ram > self.config['RAM_UPPER_THRESHOLD_PERCENT']:
@@ -374,10 +373,60 @@ class LoadBalancer:
                         return vm, src, tgt, mode
         return None, None, None, primary
 
-    def find_affinity_violation(self, usable):
+    def target_refusal(self, vm, src, tgt):
+        """Why `tgt` cannot take `vm` (running on `src`) now, as (log level, reason), or None. The
+        target test every engine's move must pass: a usable node (online, allows running VMs, so
+        no witness or maintenance node, not excluded) other than the source, not reserved for a
+        predicted spike, not against the VM's node pin or anyone's anti-affinity, and within the
+        RAM limit and the vCPU ratio after the move."""
+        if tgt['uuid'] == src['uuid']:
+            return 3, "is the source"
+        if not tgt['is_usable']:
+            return 2, "not usable (offline, excluded, maintenance or witness)"
+        if tgt['uuid'] in self.reserved_nodes:
+            if time.time() < self.reserved_nodes[tgt['uuid']]:
+                return 3, "reserved for impending predicted spike"
+            del self.reserved_nodes[tgt['uuid']]
+        tags = [t.strip() for t in vm['tags'].split(',')]
+        pin = next((t[5:] for t in tags if t.startswith('node_')), None)
+        if pin and pin != tgt['name'].split('.')[-1]:
+            return 2, f"{vm['name']} is pinned to node_{pin}"
+        # anti-affinity: skip if candidate's anti_X tag matches a VM name on target,
+        # or if any VM on target has anti_<candidate> pointing back at us
+        vm_anti = {t[5:] for t in tags if t.startswith('anti_')}
+        tgt_names = {v['name'] for v in tgt['vms']}
+        tgt_anti = {t.strip()[5:] for v in tgt['vms'] for t in v['tags'].split(',') if t.strip().startswith('anti_')}
+        if vm_anti & tgt_names:
+            return 2, f"anti-affinity ({vm_anti & tgt_names})"
+        if vm['name'] in tgt_anti:
+            return 2, f"anti-affinity (reverse block on {vm['name']})"
+        p_ram = ((tgt['used_ram'] + vm['mem']) / tgt['total_ram']) * 100
+        p_ratio = (sum(v['vcpus'] for v in tgt['vms']) + vm['vcpus']) / tgt['threads']
+        if p_ram > self.config['RAM_LIMIT_PERCENT']:
+            return 3, f"RAM would reach {p_ram:.0f}%"
+        if p_ratio > self.config['MAX_VCPU_RATIO']:
+            return 3, f"vCPU ratio would reach {p_ratio:.2f}"
+        return None
+
+    def _predictive_refusal(self, rec, state):
+        """Why a queued Oracle recommendation must not run now, or None. It may be up to a day
+        old, so the VM, the source and the target are checked against the current state."""
+        src = state.get(rec.source_node)
+        vm = next((v for v in src['vms'] if v['uuid'] == rec.vm_uuid), None) if src else None
+        if vm is None:
+            return f"VM '{rec.vm_name}' is no longer running on {rec.source_ip}"
+        tgt = state.get(rec.target_node)
+        if tgt is None:
+            return f"target node {rec.target_ip} is no longer in the cluster"
+        refusal = self.target_refusal(vm, src, tgt)
+        return f"target {rec.target_ip} {refusal[1]}" if refusal else None
+
+    def find_affinity_violation(self, usable, skip=frozenset()):
         """
         Highest-priority pass: detect and return one remediation move for any affinity violation.
-        Bypasses migration cooldown and per-VM cooldown — affinity is always fixed first.
+        Bypasses migration cooldown and per-VM cooldown — affinity is always fixed first. VMs in
+        `skip` (a refused move waiting for its retry, or a dry-run violation already reported)
+        are not moved, so the next violation gets its turn.
 
         Checks (in priority order):
           1. Anti-affinity: VM with anti_X tag sharing a node with VM named X
@@ -414,6 +463,8 @@ class LoadBalancer:
             for blocker in sorted(target_node['vms'], key=lambda v: v['mem']):
                 if _pinned_suffix(blocker) == target_node['name'].split('.')[-1]:
                     continue  # cannot evict a VM pinned to this node
+                if blocker['uuid'] in skip:
+                    continue
                 blocker_anti = {t.strip()[5:] for t in blocker['tags'].split(',')
                                 if t.strip().startswith('anti_')}
                 for dest in sorted(usable, key=lambda n: n['avg_cpu']):
@@ -433,7 +484,7 @@ class LoadBalancer:
                 vm_anti = {t.strip()[5:] for t in vm['tags'].split(',')
                            if t.strip().startswith('anti_')}
                 conflicts = vm_anti & names_here
-                if not conflicts:
+                if not conflicts or vm['uuid'] in skip:
                     continue
 
                 self.log(1, f"[AFFINITY] VIOLATION: {vm['name']} shares {src['name']} "
@@ -463,8 +514,8 @@ class LoadBalancer:
             src_suffix = src['name'].split('.')[-1]
             for vm in src['vms']:
                 pin = _pinned_suffix(vm)
-                if not pin or pin == src_suffix:
-                    continue  # not pinned, or already on correct node
+                if not pin or pin == src_suffix or vm['uuid'] in skip:
+                    continue  # not pinned, already on correct node, or waiting
 
                 tgt = next((n for n in usable if n['name'].split('.')[-1] == pin), None)
                 if not tgt:
@@ -517,234 +568,280 @@ class LoadBalancer:
             
         try:
             while not self.stop.is_set():
-                # hot-reload tunables every 60 seconds
-                now_ts = time.time()
-                if now_ts - self._last_config_check > 60:
-                    self.reload_config()
-                    self._last_config_check = now_ts
-
-                if self.active_task:
-                    status = self.client.get_task_status(self.active_task['tag'])
-                    if status in ["COMPLETE", "ERROR"]:
-                        self.log(0, f"Migration {status} for {self.active_task['vm']}")
-                        self.active_task = None
-                        self.last_migration_time = time.time()
-                    self._sleep(10); continue
-
                 try:
-                    nodes, vms, stats = self.client.get_nodes(), self.client.get_vms(), self.client.get_vm_stats()
-                    self.update_metrics(nodes, stats)
-                except Exception as e:
-                    self.log(0, f"API Fetch Error: {e}"); self._sleep(30); continue
-
-                # evaluate cluster state once — shared by affinity, predictive, and reactive engines
-                state  = self.evaluate_cluster(nodes, vms)
-                usable = [n for n in state.values() if n['is_usable']]
-
-                # =================================================================
-                # affinity enforcement — highest priority, bypasses all cooldowns
-                # =================================================================
-                aff_vm, aff_src, aff_tgt, aff_reason = self.find_affinity_violation(usable)
-                if aff_vm:
-                    info = f"{aff_vm['name']} | {aff_src['name']} -> {aff_tgt['name']} (Affinity: {aff_reason})"
-                    if self.config['DRY_RUN']:
-                        self.log(0, f"[AFFINITY DRY RUN] Would move {info}")
-                        self.vm_cooldowns[aff_vm['uuid']] = time.time()
-                        self.last_migration_time = time.time()
-                    else:
-                        self.log(0, f"[AFFINITY ACTION] {info}")
-                        try:
-                            task = self.client.migrate(aff_vm['uuid'], aff_tgt['uuid'])
-                            self.active_task = {"tag": task['taskTag'], "vm": aff_vm['name']}
-                            self.vm_cooldowns[aff_vm['uuid']] = time.time()
-                            self.last_migration_time = time.time()
-                        except Exception as e:
-                            self.log(0, f"[AFFINITY ERROR] Migration rejected for {aff_vm['name']}: {e}")
-                            self.vm_cooldowns[aff_vm['uuid']] = time.time()
-                    aff_mode = "anti-affinity" if "anti-affinity" in aff_reason.lower() else "node-affinity"
-                    self.migration_logger.log_event(
-                        vm_name=aff_vm['name'], vm_uuid=aff_vm['uuid'],
-                        source_ip=aff_src['name'], target_ip=aff_tgt['name'],
-                        engine="Affinity", mode=aff_mode,
-                        dry_run=self.config['DRY_RUN'], reason="affinity-violation",
-                        cluster_id=self.cluster_id
-                    )
-                    self._sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
-                    continue
-
-                # non-affinity migration cooldown
-                elapsed = time.time() - self.last_migration_time
-                cluster_cd = self.config['MIGRATION_COOLDOWN_MINUTES'] * 60
-                if elapsed < cluster_cd:
-                    self._sleep(self.config['SAMPLE_INTERVAL_SECONDS']); continue
-
-                # =================================================================
-                # optional: predictive balancing
-                # =================================================================
-                if self.config['PREDICTIVE_BALANCING_ENABLED']:
-                    applied_predictive = False
-                    now = time.time()
-                    lead_time_seconds = self.config['PREDICTIVE_LEAD_TIME_HOURS'] * 3600
-
-                    # --- store results from a completed forecast thread ---
-                    if self._predictive_thread is not None and not self._predictive_thread.is_alive():
-                        recommendations = self._predictive_results or []
-                        self._predictive_results = None
-                        self._predictive_thread = None
-                        self._predictive_overrun_logged = False
-
-                        if recommendations:
-                            current_vms = {vm['uuid']: vm for vm in vms}
-                            current_node_uuids = {n['uuid'] for n in nodes}
-                            valid_recs = []
-                            for rec in recommendations:
-                                vm_current = current_vms.get(rec.vm_uuid)
-                                if not vm_current:
-                                    self.log(0, f"[PREDICTIVE] Skipping stale recommendation: VM '{rec.vm_name}' no longer exists in cluster.")
-                                    continue
-                                if vm_current.get('nodeUUID') != rec.source_node:
-                                    self.log(0, f"[PREDICTIVE] Skipping stale recommendation: VM '{rec.vm_name}' has already moved to a different node.")
-                                    continue
-                                if rec.target_node not in current_node_uuids:
-                                    self.log(0, f"[PREDICTIVE] Skipping stale recommendation: target node for '{rec.vm_name}' is no longer available.")
-                                    continue
-                                valid_recs.append(rec)
-
-                            self._pending_predictive_recs = valid_recs
-                            if valid_recs:
-                                earliest = min(valid_recs, key=lambda r: r.peak_time)
-                                earliest_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(earliest.peak_time))
-                                self.log(0, f"[PREDICTIVE] {len(valid_recs)} recommendation(s) queued. Earliest peak at {earliest_str}.")
-
-                                # reserve all source nodes immediately — don't wait for each migration
-                                # to execute. this prevents the reactive engine from routing VMs back
-                                # onto a node the Oracle just decided is going to be overloaded
-                                reservation_secs = self.config.get('PREDICTIVE_RESERVATION_MINUTES', 5) * 60
-                                seen_sources = set()
-                                for rec in valid_recs:
-                                    if rec.source_node in seen_sources:
-                                        continue
-                                    seen_sources.add(rec.source_node)
-                                    release_time = rec.peak_time + reservation_secs
-                                    existing = self.reserved_nodes.get(rec.source_node, 0)
-                                    if release_time > existing:
-                                        self.reserved_nodes[rec.source_node] = release_time
-                                        fmt = time.strftime('%Y-%m-%d %H:%M', time.localtime(release_time))
-                                        self.log(0, f"[RESERVATION] Node {rec.source_ip} locked as target until {fmt} (Oracle: predicted overload)")
-
-                    # --- discard recommendations whose peak has already passed ---
-                    self._pending_predictive_recs = [r for r in self._pending_predictive_recs if r.peak_time > now]
-
-                    # --- act on any recommendation whose peak is within the lead time window ---
-                    ready_recs = [r for r in self._pending_predictive_recs if r.peak_time - now <= lead_time_seconds]
-                    if ready_recs:
-                        rec = ready_recs[0]
-                        self._pending_predictive_recs.remove(rec)
-                        info = f"{rec.vm_name} | {rec.source_ip} -> {rec.target_ip} (Predictive: {rec.reason})"
-
-                        if self.config['DRY_RUN']:
-                            self.log(0, f"[PREDICTIVE DRY RUN] Would move {info}")
-                            self.vm_cooldowns[rec.vm_uuid] = time.time()
-                            self.last_migration_time = time.time()
-                        else:
-                            self.log(0, f"[PREDICTIVE ACTION] Migrating {info}")
-                            try:
-                                task = self.client.migrate(rec.vm_uuid, rec.target_node)
-                                self.active_task = {"tag": task['taskTag'], "vm": rec.vm_name}
-                                self.vm_cooldowns[rec.vm_uuid] = time.time()
-                                self.last_migration_time = time.time()
-                            except Exception as e:
-                                self.log(0, f"[PREDICTIVE ERROR] Migration request rejected for {rec.vm_name}: {e}")
-                                self.vm_cooldowns[rec.vm_uuid] = time.time()
-                                applied_predictive = False
-                                continue
-
-                        self.migration_logger.log_event(
-                            vm_name=rec.vm_name, vm_uuid=rec.vm_uuid,
-                            source_ip=rec.source_ip, target_ip=rec.target_ip,
-                            engine="predictive", mode="PREDICTIVE",
-                            dry_run=self.config['DRY_RUN'], reason=rec.reason,
-                            cluster_id=self.cluster_id
-                        )
-
-                        reservation_secs = self.config.get('PREDICTIVE_RESERVATION_MINUTES', 5) * 60
-                        release_time = rec.peak_time + reservation_secs
-                        existing = self.reserved_nodes.get(rec.source_node, 0)
-                        if release_time > existing:
-                            self.reserved_nodes[rec.source_node] = release_time
-                            formatted_time = time.strftime('%Y-%m-%d %H:%M', time.localtime(release_time))
-                            self.log(0, f"[RESERVATION] Node {rec.source_ip} locked from receiving VMs until {formatted_time}")
-                        applied_predictive = True
-
-                    # --- start a new forecast thread if interval has elapsed ---
-                    jitter = random.uniform(0, self.config['PREDICTIVE_INTERVAL_SECONDS'] * 0.1)
-                    if time.time() - self.last_predictive_run > (self.config['PREDICTIVE_INTERVAL_SECONDS'] + jitter):
-                        if self._predictive_thread is not None and self._predictive_thread.is_alive():
-                            if not self._predictive_overrun_logged:
-                                self.log(0, "[PREDICTIVE] WARNING: Previous forecast is still running — skipping this interval.")
-                                self._predictive_overrun_logged = True
-                        else:
-                            self.log(0, "[PREDICTIVE] Starting background forecast thread.")
-                            vms_snapshot = list(vms)
-                            nodes_snapshot = list(nodes)
-                            self._predictive_thread = threading.Thread(
-                                target=self._run_predictive_background,
-                                args=(vms_snapshot, nodes_snapshot),
-                                daemon=True,
-                                name="PredictiveEngine"
-                            )
-                            self._predictive_thread.start()
-                        self.last_predictive_run = time.time()
-
-                    if self.active_task or (self.config['DRY_RUN'] and applied_predictive):
-                        self._sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
-                        continue
-
-                # =================================================================
-                # reactive balancing
-                # =================================================================
-                first_uid = nodes[0]['uuid'] if nodes else None
-                if first_uid and len(self.node_cpu_history.get(first_uid, [])) < self.max_history:
-                    self.log(2, f"Buffer: {len(self.node_cpu_history[first_uid])}/{self.max_history}")
-                    self._sleep(self.config['SAMPLE_INTERVAL_SECONDS']); continue
-
-                vm, src, tgt, mode = self.select_candidate(state)
-                
-                if vm:
-                    info = f"{vm['name']} | {src['name']} -> {tgt['name']} ({mode})"
-                    if self.config['DRY_RUN']:
-                        self.log(0, f"[REACTIVE DRY RUN] Would move {info}")
-                        self.last_migration_time = time.time()
-                        self.vm_cooldowns[vm['uuid']] = time.time()
-                        self.node_cpu_history.clear()
-                    else:
-                        self.log(0, f"[REACTIVE ACTION] Migrating {info}")
-                        try:
-                            task = self.client.migrate(vm['uuid'], tgt['uuid'])
-                            self.active_task = {"tag": task['taskTag'], "vm": vm['name']}
-                            self.vm_cooldowns[vm['uuid']] = time.time()
-                        except Exception as e:
-                            self.log(0, f"[REACTIVE ERROR] Migration request rejected for {vm['name']}: {e}")
-                            self.vm_cooldowns[vm['uuid']] = time.time()
-                            self._sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
-                            continue
-
-                    # log the event to InfluxDB for the dashboard
-                    self.migration_logger.log_event(
-                        vm_name=vm['name'], vm_uuid=vm['uuid'],
-                        source_ip=src['name'], target_ip=tgt['name'],
-                        engine="reactive", mode=mode,
-                        dry_run=self.config['DRY_RUN'],
-                        reason=f"Reactive {mode} balancing",
-                        cluster_id=self.cluster_id
-                    )
-                    
-                self._sleep(self.config['SAMPLE_INTERVAL_SECONDS'])
+                    delay = self._cycle()
+                except Exception as e:      # noqa: BLE001  one bad cycle must not end the thread (and cost a login)
+                    self.log(0, f"[ERROR] Balancing cycle failed: {e}")
+                    traceback.print_exc()
+                    delay = self.config.get('SAMPLE_INTERVAL_SECONDS') or 30
+                self._sleep(delay)
         except KeyboardInterrupt: self.log(0, "Shutdown requested.")
         finally:
             self.log(0, "Balancer stopped for this cluster.")
             self.client.close()
             self.migration_logger.close()
+
+    def _cycle(self) -> float:
+        """One pass of the balancing loop; returns the seconds to wait before the next."""
+        # hot-reload tunables every 60 seconds
+        now_ts = time.time()
+        if now_ts - self._last_config_check > 60:
+            self.reload_config()
+            self._last_config_check = now_ts
+
+        if self.active_task:
+            task = self.active_task
+            status = self.client.get_task_status(task['tag'])
+            if status in ["COMPLETE", "ERROR"]:
+                self.log(0, f"Migration {status} for {task['vm']}")
+                self.active_task = None
+                self.last_migration_time = time.time()
+                return 10
+            # UNKNOWN: the status could not be read; UNINITIALIZED: the cluster does not know the tag
+            task['unknown'] = task.get('unknown', 0) + 1 if status in ("UNKNOWN", "UNINITIALIZED") else 0
+            age = time.time() - task.setdefault('started', time.time())
+            if age > TASK_DEADLINE_SECONDS or task['unknown'] >= TASK_MAX_UNKNOWN:
+                why = (f"no status for {task['unknown']} checks" if task['unknown'] >= TASK_MAX_UNKNOWN
+                       else f"still {status} after {int(age // 60)} min")
+                self.log(0, f"[TASK] Giving up on migration task {task['tag']} for {task['vm']} ({why}); "
+                            f"re-reading placement.")
+                self.active_task = None
+                self.last_migration_time = time.time()
+            return 10
+
+        try:
+            nodes, vms, stats = self.client.get_nodes(), self.client.get_vms(), self.client.get_vm_stats()
+            self.update_metrics(nodes, stats)
+        except Exception as e:
+            self.log(0, f"API Fetch Error: {e}"); return 30
+
+        # evaluate cluster state once — shared by affinity, predictive, and reactive engines
+        state  = self.evaluate_cluster(nodes, vms)
+        usable = [n for n in state.values() if n['is_usable']]
+
+        # =================================================================
+        # affinity enforcement — highest priority, bypasses all cooldowns
+        # =================================================================
+        now = time.time()
+        dry_run = self.config['DRY_RUN']
+        if dry_run:
+            self._affinity_reported = {u: t for u, t in self._affinity_reported.items()
+                                       if now - t < AFFINITY_DRY_REPORT_SECONDS}
+            skip = set(self._affinity_reported)
+        else:
+            skip = {u for u, (_, until) in self._affinity_backoff.items() if until > now}
+        aff_vm, aff_src, aff_tgt, aff_reason = self.find_affinity_violation(usable, skip)
+        if aff_vm:
+            info = f"{aff_vm['name']} | {aff_src['name']} -> {aff_tgt['name']} (Affinity: {aff_reason})"
+            aff_mode = "anti-affinity" if "anti-affinity" in aff_reason.lower() else "node-affinity"
+            if dry_run:
+                # reported once (again after a day); nothing moves, so the reactive and predictive
+                # engines below still get their turn instead of being skipped every cycle
+                self.log(0, f"[AFFINITY DRY RUN] Would move {info}")
+                self._affinity_reported[aff_vm['uuid']] = now
+                self.vm_cooldowns[aff_vm['uuid']] = now
+            else:
+                self.log(0, f"[AFFINITY ACTION] {info}")
+                try:
+                    task = self.client.migrate(aff_vm['uuid'], aff_tgt['uuid'])
+                    self.active_task = {"tag": task['taskTag'], "vm": aff_vm['name'], "started": time.time()}
+                    self.vm_cooldowns[aff_vm['uuid']] = time.time()
+                    self.last_migration_time = time.time()
+                    self._affinity_backoff.pop(aff_vm['uuid'], None)
+                except Exception as e:
+                    n = self._affinity_backoff.get(aff_vm['uuid'], (0, 0))[0] + 1
+                    wait = min(AFFINITY_RETRY_MAX_SECONDS, AFFINITY_RETRY_BASE_SECONDS * 2 ** (n - 1))
+                    self._affinity_backoff[aff_vm['uuid']] = (n, time.time() + wait)
+                    self.vm_cooldowns[aff_vm['uuid']] = time.time()
+                    self.log(0, f"[AFFINITY ERROR] Migration rejected for {aff_vm['name']}: {e} "
+                                f"(next attempt in {wait // 60} min)")
+                    return self.config['SAMPLE_INTERVAL_SECONDS']   # a refused move is not logged as done
+            self.migration_logger.log_event(
+                vm_name=aff_vm['name'], vm_uuid=aff_vm['uuid'],
+                source_ip=aff_src['name'], target_ip=aff_tgt['name'],
+                engine="Affinity", mode=aff_mode,
+                dry_run=dry_run, reason="affinity-violation",
+                cluster_id=self.cluster_id
+            )
+            if not dry_run:
+                return self.config['SAMPLE_INTERVAL_SECONDS']
+
+        # non-affinity migration cooldown
+        elapsed = time.time() - self.last_migration_time
+        cluster_cd = self.config['MIGRATION_COOLDOWN_MINUTES'] * 60
+        if elapsed < cluster_cd:
+            return self.config['SAMPLE_INTERVAL_SECONDS']
+
+        # =================================================================
+        # optional: predictive balancing
+        # =================================================================
+        if self.config['PREDICTIVE_BALANCING_ENABLED']:
+            applied_predictive = False
+            now = time.time()
+            lead_time_seconds = self.config['PREDICTIVE_LEAD_TIME_HOURS'] * 3600
+
+            # --- store results from a completed forecast thread ---
+            if self._predictive_thread is not None and not self._predictive_thread.is_alive():
+                recommendations = self._predictive_results or []
+                self._predictive_results = None
+                self._predictive_thread = None
+                self._predictive_overrun_logged = False
+
+                valid_recs = []
+                if recommendations:
+                    current_vms = {vm['uuid']: vm for vm in vms}
+                    current_node_uuids = {n['uuid'] for n in nodes}
+                    for rec in recommendations:
+                        vm_current = current_vms.get(rec.vm_uuid)
+                        if not vm_current:
+                            self.log(0, f"[PREDICTIVE] Skipping stale recommendation: VM '{rec.vm_name}' no longer exists in cluster.")
+                            continue
+                        if vm_current.get('nodeUUID') != rec.source_node:
+                            self.log(0, f"[PREDICTIVE] Skipping stale recommendation: VM '{rec.vm_name}' has already moved to a different node.")
+                            continue
+                        if rec.target_node not in current_node_uuids:
+                            self.log(0, f"[PREDICTIVE] Skipping stale recommendation: target node for '{rec.vm_name}' is no longer available.")
+                            continue
+                        valid_recs.append(rec)
+
+                # a clean forecast clears the queue: recommendations of an earlier run do not survive it
+                self._pending_predictive_recs = valid_recs
+                if valid_recs:
+                    earliest = min(valid_recs, key=lambda r: r.peak_time)
+                    earliest_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(earliest.peak_time))
+                    self.log(0, f"[PREDICTIVE] {len(valid_recs)} recommendation(s) queued. Earliest peak at {earliest_str}.")
+
+                    # reserve all source nodes immediately — don't wait for each migration
+                    # to execute. this prevents the reactive engine from routing VMs back
+                    # onto a node the Oracle just decided is going to be overloaded
+                    reservation_secs = self.config.get('PREDICTIVE_RESERVATION_MINUTES', 5) * 60
+                    seen_sources = set()
+                    for rec in valid_recs:
+                        if rec.source_node in seen_sources:
+                            continue
+                        seen_sources.add(rec.source_node)
+                        release_time = rec.peak_time + reservation_secs
+                        existing = self.reserved_nodes.get(rec.source_node, 0)
+                        if release_time > existing:
+                            self.reserved_nodes[rec.source_node] = release_time
+                            fmt = time.strftime('%Y-%m-%d %H:%M', time.localtime(release_time))
+                            self.log(0, f"[RESERVATION] Node {rec.source_ip} locked as target until {fmt} (Oracle: predicted overload)")
+
+            # --- discard recommendations whose peak has already passed ---
+            self._pending_predictive_recs = [r for r in self._pending_predictive_recs if r.peak_time > now]
+
+            # --- act on any recommendation whose peak is within the lead time window ---
+            ready_recs = [r for r in self._pending_predictive_recs if r.peak_time - now <= lead_time_seconds]
+            rec = None
+            for candidate in ready_recs:
+                # the reactive engine's target test, against the state of now: the recommendation
+                # may be a day old, and its target may since be in maintenance, excluded or full
+                self._pending_predictive_recs.remove(candidate)
+                refusal = self._predictive_refusal(candidate, state)
+                if refusal:
+                    self.log(0, f"[PREDICTIVE] Dropping recommendation {candidate.vm_name} -> {candidate.target_ip}: {refusal}.")
+                    continue
+                rec = candidate
+                break
+            if rec:
+                info = f"{rec.vm_name} | {rec.source_ip} -> {rec.target_ip} (Predictive: {rec.reason})"
+
+                if self.config['DRY_RUN']:
+                    self.log(0, f"[PREDICTIVE DRY RUN] Would move {info}")
+                    self.vm_cooldowns[rec.vm_uuid] = time.time()
+                    self.last_migration_time = time.time()
+                else:
+                    self.log(0, f"[PREDICTIVE ACTION] Migrating {info}")
+                    try:
+                        task = self.client.migrate(rec.vm_uuid, rec.target_node)
+                        self.active_task = {"tag": task['taskTag'], "vm": rec.vm_name, "started": time.time()}
+                        self.vm_cooldowns[rec.vm_uuid] = time.time()
+                        self.last_migration_time = time.time()
+                    except Exception as e:
+                        self.log(0, f"[PREDICTIVE ERROR] Migration request rejected for {rec.vm_name}: {e}")
+                        self.vm_cooldowns[rec.vm_uuid] = time.time()
+                        return 0
+
+                self.migration_logger.log_event(
+                    vm_name=rec.vm_name, vm_uuid=rec.vm_uuid,
+                    source_ip=rec.source_ip, target_ip=rec.target_ip,
+                    engine="predictive", mode="PREDICTIVE",
+                    dry_run=self.config['DRY_RUN'], reason=rec.reason,
+                    cluster_id=self.cluster_id
+                )
+
+                reservation_secs = self.config.get('PREDICTIVE_RESERVATION_MINUTES', 5) * 60
+                release_time = rec.peak_time + reservation_secs
+                existing = self.reserved_nodes.get(rec.source_node, 0)
+                if release_time > existing:
+                    self.reserved_nodes[rec.source_node] = release_time
+                    formatted_time = time.strftime('%Y-%m-%d %H:%M', time.localtime(release_time))
+                    self.log(0, f"[RESERVATION] Node {rec.source_ip} locked from receiving VMs until {formatted_time}")
+                applied_predictive = True
+
+            # --- start a new forecast thread if interval has elapsed ---
+            jitter = random.uniform(0, self.config['PREDICTIVE_INTERVAL_SECONDS'] * 0.1)
+            if time.time() - self.last_predictive_run > (self.config['PREDICTIVE_INTERVAL_SECONDS'] + jitter):
+                if self._predictive_thread is not None and self._predictive_thread.is_alive():
+                    if not self._predictive_overrun_logged:
+                        self.log(0, "[PREDICTIVE] WARNING: Previous forecast is still running — skipping this interval.")
+                        self._predictive_overrun_logged = True
+                else:
+                    self.log(0, "[PREDICTIVE] Starting background forecast thread.")
+                    vms_snapshot = list(vms)
+                    # only nodes a VM may run on: the Oracle picks its targets from these
+                    nodes_snapshot = [n for n in nodes if state.get(n['uuid'], {}).get('is_usable')]
+                    self._predictive_thread = threading.Thread(
+                        target=self._run_predictive_background,
+                        args=(vms_snapshot, nodes_snapshot),
+                        daemon=True,
+                        name="PredictiveEngine"
+                    )
+                    self._predictive_thread.start()
+                self.last_predictive_run = time.time()
+
+            if self.active_task or (self.config['DRY_RUN'] and applied_predictive):
+                return self.config['SAMPLE_INTERVAL_SECONDS']
+
+        # =================================================================
+        # reactive balancing
+        # =================================================================
+        first_uid = nodes[0]['uuid'] if nodes else None
+        if first_uid and len(self.node_cpu_history.get(first_uid, [])) < self.max_history:
+            self.log(2, f"Buffer: {len(self.node_cpu_history[first_uid])}/{self.max_history}")
+            return self.config['SAMPLE_INTERVAL_SECONDS']
+
+        vm, src, tgt, mode = self.select_candidate(state)
+
+        if vm:
+            info = f"{vm['name']} | {src['name']} -> {tgt['name']} ({mode})"
+            if self.config['DRY_RUN']:
+                self.log(0, f"[REACTIVE DRY RUN] Would move {info}")
+                self.last_migration_time = time.time()
+                self.vm_cooldowns[vm['uuid']] = time.time()
+                self.node_cpu_history.clear()
+            else:
+                self.log(0, f"[REACTIVE ACTION] Migrating {info}")
+                try:
+                    task = self.client.migrate(vm['uuid'], tgt['uuid'])
+                    self.active_task = {"tag": task['taskTag'], "vm": vm['name'], "started": time.time()}
+                    self.vm_cooldowns[vm['uuid']] = time.time()
+                except Exception as e:
+                    self.log(0, f"[REACTIVE ERROR] Migration request rejected for {vm['name']}: {e}")
+                    self.vm_cooldowns[vm['uuid']] = time.time()
+                    return self.config['SAMPLE_INTERVAL_SECONDS']
+
+            # log the event to InfluxDB for the dashboard
+            self.migration_logger.log_event(
+                vm_name=vm['name'], vm_uuid=vm['uuid'],
+                source_ip=src['name'], target_ip=tgt['name'],
+                engine="reactive", mode=mode,
+                dry_run=self.config['DRY_RUN'],
+                reason=f"Reactive {mode} balancing",
+                cluster_id=self.cluster_id
+            )
+
+        return self.config['SAMPLE_INTERVAL_SECONDS']
 
 class ClusterBalancerThread(threading.Thread):
     """Runs one LoadBalancer for one registry cluster until its stop event is set."""
@@ -754,6 +851,7 @@ class ClusterBalancerThread(threading.Thread):
         self.cluster = cluster
         self.stop_event = stop_event
         self.migration_logger = migration_logger
+        self.started_at = time.time()
 
     def run(self):
         username, password = cluster_registry.credentials(self.cluster.cluster_id)
@@ -765,11 +863,42 @@ class ClusterBalancerThread(threading.Thread):
         client.interlock = lambda vm_uuid, _cid=self.cluster.cluster_id, _c=client: _busy_reason(_cid, _c, vm_uuid)
         if not client.login():
             cluster_registry.mark_error(self.cluster.cluster_id, 'balancer login failed')
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{self.cluster.name}] Login failed — retrying on next registry sync.")
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{self.cluster.name}] Login failed — retrying after a backoff.")
             return
         config_db.copy_template_to(self.cluster.cluster_id)   # pick up tunables added since registration
         config = config_db.get_all(self.cluster.cluster_id)
         LoadBalancer(client, config, self.migration_logger, cluster=self.cluster, stop_event=self.stop_event).start()
+
+
+def reconcile(threads: Dict, clusters: Dict, suspended: set, backoff: Dict, start_thread, now: float) -> None:
+    """Bring the running cluster threads in line with the registry. A thread is stopped when its
+    cluster is removed, disabled, suspended or changed (credentials, host), and restarted at once in
+    the last case. A thread that died on its own (a crash, or a login the cluster refused) is
+    restarted only after a backoff that doubles per death; before, it was recreated on every
+    registry pass, which is one new login a minute against the cluster's hourly limit.
+    `backoff` maps cluster_id -> (deaths in a row, earliest restart, the cluster's updated_at)."""
+    for cid, (t, ev) in list(threads.items()):
+        c = clusters.get(cid)
+        changed = c is None or c.updated_at != t.cluster.updated_at
+        died = not t.is_alive()
+        if changed or died or cid in suspended:
+            ev.set()
+            del threads[cid]
+            if died and not changed and cid not in suspended:
+                n = 0 if now - getattr(t, 'started_at', now) >= HEALTHY_RUN_SECONDS else backoff.get(cid, (0, 0, None))[0]
+                n += 1
+                wait = min(RESTART_BACKOFF_MAX_SECONDS, REGISTRY_POLL_SECONDS * 2 ** (n - 1))
+                backoff[cid] = (n, now + wait, c.updated_at)
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{c.name}] Balancer thread stopped "
+                      f"({n}x in a row); next attempt in {wait // 60} min.")
+    for cid, c in clusters.items():
+        if cid in suspended or cid in threads:
+            continue
+        n, until, seen = backoff.get(cid, (0, 0, None))
+        if now < until and seen == c.updated_at:      # a changed cluster (new password) is tried at once
+            continue
+        ev = threading.Event()
+        threads[cid] = (start_thread(c, ev), ev)
 
 
 def _handle_sigterm(*_):
@@ -784,7 +913,13 @@ if __name__ == "__main__":
     migration_logger = MigrationLogger(INFLUX_URL, INFLUX_TOKEN, INFLUX_ORG, INFLUX_BUCKET)
     threads: Dict[str, Tuple[ClusterBalancerThread, threading.Event]] = {}
     warned_duplicates: set = set()
+    restart_backoff: Dict[str, Tuple[int, float, Any]] = {}
     last_idle_notice = 0.0
+
+    def _start(c, ev):
+        t = ClusterBalancerThread(c, migration_logger, ev)
+        t.start()
+        return t
     try:
         while True:
             try:
@@ -803,20 +938,7 @@ if __name__ == "__main__":
                             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [{dup.name}] Balancing SUSPENDED: same HyperCore "
                                   f"cluster as '{group[0].name}'. Remove the duplicate entry or point it at another cluster.")
                             warned_duplicates.add(dup.cluster_id)
-                for cid, (t, ev) in list(threads.items()):
-                    c = clusters.get(cid)
-                    # stop on removal/disable, on a credential/host change, if the thread died, or when suspended
-                    if c is None or c.updated_at != t.cluster.updated_at or not t.is_alive() or cid in suspended:
-                        ev.set()
-                        del threads[cid]
-                for cid, c in clusters.items():
-                    if cid in suspended:
-                        continue
-                    if cid not in threads:
-                        ev = threading.Event()
-                        t = ClusterBalancerThread(c, migration_logger, ev)
-                        t.start()
-                        threads[cid] = (t, ev)
+                reconcile(threads, clusters, suspended, restart_backoff, _start, time.time())
                 if not clusters and time.time() - last_idle_notice > 300:
                     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] No clusters registered yet — add one in the dashboard (Settings → Clusters).")
                     last_idle_notice = time.time()

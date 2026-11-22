@@ -190,3 +190,89 @@ def test_the_failing_node_is_tried_last_not_dropped():
     s.logged_in_at = 0.0
     assert s.login(exclude='10.0.0.1') == '10.0.0.1'
     assert http.logins[-1] == '10.0.0.1'
+
+
+def _refused(host):
+    """What requests raises when the TCP connection cannot be made: the request never left."""
+    from urllib3.exceptions import MaxRetryError, NewConnectionError
+    return requests.exceptions.ConnectionError(MaxRetryError(None, f'https://{host}/', NewConnectionError(None, 'refused')))
+
+
+def test_a_post_that_timed_out_after_sending_is_not_sent_again():
+    """A POST HyperCore accepted but answered late was sent three times (twice on the node, once more on the
+    next node after a new login): a migration, clone or new VM could happen three times."""
+    http = FakeHttp(); s = _session(http)
+    s.get_json('/Node')
+    real = http.request
+
+    def slow(method, url, **kw):
+        if method == 'POST':
+            http.calls.append((method, http._host(url)))
+            raise requests.exceptions.ReadTimeout('read timed out')
+        return real(method, url, **kw)
+    http.request = slow
+    with pytest.raises(requests.exceptions.ReadTimeout):
+        s.post('/VirDomain/action', json=[{'actionType': 'LIVEMIGRATE'}])
+    assert [c for c in http.calls if c[0] == 'POST'] == [('POST', '10.0.0.1')], 'sent exactly once'
+    assert http.logins == ['10.0.0.1'], 'no failover login for an ambiguous POST'
+
+
+def test_a_post_whose_connection_dropped_after_sending_is_not_sent_again():
+    http = FakeHttp(); s = _session(http)
+    s.get_json('/Node')
+    real = http.request
+
+    def dropped(method, url, **kw):
+        if method == 'POST':
+            http.calls.append((method, http._host(url)))
+            raise requests.exceptions.ConnectionError('Remote end closed connection without response')
+        return real(method, url, **kw)
+    http.request = dropped
+    with pytest.raises(requests.exceptions.ConnectionError):
+        s.post('/VirDomain/action', json=[])
+    assert len([c for c in http.calls if c[0] == 'POST']) == 1
+
+
+def test_a_post_that_never_left_fails_over():
+    """Connection refused: HyperCore never saw it, so the POST may go to the next node."""
+    http = FakeHttp(); s = _session(http)
+    s.get_json('/Node')
+    real = http.request
+
+    def refuse(method, url, **kw):
+        h = http._host(url)
+        if h == '10.0.0.1':
+            http.calls.append((method, h))
+            raise _refused(h)
+        return real(method, url, **kw)
+    http.request = refuse
+    assert s.post('/VirDomain/action', json=[]).status_code == 200
+    assert [c for c in http.calls if c[0] == 'POST'] == [('POST', '10.0.0.1'), ('POST', '10.0.0.1'), ('POST', '10.0.0.2')]
+
+
+def test_a_401_another_thread_already_handled_makes_no_second_login():
+    """Six threads seeing the same expiry each did logout()+login(); a logout could kill the session the
+    previous thread had just made. Only the first thread logs in again."""
+    http = FakeHttp(); s = _session(http)
+    s.get_json('/Node')
+    real = http.request
+    real_post = http.post
+    logouts = []
+
+    def post(url, **kw):
+        if url.endswith('/logout'):
+            logouts.append(url)
+        return real_post(url, **kw)
+    http.post = post
+    raced = []
+
+    def racing(method, url, **kw):
+        if not raced:                                  # our request goes out with the old session...
+            raced.append(1)
+            s.login()                                  # ...while another thread logs in again
+            return Resp(401)
+        return real(method, url, **kw)
+    http.request = racing
+    assert s.get_json('/Node') == {'node': '10.0.0.1'}
+    assert http.logins == ['10.0.0.1', '10.0.0.1'], "the other thread's login is reused"
+    assert logouts == [], 'the fresh session is not logged out'

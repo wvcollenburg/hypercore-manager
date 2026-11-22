@@ -146,6 +146,28 @@ def register(app, sock, requires, public, h):
         finally:
             conn.close()
 
+    def counter(sql: str, params) -> int | None:
+        """One atomic UPDATE ... RETURNING on a grant's counter (four workers: never read, add, write back)."""
+        conn = db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                row = cur.fetchone()
+            conn.commit()
+        finally:
+            conn.close()
+        return int(list(row.values())[0]) if row else None
+
+    def count_failed_code(gid: int) -> int:
+        return counter("""UPDATE console.guest_grants SET failed_codes = COALESCE(failed_codes, 0) + 1,
+                                 status = CASE WHEN COALESCE(failed_codes, 0) + 1 >= %s THEN 'locked' ELSE status END
+                           WHERE id = %s RETURNING failed_codes""", (MAX_FAILED, gid)) or MAX_FAILED
+
+    def claim_session(gid: int) -> int | None:
+        """The next session of the grant, or None when every one is used (also by a request a moment earlier)."""
+        return counter("""UPDATE console.guest_grants SET sessions_used = sessions_used + 1
+                           WHERE id = %s AND sessions_used < max_sessions RETURNING sessions_used""", (gid,))
+
     def label(g) -> str:
         return f"{g['guest_name']}{' (' + g['guest_company'] + ')' if g.get('guest_company') else ''} on {g.get('vm_name') or g['vm_uuid']}"
 
@@ -183,6 +205,13 @@ def register(app, sock, requires, public, h):
         name = str(b.get('guest_name') or '').strip()
         if not name or len(name) > 120:
             raise AccessError("the guest's name is required (at most 120 characters)")
+        company = str(b.get('guest_company') or '').strip()
+        if len(company) > 120:
+            raise AccessError("the guest's company is at most 120 characters")
+        # name and company go into the approvers' mail; the label onto the guest's page
+        access_db.no_control(name, "the guest's name")
+        access_db.no_control(company, "the guest's company")
+        access_db.no_control(b.get('label'), 'the label')
         vf = _parse_time(b.get('valid_from') or _now().isoformat(), 'valid from')
         vu = _parse_time(b.get('valid_until'), 'valid until')
         if vu <= vf:
@@ -203,7 +232,7 @@ def register(app, sock, requires, public, h):
             raise AccessError('that VM is not on the cluster', 404)
         return {'cluster_id': cid, 'vm_uuid': vm, 'vm_name': vm_name,
                 'label': (str(b.get('label') or '').strip() or 'Console')[:60],
-                'guest_name': name, 'guest_company': (str(b.get('guest_company') or '').strip() or None),
+                'guest_name': name, 'guest_company': company or None,
                 'reason': (str(b.get('reason') or '').strip()[:500] or None), 'valid_from': vf, 'valid_until': vu,
                 'max_minutes': max_minutes, 'max_sessions': max_sessions,
                 'allow_open_session': bool(b.get('allow_open_session'))}
@@ -331,6 +360,11 @@ def register(app, sock, requires, public, h):
         Sent in the background; True when at least one mail is on its way."""
         if not mailer.configured():
             return False
+        base = mailer.link_base()
+        if not base:
+            # never the requester's Host header: the approvers would get a genuine mail with a link of their choosing
+            app.logger.warning('guest request %s: no mail to the approvers: %s', gid, mailer.LINK_ADDRESS_MISSING)
+            return False
         try:
             tree = h.access().tree
             tags = next((v.get('tags') or [] for v in h.vm_index_rows(f['cluster_id']) if v.get('uuid') == f['vm_uuid']), [])
@@ -347,7 +381,7 @@ def register(app, sock, requires, public, h):
         cluster = next((c.name for c in h.clusters() if str(c.cluster_id) == f['cluster_id']), '')
         values = {'vm': f['vm_name'], 'cluster': cluster or '-',
                   'guest': f['guest_name'] + (f" ({f['guest_company']})" if f.get('guest_company') else ''),
-                  'link': f'{mailer.link_base(request.host_url)}/guest-requests/{gid}'}
+                  'link': f'{base}/guest-requests/{gid}'}
         by = actor()
 
         def send():
@@ -539,8 +573,7 @@ def register(app, sock, requires, public, h):
                                 samesite='Strict', secure=https(),
                                 max_age=max(60, int((g['valid_until'] - _now()).total_seconds())))
                 return _harden(resp)
-            failed = (g['failed_codes'] or 0) + 1
-            update(g['id'], failed_codes=failed, status='locked' if failed >= MAX_FAILED else g['status'])
+            failed = count_failed_code(g['id'])
             audit('guest.code_failed', label(g), g['cluster_id'], {'ip': h.client_ip(), 'attempt': failed},
                   who=f"guest:{g['guest_name']}")
             if failed >= MAX_FAILED:
@@ -592,8 +625,10 @@ def register(app, sock, requires, public, h):
         if status != 200:
             return jsonify({'error': 'the console cannot be opened right now'}), 502
         d = json.loads(raw.decode() or '{}')
-        update(g['id'], sessions_used=g['sessions_used'] + 1)
-        audit('guest.session', label(g), g['cluster_id'], {'ip': h.client_ip(), 'session': g['sessions_used'] + 1}, who=who)
+        used = claim_session(g['id'])
+        if used is None:                  # two tickets asked for at once: the ticket just issued is not handed out
+            return jsonify({'error': 'every session of this access has been used'}), 403
+        audit('guest.session', label(g), g['cluster_id'], {'ip': h.client_ip(), 'session': used}, who=who)
         # the guest learns nothing about the VM: not its name, not the cluster
         return jsonify({'ticket': d['ticket'], 'max_minutes': max_minutes, 'idle_minutes': d.get('idle_minutes')})
 

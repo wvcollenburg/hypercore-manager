@@ -417,12 +417,20 @@ def plan_point(chain: dict | None, plan: dict, prev_point: dict | None, full: st
     if not chain.get('anchor_snapshot_uuid'):
         return 'full', 0, None, 'reference snapshot missing: taking a full instead of an incremental'
     if plan.get('force_full'):
-        return 'full', 0, None, 'the last synthetic full could not be built: taking a real full'
+        return 'full', 0, None, ('a real full was asked for: the last synthetic full could not be built, or the chain '
+                                 'could not be continued')
     if full == 'real':
         return 'full', 0, None, 'full day of the backup schedule'
     if full is None and int(chain.get('runs_since_full') or 0) >= max(1, int(plan.get('full_every_n') or 14)):
         return 'full', 0, None, f'scheduled full after {chain.get("runs_since_full")} incrementals'
     return 'delta', int(chain['next_seq']), int(prev_point['seq']), None
+
+
+def chain_out_of_step(e: Exception) -> bool:
+    """The proxy refused a point because the chain on the target is not where the catalogue thinks it is: the
+    point exists already (the proxy finished one that was never recorded) or its predecessor is missing."""
+    text = str(e)
+    return ' already exists in ' in text or ('previous point ' in text and ' not in chain' in text)
 
 
 # ------------------------------------------------------------------ the run
@@ -529,6 +537,10 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_starte
             db.update_chain(chain['id'], anchor_snapshot_uuid=None)
             chain['anchor_snapshot_uuid'] = None
     kind, seq, prev_seq, note = plan_point(chain, plan, prev_point, full)
+    if kind == 'delta' and chain.get('target_id') != share['id']:
+        # the folder got another target: the chain's points live on its own target, a delta on the new one has no
+        # base. The old chain retires there and expires through retention on that target.
+        kind, seq, prev_seq, note = 'full', 0, None, "the folder's backup target changed: taking a full on the new target"
     if kind == 'full' and chain is not None:
         # a new full starts a new chain; the old one retires and expires through retention
         db.update_chain(chain['id'], status='retired')
@@ -563,69 +575,89 @@ def _run(plan: dict, run_id: int, hc: HyperCoreClient | None = None, work_starte
     make_way(proxy['id'], 'a backup')
     lock.acquire()
     lock_wait = time.monotonic() - wait_t0
+    # the proxy lock is released exactly once, in the finally, whatever is raised in between (a requests error the
+    # proxy client does not wrap, a database error); the new anchor goes when the run did not get through
+    unchanged, failed = False, True
     try:
-        # 2. clones + 3. maps
-        req_devices = []
-        for dev in devices:
-            cap = device_capacity(dev)
-            clone_uuid = clone_onto(hc, dev['uuid'], snap_uuid, proxy['vm_uuid'], cap, read_only=True)
-            clones.append(clone_uuid)
-            db.update_chain(chain['id'], active_clones=clones)
-            serial = serials.get(dev['uuid'])
-            if dev['type'] in HyperCoreClient.DISK_TYPES:
-                if kind == 'delta' and dev['uuid'] in prev_serials and dev['uuid'] not in resized:
-                    dev_map = hc.snap_diff(dev['uuid'], prev_serials[dev['uuid']], serial)
-                    entry = {'map': dev_map}
+        try:
+            # 2. clones + 3. maps
+            req_devices = []
+            for dev in devices:
+                cap = device_capacity(dev)
+                clone_uuid = clone_onto(hc, dev['uuid'], snap_uuid, proxy['vm_uuid'], cap, read_only=True)
+                clones.append(clone_uuid)
+                db.update_chain(chain['id'], active_clones=clones)
+                serial = serials.get(dev['uuid'])
+                if dev['type'] in HyperCoreClient.DISK_TYPES:
+                    if kind == 'delta' and dev['uuid'] in prev_serials and dev['uuid'] not in resized:
+                        dev_map = hc.snap_diff(dev['uuid'], prev_serials[dev['uuid']], serial)
+                        entry = {'map': dev_map}
+                    else:
+                        entry = {'map': hc.snap_diff(dev['uuid'], 0, serial)}
+                        if kind == 'delta':
+                            # new or resized disk inside a delta point: the proxy writes it without a
+                            # backing file (`full`); `full_map` is what older proxies read
+                            entry['full_map'] = entry['map']
+                            entry['full'] = True
                 else:
-                    entry = {'map': hc.snap_diff(dev['uuid'], 0, serial)}
-                    if kind == 'delta':
-                        # new or resized disk inside a delta point: the proxy writes it without a
-                        # backing file (`full`); `full_map` is what older proxies read
-                        entry['full_map'] = entry['map']
-                        entry['full'] = True
-            else:
-                entry = {'map': [{'lower': 0, 'upper': 0}]}       # NVRAM / vTPM: 1 MiB, always re-copied
-            req_devices.append({'uuid': dev['uuid'], 'type': dev['type'], 'clone_uuid': clone_uuid, 'size': cap,
-                                'image_size': image_size(dev), 'serial': serial, **entry})
-        blocks = sum(jobs_blocks(d['map']) for d in req_devices)
-        disk_blocks = sum(jobs_blocks(d['map']) for d in req_devices if d['type'] in HyperCoreClient.DISK_TYPES)
-        if kind == 'delta' and disk_blocks == 0:
-            # nothing changed on any disk since the previous point: no new point, keep the old anchor
-            db.update_chain(chain['id'], active_clones=_delete_clones(hc, clones))
-            lock.release()
-            _safe_delete_snapshot(hc, snap_uuid, 'unneeded anchor')
-            end = _now()
-            db.update_run(run_id, status='COMPLETE', finished_at=end, blocks_changed=0, bytes_written=0,
-                          message='No blocks changed since the previous point; nothing written.',
-                          **jobs.run_timing(work_started, lock_wait, 0.0, end))
-            log.info('[run %s] no changes, skipped', run_id)
-            return
-        db.update_run(run_id, blocks_changed=blocks, message=f'{kind}: {blocks} MiB to copy, proxy {proxy["name"]}')
+                    entry = {'map': [{'lower': 0, 'upper': 0}]}       # NVRAM / vTPM: 1 MiB, always re-copied
+                req_devices.append({'uuid': dev['uuid'], 'type': dev['type'], 'clone_uuid': clone_uuid, 'size': cap,
+                                    'image_size': image_size(dev), 'serial': serial, **entry})
+            blocks = sum(jobs_blocks(d['map']) for d in req_devices)
+            disk_blocks = sum(jobs_blocks(d['map']) for d in req_devices if d['type'] in HyperCoreClient.DISK_TYPES)
+            # nothing changed on any disk since the previous point: no proxy job, no new point (see below)
+            unchanged = kind == 'delta' and disk_blocks == 0
+            if not unchanged:
+                db.update_run(run_id, blocks_changed=blocks, message=f'{kind}: {blocks} MiB to copy, proxy {proxy["name"]}')
 
-        # 4. proxy job
-        body = {'target': {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')},
-                'folder': loc['tenant'], 'vm': {'uuid': vm['uuid'], 'name': vm['name']}, 'chain_dir': chain['chain_dir'],
-                'point': {'kind': kind, 'seq': seq, 'previous_seq': prev_seq}, 'devices': req_devices,
-                'definition': definition, 'plan_id': plan['id'], 'run_id': run_id}
-        job_id = pc.submit('backup', body)
+                # 4. proxy job
+                body = {'target': {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')},
+                        'folder': loc['tenant'], 'vm': {'uuid': vm['uuid'], 'name': vm['name']}, 'chain_dir': chain['chain_dir'],
+                        'point': {'kind': kind, 'seq': seq, 'previous_seq': prev_seq}, 'devices': req_devices,
+                        'definition': definition, 'plan_id': plan['id'], 'run_id': run_id}
+                job_id = pc.submit('backup', body)
 
-        def on_progress(p):
-            if p.get('blocks_total'):
-                total_dev = p.get('devices_total', 1)
-                try:                                    # progress text is cosmetic: a db hiccup must not abort the copy
-                    db.update_run(run_id, message=backup_progress_text(kind, p), progress=backup_progress(p))
-                except Exception as e:                  # noqa: BLE001
-                    log.warning('[run %s] progress update failed: %s', run_id, e)
-        result = pc.wait(job_id, on_progress, timeout=CFG.task_timeout_hours * 3600)['result']
-    except Exception:
-        db.update_chain(chain['id'], active_clones=_delete_clones(hc, clones))
+                def on_progress(p):
+                    if p.get('blocks_total'):
+                        total_dev = p.get('devices_total', 1)
+                        try:                                    # progress text is cosmetic: a db hiccup must not abort the copy
+                            db.update_run(run_id, message=backup_progress_text(kind, p), progress=backup_progress(p))
+                        except Exception as e:                  # noqa: BLE001
+                            log.warning('[run %s] progress update failed: %s', run_id, e)
+                try:
+                    result = pc.wait(job_id, on_progress, timeout=CFG.task_timeout_hours * 3600)['result']
+                except ProxyError as e:
+                    if not chain_out_of_step(e):
+                        raise
+                    # the target holds a point this catalogue never recorded (a restart or a database error after
+                    # the proxy finished): this chain cannot be continued, the next run starts a new one
+                    db.update_schedule(plan['id'], force_full=True)
+                    raise ProxyError(f'{e}; the next run starts a new chain with a full') from e
+            leftover = _delete_clones(hc, clones)
+            failed = False
+        except Exception:
+            try:
+                db.update_chain(chain['id'], active_clones=_delete_clones(hc, clones))
+            except Exception:                           # noqa: BLE001 — the run's own error is what matters
+                log.warning('[run %s] clones of the failed run not recorded for the sweep', run_id, exc_info=True)
+            raise
+    finally:
         lock.release()
-        _safe_delete_snapshot(hc, snap_uuid, 'new anchor')
-        raise
+        if failed:
+            _safe_delete_snapshot(hc, snap_uuid, 'new anchor')
+
+    if unchanged:
+        # no new point, keep the old anchor
+        _safe_delete_snapshot(hc, snap_uuid, 'unneeded anchor')
+        db.update_chain(chain['id'], active_clones=leftover)
+        end = _now()
+        db.update_run(run_id, status='COMPLETE', finished_at=end, blocks_changed=0, bytes_written=0,
+                      message='No blocks changed since the previous point; nothing written.',
+                      **jobs.run_timing(work_started, lock_wait, 0.0, end))
+        log.info('[run %s] no changes, skipped', run_id)
+        return
 
     # 5. bookkeeping
-    leftover = _delete_clones(hc, clones)
-    lock.release()
     point_id = db.add_point(chain['id'], seq, kind, result['point_dir'], serials, blocks, result.get('bytes_written', 0),
                             result.get('duration_s', 0), result.get('devices', []), definition, run_id, quiesced=quiesced)
     db.update_chain(chain['id'], anchor_snapshot_uuid=snap_uuid, last_serials=serials, next_seq=seq + 1,
@@ -754,11 +786,19 @@ def apply_retention(plan: dict, pc: ProxyClient, share: dict) -> str:
     by_chain: dict[int, list[dict]] = {}
     for p in drop:
         by_chain.setdefault(p['chain_id'], []).append(p)
-    pruned = 0
+    pruned, skipped = 0, 0
     for chain_id, pts in by_chain.items():
         chain = db.get_chain(chain_id)
+        # every chain is pruned on its own target: after a target change the old chains are still on the old one
+        # (deleting them on the new target "succeeds" on a missing directory and the data would stay for ever)
+        cshare = share if chain.get('target_id') == share['id'] else (
+            db.get_share(chain['target_id'], with_secret=True) if chain.get('target_id') else None)
+        if not cshare:
+            log.warning('retention: chain %s has no target any more; its points are left alone', chain_id)
+            skipped += len(pts)
+            continue
         remaining = [p for p in db.get_points(chain_id) if p['id'] not in {x['id'] for x in pts}]
-        body = {'target': {'uri': share['uri_base'], 'username': share.get('username'), 'password': share.get('password')},
+        body = {'target': {'uri': cshare['uri_base'], 'username': cshare.get('username'), 'password': cshare.get('password')},
                 'chain_dir': chain['chain_dir']}
         try:
             if not remaining:
@@ -779,7 +819,8 @@ def apply_retention(plan: dict, pc: ProxyClient, share: dict) -> str:
             pruned += len(pts)
         except ProxyError as e:
             return f'Retention: pruning failed on chain {chain_id}: {e}'
-    return f'Retention: pruned {pruned} point(s), {len(points) - pruned} kept.'
+    return (f'Retention: pruned {pruned} point(s), {len(points) - pruned} kept'
+            + (f' ({skipped} due on a chain whose target no longer exists)' if skipped else '') + '.')
 
 
 # ------------------------------------------------------------------ sweeps
@@ -808,6 +849,10 @@ def sweep_cluster(cluster_id: str, max_age_days: int = 30) -> dict:
         _delete_clones(hc, list(ch.get('active_clones') or []))
         db.update_chain(ch['id'], active_clones=[])
         out['clones'] += len(ch.get('active_clones') or [])
+    try:
+        out.update(sweep_targets(cluster_id))
+    except Exception:                                   # noqa: BLE001 — e.g. no proxy reachable: tomorrow again
+        log.warning('sweep of targets for cluster %s failed', cluster_id, exc_info=True)
     for p in db.get_proxies(cluster_id):
         if not p.get('vm_uuid'):
             continue
@@ -817,6 +862,48 @@ def sweep_cluster(cluster_id: str, max_age_days: int = 30) -> dict:
                 log.warning('cloud-init ISO removed from proxy VM %s (%s): it carried the proxy token', p.get('name'), p['vm_uuid'][:8])
         except (HyperCoreError, IncrementalError) as e:
             log.warning('cloud-init disk of proxy %s: %s', p.get('name'), e)
+    return out
+
+
+def sweep_targets(cluster_id: str, now: datetime | None = None) -> dict:
+    """On the targets, through one of the cluster's proxies: chains without any point older than a day (a failed
+    full whose partial data discard_empty_chain could not remove), each on its own target, and restore
+    directories (<tenant>/_restore/*) older than a day that a failed restore left behind."""
+    out = {'empty_chains': 0, 'restore_dirs': 0}
+    from datetime import timedelta
+    cutoff = (now or _now()) - timedelta(days=1)
+    empty = db.empty_chains(cluster_id, cutoff)
+    folders = db.chain_folders(cluster_id)
+    if not empty and not folders:
+        return out
+    pc = proxy_client_for(pick_proxy(cluster_id))
+    shares: dict = {}
+
+    def target(tid):
+        if tid not in shares:
+            s = db.get_share(tid, with_secret=True) if tid else None
+            shares[tid] = {'uri': s['uri_base'], 'username': s.get('username'), 'password': s.get('password')} if s else None
+        return shares[tid]
+    for ch in empty:
+        t = target(ch.get('target_id'))
+        try:
+            if t:
+                pc.wait(pc.submit('delete_chain', {'target': t, 'chain_dir': ch['chain_dir']}), timeout=3600)
+            db.update_chain(ch['id'], status='deleted')
+            release_anchor(ch)
+            out['empty_chains'] += 1
+            log.info('sweep: chain %s without points removed (%s)', ch['id'], ch['chain_dir'])
+        except ProxyError as e:
+            log.warning('sweep: chain %s without points not removed: %s', ch['id'], e)
+    for f in folders:
+        t = target(f['target_id'])
+        if not t or jobs.is_nfs(t['uri']):          # restores (and so restore directories) are SMB only
+            continue
+        try:
+            res = pc.wait(pc.submit('sweep', {'target': t, 'folder': f['folder_slug'], 'older_than_hours': 24}), timeout=600)
+            out['restore_dirs'] += len((res.get('result') or {}).get('removed') or [])
+        except ProxyError as e:
+            log.warning('sweep: restore directories in %s not removed: %s', f['folder_slug'], e)
     return out
 
 
@@ -891,6 +978,9 @@ def verify_chain(chain: dict, share: dict, pc: ProxyClient, upto_seq: int | None
     if upto_seq is not None:
         body['upto_seq'] = int(upto_seq)
     res = pc.wait(pc.submit('verify', body), on_progress=on_progress, timeout=timeout)['result'] or {}
+    if res.get('healed'):
+        # a prune by a proxy before 0.6.3 left stale checksums in these points; 0.6.5 re-took them once
+        log.info('chain %s: checksums re-taken after a prune by an older proxy: %s', chain['id'], ', '.join(res['healed']))
     ok, failed = record_verify_result(chain['id'], res)
     res['ok'] = ok
     res['failed'] = failed

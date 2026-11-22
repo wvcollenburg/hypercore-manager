@@ -287,9 +287,11 @@ def _run_forecast(vms, nodes, forecast_hours, lookback_days, min_history_hours, 
             if predicted_node_loads[node_uuid] <= threshold:
                 break  # node is now predicted safe — stop evicting
 
-            # re-sort targets each iteration so we always pick the least-loaded one
+            # re-sort targets each iteration so we always pick the least-loaded one; never a node
+            # that may not run VMs (witness, maintenance) or is offline: empty, it would look ideal
             target_nodes = sorted(
-                [n for n in nodes if n['uuid'] != node_uuid],
+                [n for n in nodes if n['uuid'] != node_uuid
+                 and n.get('allowRunningVMs', True) and n.get('networkStatus', 'ONLINE') == 'ONLINE'],
                 key=lambda n: predicted_node_loads.get(n['uuid'], 100.0)
             )
 

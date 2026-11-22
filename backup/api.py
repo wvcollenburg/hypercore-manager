@@ -280,8 +280,12 @@ def vmedit_changes():
     cid = _cluster_arg()
     if not cid:
         return _err('cluster required')
+    try:
+        limit = int(request.args.get('limit') or 50)
+    except ValueError:
+        return _err('limit must be a whole number')
     return jsonify({'changes': [_vmedit_row(r) for r in vmedit.list_changes(cid, request.args.get('vm') or None,
-                                                                           int(request.args.get('limit') or 50))]})
+                                                                           max(1, min(limit, 500)))]})
 
 
 @app.post('/api/v1/vmedit/changes')
@@ -451,6 +455,18 @@ def schedules():
     return jsonify(rows)
 
 
+def _vm_of(cid: str, vm_uuid: str):
+    """(the VM as HyperCore reports it, None) or (None, error response). A plan for a VM that does not exist
+    was accepted and then failed every night; its name is taken from HyperCore, never from the request (it is
+    the export prefix and the retention key)."""
+    try:
+        return jobs.client_for(cid).get_vm(vm_uuid), None
+    except HyperCoreError as e:
+        if e.status == 404 or (e.status == 0 and 'not found' in str(e).lower()):
+            return None, _err('that VM does not exist on the cluster', 404)
+        return None, _err(f'could not look up the VM on the cluster: {e}', 502)
+
+
 def _valid_time(v: str) -> str | None:
     try:
         hh, mm = (v or '').split(':')
@@ -466,33 +482,36 @@ def _valid_time(v: str) -> str | None:
 @_require_token
 def schedules_add():
     b = request.get_json(silent=True) or {}
-    cid = (b.get('cluster_id') or '').strip()
+    cid = str(b.get('cluster_id') or '').strip()
     if not cluster_registry.is_uuid(cid) or not cluster_registry.get(cid):
         return _err('unknown cluster')
     run_time = _valid_time(b.get('run_time') or cfg_module.load().default_run_time)
     if not run_time:
         return _err('run_time must be HH:MM (24h)')
-    for k in ('vm_uuid', 'vm_name'):
-        if not (b.get(k) or '').strip():
-            return _err(f'{k} is required')
-    if not (b.get('path_uri_base') or '').strip() and not jobs.location_for_cluster(cid):
-        return _err("no share is assigned to this cluster's folder; an admin can add one under Settings → Shares and assign it from the folder menu")
+    vm_uuid = str(b.get('vm_uuid') or '').strip()
+    if not vm_uuid:
+        return _err('vm_uuid is required')
+    if not str(b.get('path_uri_base') or '').strip() and not jobs.location_for_cluster(cid):
+        return _err("no backup target is assigned to this cluster's folder; an admin adds one under Settings → Targets and assigns it with Backup target in the folder's menu in the cluster switcher")
     try:
         retention = max(1, int(b.get('retention') or cfg_module.load().default_retention))
         full_every_n = max(1, int(b.get('full_every_n') or 14))
         retention_days = int(b['retention_days']) if b.get('retention_days') not in (None, '', 0, '0') else None
     except (TypeError, ValueError):
         return _err('retention, full_every_n and retention_days must be numbers')
-    mode = (b.get('mode') or '').strip() or ('incremental' if any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)) else 'export')
+    mode = str(b.get('mode') or '').strip() or ('incremental' if any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)) else 'export')
     if mode not in ('export', 'incremental'):
         return _err("mode must be 'export' or 'incremental'")
     if mode == 'export' and _target_is_nfs(cid, b.get('path_uri_base')):
         return _err(jobs.smb_only_error('Export mode'))
     if mode == 'incremental' and not any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)):
-        return _err('incremental plans need a registered backup proxy for this cluster (Settings → Clusters → Proxies)')
+        return _err('incremental plans need a registered backup proxy for this cluster (Settings → Targets → Backup proxies)')
+    vm, err = _vm_of(cid, vm_uuid)
+    if err:
+        return err
     try:
-        sid = db.add_schedule(cluster_id=cid, vm_uuid=b['vm_uuid'], vm_name=b['vm_name'],
-                              path_uri_base=(b.get('path_uri_base') or '').strip(), smb_user=b.get('smb_user'),
+        sid = db.add_schedule(cluster_id=cid, vm_uuid=vm['uuid'] or vm_uuid, vm_name=vm.get('name') or vm_uuid,
+                              path_uri_base=str(b.get('path_uri_base') or '').strip(), smb_user=b.get('smb_user'),
                               smb_password=b.get('smb_password'), prune_path=b.get('prune_path'),
                               retention=retention, run_time=run_time, compress=bool(b.get('compress')),
                               mode=mode, full_every_n=full_every_n, retention_days=retention_days)
@@ -615,7 +634,7 @@ def _policy_fields(b: dict, creating: bool, kind: str | None = None) -> dict:
     `kind`: the existing policy's kind on an update."""
     f = {}
     if creating or 'name' in b:
-        name = (b.get('name') or '').strip()
+        name = str(b.get('name') or '').strip()
         if not name or len(name) > 80:
             raise ValueError('name is required (at most 80 characters)')
         f['name'] = name
@@ -650,7 +669,7 @@ def _policy_fields(b: dict, creating: bool, kind: str | None = None) -> dict:
         if k in b:
             f[k] = bool(b[k])
     if 'full_rrule' in b:
-        f['full_rrule'] = recurrence.normalise_rule(b['full_rrule']) if (b['full_rrule'] or '').strip() else None
+        f['full_rrule'] = recurrence.normalise_rule(b['full_rrule']) if str(b['full_rrule'] or '').strip() else None
     if 'full_kind' in b:
         if b['full_kind'] not in ('real', 'synthetic'):
             raise ValueError("full_kind must be 'real' or 'synthetic'")
@@ -724,7 +743,11 @@ def policies_preview():
         return _err(str(e))
     f.setdefault('timezone', b.get('timezone') or 'UTC')
     f.setdefault('blackouts', [])
-    return jsonify({'windows': recurrence.preview(f, datetime.now(timezone.utc), int(b.get('count') or 10))})
+    try:
+        count = max(1, min(int(b.get('count') or 10), 100))
+    except (TypeError, ValueError):
+        return _err('count must be a whole number')
+    return jsonify({'windows': recurrence.preview(f, datetime.now(timezone.utc), count)})
 
 
 @app.post('/api/v1/policies')
@@ -807,16 +830,20 @@ def policies_add_member(pid):
     if err:
         return err
     b = request.get_json(silent=True) or {}
-    cid = (b.get('cluster_id') or _cluster_arg() or '').strip()
+    cid = str(b.get('cluster_id') or _cluster_arg() or '').strip()
     if db.folder_of_cluster(cid) != (True, pol['folder_id']):
         return _err("the VM's cluster is not in this schedule's folder")
-    vm_uuid, vm_name = (b.get('vm_uuid') or '').strip(), (b.get('vm_name') or '').strip()
-    if not vm_uuid or not vm_name:
-        return _err('vm_uuid and vm_name are required')
+    vm_uuid = str(b.get('vm_uuid') or '').strip()
+    if not vm_uuid:
+        return _err('vm_uuid is required')
     if not jobs.location_for_cluster(cid):
-        return _err("no share is assigned to this cluster's folder; an admin can add one under Settings → Shares and assign it from the folder menu")
+        return _err("no backup target is assigned to this cluster's folder; an admin adds one under Settings → Targets and assigns it with Backup target in the folder's menu in the cluster switcher")
     if pol['kind'] == 'incremental' and not any(p.get('vm_uuid') for p in db.get_proxies(cid, enabled_only=True)):
-        return _err('backup schedules need a registered backup proxy on the cluster (Settings → Clusters → Proxies)')
+        return _err('backup schedules need a registered backup proxy on the cluster (Settings → Targets → Backup proxies)')
+    vm, err = _vm_of(cid, vm_uuid)
+    if err:
+        return err
+    vm_uuid, vm_name = vm.get('uuid') or vm_uuid, vm.get('name') or vm_uuid
     plan = db.plan_for_vm(cid, vm_uuid)
     moved_from = plan.get('policy_name') if plan and plan.get('policy_id') not in (None, pid) else None
     if plan is None:
@@ -893,12 +920,23 @@ def _folder_source(target_cluster):
     return (loc['base'], loc['user'], loc['password']) if loc else None
 
 
+def _scope_clusters(cluster) -> list[str]:
+    """The clusters whose saved locations an import onto `cluster` may reuse: those of its folder, or the
+    cluster alone when it has no folder."""
+    if cluster is None:
+        return []
+    if not getattr(cluster, 'folder_id', None):
+        return [cluster.cluster_id]
+    return [c['cluster_id'] for c in db.folder_clusters(cluster.folder_id)] or [cluster.cluster_id]
+
+
 def _resolve_source(b: dict, target_cluster):
     """(base_uri, user, password). A saved location (known_id -> schedule) keeps its credentials
-    server-side and is scoped to the target cluster's tenant folder, so an import can only pick
-    up exports that belong to the same HyperCore Manager folder. A manually typed source is used
-    as typed (admin-only route)."""
-    if not b.get('known_id') and not (b.get('source_uri') or '').strip():
+    server-side; only a plan of the target cluster's own folder qualifies, and the path is scoped to
+    that folder's tenant directory, so an import can only pick up exports of the same HyperCore
+    Manager folder. A manually typed source is used as typed, with the credentials sent along
+    (admin-only route). Raises ValueError for a saved location outside that scope."""
+    if not b.get('known_id') and not str(b.get('source_uri') or '').strip():
         src = _folder_source(target_cluster)
         if src:
             return src
@@ -908,11 +946,13 @@ def _resolve_source(b: dict, target_cluster):
             sched = db.get_schedule(int(known_id))
         except (TypeError, ValueError):
             sched = None
-        if sched and (sched['path_uri_base'] or '').lower().startswith('smb://'):
+        if not sched or str(sched['cluster_id']) not in _scope_clusters(target_cluster):
+            raise ValueError("unknown saved location for this cluster's folder")
+        if (sched['path_uri_base'] or '').lower().startswith('smb://'):
             password = db.decrypt_password(sched['smb_pass_enc']) if sched['smb_pass_enc'] else ''
             base = f"{sched['path_uri_base'].rstrip('/')}/{jobs.tenant_slug(target_cluster)}"
             return base, sched['smb_user'] or '', password
-    return (b.get('source_uri') or '').strip(), (b.get('smb_user') or '').strip(), b.get('smb_password') or ''
+    return str(b.get('source_uri') or '').strip(), str(b.get('smb_user') or '').strip(), b.get('smb_password') or ''
 
 
 @app.get('/api/v1/import/known')
@@ -922,7 +962,7 @@ def import_known():
     cluster = cluster_registry.get(cid) if cid else None
     tenant = jobs.tenant_slug(cluster)
     rows = []
-    for r in db.get_known_smb_locations():
+    for r in db.get_known_smb_locations(_scope_clusters(cluster)):
         d = _ser(r)
         d['tenant'] = tenant
         d['effective_base'] = f"{r['path_uri_base'].rstrip('/')}/{tenant}"
@@ -934,7 +974,10 @@ def import_known():
 @_require_token
 def import_browse():
     cid = _cluster_arg()
-    base, user, password = _resolve_source(request.get_json(silent=True) or {}, cluster_registry.get(cid) if cid else None)
+    try:
+        base, user, password = _resolve_source(request.get_json(silent=True) or {}, cluster_registry.get(cid) if cid else None)
+    except ValueError as e:
+        return _err(str(e))
     if not base:
         return _err("no share is assigned to this cluster's folder")
     if jobs.is_nfs(base):
@@ -951,19 +994,28 @@ def import_browse():
 @_require_token
 def import_start():
     b = request.get_json(silent=True) or {}
-    cid = (b.get('cluster_id') or '').strip()
+    cid = str(b.get('cluster_id') or '').strip()
     cluster = cluster_registry.get(cid) if cluster_registry.is_uuid(cid) else None
     if not cluster:
         return _err('unknown target cluster')
-    base, smb_user, smb_password = _resolve_source(b, cluster)
+    try:
+        base, smb_user, smb_password = _resolve_source(b, cluster)
+    except ValueError as e:
+        return _err(str(e))
     base = base.rstrip('/')
-    folder = (b.get('source_folder') or '').strip().strip('/')
+    folder = str(b.get('source_folder') or '').strip().strip('/')
+    if folder and ('..' in folder or '/' in folder or '\\' in folder):
+        return _err('source_folder must be one folder name from the browse list')
     if not base:
         return _err('a source path is required')
     if jobs.is_nfs(base):
         return _err(jobs.smb_only_error('Import'))
     source_uri = f'{base}/{folder}' if folder else base
-    target_name = (b.get('target_name') or '').strip()
+    if not smb_user and '@' not in source_uri.split('//', 1)[-1].split('/', 1)[0] \
+            and not jobs.under_location(source_uri, (jobs.location_for_cluster(cid) or {}).get('base')):
+        # the folder target's stored credentials are only ever used inside that folder's own directory
+        return _err("a source outside this folder's target needs smb_user and smb_password")
+    target_name = str(b.get('target_name') or '').strip()
     effective = target_name or jobs.derive_name(folder)
     if effective:
         try:
@@ -985,7 +1037,7 @@ def shares_list():
 
 
 def _share_body(b: dict):
-    return {k: (b.get(k) or '') for k in ('name', 'uri_base', 'username', 'password', 'prune_path')}
+    return {k: str(b.get(k) or '') for k in ('name', 'uri_base', 'username', 'password', 'prune_path')}
 
 
 @app.post('/api/v1/targets')
@@ -1028,6 +1080,11 @@ def shares_update(sid):
 @app.delete('/api/v1/targets/<int:sid>')
 @_require_token
 def shares_delete(sid):
+    n = db.chains_on_target(sid)
+    if n:
+        # deleting it would set their target_id NULL: the catalogue loses where the data is, the data stays
+        return _err(f'{n} backup chain(s) still live on this target; delete them first (Restore points), '
+                    'or assign another target to the folder and let them expire', 409)
     db.delete_share(sid)          # folders referencing it fall back to no share (ON DELETE SET NULL)
     return jsonify({'ok': True})
 
@@ -1076,13 +1133,13 @@ def proxies_list():
 @_require_token
 def proxies_add():
     b = request.get_json(silent=True) or {}
-    cid = (b.get('cluster_id') or '').strip()
+    cid = str(b.get('cluster_id') or '').strip()
     if not cluster_registry.is_uuid(cid) or not cluster_registry.get(cid):
         return _err('unknown cluster')
-    url = (b.get('url') or '').strip().rstrip('/')
+    url = str(b.get('url') or '').strip().rstrip('/')
     if not url.startswith(('http://', 'https://')):
         return _err('url must start with http:// or https://')
-    name = (b.get('name') or '').strip() or url
+    name = str(b.get('name') or '').strip() or url
     fp = normalise_fingerprint(b.get('tls_fingerprint'))
     if url.startswith('https://') and not fp and not b.get('tls_verify'):
         try:
@@ -1465,6 +1522,8 @@ def test_plans_vm_remove(pid):
     b = request.get_json(silent=True) or {}
     cid = str(b.get('cluster_id') or request.args.get('cluster_id') or '')
     vm = str(b.get('vm_uuid') or request.args.get('vm_uuid') or '')
+    if not cluster_registry.is_uuid(cid) or not vm:
+        return _err('cluster_id and vm_uuid required')
     return jsonify({'ok': True, 'removed': db.remove_test_plan_vm(pid, cid, vm)})
 
 
@@ -1553,6 +1612,15 @@ def chain_delete(chain_id):
     ch = db.get_chain(chain_id)
     if not ch:
         return _err('chain not found', 404)
+    work = db.chain_work(chain_id)
+    if work['runs'] or (ch.get('status') == 'active' and db.plan_run_active(ch.get('plan_id'))):
+        return _err('a backup of this chain is running; delete it when the run has finished', 409)
+    if work['restores']:
+        return _err('a restore from this chain is running; delete it when the restore has finished', 409)
+    if any(m.get('chain_id') == chain_id for m in flr.list_mounts()):
+        return _err('a point of this chain is open for file recovery; close it first', 409)
+    if (incremental.verify_status(chain_id) or {}).get('state') == 'running':
+        return _err('this chain is being verified; delete it when the verification has finished', 409)
     share = db.get_share(ch['target_id'], with_secret=True) if ch.get('target_id') else None
     if share:
         try:
@@ -1575,6 +1643,8 @@ def _verify_view(chain_id, entry):
     if entry.get('result') is not None:
         r = entry['result']
         out['ok'] = r.get('ok'); out['failed'] = r.get('failed') or {}; out['bytes'] = r.get('bytes'); out['duration_s'] = r.get('duration_s')
+        # points whose checksums a proxy from 0.6.5 on re-took once: written by a prune of an older proxy
+        out['healed'] = r.get('healed') or []
     return out
 
 
@@ -1630,8 +1700,10 @@ def restores_start():
         policy = 'new'
     if policy not in ('original', 'new'):
         return _err('mac_policy must be new or original')
-    name = (b.get('target_name') or f"{chain['vm_name']}-restored").strip()
-    target_cid = (b.get('target_cluster_id') or chain['cluster_id']).strip()
+    name = str(b.get('target_name') or f"{chain['vm_name']}-restored").strip()
+    target_cid = str(b.get('target_cluster_id') or chain['cluster_id']).strip()
+    if not cluster_registry.is_uuid(target_cid):
+        return _err('target_cluster_id must be a cluster id')
     if target_cid != chain['cluster_id']:
         known, folder = db.folder_of_cluster(target_cid)
         same = known and folder is not None and folder == db.folder_of_cluster(chain['cluster_id'])[1]
@@ -1680,13 +1752,19 @@ def flr_mount():
         return _err(str(e), 502)
 
 
+def _flr_status(e: Exception) -> int:
+    """A path or mount the proxy does not know is a 404 for the caller too, not a proxy failure (502)."""
+    text = str(e)
+    return 404 if 'not found' in text or 'proxy returned 404' in text else 502
+
+
 @app.get('/api/v1/flr/mounts/<mid>/ls')
 @_require_token
 def flr_ls(mid):
     try:
         return jsonify(flr.ls(mid, request.args.get('path') or '/'))
     except (incremental.IncrementalError, ProxyError) as e:
-        return _err(str(e), 404 if 'not found' in str(e) else 502)
+        return _err(str(e), _flr_status(e))
 
 
 @app.get('/api/v1/flr/mounts/<mid>/<kind>')
@@ -1699,7 +1777,8 @@ def flr_download(mid, kind):
     try:
         r = flr.stream(mid, kind, dict(request.args))
     except (incremental.IncrementalError, ProxyError) as e:
-        return _err(str(e), 404 if 'not found' in str(e) else 502)
+        msg = 'file not found in the restore point' if str(e) == 'proxy returned 404' else str(e)
+        return _err(msg, _flr_status(e))
     headers = {k: v for k, v in r.headers.items() if k.lower() in ('content-length', 'content-disposition', 'content-type')}
     return Response(stream_with_context(r.iter_content(1 << 20)), status=r.status_code, headers=headers)
 
@@ -1710,7 +1789,7 @@ def flr_iso(mid):
     """Deliver the selected files as an ISO inserted into a VM's CD-ROM. body: {paths:[...], vm_uuid}"""
     b = request.get_json(silent=True) or {}
     try:
-        rid = flr.start_iso_delivery(mid, [p for p in (b.get('paths') or []) if p], (b.get('vm_uuid') or '').strip(), b.get('requested_by'))
+        rid = flr.start_iso_delivery(mid, [p for p in (b.get('paths') or []) if p], str(b.get('vm_uuid') or '').strip(), b.get('requested_by'))
     except (incremental.IncrementalError, ProxyError, HyperCoreError) as e:
         return _err(str(e), 502)
     scheduler.run_iso_delivery(rid)
@@ -1755,10 +1834,10 @@ def deployments_start():
     ip:{mode, address, prefix, gateway, dns}, image_url, image_name, authorized_key, tz, test_vlan?}"""
     import deploy
     b = request.get_json(silent=True) or {}
-    cid = (b.get('cluster_id') or '').strip()
+    cid = str(b.get('cluster_id') or '').strip()
     if not cluster_registry.is_uuid(cid) or not cluster_registry.get(cid):
         return _err('unknown cluster')
-    name = (b.get('name') or '').strip()
+    name = str(b.get('name') or '').strip()
     if not name or not jobs.safe_name(name) == name:
         return _err('name is required and may only contain letters, digits, dots, dashes and underscores')
     ip = b.get('ip') or {}
@@ -1767,8 +1846,8 @@ def deployments_start():
     try:
         params = {'name': name, 'vcpu': max(1, int(b.get('vcpu') or 2)), 'mem_gb': max(1, int(b.get('mem_gb') or 2)),
                   'disk_gb': max(10, int(b.get('disk_gb') or 20)), 'vlan': int(b.get('vlan') or 0), 'ip': ip,
-                  'image_url': (b.get('image_url') or deploy.DEFAULT_IMAGE_URL).strip(), 'image_name': (b.get('image_name') or deploy.DEFAULT_IMAGE_NAME).strip(),
-                  'authorized_key': (b.get('authorized_key') or '').strip(), 'tz': (b.get('tz') or os.environ.get('TZ') or 'UTC'),
+                  'image_url': str(b.get('image_url') or deploy.DEFAULT_IMAGE_URL).strip(), 'image_name': str(b.get('image_name') or deploy.DEFAULT_IMAGE_NAME).strip(),
+                  'authorized_key': str(b.get('authorized_key') or '').strip(), 'tz': (b.get('tz') or os.environ.get('TZ') or 'UTC'),
                   'test_vlan': None if b.get('test_vlan') in (None, '') else int(b['test_vlan'])}
     except (TypeError, ValueError):
         return _err('sizes and vlan must be numbers')
