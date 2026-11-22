@@ -974,6 +974,8 @@ window.LANG = {
   'proxies.deploy_confirm': "Proxy-VM '{name}' op het cluster aanmaken?",
   'proxies.deploy_started': "Uitrol gestart; voortgang hieronder.",
   'proxies.deploy_go': "Uitrollen",
+  'proxies.deployments': "Uitrollen",
+  'proxies.added_unreachable': "Proxy geregistreerd, maar hij antwoordt nog niet: zie zijn status in de lijst.",
   'proxies.deploy_clear': "Afgeronde wissen",
   'proxies.deploy_clear_hint': "Verwijdert de afgeronde regels uit dit logboek. Regels ouder dan 30 dagen verdwijnen vanzelf, behalve de laatste geslaagde van elke geregistreerde proxy.",
   'proxies.deploy_cleared': "{n} afgeronde regel(s) verwijderd.",

@@ -326,11 +326,12 @@
     background: var(--bg-card); border: 1px solid var(--border);
     border-radius: 10px; padding: 20px; margin-bottom: 16px;
   }
+  .settings-group-actions { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; white-space: nowrap; }
   .settings-group-header {
     display: flex; align-items: center; gap: 10px;
     margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--border);
   }
-  .settings-group-title {
+  .settings-group-title { white-space: nowrap;
     font-family: 'JetBrains Mono', monospace; font-size: 12px;
     font-weight: 600; letter-spacing: 0.05em; flex: 1;
   }
@@ -4802,22 +4803,21 @@ async function _loadSharesPanel() {
       <td>${sh.folder_count}</td>
       <td style="white-space:nowrap;">
         <button class="um-action-btn" onclick="shTest(${sh.id})">${t('clusters.test')}</button>
-        <button class="um-action-btn" onclick="shEdit(${sh.id})">${t('clusters.edit')}</button>
+        <button class="um-action-btn" onclick="shOpen(${sh.id})">${t('clusters.edit')}</button>
         <button class="um-action-btn danger" onclick="shRemove(${sh.id}, '${_clEsc(sh.name)}')">${t('clusters.remove')}</button>
         <div class="cl-msg" id="sh-${sh.id}-msg"></div>
       </td>
-    </tr>
-    <tr id="sh-edit-${sh.id}" hidden><td colspan="5" style="background:var(--bg-card);">${_shareFormHtml('sh-' + sh.id, sh)}</td></tr>`).join('');
+    </tr>`).join('');
   el.innerHTML = `
     <div class="settings-group">
       <div class="settings-group-header">
         <div class="chart-title-dot" style="background:var(--accent-cyan)"></div>
         <span class="settings-group-title">${t('shares.title')}</span>
         <span style="font-size:12px;color:var(--text-muted);">${t('shares.subtitle')}</span>
+        <div class="settings-group-actions"><button class="update-apply-btn" onclick="shOpen(0)">+ ${t('shares.add')}</button></div>
       </div>
       ${SHARES.length ? `<table class="um-table"><thead><tr><th>${t('shares.name')}</th><th>${t('ex.f_smb_user')}</th><th>${t('shares.prune_path')}</th><th>${t('shares.folders')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
                       : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('shares.none')}</div>`}
-      <div class="um-section" style="margin-top:14px;"><div class="um-section-title">${t('shares.add')}</div>${_shareFormHtml('sh-new', null)}</div>
     </div>
     <div id="proxiesPanel"></div>`;
   _loadProxiesPanel();
@@ -4826,6 +4826,7 @@ async function _loadProxiesPanel() {
   const el = document.getElementById('proxiesPanel'); if (!el) return;
   const [proxies, stackImage] = await Promise.all([apiFetch(_pxAll('/api/backup/proxies')).then(v => v || []), apiFetch('/api/backup/proxies/image').then(v => v || {})]);
   const clusterOpts = CLUSTERS.filter(c => !c.is_template).map(c => `<option value="${_clEsc(c.cluster_id)}" ${c.cluster_id === currentCluster ? 'selected' : ''}>${_clEsc(c.name)}</option>`).join('');
+  _pxList = proxies; _pxClusterOpts = clusterOpts;
   const rows = proxies.map(p => `
     <tr>
       <td class="um-username">${_clEsc(p.name)}<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);">${_clEsc(p.url)}</div></td>
@@ -4834,32 +4835,54 @@ async function _loadProxiesPanel() {
       <td style="font-size:11px;">${_clEsc(p.version || '—')}${_pxUpdateCell(p, stackImage)}${p.kind !== 'local' && p.capabilities ? `<div class="ex-hint" style="margin-top:2px;">${t(p.capabilities.host_network ? 'proxies.net_tests_ready' : 'proxies.net_tests_redeploy')}</div>` : ''}<div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${_exFmt(p.last_seen_at)}</div></td>
       <td style="white-space:nowrap;">
         <button class="um-action-btn" onclick="pxTest(${p.id})">${t('clusters.test')}</button>
-        <button class="um-action-btn" onclick="pxToggle(${p.id}, ${p.enabled ? 'false' : 'true'})">${p.enabled ? t('ex.pause') : t('ex.resume')}</button>
-        <button class="um-action-btn" onclick="pxBench(${p.id})" title="${_clEsc(t('proxies.bench_hint'))}">${t('proxies.bench')}</button>
-        <button class="um-action-btn" onclick="pxLogs(${p.id}, this)" title="${_clEsc(t('proxies.logs_hint'))}">${t('proxies.logs')}</button>
-        <button class="um-action-btn danger" onclick="pxRemove(${p.id}, '${_clEsc(p.name)}', '${_clEsc(p.vm_uuid || '')}', '${_clEsc(p.kind || '')}')">${t('clusters.remove')}</button>
+        <button class="um-action-btn" title="${_clEsc(t('folders.menu'))}" aria-label="${_clEsc(t('folders.menu'))}" onclick="event.stopPropagation(); pxMenu(event, ${p.id})">⋯</button>
         <div class="cl-msg" id="px-${p.id}-msg"></div>
       </td>
     </tr>`).join('');
   el.innerHTML = `
     <div class="settings-group">
       <div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-purple)"></div>
-        <span class="settings-group-title">${t('proxies.title')}</span><span style="font-size:12px;color:var(--text-muted);">${t('proxies.subtitle')}</span></div>
+        <span class="settings-group-title">${t('proxies.title')}</span><span style="font-size:12px;color:var(--text-muted);">${t('proxies.subtitle')}</span>
+        <div class="settings-group-actions"><button class="refresh-btn" onclick="pxAddOpen()">+ ${t('proxies.add')}</button><button class="update-apply-btn" onclick="pxDeployOpen()">+ ${t('proxies.deploy')}</button></div></div>
       ${proxies.length ? `<table class="um-table"><thead><tr><th>${t('shares.name')}</th><th>${t('proxies.cluster')}</th><th>${t('ex.col_status')}</th><th>${t('proxies.version')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
                        : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('proxies.none')}</div>`}
-      <div class="um-section" style="margin-top:14px;"><div class="um-section-title">${t('proxies.add')}</div>
-        <div class="ex-form">
-          <div><label>${t('proxies.cluster')}</label><select id="px-new-cluster">${clusterOpts}</select></div>
+      <div id="pxd-list" style="margin-top:14px;"></div>
+    </div>`;
+  _loadDeployments();
+}
+let _pxList = [], _pxClusterOpts = '';
+function pxMenu(ev, id) {
+  const p = _pxList.find(x => x.id === id); if (!p) return;
+  _openMenu(ev, `
+    <div class="popmenu-title">${_clEsc(p.name)}</div>
+    <div class="popmenu-item" onclick="_closeMenus(); pxToggle(${p.id}, ${p.enabled ? 'false' : 'true'})">${p.enabled ? t('ex.pause') : t('ex.resume')}</div>
+    <div class="popmenu-item" title="${_clEsc(t('proxies.bench_hint'))}" onclick="_closeMenus(); pxBench(${p.id})">${t('proxies.bench')}</div>
+    <div class="popmenu-item" title="${_clEsc(t('proxies.logs_hint'))}" onclick="_closeMenus(); pxLogs(${p.id})">${t('proxies.logs')}</div>
+    <div class="popmenu-sep"></div>
+    <div class="popmenu-item danger" onclick="_closeMenus(); pxRemove(${p.id}, '${_clEsc(p.name)}', '${_clEsc(p.vm_uuid || '')}', '${_clEsc(p.kind || '')}')">${t('clusters.remove')}</div>`);
+}
+function pxAddOpen() {
+  hcmModal({
+    title: _clEsc(t('proxies.add')), width: 'min(720px, 96vw)',
+    body: `<div class="ex-form">
+          <div><label>${t('proxies.cluster')}</label><select id="px-new-cluster">${_pxClusterOpts}</select></div>
           <div><label>${t('shares.name')}</label><input type="text" id="px-new-name" placeholder="proxy-01"></div>
           <div><label>${t('proxies.url')}</label><input type="text" id="px-new-url" placeholder="https://10.0.0.5:8083"><div class="ex-hint">${t('proxies.url_hint')}</div></div>
           <div><label>${t('proxies.token')}</label><input type="password" id="px-new-token" autocomplete="new-password"></div>
         </div>
-        <div class="cl-actions"><button class="update-apply-btn" onclick="pxAdd()">${t('proxies.add')}</button><div class="cl-msg" id="px-new-msg"></div></div>
-      </div>
-      <div class="um-section" style="margin-top:14px;"><div class="um-section-title">${t('proxies.deploy')}</div>
-        <div class="ex-hint" style="margin-bottom:8px;">${t('proxies.deploy_hint')}</div>
+      <div class="cl-msg" id="px-new-msg"></div>`,
+    buttons: [
+      { label: t('console.cancel'), onClick: h => h.close() },
+      { label: t('proxies.add'), kind: 'primary', onClick: h => pxAdd(h) },
+    ],
+  });
+}
+function pxDeployOpen() {
+  hcmModal({
+    title: _clEsc(t('proxies.deploy')), width: 'min(760px, 96vw)',
+    body: `<div class="ex-hint" style="margin-bottom:8px;">${t('proxies.deploy_hint')}</div>
         <div class="ex-form">
-          <div><label>${t('proxies.cluster')}</label><select id="pxd-cluster">${clusterOpts}</select></div>
+          <div><label>${t('proxies.cluster')}</label><select id="pxd-cluster">${_pxClusterOpts}</select></div>
           <div><label>${t('proxies.d_name')}</label><input type="text" id="pxd-name" placeholder="hcm-proxy-01"></div>
           <div><label>VLAN</label><input type="number" id="pxd-vlan" value="0" min="0" max="4094"></div>
           <div><label>${t('proxies.d_test_vlan')}</label><input type="number" id="pxd-testvlan" min="0" max="4094" placeholder="—"><div class="ex-hint">${t('proxies.d_test_vlan_hint')}</div></div>
@@ -4869,18 +4892,19 @@ async function _loadProxiesPanel() {
           <div><label>${t('proxies.d_image')}</label><input type="text" id="pxd-image-url" placeholder="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"><div class="ex-hint">${t('proxies.d_image_hint')}</div></div>
           <div><label>${t('proxies.d_key')}</label><input type="text" id="pxd-key" placeholder="ssh-ed25519 AAAA… admin@site"></div>
         </div>
-        <div class="cl-actions"><button class="update-apply-btn" onclick="pxDeploy()">${t('proxies.deploy_go')}</button><div class="cl-msg" id="pxd-msg"></div></div>
-        <div id="pxd-list" style="margin-top:10px;"></div>
-      </div>
-    </div>`;
-  _loadDeployments();
+      <div class="cl-msg" id="pxd-msg"></div>`,
+    buttons: [
+      { label: t('console.cancel'), onClick: h => h.close() },
+      { label: t('proxies.deploy_go'), kind: 'primary', onClick: h => pxDeploy(h) },
+    ],
+  });
 }
 async function _loadDeployments() {
   const el = document.getElementById('pxd-list'); if (!el) return;
   const rows = (await apiFetch(_pxAll('/api/backup/proxies/deployments'))) || [];
   if (!rows.length) { el.innerHTML = ''; return; }
   const finished = rows.filter(d => d.status !== 'RUNNING').length;
-  el.innerHTML = (finished ? `<div style="display:flex;justify-content:flex-end;margin-bottom:4px;"><button class="um-action-btn" onclick="pxClearDeployments()" title="${_clEsc(t('proxies.deploy_clear_hint'))}">${t('proxies.deploy_clear')}</button><div class="cl-msg" id="pxd-clear-msg"></div></div>` : '') + `<table class="um-table"><thead><tr><th>${t('proxies.d_name')}</th><th>${t('proxies.cluster')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead><tbody>${rows.map(d => `
+  el.innerHTML = `<div class="um-section-title">${t('proxies.deployments')}</div>` + (finished ? `<div style="display:flex;justify-content:flex-end;margin-bottom:4px;"><button class="um-action-btn" onclick="pxClearDeployments()" title="${_clEsc(t('proxies.deploy_clear_hint'))}">${t('proxies.deploy_clear')}</button><div class="cl-msg" id="pxd-clear-msg"></div></div>` : '') + `<table class="um-table"><thead><tr><th>${t('proxies.d_name')}</th><th>${t('proxies.cluster')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_status')}</th><th>${t('ex.col_detail')}</th></tr></thead><tbody>${rows.map(d => `
     <tr><td class="um-username">${_clEsc(d.name)}</td><td>${_clEsc(d.cluster_name)}</td><td style="font-family:'JetBrains Mono',monospace;font-size:11px;">${_exFmt(d.started_at)}</td>
     <td>${_exStatusBadge(d.status, d.message)}</td><td style="font-size:11px;color:var(--text-muted);max-width:420px;">${d.status === 'RUNNING' ? '' : _clEsc(d.message || '')}</td></tr>`).join('')}</tbody></table>`;
   if (rows.some(d => d.status === 'RUNNING')) setTimeout(() => { if (document.getElementById('pxd-list')) _loadDeployments(); }, 8000);
@@ -4889,7 +4913,7 @@ async function pxClearDeployments() {
   try { const r = await _exCall('DELETE', _pxAll('/api/backup/proxies/deployments')); showToast(t('proxies.deploy_cleared', {n: r.removed}), 'ok'); await _loadDeployments(); }
   catch (e) { showToast(e.message, 'err'); }
 }
-async function pxDeploy() {
+async function pxDeploy(h) {
   const g = id => document.getElementById(`pxd-${id}`);
   const body = { cluster_id: g('cluster').value, name: g('name').value.trim(), vlan: parseInt(g('vlan').value || '0', 10), vcpu: parseInt(g('vcpu').value || '1', 10),
                  mem_gb: parseInt(g('mem').value || '2', 10), disk_gb: parseInt(g('disk').value || '20', 10),
@@ -4899,14 +4923,21 @@ async function pxDeploy() {
   if (!body.name) { _shMsg('pxd-msg', t('proxies.d_name_required'), 'err'); return; }
   if (!await hcmConfirm(t('proxies.deploy_confirm', {name: body.name}))) return;
   _shMsg('pxd-msg', t('ex.i_starting'), '');
-  try { await _exCall('POST', '/api/backup/proxies/deploy', body); _shMsg('pxd-msg', t('proxies.deploy_started'), 'ok'); _loadDeployments(); }
+  try { await _exCall('POST', '/api/backup/proxies/deploy', body); if (h) h.close(); showToast(t('proxies.deploy_started'), 'ok'); _loadDeployments(); }
   catch (e) { _shMsg('pxd-msg', e.message, 'err'); }
 }
-async function pxAdd() {
+async function pxAdd(h) {
   const g = id => document.getElementById(`px-new-${id}`);
   const body = { cluster_id: g('cluster').value, name: g('name').value, url: g('url').value, token: g('token').value, kind: 'remote' };
   _shMsg('px-new-msg', t('clusters.testing'), '');
-  try { const d = await _exCall('POST', '/api/backup/proxies', body); _shMsg('px-new-msg', d.probe && d.probe.ok ? t('proxies.added_ok', {vm: d.probe.vm ? d.probe.vm.name : '?'}) : (d.probe && (d.probe.detail || d.probe.error)) || '', d.probe && d.probe.ok ? 'ok' : 'err'); await _loadProxiesPanel(); }
+  try {
+    const d = await _exCall('POST', '/api/backup/proxies', body);
+    // registered either way; a failed first probe is reported, the row shows its status
+    const ok = d.probe && d.probe.ok;
+    if (h) h.close();
+    showToast(ok ? t('proxies.added_ok', {vm: d.probe.vm ? d.probe.vm.name : '?'}) : ((d.probe && (d.probe.detail || d.probe.error)) || t('proxies.added_unreachable')), ok ? 'ok' : 'err');
+    await _loadProxiesPanel();
+  }
   catch (e) { _shMsg('px-new-msg', e.message, 'err'); }
 }
 async function pxTest(id) {
@@ -4932,9 +4963,9 @@ async function pxBench(id) {
     _shMsg(`px-${id}-msg`, t('proxies.bench_result', {target: s.target || '?', size: d.result.size_mib, detail}), 'ok');
   } catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
 }
-async function pxLogs(id, btn) {
+async function pxLogs(id) {
   // the proxy's support bundle (zip): log, recent jobs, open mounts, kernel messages and devices
-  btn.disabled = true; _shMsg(`px-${id}-msg`, t('proxies.logs_busy'), 'ok');
+  _shMsg(`px-${id}-msg`, t('proxies.logs_busy'), 'ok');
   try {
     const resp = await fetch(`${API_BASE}/api/backup/proxies/${id}/logs`);
     if (!resp.ok) {
@@ -4950,7 +4981,6 @@ async function pxLogs(id, btn) {
     URL.revokeObjectURL(url);
     _shMsg(`px-${id}-msg`, '', 'ok');
   } catch (e) { _shMsg(`px-${id}-msg`, e.message, 'err'); }
-  finally { btn.disabled = false; }
 }
 async function pxToggle(id, enabled) { try { await _exCall('PUT', `/api/backup/proxies/${id}`, {enabled}); await _loadProxiesPanel(); } catch (e) { showToast(e.message, 'err'); } }
 function _pxUpdateCell(p, stackImage) {
@@ -4986,11 +5016,6 @@ function _shareFormHtml(prefix, sh) {
       <div><label>${t('ex.f_smb_password')}</label><input type="password" id="${prefix}-pass" autocomplete="new-password" placeholder="${sh.id ? _clEsc(t('clusters.password_keep')) : ''}"></div>
       <div><label>${t('shares.prune_path')}</label><input type="text" id="${prefix}-prune" value="${_clEsc(sh.prune_path)}" placeholder="/mnt/nas/hypercore"><div class="ex-hint">${t('shares.prune_hint')}</div></div>
     </div>
-    <div class="cl-actions">
-      <button class="refresh-btn" onclick="shProbe('${prefix}')">${t('clusters.test')}</button>
-      <button class="update-apply-btn" onclick="shSave('${prefix}', ${sh.id || 0})">${sh.id ? t('clusters.save') : t('shares.add')}</button>
-      ${sh.id ? `<button class="refresh-btn" onclick="shEdit(${sh.id})">${t('clusters.cancel')}</button>` : ''}
-    </div>
     <div class="cl-msg" id="${prefix}-msg"></div>`;
 }
 function _shRead(prefix) {
@@ -5003,9 +5028,24 @@ async function shProbe(prefix) {
   try { const d = await _exCall('POST', '/api/backup/targets/probe', _shRead(prefix)); _shMsg(`${prefix}-msg`, d.ok ? t('shares.test_ok', {n: (d.folders || []).length}) : t('clusters.test_fail', {error: d.error}), d.ok ? 'ok' : 'err'); }
   catch (e) { _shMsg(`${prefix}-msg`, e.message, 'err'); }
 }
-async function shSave(prefix, id) {
+/** Add (id 0) or edit a backup target in a dialog. */
+function shOpen(id) {
+  const sh = id ? SHARES.find(x => x.id === id) : null;
+  if (id && !sh) return;
+  const P = id ? `sh-${id}` : 'sh-new';
+  hcmModal({
+    title: _clEsc(sh ? `${t('clusters.edit')}: ${sh.name}` : t('shares.add')), width: 'min(720px, 96vw)',
+    body: _shareFormHtml(P, sh),
+    buttons: [
+      { label: t('clusters.test'), onClick: () => shProbe(P) },
+      { label: t('console.cancel'), onClick: h => h.close() },
+      { label: sh ? t('clusters.save') : t('shares.add'), kind: 'primary', onClick: h => shSave(P, id, h) },
+    ],
+  });
+}
+async function shSave(prefix, id, h) {
   const body = _shRead(prefix); if (!body.password) delete body.password;
-  try { await _exCall(id ? 'PUT' : 'POST', id ? `/api/backup/targets/${id}` : '/api/backup/targets', body); await _loadSharesPanel(); }
+  try { await _exCall(id ? 'PUT' : 'POST', id ? `/api/backup/targets/${id}` : '/api/backup/targets', body); if (h) h.close(); await _loadSharesPanel(); }
   catch (e) { _shMsg(`${prefix}-msg`, e.message, 'err'); }
 }
 async function shTest(id) {
@@ -5013,7 +5053,6 @@ async function shTest(id) {
   try { const d = await _exCall('POST', `/api/backup/targets/${id}/test`); _shMsg(`sh-${id}-msg`, d.ok ? t('shares.test_ok', {n: (d.folders || []).length}) : t('clusters.test_fail', {error: d.error}), d.ok ? 'ok' : 'err'); }
   catch (e) { _shMsg(`sh-${id}-msg`, e.message, 'err'); }
 }
-function shEdit(id) { const r = document.getElementById(`sh-edit-${id}`); if (r) r.hidden = !r.hidden; }
 async function shRemove(id, name) {
   if (!await hcmConfirm(t('shares.confirm_remove', {name}), {danger: true})) return;
   try { await _exCall('DELETE', `/api/backup/targets/${id}`); await _loadSharesPanel(); await loadClusters(); } catch (e) { hcmAlert(e.message); }
@@ -6427,7 +6466,6 @@ function exHistory(id) { _exRunsFilter = id; switchExportsPanel('runs'); }
 const _POL_DAYS = ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su'];
 const _POL_BDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 let _polData = { policies: [] };
-let _polEditing = null;            // policy id being edited, 'new-incremental' / 'new-export', or null
 let _polMembersOpen = null;
 let _polNightOpen = null;          // [policy id, 'current' | 'next'] whose night plan is shown
 
@@ -6495,13 +6533,11 @@ async function exLoadPolicies() {
       <div class="settings-group-header"><div class="chart-title-dot" style="background:${kind === 'incremental' ? 'var(--accent-cyan)' : 'var(--accent-purple)'}"></div>
         <span class="settings-group-title">${title}</span>
         <button class="um-action-btn" onclick="exPolicyEdit('new-${kind}')" ${disabled ? `disabled title="${_exEsc(t('ex.mode_hint_no_proxy'))}"` : ''}>${t('ex.pol_new')}</button></div>
-      ${_polEditing === `new-${kind}` ? _polForm(null, kind) : ''}
       ${rows.length ? rows.map(_polCard).join('') : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('ex.pol_none')}</div>`}
     </div>`;
   };
   await Promise.all([_vfLoad(), _trLoad()]);
   el.innerHTML = `${_exLocationLine(null)}<div class="ex-hint" style="margin-bottom:10px;">${scope} ${t('ex.pol_intro')}</div>` + section('incremental') + _vfSection() + _trSection() + section('export');
-  if (_polEditing) _polFormInit(_polEditing);
   if (_polMembersOpen) exPolicyMembers(_polMembersOpen, true);
   if (_polNightOpen) exPolicyNight(_polNightOpen[0], _polNightOpen[1], true);
 }
@@ -6587,13 +6623,29 @@ function _polCard(p) {
       <br>${t('ex.pol_next')}: ${next || '—'}${_polNightLine(p)}
       <br>${lastLine}
     </div>
-    ${_polEditing === p.id ? _polForm(p, p.kind) : ''}
     <div id="pol-night-${p.id}"></div>
     <div id="pol-members-${p.id}"></div>
   </div>`;
 }
 
-function exPolicyEdit(id) { _polEditing = _polEditing === id ? null : id; _polMembersOpen = null; _polNightOpen = null; exLoadPolicies(); }
+/** The schedule editor in a dialog: id is a policy id, or 'new-incremental' / 'new-export'. */
+function exPolicyEdit(id) {
+  if (id == null) return;
+  const p = typeof id === 'number' ? (_polData.policies || []).find(x => x.id === id) : null;
+  if (typeof id === 'number' && !p) return;
+  const kind = p ? p.kind : String(id).replace('new-', '');
+  const title = p ? `${t('ex.pol_edit')}: ${p.name}` : `${t('ex.pol_new')} · ${kind === 'incremental' ? t('ex.pol_backup_schedules') : t('ex.pol_export_schedules')}`;
+  hcmModal({
+    title: _exEsc(title), width: 'min(920px, 96vw)',
+    body: _polForm(p, kind),
+    buttons: [
+      { label: t('ex.pol_preview'), onClick: () => exPolicyPreview() },
+      { label: t('ex.pol_cancel'), onClick: h => h.close() },
+      { label: p ? t('ex.pol_save') : t('ex.pol_create'), kind: 'primary', onClick: h => exPolicySave(p ? p.id : kind, h) },
+    ],
+  });
+  _polFormInit();
+}
 
 function _polForm(p, kind) {
   const f = `polf`;
@@ -6603,7 +6655,7 @@ function _polForm(p, kind) {
   const r = _polParseRule(v.rrule);
   const dayBoxes = (cls, chosen) => `<span class="pol-days">${_POL_DAYS.map(d => `<label><input type="checkbox" class="${cls}" value="${d}" ${chosen.includes(d) ? 'checked' : ''}>${_polDayName(d)}</label>`).join('')}</span>`;
   const zones = (Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : []).map(z => `<option value="${_exEsc(z)}">`).join('');
-  return `<div class="pol-form" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+  return `<div class="pol-form">
     <div class="ex-form">
       <div><label>${t('ex.pol_f_name')}</label><input type="text" id="${f}-name" maxlength="80" value="${_exEsc(v.name)}"></div>
       <div><label>${t('ex.pol_f_repeat')}</label><select id="${f}-preset" onchange="_polPresetChanged()">
@@ -6637,11 +6689,7 @@ function _polForm(p, kind) {
       ${kind === 'incremental' ? '' : `<div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="${f}-compress" ${v.compress ? 'checked' : ''}><label for="${f}-compress" style="margin:0;">${t('ex.f_compress')}</label></div>`}
     </div>
     ${kind === 'incremental' ? _polFullFields(v) : ''}
-    <div class="cl-actions">
-      <button class="update-apply-btn" onclick="exPolicySave(${p ? p.id : `'${kind}'`})">${p ? t('ex.pol_save') : t('ex.pol_create')}</button>
-      <button class="refresh-btn" onclick="exPolicyPreview()">${t('ex.pol_preview')}</button>
-      <button class="um-action-btn" onclick="exPolicyEdit(null)">${t('ex.pol_cancel')}</button>
-      <span class="cl-msg" id="${f}-msg"></span></div>
+    <div class="cl-msg" id="${f}-msg"></div>
     <div class="pol-preview" id="${f}-preview"></div>
   </div>`;
 }
@@ -6726,13 +6774,14 @@ async function exPolicyPreview() {
     out.innerHTML = `${t('ex.pol_preview_title')}<br>` + d.windows.map(w => `${_polWhen(w.opens, body.timezone)} → ${_polWhen(w.finish, body.timezone)}${w.first_start && w.first_start !== w.opens ? ` · ${t('ex.pol_first_start', {time: _polWhen(w.first_start, body.timezone)})}` : ''}${w.first_start ? '' : ` · ${t('ex.pol_fully_blacked_out')}`}${w.full ? ` · ${t('ex.pol_full_night')}` : ''}`).join('<br>');
   } catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
 }
-async function exPolicySave(idOrKind) {
+async function exPolicySave(idOrKind, h) {
   const msg = document.getElementById('polf-msg');
   const body = _polReadForm();
   try {
     if (typeof idOrKind === 'number') await _exCall('PUT', `/api/backup/policies/${idOrKind}`, body);
     else await _exCall('POST', '/api/backup/policies', {...body, kind: idOrKind});
-    showToast(t('ex.pol_saved', {name: body.name}), 'ok'); _polEditing = null; exLoadPolicies();
+    if (h) h.close();
+    showToast(t('ex.pol_saved', {name: body.name}), 'ok'); exLoadPolicies();
   } catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
 }
 async function exPolicyRunNow(id, name) {
@@ -6743,14 +6792,14 @@ async function exPolicyRunNow(id, name) {
 async function exPolicyToggle(id) { try { await _exCall('POST', `/api/backup/policies/${id}/toggle`); exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); } }
 async function exPolicyDelete(id, name) {
   if (!await hcmConfirm(t('ex.pol_confirm_delete', {name}), {danger: true})) return;
-  try { await _exCall('DELETE', `/api/backup/policies/${id}`); _polEditing = null; _polMembersOpen = null; exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); }
+  try { await _exCall('DELETE', `/api/backup/policies/${id}`); _polMembersOpen = null; exLoadPolicies(); } catch (e) { showToast(e.message, 'err'); }
 }
 
 async function exPolicyMembers(id, keepOpen) {
   const box = document.getElementById(`pol-members-${id}`);
   if (!box) return;
   if (!keepOpen && _polMembersOpen === id) { _polMembersOpen = null; box.innerHTML = ''; return; }
-  if (!keepOpen) { _polMembersOpen = id; _polEditing = null; }
+  if (!keepOpen) _polMembersOpen = id;
   const p = _polData.policies.find(x => x.id === id);
   const cur = CLUSTERS.find(c => c.cluster_id === currentCluster);
   box.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
@@ -6807,6 +6856,7 @@ async function exLoadVms() {
   try { vms = await _exCall('GET', '/api/backup/vms'); } catch (e) { el.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; return; }
   const admin = _exIsAdmin();
   if (!vms.length) { el.innerHTML = `<div class="empty-state">${t('ex.no_vms')}</div>`; return; }
+  _exVmList = vms;
   el.innerHTML = `<div class="settings-group"><table class="um-table"><thead><tr>
       <th>${t('ex.col_vm')}</th><th>${t('ex.col_state')}</th><th>vCPU</th><th>${t('ex.col_memory')}</th><th title="${_exEsc(t('ex.col_churn_hint'))}">${t('ex.col_churn')}</th><th>${t('ex.col_export')}</th>
     </tr></thead><tbody>${vms.map((vm, i) => {
@@ -6824,11 +6874,23 @@ async function exLoadVms() {
           : vm.schedule
           ? `<span class="ex-badge run" title="${_exEsc(vm.schedule.timezone || '')}">${t('ex.daily_at', {time: vm.schedule.run_time + (vm.schedule.timezone && vm.schedule.timezone !== _exViewerZone() ? ' ' + vm.schedule.timezone : '')})}</span>`
           : (admin ? `<button class="um-action-btn" onclick="exToggleForm(${i})">${t('ex.schedule_export')}</button>` : `<span style="color:var(--text-muted);font-size:11px;">—</span>`)}</td>
-      </tr>
-      ${admin && !vm.schedule ? `<tr id="exform-${i}" hidden><td colspan="6" style="background:var(--bg-card);">${_exScheduleForm(i, vm)}</td></tr>` : ''}`;
+      </tr>`;
     }).join('')}</tbody></table></div>`;
 }
-function exToggleForm(i) { const r = document.getElementById(`exform-${i}`); if (r) { r.hidden = !r.hidden; if (!r.hidden) { _exModeChanged(i); _exTimeHint(i); r.querySelector('input')?.focus(); } } }
+let _exVmList = [];
+/** The backup form of one VM, in a dialog. */
+function exToggleForm(i) {
+  const vm = _exVmList[i]; if (!vm) return;
+  hcmModal({
+    title: `${_exEsc(vm.name)} · ${_exEsc(t('ex.schedule_export'))}`, width: 'min(760px, 96vw)',
+    body: _exScheduleForm(i, vm),
+    buttons: [
+      { label: t('console.cancel'), onClick: h => h.close() },
+      { label: t('ex.create_schedule'), kind: 'primary', onClick: h => exCreateSchedule(i, h) },
+    ],
+  });
+  _exModeChanged(i); _exTimeHint(i);
+}
 function _exLocationLine(vm) {
   if (!_exLocation) return `<div class="ex-hint" style="color:var(--accent-amber);margin-bottom:8px;">${t('ex.no_share')}</div>`;
   const path = `${_exEsc(_exLocation.share_name)}/${_exEsc(_exLocation.tenant)}/${vm ? _exEsc(vm.safe_name) + '_YYYYMMDD-HHMMSS' : ''}`;
@@ -6850,20 +6912,20 @@ function _exScheduleForm(i, vm) {
       <div class="exf-incr-${i}"><label>${t('ex.f_retention_days')}</label><input type="number" id="exf-${i}-retention_days" min="0" max="3650" value="" placeholder="—"></div>
       <div style="display:flex;align-items:center;gap:8px;padding-top:18px;"><input type="checkbox" id="exf-${i}-compress"><label for="exf-${i}-compress" style="margin:0;">${t('ex.f_compress')}</label></div>
     </div>
-    <div class="cl-actions"><button class="update-apply-btn" onclick="exCreateSchedule(${i})">${t('ex.create_schedule')}</button><span class="cl-msg" id="exf-${i}-msg"></span></div>`;
+    <div class="cl-msg" id="exf-${i}-msg"></div>`;
 }
 function _exModeChanged(i) {
   const mode = document.getElementById(`exf-${i}-mode`)?.value;
   document.querySelectorAll(`.exf-incr-${i}`).forEach(el => el.style.display = mode === 'incremental' ? '' : 'none');
 }
-async function exCreateSchedule(i) {
+async function exCreateSchedule(i, h) {
   const g = id => document.getElementById(`exf-${i}-${id}`);
   const body = { vm_uuid: g('vm_uuid').value, vm_name: g('vm_name').value, retention: parseInt(g('retention').value || '7', 10),
                  run_time: g('time').value || '03:00', compress: g('compress').checked, mode: g('mode').value,
                  full_every_n: parseInt(g('full_every').value || '14', 10), retention_days: parseInt(g('retention_days').value || '0', 10) || null };
   const msg = g('msg');
   if (!_exLocation) { msg.textContent = t('ex.no_share'); msg.className = 'cl-msg err'; return; }
-  try { await _exCall('POST', '/api/backup/plans', body); showToast(t('ex.schedule_created', {name: body.vm_name}), 'ok'); exLoadVms(); }
+  try { await _exCall('POST', '/api/backup/plans', body); if (h) h.close(); showToast(t('ex.schedule_created', {name: body.vm_name}), 'ok'); exLoadVms(); }
   catch (e) { msg.textContent = e.message; msg.className = 'cl-msg err'; }
 }
 
@@ -6948,7 +7010,7 @@ async function exLoadRuns() {
 
 // ── planned verification (per folder): settings and state on the Schedules tab, a column on the restore
 // points, a history table on the Runs tab ─────────────────────────────────────────────────────────────
-let _vfData = null, _vfEditing = false;
+let _vfData = null;
 async function _vfLoad() {
   try { _vfData = await _exCall('GET', '/api/backup/verification'); } catch (e) { _vfData = null; }   // no right on the folder: no section
 }
@@ -6960,19 +7022,7 @@ function _vfSection() {
   const dr = (d.clusters || []).filter(c => c.role === 'dr');
   const head = `<div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-green)"></div>
       <span class="settings-group-title">${t('vf.title')}</span>
-      ${_vfEditing ? '' : `<button class="um-action-btn" onclick="_vfEditing = true; exLoadPolicies()">${t('vf.edit')}</button>`}</div>`;
-  if (_vfEditing) return `<div class="settings-group">${head}
-      <div class="cl-form" style="max-width:720px;">
-        <div><label>${t('vf.interval')}</label><input class="um-input" type="number" min="0" max="90" id="vf-interval" value="${iv}" style="width:100px;">
-          <div class="ex-hint">${t('vf.interval_hint')}</div></div>
-        <div><label>${t('vf.hours')}</label><div style="display:flex;gap:6px;align-items:center;"><input class="um-input" type="time" id="vf-from" value="${_exEsc(st.hours_from)}" style="width:130px;"> – <input class="um-input" type="time" id="vf-until" value="${_exEsc(st.hours_until)}" style="width:130px;"></div>
-          <div class="ex-hint">${t('vf.hours_hint')}</div></div>
-        <div style="grid-column:1/-1;display:flex;gap:8px;align-items:flex-start;"><input type="checkbox" id="vf-dr-backups" ${st.dr_during_backups ? 'checked' : ''}>
-          <label for="vf-dr-backups" style="margin:0;">${t('vf.dr_during_backups')}<div class="ex-hint">${t('vf.dr_during_backups_hint')}</div></label></div>
-      </div>
-      <div style="display:flex;gap:6px;margin-top:8px;"><button class="um-primary-btn" onclick="vfSave()">${t('clusters.save')}</button>
-        <button class="um-action-btn" onclick="_vfEditing = false; exLoadPolicies()">${t('console.cancel')}</button></div>
-      <div class="cl-msg" id="vf-msg"></div></div>`;
+      <button class="um-action-btn" onclick="vfEdit()">${t('vf.edit')}</button></div>`;
   const rule = iv ? t('vf.rule', {n: iv, from: _exEsc(st.hours_from), until: _exEsc(st.hours_until)}) : t('vf.off');
   const badges = !sm.points ? `<span class="ex-hint">${t('vf.no_points')}</span>` : [
     sm.failed ? `<span class="ex-badge err">${t('vf.n_failed', {n: sm.failed})}</span>` : '',
@@ -6991,12 +7041,33 @@ function _vfSection() {
     <div style="margin-bottom:6px;">${proxies}</div>
     <div class="ex-hint">${dr.length ? t('vf.dr_present', {names: dr.map(c => _exEsc(c.cluster_name)).join(', ')}) : t('vf.dr_none')}</div></div>`;
 }
-async function vfSave() {
+/** The verification settings of the folder in a dialog. */
+function vfEdit() {
+  const d = _vfData; if (!d || !d.settings) return;
+  const st = d.settings, iv = st.interval_days;
+  hcmModal({
+    title: _exEsc(t('vf.title')), width: 'min(720px, 96vw)',
+    body: `<div class="cl-form">
+        <div><label>${t('vf.interval')}</label><input class="um-input" type="number" min="0" max="90" id="vf-interval" value="${iv}" style="width:100px;">
+          <div class="ex-hint">${t('vf.interval_hint')}</div></div>
+        <div><label>${t('vf.hours')}</label><div style="display:flex;gap:6px;align-items:center;"><input class="um-input" type="time" id="vf-from" value="${_exEsc(st.hours_from)}" style="width:130px;"> – <input class="um-input" type="time" id="vf-until" value="${_exEsc(st.hours_until)}" style="width:130px;"></div>
+          <div class="ex-hint">${t('vf.hours_hint')}</div></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px;align-items:flex-start;"><input type="checkbox" id="vf-dr-backups" ${st.dr_during_backups ? 'checked' : ''}>
+          <label for="vf-dr-backups" style="margin:0;">${t('vf.dr_during_backups')}<div class="ex-hint">${t('vf.dr_during_backups_hint')}</div></label></div>
+      </div>
+      <div class="cl-msg" id="vf-msg"></div>`,
+    buttons: [
+      { label: t('console.cancel'), onClick: h => h.close() },
+      { label: t('clusters.save'), kind: 'primary', onClick: h => vfSave(h) },
+    ],
+  });
+}
+async function vfSave(h) {
   const body = {interval_days: parseInt(document.getElementById('vf-interval').value, 10),
                 hours_from: document.getElementById('vf-from').value, hours_until: document.getElementById('vf-until').value,
                 dr_during_backups: document.getElementById('vf-dr-backups').checked};
   if (!(body.interval_days >= 0 && body.interval_days <= 90)) { _shMsg('vf-msg', t('vf.interval_range'), 'err'); return; }
-  try { _vfData = await _exCall('PUT', '/api/backup/verification', body); _vfEditing = false; exLoadPolicies(); }
+  try { _vfData = await _exCall('PUT', '/api/backup/verification', body); if (h) h.close(); exLoadPolicies(); }
   catch (e) { _shMsg('vf-msg', e.message, 'err'); }
 }
 /** The Verified cell of a chain: failed points, overdue, points still to check, or the oldest check. */
@@ -7066,7 +7137,7 @@ function _pbTest(r) {
 
 // ── test restores (per folder): plans on the Schedules tab, results on the Runs tab, a column on the
 // restore points ─────────────────────────────────────────────────────────────────────────────────────
-let _trData = null, _trEditing = null;     // _trEditing: null | 'new' | plan id
+let _trData = null;
 async function _trLoad() {
   try { _trData = await _exCall('GET', '/api/backup/test-plans'); } catch (e) { _trData = null; }
 }
@@ -7080,12 +7151,11 @@ function _trSection() {
   if (!d) return '';
   const head = `<div class="settings-group-header"><div class="chart-title-dot" style="background:var(--accent-amber)"></div>
       <span class="settings-group-title">${t('tr.title')}</span>
-      ${_trEditing === 'new' ? '' : `<button class="um-action-btn" onclick="_trEditing = 'new'; exLoadPolicies()">${t('tr.new')}</button>`}</div>`;
-  const body = (d.plans || []).map(p => _trEditing === p.id ? _trForm(p) : _trCard(p)).join('');
+      <button class="um-action-btn" onclick="trEdit(null)">${t('tr.new')}</button></div>`;
+  const body = (d.plans || []).map(_trCard).join('');
   return `<div class="settings-group">${head}
     <div class="ex-hint" style="margin-bottom:8px;">${t('tr.intro')}</div>
-    ${_trEditing === 'new' ? _trForm(null) : ''}
-    ${body || (_trEditing === 'new' ? '' : `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('tr.none')}</div>`)}</div>`;
+    ${body || `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${t('tr.none')}</div>`}</div>`;
 }
 function _trCard(p) {
   const fixed = (p.members || []).filter(m => m.mode === 'fixed'), excl = (p.members || []).filter(m => m.mode === 'exclude');
@@ -7107,7 +7177,7 @@ function _trCard(p) {
       ${p.level === 'network' && !netReady ? `<span class="ex-badge warn" title="${_exEsc(t('tr.net_not_ready_hint'))}">${t('tr.net_not_ready')}</span>` : ''}
       <span style="flex:1"></span>
       <button class="um-action-btn" onclick="trRun(${p.id})">${t('tr.run_now')}</button>
-      <button class="um-action-btn" onclick="_trEditing = ${p.id}; exLoadPolicies()">${t('vf.edit')}</button>
+      <button class="um-action-btn" onclick="trEdit(${p.id})">${t('vf.edit')}</button>
       <button class="um-action-btn danger" onclick="trDelete(${p.id}, '${_exEsc(p.name)}')">${t('users.delete')}</button></div>
     <div class="ex-hint" style="margin-top:4px;">${t('tr.rule', {n: p.interval_days, fixed: fixed.length, random: p.random_count, weeks: p.rest_weeks})} ${_trTargetLine(p)}</div>
     <div class="ex-hint">${opts.join(' · ')}${p.last_run_at ? ` · ${t('tr.last_round', {when: _exFmt(p.last_run_at)})}` : ''}</div>
@@ -7123,9 +7193,8 @@ function _trCard(p) {
 function _trForm(p) {
   const v = p || {name: '', enabled: true, interval_days: 7, random_count: 2, rest_weeks: 4, level: 'boot', test_vlan: null, probe_address: '',
                   default_ports: [], timeout_minutes: 10, keep_failed_hours: null, byte_budget_gb: null, hours_from: '01:00', hours_until: '06:00'};
-  const id = p ? p.id : 'new';
-  return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;">
-    <div class="cl-form" style="max-width:900px;">
+  return `<div>
+    <div class="cl-form">
       <div><label>${t('tr.f_name')}</label><input class="um-input" id="trf-name" value="${_exEsc(v.name)}"></div>
       <div><label>${t('tr.f_interval')}</label><input class="um-input" type="number" min="1" max="90" id="trf-interval" value="${v.interval_days}" style="width:100px;"></div>
       <div><label>${t('tr.f_random')}</label><div style="display:flex;gap:6px;align-items:center;"><input class="um-input" type="number" min="0" max="50" id="trf-random" value="${v.random_count}" style="width:80px;">
@@ -7149,11 +7218,22 @@ function _trForm(p) {
         <div class="ex-hint">${t('tr.f_budget_hint')}</div></div>
       <div style="display:flex;gap:8px;align-items:center;"><input type="checkbox" id="trf-enabled" ${v.enabled ? 'checked' : ''}><label for="trf-enabled" style="margin:0;">${t('tr.enabled')}</label></div>
     </div>
-    <div style="display:flex;gap:6px;margin-top:8px;"><button class="um-primary-btn" onclick="trSave('${id}')">${t('clusters.save')}</button>
-      <button class="um-action-btn" onclick="_trEditing = null; exLoadPolicies()">${t('console.cancel')}</button></div>
     <div class="cl-msg" id="trf-msg"></div></div>`;
 }
-async function trSave(id) {
+/** The test plan editor in a dialog (id null: a new plan). */
+function trEdit(id) {
+  const p = id == null ? null : ((_trData && _trData.plans) || []).find(x => x.id === id);
+  if (id != null && !p) return;
+  hcmModal({
+    title: _exEsc(p ? `${t('vf.edit')}: ${p.name}` : t('tr.new')), width: 'min(900px, 96vw)',
+    body: _trForm(p),
+    buttons: [
+      { label: t('console.cancel'), onClick: h => h.close() },
+      { label: t('clusters.save'), kind: 'primary', onClick: h => trSave(p ? p.id : 'new', h) },
+    ],
+  });
+}
+async function trSave(id, h) {
   const g = k => document.getElementById('trf-' + k);
   const level = g('level').value;
   const body = {name: g('name').value.trim(), enabled: g('enabled').checked, interval_days: parseInt(g('interval').value, 10),
@@ -7166,7 +7246,8 @@ async function trSave(id) {
   try {
     if (id === 'new') await _exCall('POST', '/api/backup/test-plans', body);
     else await _exCall('PUT', `/api/backup/test-plans/${id}`, body);
-    _trEditing = null; exLoadPolicies();
+    if (h) h.close();
+    exLoadPolicies();
   } catch (e) { _shMsg('trf-msg', e.message, 'err'); }
 }
 async function trDelete(id, name) {
@@ -7267,12 +7348,12 @@ async function exPointsOpen(id, vm) {
   try {
     const pts = await _exCall('GET', `/api/backup/chains/${id}/points`);
     if (!_pts || _pts.chain !== id || _flr) return;   // closed or moved on meanwhile
+    _pts.points = pts;
     body.innerHTML = pts.length ? `<table class="um-table"><thead><tr><th>#</th><th>${t('ex.col_kind')}</th><th>${t('ex.col_started')}</th><th>${t('ex.col_changed')}</th><th>${t('ex.col_written')}</th><th>${t('ex.col_verified')}</th><th></th></tr></thead><tbody>${pts.map(p => `
       <tr><td>${p.seq}</td><td><span class="ex-badge ${p.kind === 'full' ? 'ok' : 'run'}">${t(p.kind === 'full' ? 'ex.point_full' : 'ex.point_delta')}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted)">${_exEsc(p.dir)}</span>${p.synthetic ? ` <span class="ex-badge off" title="${_exEsc(t('ex.synthetic_hint'))}">${t('ex.synthetic')}</span>` : ''}${(p.short_disks || []).length ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.short_disk_hint', {n: Math.round((p.short_disks[0].guest_size - p.short_disks[0].image_size) / 1024)}))}">${t('ex.short_disk')}</span>` : ''}${p.quiesced === true ? ` <span class="ex-badge off" title="${_exEsc(t('ex.quiesced_hint'))}">${t('ex.quiesced')}</span>` : p.quiesced === false ? ` <span class="ex-badge warn" title="${_exEsc(t('ex.crash_consistent_hint'))}">${t('ex.crash_consistent')}</span>` : ''}</td>
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;">${_exFmt(p.created_at)}</td><td>${_exMiB(p.blocks)}</td><td>${_exMiB(p.bytes_written ? Math.round(p.bytes_written / 1048576) : null)}</td>
       <td style="font-size:11px;color:var(--text-muted)">${p.verify_error ? `<span class="ex-badge err" title="${_exEsc(p.verify_error)}">${t('ex.point_corrupt')}</span>` : p.verified_at ? _exFmt(p.verified_at) : '—'}</td>
-      <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" onclick="exFilesOpen(${p.id}, ${p.seq}, '${_exEsc(_exFmt(p.created_at))}')">${t('ex.files')}</button></td></tr>
-      <tr id="rs-form-${p.id}" hidden><td colspan="7" style="background:var(--bg-card);">${_exRestoreFormHtml(p, id)}</td></tr>`).join('')}</tbody></table>` : `<div class="empty-state">${t('ex.no_points')}</div>`;
+      <td style="white-space:nowrap;"><button class="um-action-btn" onclick="exRestoreForm(${id}, ${p.id})">${t('ex.restore')}</button> <button class="um-action-btn" onclick="exFilesOpen(${p.id}, ${p.seq}, '${_exEsc(_exFmt(p.created_at))}')">${t('ex.files')}</button></td></tr>`).join('')}</tbody></table>` : `<div class="empty-state">${t('ex.no_points')}</div>`;
   } catch (e) { body.innerHTML = `<div class="empty-state">${_exEsc(e.message)}</div>`; }
 }
 let _exChains = {};
@@ -7302,18 +7383,28 @@ function _exRestoreFormHtml(p, chainId) {
         <label style="margin:0;"><input type="checkbox" id="rs-${p.id}-verify" checked> ${t('ex.r_verify')}</label>
         <div class="ex-hint">${t('ex.r_verify_hint', {when: p.verified_at ? _exFmt(p.verified_at) : t('ex.never')})}</div></div>
     </div>
-    <div class="cl-actions"><button class="update-apply-btn" onclick="exRestoreStart(${p.id})">${t('ex.restore')}</button>
-      <button class="refresh-btn" onclick="exRestoreForm(${chainId}, ${p.id})">${t('clusters.cancel')}</button><span class="cl-msg" id="rs-${p.id}-msg"></span></div>`;
+    <div class="cl-msg" id="rs-${p.id}-msg"></div>`;
 }
-function exRestoreForm(chainId, pointId) { const r = document.getElementById(`rs-form-${pointId}`); if (r) r.hidden = !r.hidden; }
-async function exRestoreStart(pointId) {
+/** The restore form of one point, in a dialog over the restore points window. */
+function exRestoreForm(chainId, pointId) {
+  const p = ((_pts && _pts.points) || []).find(x => x.id === pointId); if (!p) return;
+  hcmModal({
+    title: `${_exEsc(_pts.vm)} · ${_exEsc(t('ex.restore'))} #${p.seq} · ${_exEsc(_exFmt(p.created_at))}`, width: 'min(760px, 96vw)',
+    body: _exRestoreFormHtml(p, chainId),
+    buttons: [
+      { label: t('console.cancel'), onClick: h => h.close() },
+      { label: t('ex.restore'), kind: 'primary', onClick: h => exRestoreStart(pointId, h) },
+    ],
+  });
+}
+async function exRestoreStart(pointId, h) {
   const g = id => document.getElementById(`rs-${pointId}-${id}`);
   const body = { point_id: pointId, target_name: g('name').value.trim(), mac_policy: g('mac').value, nic_connected: g('nic').checked, start: g('start').checked, verify: g('verify').checked };
   const sel = g('cluster');
   if (sel && sel.value && sel.value !== sel.dataset.src) body.target_cluster_id = sel.value;
   if (!await hcmConfirm(t('ex.r_confirm', {name: body.target_name}))) return;
   _shMsg(`rs-${pointId}-msg`, t('ex.i_starting'), '');
-  try { await _exCall('POST', '/api/backup/restores', body); showToast(t('ex.r_started'), 'ok'); switchExportsPanel('runs'); }
+  try { await _exCall('POST', '/api/backup/restores', body); if (h) h.close(); exFilesClose(); showToast(t('ex.r_started'), 'ok'); switchExportsPanel('runs'); }
   catch (e) { _shMsg(`rs-${pointId}-msg`, e.message, 'err'); }
 }
 // ── file-level recovery ─────────────────────────────────────────────────────

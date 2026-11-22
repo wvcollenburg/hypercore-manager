@@ -974,6 +974,8 @@ window.LANG = {
   'proxies.deploy_confirm': "Proxy-VM '{name}' auf dem Cluster anlegen?",
   'proxies.deploy_started': "Ausrollen gestartet; Fortschritt unten.",
   'proxies.deploy_go': "Ausrollen",
+  'proxies.deployments': "Bereitstellungen",
+  'proxies.added_unreachable': "Proxy registriert, antwortet aber noch nicht: siehe seinen Status in der Liste.",
   'proxies.deploy_clear': "Abgeschlossene löschen",
   'proxies.deploy_clear_hint': "Entfernt die abgeschlossenen Zeilen dieses Protokolls. Zeilen älter als 30 Tage verschwinden von selbst, außer der letzten erfolgreichen jedes registrierten Proxys.",
   'proxies.deploy_cleared': "{n} abgeschlossene Zeile(n) entfernt.",
