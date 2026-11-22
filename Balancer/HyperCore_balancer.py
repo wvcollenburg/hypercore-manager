@@ -351,37 +351,16 @@ class LoadBalancer:
                         self.log(3, f"  - Skipping {vm['name']} (cooldown active)")
                         continue
 
-                    # anti-affinity sets for the candidate VM
-                    vm_anti = {t.strip()[5:] for t in vm['tags'].split(',') if t.strip().startswith('anti_')}
-
                     tol = self.config.get('CPU_TARGET_TOLERANCE_PERCENT', 5.0)
                     targets = sorted(usable, key=lambda x: x['avg_ram'] if mode == "RAM_FOCUS" else (int(x['avg_cpu'] / tol), x['avg_ram']))
                     for tgt in targets:
-                        if tgt['name'] == src['name']: continue
-
-                        if tgt['uuid'] in self.reserved_nodes:
-                            if time.time() < self.reserved_nodes[tgt['uuid']]:
-                                self.log(3, f"  - Skipping target node {tgt['name']} (Reserved for impending predicted spike)")
-                                continue
-                            else:
-                                del self.reserved_nodes[tgt['uuid']]
-
-                        # anti-affinity: skip if candidate's anti_X tag matches a VM name on target,
-                        # or if any VM on target has anti_<candidate> pointing back at us
-                        tgt_names = {v['name'] for v in tgt['vms']}
-                        tgt_anti  = {t.strip()[5:] for v in tgt['vms'] for t in v['tags'].split(',') if t.strip().startswith('anti_')}
-                        if vm_anti & tgt_names:
-                            self.log(2, f"  - Skipping target {tgt['name']}: anti-affinity ({vm_anti & tgt_names})")
-                            continue
-                        if vm['name'] in tgt_anti:
-                            self.log(2, f"  - Skipping target {tgt['name']}: anti-affinity (reverse block on {vm['name']})")
+                        refusal = self.target_refusal(vm, src, tgt)
+                        if refusal:
+                            level, why = refusal
+                            self.log(level, f"  - Skipping target {tgt['name']}: {why}")
                             continue
 
                         p_ram = ((tgt['used_ram'] + vm['mem']) / tgt['total_ram']) * 100
-                        p_ratio = (sum(v['vcpus'] for v in tgt['vms']) + vm['vcpus']) / tgt['threads']
-
-                        if p_ram > self.config['RAM_LIMIT_PERCENT'] or p_ratio > self.config['MAX_VCPU_RATIO']:
-                            continue
                         # reject targets whose post-move RAM would exceed the upper threshold —
                         # landing there makes them a RAM_FOCUS source candidate next cycle
                         if mode == "RAM_FOCUS" and p_ram > self.config['RAM_UPPER_THRESHOLD_PERCENT']:
@@ -393,6 +372,54 @@ class LoadBalancer:
                         self.log(2, f"Candidate found: {vm['name']} via {mode}")
                         return vm, src, tgt, mode
         return None, None, None, primary
+
+    def target_refusal(self, vm, src, tgt):
+        """Why `tgt` cannot take `vm` (running on `src`) now, as (log level, reason), or None. The
+        target test every engine's move must pass: a usable node (online, allows running VMs, so
+        no witness or maintenance node, not excluded) other than the source, not reserved for a
+        predicted spike, not against the VM's node pin or anyone's anti-affinity, and within the
+        RAM limit and the vCPU ratio after the move."""
+        if tgt['uuid'] == src['uuid']:
+            return 3, "is the source"
+        if not tgt['is_usable']:
+            return 2, "not usable (offline, excluded, maintenance or witness)"
+        if tgt['uuid'] in self.reserved_nodes:
+            if time.time() < self.reserved_nodes[tgt['uuid']]:
+                return 3, "reserved for impending predicted spike"
+            del self.reserved_nodes[tgt['uuid']]
+        tags = [t.strip() for t in vm['tags'].split(',')]
+        pin = next((t[5:] for t in tags if t.startswith('node_')), None)
+        if pin and pin != tgt['name'].split('.')[-1]:
+            return 2, f"{vm['name']} is pinned to node_{pin}"
+        # anti-affinity: skip if candidate's anti_X tag matches a VM name on target,
+        # or if any VM on target has anti_<candidate> pointing back at us
+        vm_anti = {t[5:] for t in tags if t.startswith('anti_')}
+        tgt_names = {v['name'] for v in tgt['vms']}
+        tgt_anti = {t.strip()[5:] for v in tgt['vms'] for t in v['tags'].split(',') if t.strip().startswith('anti_')}
+        if vm_anti & tgt_names:
+            return 2, f"anti-affinity ({vm_anti & tgt_names})"
+        if vm['name'] in tgt_anti:
+            return 2, f"anti-affinity (reverse block on {vm['name']})"
+        p_ram = ((tgt['used_ram'] + vm['mem']) / tgt['total_ram']) * 100
+        p_ratio = (sum(v['vcpus'] for v in tgt['vms']) + vm['vcpus']) / tgt['threads']
+        if p_ram > self.config['RAM_LIMIT_PERCENT']:
+            return 3, f"RAM would reach {p_ram:.0f}%"
+        if p_ratio > self.config['MAX_VCPU_RATIO']:
+            return 3, f"vCPU ratio would reach {p_ratio:.2f}"
+        return None
+
+    def _predictive_refusal(self, rec, state):
+        """Why a queued Oracle recommendation must not run now, or None. It may be up to a day
+        old, so the VM, the source and the target are checked against the current state."""
+        src = state.get(rec.source_node)
+        vm = next((v for v in src['vms'] if v['uuid'] == rec.vm_uuid), None) if src else None
+        if vm is None:
+            return f"VM '{rec.vm_name}' is no longer running on {rec.source_ip}"
+        tgt = state.get(rec.target_node)
+        if tgt is None:
+            return f"target node {rec.target_ip} is no longer in the cluster"
+        refusal = self.target_refusal(vm, src, tgt)
+        return f"target {rec.target_ip} {refusal[1]}" if refusal else None
 
     def find_affinity_violation(self, usable, skip=frozenset()):
         """
@@ -660,10 +687,10 @@ class LoadBalancer:
                 self._predictive_thread = None
                 self._predictive_overrun_logged = False
 
+                valid_recs = []
                 if recommendations:
                     current_vms = {vm['uuid']: vm for vm in vms}
                     current_node_uuids = {n['uuid'] for n in nodes}
-                    valid_recs = []
                     for rec in recommendations:
                         vm_current = current_vms.get(rec.vm_uuid)
                         if not vm_current:
@@ -677,36 +704,46 @@ class LoadBalancer:
                             continue
                         valid_recs.append(rec)
 
-                    self._pending_predictive_recs = valid_recs
-                    if valid_recs:
-                        earliest = min(valid_recs, key=lambda r: r.peak_time)
-                        earliest_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(earliest.peak_time))
-                        self.log(0, f"[PREDICTIVE] {len(valid_recs)} recommendation(s) queued. Earliest peak at {earliest_str}.")
+                # a clean forecast clears the queue: recommendations of an earlier run do not survive it
+                self._pending_predictive_recs = valid_recs
+                if valid_recs:
+                    earliest = min(valid_recs, key=lambda r: r.peak_time)
+                    earliest_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(earliest.peak_time))
+                    self.log(0, f"[PREDICTIVE] {len(valid_recs)} recommendation(s) queued. Earliest peak at {earliest_str}.")
 
-                        # reserve all source nodes immediately — don't wait for each migration
-                        # to execute. this prevents the reactive engine from routing VMs back
-                        # onto a node the Oracle just decided is going to be overloaded
-                        reservation_secs = self.config.get('PREDICTIVE_RESERVATION_MINUTES', 5) * 60
-                        seen_sources = set()
-                        for rec in valid_recs:
-                            if rec.source_node in seen_sources:
-                                continue
-                            seen_sources.add(rec.source_node)
-                            release_time = rec.peak_time + reservation_secs
-                            existing = self.reserved_nodes.get(rec.source_node, 0)
-                            if release_time > existing:
-                                self.reserved_nodes[rec.source_node] = release_time
-                                fmt = time.strftime('%Y-%m-%d %H:%M', time.localtime(release_time))
-                                self.log(0, f"[RESERVATION] Node {rec.source_ip} locked as target until {fmt} (Oracle: predicted overload)")
+                    # reserve all source nodes immediately — don't wait for each migration
+                    # to execute. this prevents the reactive engine from routing VMs back
+                    # onto a node the Oracle just decided is going to be overloaded
+                    reservation_secs = self.config.get('PREDICTIVE_RESERVATION_MINUTES', 5) * 60
+                    seen_sources = set()
+                    for rec in valid_recs:
+                        if rec.source_node in seen_sources:
+                            continue
+                        seen_sources.add(rec.source_node)
+                        release_time = rec.peak_time + reservation_secs
+                        existing = self.reserved_nodes.get(rec.source_node, 0)
+                        if release_time > existing:
+                            self.reserved_nodes[rec.source_node] = release_time
+                            fmt = time.strftime('%Y-%m-%d %H:%M', time.localtime(release_time))
+                            self.log(0, f"[RESERVATION] Node {rec.source_ip} locked as target until {fmt} (Oracle: predicted overload)")
 
             # --- discard recommendations whose peak has already passed ---
             self._pending_predictive_recs = [r for r in self._pending_predictive_recs if r.peak_time > now]
 
             # --- act on any recommendation whose peak is within the lead time window ---
             ready_recs = [r for r in self._pending_predictive_recs if r.peak_time - now <= lead_time_seconds]
-            if ready_recs:
-                rec = ready_recs[0]
-                self._pending_predictive_recs.remove(rec)
+            rec = None
+            for candidate in ready_recs:
+                # the reactive engine's target test, against the state of now: the recommendation
+                # may be a day old, and its target may since be in maintenance, excluded or full
+                self._pending_predictive_recs.remove(candidate)
+                refusal = self._predictive_refusal(candidate, state)
+                if refusal:
+                    self.log(0, f"[PREDICTIVE] Dropping recommendation {candidate.vm_name} -> {candidate.target_ip}: {refusal}.")
+                    continue
+                rec = candidate
+                break
+            if rec:
                 info = f"{rec.vm_name} | {rec.source_ip} -> {rec.target_ip} (Predictive: {rec.reason})"
 
                 if self.config['DRY_RUN']:
@@ -752,7 +789,8 @@ class LoadBalancer:
                 else:
                     self.log(0, "[PREDICTIVE] Starting background forecast thread.")
                     vms_snapshot = list(vms)
-                    nodes_snapshot = list(nodes)
+                    # only nodes a VM may run on: the Oracle picks its targets from these
+                    nodes_snapshot = [n for n in nodes if state.get(n['uuid'], {}).get('is_usable')]
                     self._predictive_thread = threading.Thread(
                         target=self._run_predictive_background,
                         args=(vms_snapshot, nodes_snapshot),

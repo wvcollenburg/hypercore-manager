@@ -259,7 +259,7 @@ class _Client:
 
 
 def _balancer(client, **config):
-    lb = hb.LoadBalancer(client=client, config=dict(CONFIG, PREDICTIVE_BALANCING_ENABLED=False, **config),
+    lb = hb.LoadBalancer(client=client, config={**CONFIG, 'PREDICTIVE_BALANCING_ENABLED': False, **config},
                          migration_logger=_Logger())
     lb._last_config_check = time.time() + 10 ** 6       # no hot reload in these tests
     return lb
@@ -418,3 +418,88 @@ def test_a_skipped_vm_lets_the_next_violation_through(lb):
     second = lb.find_affinity_violation(usable, {first})[0]['uuid']
     assert {first, second} == {'v1', 'v2'}
     assert lb.find_affinity_violation(usable, {'v1', 'v2'}) == (None, None, None, None)
+
+
+# ── Oracle recommendations meet the reactive engine's target test when they run ──
+
+class _Rec:
+    def __init__(self, vm_uuid, vm_name, source, target, source_ip='10.0.0.241', target_ip='10.0.0.242', in_s=60):
+        self.vm_uuid, self.vm_name, self.source_node, self.target_node = vm_uuid, vm_name, source, target
+        self.source_ip, self.target_ip, self.reason = source_ip, target_ip, 'test'
+        self.peak_time = time.time() + in_s
+
+
+class _DoneThread:
+    def is_alive(self): return False
+
+
+def _oracle(nodes, vms, recs, **config):
+    client = _Client(nodes, vms)
+    lb = _balancer(client, DRY_RUN=False, PREDICTIVE_BALANCING_ENABLED=True, PREDICTIVE_LEAD_TIME_HOURS=1,
+                   PREDICTIVE_INTERVAL_SECONDS=10 ** 6, **config)
+    lb.last_predictive_run = time.time()
+    lb.max_history = 10 ** 6                                   # the reactive engine waits for its buffer
+    lb._predictive_thread, lb._predictive_results = _DoneThread(), recs
+    return client, lb
+
+
+@pytest.mark.parametrize('target_node,why', [
+    (node('n2', '10.0.0.242', 0.0, 1, allow=False), 'maintenance (allowRunningVMs false)'),
+    (node('n2', '10.0.0.242', 0.0, 1, online=False), 'offline'),
+    (node('n2', '10.0.0.242', 0.0, 63), 'only 1 GiB free'),
+    (node('n2', '10.0.0.242', 0.0, 1, threads=2), 'vCPU ratio'),
+])
+def test_an_oracle_move_to_a_node_that_cannot_take_the_vm_is_dropped(target_node, why):
+    """The Oracle picked 'every node except the source' by predicted load alone; an empty maintenance node
+    (predicted 0) was its first choice, and the main loop only checked that the uuid still existed."""
+    nodes = [node('n1', '10.0.0.241', 90.0, 8), target_node]
+    vms = [vm('v1', 'a', 'n1', mem_gb=4, vcpus=4), vm('v2', 'b', 'n2', vcpus=2)]
+    client, lb = _oracle(nodes, vms, [_Rec('v1', 'a', 'n1', 'n2')])
+    lb._cycle()
+    assert client.migrations == [], why
+    assert lb._pending_predictive_recs == []
+
+
+def test_an_oracle_move_against_exclusion_pin_or_anti_affinity_is_dropped():
+    nodes = [node('n1', '10.0.0.241', 90.0, 8), node('n2', '10.0.0.242', 10.0, 8), node('n3', '10.0.0.243', 10.0, 8)]
+    vms = [vm('v1', 'a', 'n1', tags='node_243'), vm('v2', 'dc01', 'n1', tags='anti_dc02'), vm('v3', 'dc02', 'n2'),
+           vm('v4', 'c', 'n1')]
+    recs = [_Rec('v1', 'a', 'n1', 'n2'), _Rec('v2', 'dc01', 'n1', 'n2'), _Rec('v4', 'c', 'n1', 'n3', target_ip='10.0.0.243')]
+    client, lb = _oracle(nodes, vms, recs, EXCLUDE_NODE_IPS=['10.0.0.243'])
+    lb._cycle()
+    assert client.migrations == []
+
+
+def test_a_valid_oracle_move_still_runs():
+    nodes = [node('n1', '10.0.0.241', 90.0, 8), node('n2', '10.0.0.242', 10.0, 8)]
+    vms = [vm('v1', 'a', 'n1')]
+    client, lb = _oracle(nodes, vms, [_Rec('v1', 'a', 'n1', 'n2')])
+    lb._cycle()
+    assert client.migrations == [('v1', 'n2')]
+
+
+def test_a_clean_forecast_clears_the_queue():
+    """The queue was only replaced when the new forecast had recommendations: stale ones survived a clean one."""
+    nodes = [node('n1', '10.0.0.241', 90.0, 8), node('n2', '10.0.0.242', 10.0, 8)]
+    vms = [vm('v1', 'a', 'n1')]
+    client, lb = _oracle(nodes, vms, [])
+    lb._pending_predictive_recs = [_Rec('v1', 'a', 'n1', 'n2', in_s=7200)]   # outside the lead time
+    lb._cycle()
+    assert lb._pending_predictive_recs == []
+
+
+def test_the_forecast_gets_only_usable_nodes(monkeypatch):
+    nodes = [node('n1', '10.0.0.241', 50.0, 8), node('n2', '10.0.0.242', 0.0, 1, allow=False),
+             node('n3', '10.0.0.243', 10.0, 8)]
+    client, lb = _oracle(nodes, [vm('v1', 'a', 'n1')], None, EXCLUDE_NODE_IPS=['10.0.0.243'])
+    lb._predictive_thread = None
+    lb.last_predictive_run = 0
+    started = {}
+
+    class Thread:
+        def __init__(self, target, args, **kw): started['nodes'] = args[1]
+        def start(self): pass
+        def is_alive(self): return True
+    monkeypatch.setattr(hb.threading, 'Thread', Thread)
+    lb._cycle()
+    assert [n['uuid'] for n in started['nodes']] == ['n1']
