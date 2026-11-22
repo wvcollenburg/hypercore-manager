@@ -375,12 +375,58 @@ def start(sync_interval_seconds: int = 60) -> None:
     # the periodic sync (and a delayed reconcile) catch up instead of taking the service down
     try:
         n = sync_jobs()
-        reconcile_interrupted()
+        _after_start()
         log.info('Scheduler started with %d active schedule(s)', n)
     except Exception:                                   # noqa: BLE001
         log.exception('Scheduler start: database not ready, retrying with the periodic sync')
-        _scheduler.add_job(reconcile_interrupted, trigger='date', run_date=datetime.now() + timedelta(seconds=90),
+        _scheduler.add_job(_after_start, trigger='date', run_date=datetime.now() + timedelta(seconds=90),
                            id='reconcile-start', replace_existing=True)
+
+
+def _after_start() -> None:
+    reconcile_interrupted()
+    catch_up()
+
+
+# Standalone plans live in APScheduler's memory job store: a run time that passed while the service was down
+# (a stack update at night) was simply skipped until the next day. One missed within this window runs at start.
+CATCH_UP_HOURS = 4
+
+
+def missed_fire(run_time: str, tz: str, now):
+    """The plan's last daily run time before `now` (aware), when it lies within CATCH_UP_HOURS; else None."""
+    from datetime import timedelta as _td
+    from zoneinfo import ZoneInfo
+    local = now.astimezone(ZoneInfo(tz))
+    hh, mm = (int(x) for x in run_time.split(':'))
+    fire = local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if fire > local:
+        fire -= _td(days=1)
+    return fire if local - fire <= _td(hours=CATCH_UP_HOURS) else None
+
+
+def catch_up(now=None) -> list[int]:
+    """Start every standalone plan whose run time passed in the last CATCH_UP_HOURS without a run since."""
+    from datetime import datetime as _dt, timezone as _tz
+    now = now or _dt.now(_tz.utc)
+    started = []
+    for s in db.get_schedules():
+        if not s['enabled'] or not s.get('cluster_enabled', True) or s.get('policy_id'):
+            continue                                     # policy members: the dispatcher works from its windows
+        try:
+            fire = missed_fire(s['run_time'], plan_timezone(s), now)
+        except (ValueError, AttributeError):
+            continue
+        if fire is None:
+            continue
+        last = db.last_run_for(s['id'])
+        if last and last.get('started_at') and last['started_at'] >= fire:
+            continue
+        log.warning('plan %s (%s) missed its run at %s while the service was down: running it now', s['id'], s['vm_name'],
+                    fire.isoformat(timespec='minutes'))
+        run_now(s['id'])
+        started.append(s['id'])
+    return started
 
 
 def next_run_time(schedule_id: int):

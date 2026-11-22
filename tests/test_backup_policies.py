@@ -191,6 +191,24 @@ def test_standalone_plans_keep_their_cron_job_and_members_do_not(monkeypatch):
     assert sch.sync_jobs() == 1 and added == ['export-1']
 
 
+def test_a_standalone_plan_missed_while_the_service_was_down_runs_at_start(monkeypatch):
+    """Standalone plans live in a memory job store: a 03:00 run that fell in a restart was skipped until the next day."""
+    now = datetime(2026, 11, 22, 4, 30, tzinfo=AMS)            # restarted at 04:30 local
+    from datetime import timezone as _tz
+    plans = [{'id': 1, 'vm_name': 'a', 'enabled': True, 'run_time': '03:00', 'policy_id': None, 'cluster_timezone': 'Europe/Amsterdam'},
+             {'id': 2, 'vm_name': 'b', 'enabled': True, 'run_time': '03:00', 'policy_id': None, 'cluster_timezone': 'Europe/Amsterdam'},
+             {'id': 3, 'vm_name': 'c', 'enabled': True, 'run_time': '22:00', 'policy_id': None, 'cluster_timezone': 'Europe/Amsterdam'},
+             {'id': 4, 'vm_name': 'd', 'enabled': True, 'run_time': '03:00', 'policy_id': 7, 'cluster_timezone': 'Europe/Amsterdam'},
+             {'id': 5, 'vm_name': 'e', 'enabled': False, 'run_time': '03:00', 'policy_id': None, 'cluster_timezone': 'Europe/Amsterdam'}]
+    last = {2: {'started_at': datetime(2026, 11, 22, 3, 0, 2, tzinfo=AMS).astimezone(_tz.utc)}}
+    monkeypatch.setattr(sch, 'db', types.SimpleNamespace(get_schedules=lambda: plans, last_run_for=lambda pid: last.get(pid)))
+    ran = []
+    monkeypatch.setattr(sch, 'run_now', ran.append)
+    assert sch.catch_up(now.astimezone(_tz.utc)) == [1] and ran == [1], \
+        'only the plan without a run since 03:00; 22:00 yesterday is too long ago; members and paused plans never'
+    assert sch.missed_fire('03:00', 'Europe/Amsterdam', datetime(2026, 11, 22, 8, 0, tzinfo=AMS)) is None
+
+
 def test_one_off_jobs_are_never_dropped_for_starting_late():
     """On the shared 10-thread pool a one-off job that waited over an hour for a thread was silently dropped
     (misfire_grace_time 3600): a restore stayed RUNNING, a policy run blocked its plan for good. Reproduced here
