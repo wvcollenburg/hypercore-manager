@@ -207,6 +207,24 @@ def build_schema() -> list[Section]:
                         "host and need to keep them isolated."
                     ),
                 ),
+                Field(
+                    key="HCM_INTERNAL_BIND",
+                    label="Internal APIs published on",
+                    default="127.0.0.1",
+                    description=(
+                        "Host address InfluxDB (8086), the Foresight API (8081) and the backup API "
+                        "(8082) are published on. The dashboard reaches them over the compose "
+                        "network, so they only need to answer on this host."
+                    ),
+                    why_default=(
+                        "127.0.0.1 keeps them off the network. Docker's published ports bypass host "
+                        "firewalls such as ufw, so 'block them in the firewall' does not work."
+                    ),
+                    when_change=(
+                        "Set 0.0.0.0 only to read InfluxDB from a Grafana on another machine, and "
+                        "restrict the ports in a firewall in front of the host."
+                    ),
+                ),
             ],
         ),
 
@@ -223,7 +241,7 @@ def build_schema() -> list[Section]:
                     default="CHANGE_ME",
                     must_change=True,
                     description=(
-                        "HyperCore clusters are registered in the dashboard (Settings -> Clusters); "
+                        "HyperCore clusters are registered in the dashboard (Settings -> Access -> Tenants); "
                         "their passwords are stored in PostgreSQL encrypted with this key. Every "
                         "service that talks to a cluster receives it."
                     ),

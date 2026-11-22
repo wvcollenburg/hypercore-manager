@@ -37,7 +37,9 @@ services:
     build: ./influxdb
     container_name: sc_influxdb
     ports:
-      - "8086:8086"
+      # published on the host for a Grafana of your own (HCM_INTERNAL_BIND, see .env.template); the
+      # services reach InfluxDB over the compose network
+      - "${HCM_INTERNAL_BIND:-127.0.0.1}:8086:8086"
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=${DOCKER_INFLUXDB_INIT_USERNAME}
@@ -219,7 +221,7 @@ services:
     build: ./sentinel
     container_name: sc_sentinel
     ports:
-      - "8081:8081"    # Foresight REST API (F1-F4, F6)
+      - "${HCM_INTERNAL_BIND:-127.0.0.1}:8081:8081"    # Foresight REST API (F1-F4, F6); the dashboard uses the compose network
     environment:
       # encrypts cluster credentials stored in PostgreSQL; shared by every service that talks to HyperCore
       - HCM_SECRET_KEY=${HCM_SECRET_KEY}
@@ -294,7 +296,7 @@ services:
     build: ./backup
     container_name: sc_backup
     ports:
-      - "8082:8082"    # Backup REST API (proxied by the dashboard)
+      - "${HCM_INTERNAL_BIND:-127.0.0.1}:8082:8082"    # Backup REST API (proxied by the dashboard over the compose network)
     environment:
       - HCM_SECRET_KEY=${HCM_SECRET_KEY}
       - TZ=${TZ:-UTC}
@@ -309,7 +311,6 @@ services:
       # test restores ask the console service whether a restored VM booted (its token is derived from HCM_SECRET_KEY)
       - CONSOLE_API_URL=http://console:8084
       # self-proxy inside this stack (optional; remote proxies are registered in the dashboard)
-      - PROXY_API_URL=${PROXY_API_URL:-http://proxy:8083}
       - PROXY_API_TOKEN=${PROXY_API_TOKEN:-}
       # BACKUP_* is the current name; EXPORTS_* from the first release is still honoured
       - BACKUP_API_TOKEN=${BACKUP_API_TOKEN:-${EXPORTS_API_TOKEN:-}}

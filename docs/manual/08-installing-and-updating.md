@@ -285,7 +285,8 @@ Before the stack is reachable from anything but localhost, work through this lis
 - [ ] "Verify TLS" on for every cluster with a trusted certificate; self-signed ones documented
 - [ ] Dry-run observation completed per cluster before its balancer goes live
 - [ ] The dashboard (port 5000) behind a reverse proxy with TLS, never directly internet-facing
-- [ ] InfluxDB (8086), Sentinel (8081) and the backup API (8082) not reachable beyond the host;
+- [ ] InfluxDB (8086), Sentinel (8081) and the backup API (8082) not reachable beyond the host
+      (`HCM_INTERNAL_BIND=127.0.0.1`, the default);
       the proxy API (8083) reachable from the backup service only
 - [ ] Firewall rules between the host, clusters, proxies and the share as listed in
       [Connectivity](09-connectivity.md)

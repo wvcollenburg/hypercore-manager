@@ -161,8 +161,7 @@ def test_env_template_installer_and_compose_agree():
     compose = set(re.findall(r'\$\{([A-Z][A-Z0-9_]+)', (root / 'docker-compose.yaml').read_text()))
     schema = {f.key for s in core.build_schema() for f in s.fields}
     fallbacks = {'EXPORTS_API_TOKEN', 'EXPORTS_DEFAULT_RETENTION', 'EXPORTS_DEFAULT_RUN_TIME', 'EXPORTS_POLL_INTERVAL_SECONDS',
-                 'EXPORTS_TASK_TIMEOUT_HOURS',        # former names, honoured for one release
-                 'PROXY_API_URL'}                      # has a default in the compose file; only set for an external proxy
+                 'EXPORTS_TASK_TIMEOUT_HOURS'}        # former names, honoured for one release
     assert template == schema, (sorted(template - schema), sorted(schema - template))
     assert template <= compose, sorted(template - compose)
     assert compose - template <= fallbacks, sorted(compose - template - fallbacks)
@@ -216,3 +215,16 @@ def test_every_module_gets_its_tokens(schema):
     body = render_env(schema, seed_default_values(schema), set(EASY_PROFILES))
     for key in ('BACKUP_API_TOKEN', 'PROXY_API_TOKEN', 'SENTINEL_API_TOKEN'):
         assert f'\n{key}=' in body
+
+
+def test_internal_apis_are_published_on_this_host_only():
+    """InfluxDB, the Foresight API and the backup API were published on every interface, with docs telling
+    admins to block them in a firewall, which ufw cannot do for Docker's ports. They follow
+    HCM_INTERNAL_BIND, 127.0.0.1 by default."""
+    import re
+    root = Path(__file__).resolve().parent.parent
+    compose = (root / 'docker-compose.yaml').read_text()
+    for port in ('8081', '8082', '8086'):
+        published = re.findall(rf'^\s*- "([^"]*:{port}:{port})"', compose, re.M)
+        assert published == [f'${{HCM_INTERNAL_BIND:-127.0.0.1}}:{port}:{port}'], (port, published)
+    assert re.search(r'^HCM_INTERNAL_BIND=127\.0\.0\.1$', (root / '.env.template').read_text(), re.M)

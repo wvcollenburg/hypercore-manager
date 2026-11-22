@@ -122,7 +122,8 @@ connection in the direction listed (a stateful firewall allows the replies).
 | Backup proxy | Ubuntu archive or apt mirror | TCP 80 / 443 | Only on the first boot of a proxy deployed from the dashboard |
 | Cluster nodes | Backup share | TCP 445 | Restores, test restores, export mode, Import (HyperCore imports and exports over SMB only) |
 
-Block 8081, 8082 and 8086 from outside the host: the dashboard reaches those containers internally.
+Ports 8081, 8082 and 8086 (Foresight API, backup API, InfluxDB) are published on 127.0.0.1 only: the
+dashboard reaches those containers internally. `HCM_INTERNAL_BIND` in `.env` changes that.
 DNS and NTP are needed as usual. The full table, the test-restore VLAN and typical layouts (MSP sites,
 a share on another site, a DR cluster, no internet) are in [Connectivity](docs/manual/09-connectivity.md).
 
@@ -443,7 +444,10 @@ Sentinel's memory limit in `docker-compose.yaml` should be sized to cover the pe
 ## Bring your own Grafana
 
 The stack no longer ships Grafana. If you want one, point your own instance at InfluxDB with the
-Flux query language: URL `http://<stack host>:8086`, organisation and bucket from `.env`
+Flux query language at `http://<stack host>:8086`. InfluxDB answers
+on the stack host only by default: for a Grafana on another machine set `HCM_INTERNAL_BIND=0.0.0.0` in
+`.env`, run `docker compose up -d influxdb`, and restrict port 8086 in a firewall in front of the host
+(Docker's published ports bypass ufw). Use the organisation and bucket names from `.env`
 (`INFLUX_ORG`, `INFLUX_BUCKET`, long-term data in `INFLUX_LONGTERM_BUCKET`), and a read-only
 token created in the InfluxDB UI rather than the admin token the services use. Every measurement
 carries a `cluster_id` tag.
