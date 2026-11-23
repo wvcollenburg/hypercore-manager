@@ -156,3 +156,17 @@ def test_an_unreachable_backup_service_is_a_503_not_a_500(env, monkeypatch):
     monkeypatch.setattr('urllib.request.urlopen', refuse)
     r = env.as_(rbac.Grant(ADMIN, 'root')).get(f'/api/media?cluster={C}')
     assert r.status_code == 503 and 'unreachable' in r.get_json()['error']
+
+
+def test_a_browser_that_breaks_off_breaks_the_stream_to_the_backup_service():
+    """2026-11-22: a closed browser connection reads as an ordinary end of the body. Passed on like that, the
+    backup service waited five minutes for the rest before it voided the half ISO; now the stream breaks at once."""
+    import io
+    import media_api
+    whole = media_api.WholeBody(io.BytesIO(b'x' * 10), 10)
+    assert whole.read(4) == b'xxxx' and whole.read() == b'x' * 6 and whole.read() == b'', 'a whole body reads as before'
+    cut = media_api.WholeBody(io.BytesIO(b'x' * 4), 10)
+    assert cut.read(4) == b'xxxx'
+    with pytest.raises(ConnectionError):
+        cut.read(4)
+    assert media_api.WholeBody(io.BytesIO(b'x' * 20), 10).read() == b'x' * 10, 'never reads past Content-Length'

@@ -385,15 +385,120 @@ def media_list():
         return _err(str(e), 502)
 
 
-def _body_chunks(size: int, chunk: int = 1 << 20):
-    """The request body as it arrives, exactly `size` bytes; a body that ends early fails the upload."""
+UPLOAD_STALL_SECONDS = 300               # no data for this long: the sender is gone, the upload is void
+
+
+class UploadInterrupted(Exception):
+    """The body of an upload did not arrive completely (the sender stopped, the connection broke, nothing came
+    for UPLOAD_STALL_SECONDS)."""
+
+
+def _body_chunks(size: int, got: dict, chunk: int = 1 << 20):
+    """The request body as it arrives, exactly `size` bytes; got['n'] counts what came. A body that ends early,
+    breaks, or stalls raises UploadInterrupted."""
+    sock = request.environ.get('werkzeug.socket')
+    if sock is not None:
+        try:
+            sock.settimeout(UPLOAD_STALL_SECONDS)       # a sender that vanished without closing: void, not forever
+        except OSError:
+            pass
     left = size
     while left > 0:
-        data = request.stream.read(min(chunk, left))
+        try:
+            data = request.stream.read(min(chunk, left))
+        except Exception as e:                           # noqa: BLE001 — disconnect, timeout, reset
+            raise UploadInterrupted(f'the upload broke off after {size - left} of {size} bytes: {e}') from e
         if not data:
-            raise HyperCoreError(f'the upload ended after {size - left} of {size} bytes')
+            raise UploadInterrupted(f'the upload ended after {size - left} of {size} bytes')
         left -= len(data)
+        got['n'] = size - left
         yield data
+
+
+# uploads this process is running (the ids of backup.media_uploads); a row not in here is an orphan of an earlier run
+_ACTIVE_UPLOADS: set[int] = set()
+
+
+def start_upload_sweep(wait=None) -> threading.Thread:
+    """At start, in the background: void the uploads an earlier run left unfinished, retrying while the database is
+    not up yet (a host reboot starts everything at once)."""
+    wait = wait or threading.Event().wait
+
+    def run():
+        for _ in range(30):
+            wait(20)
+            if sweep_media_uploads() is not None:
+                return
+    t = threading.Thread(target=run, name='upload-sweep', daemon=True)
+    t.start()
+    return t
+
+
+def _upload_begin(cid: str, kind: str, name: str, size: int) -> int | None:
+    try:
+        row = db._one('INSERT INTO backup.media_uploads (cluster_id, kind, name, size) VALUES (%s, %s, %s, %s) RETURNING id',
+                      (cid, kind, name, size))
+    except Exception:                                    # noqa: BLE001 — before migration 060: the inline cleanup still works
+        return None
+    _ACTIVE_UPLOADS.add(row['id'])
+    return row['id']
+
+
+def _upload_uuid(uid: int | None, hc_uuid: str) -> None:
+    if uid is not None:
+        db._exec('UPDATE backup.media_uploads SET hc_uuid = %s WHERE id = %s', (hc_uuid, uid))
+
+
+def _upload_end(uid: int | None) -> None:
+    if uid is not None:
+        _ACTIVE_UPLOADS.discard(uid)
+        try:
+            db._exec('DELETE FROM backup.media_uploads WHERE id = %s', (uid,))
+        except Exception:                                # noqa: BLE001 — the sweep at start removes it
+            pass
+
+
+def _void_upload(hc, kind: str, name: str, hc_uuid: str | None) -> bool:
+    """Delete what an incomplete upload left on the cluster: the ISO it created (never one that is ready for insert:
+    that one did arrive), or the disk image HyperCore lists as 'uploading-<name>'. True when nothing is left."""
+    if kind == 'iso':
+        if not hc_uuid:
+            return True
+        iso = next((i for i in hc.list_isos() if i.get('uuid') == hc_uuid), None)
+        if iso is None or iso.get('readyForInsert'):
+            return True
+        tag = hc.delete_iso(hc_uuid)
+        if tag:
+            incremental.wait_task(hc, tag, 'void ISO', 600)
+        return True
+    left = [d for d in (hc._request('GET', '/VirtualDisk') or []) if d.get('name') == f'uploading-{name}']
+    for d in left:
+        tag = (hc._request('DELETE', f"/VirtualDisk/{d['uuid']}") or {}).get('taskTag', '')
+        if tag:
+            incremental.wait_task(hc, tag, 'void disk image', 600)
+    return True
+
+
+def sweep_media_uploads() -> int | None:
+    """Uploads an earlier run of this service left unfinished (it stopped mid-upload): void what they left on the
+    cluster. Called at start; returns how many were cleaned up, None when the database could not be read."""
+    try:
+        rows = db._all('SELECT id, cluster_id::text AS cluster_id, kind, name, hc_uuid FROM backup.media_uploads')
+    except Exception:                                    # noqa: BLE001 — database not up yet, or before migration 060
+        return None
+    done = 0
+    for r in rows:
+        if r['id'] in _ACTIVE_UPLOADS:
+            continue
+        try:
+            if _void_upload(jobs.client_for(r['cluster_id']), r['kind'], r['name'], r['hc_uuid']):
+                log.warning('upload of %s %s to cluster %s did not finish (the service stopped): removed from the cluster',
+                            r['kind'], r['name'], r['cluster_id'])
+                db._exec('DELETE FROM backup.media_uploads WHERE id = %s', (r['id'],))
+                done += 1
+        except Exception as e:                           # noqa: BLE001 — cluster unreachable: next start tries again
+            log.warning('could not clean up the unfinished upload %s: %s', r['name'], e)
+    return done
 
 
 @app.put('/api/v1/media/upload')
@@ -408,31 +513,49 @@ def media_upload():
     size = request.content_length or 0
     if size <= 0:
         return _err('the upload needs a Content-Length')
+    import time
     try:
         hc = jobs.client_for(cid)
         have = _media_list(hc)['isos' if kind == 'iso' else 'disks']
         if any((m.get('name') or '').lower() == name.lower() for m in have):
             return _err(f"'{name}' is already on this cluster", 409)
-        if kind == 'iso':
-            iso_uuid = hc.create_iso(name, size)
-            try:
-                hc.upload_iso(iso_uuid, _body_chunks(size), size)
-                tag = hc.ready_iso(iso_uuid)
-                if tag:
-                    incremental.wait_task(hc, tag, 'ISO ready', 600)
-            except Exception:
-                try:
-                    hc.delete_iso(iso_uuid)          # a half-uploaded ISO is not left behind
-                except HyperCoreError:
-                    log.warning('could not remove the half-uploaded ISO %s', iso_uuid)
-                raise
-            return jsonify({'ok': True, 'uuid': iso_uuid, 'name': name, 'size': size}), 201
-        return _disk_upload(hc, name, size)
-    except (HyperCoreError, incremental.IncrementalError) as e:
+    except HyperCoreError as e:
         return _err(str(e), 502)
+    t0, got = time.monotonic(), {'n': 0}
+    uid = _upload_begin(cid, kind, name, size)
+    log.info('upload of %s %s (%d bytes) to cluster %s started', kind, name, size, cid)
+    hc_uuid = None
+    try:
+        if kind == 'iso':
+            hc_uuid = hc.create_iso(name, size)
+            _upload_uuid(uid, hc_uuid)
+            hc.upload_iso(hc_uuid, _body_chunks(size, got), size)
+            if got['n'] < size:
+                raise UploadInterrupted(f'the upload ended after {got["n"]} of {size} bytes')
+            tag = hc.ready_iso(hc_uuid)
+            if tag:
+                incremental.wait_task(hc, tag, 'ISO ready', 600)
+            out = (jsonify({'ok': True, 'uuid': hc_uuid, 'name': name, 'size': size}), 201)
+        else:
+            out = _disk_upload(hc, name, size, got)
+    except BaseException as e:                           # noqa: BLE001 — whatever stopped it, the upload is void
+        log.warning('upload of %s %s to cluster %s failed after %d of %d bytes in %.0f s: %s; removing it from the cluster',
+                    kind, name, cid, got['n'], size, time.monotonic() - t0, e)
+        try:
+            _void_upload(hc, kind, name, hc_uuid)
+            _upload_end(uid)
+        except Exception as ce:                          # noqa: BLE001 — left for the sweep at the next start
+            _ACTIVE_UPLOADS.discard(uid)
+            log.warning('could not remove the incomplete upload %s yet: %s', name, ce)
+        if isinstance(e, (HyperCoreError, incremental.IncrementalError, UploadInterrupted)):
+            return _err(str(e), 502)
+        raise
+    _upload_end(uid)
+    log.info('upload of %s %s to cluster %s finished: %d bytes in %.0f s', kind, name, cid, size, time.monotonic() - t0)
+    return out
 
 
-def _disk_upload(hc, name: str, size: int):
+def _disk_upload(hc, name: str, size: int, got: dict):
     """A disk image into the cluster. HyperCore converts a qcow2, vmdk or vhd(x) to its own format after receiving
     it: while it does, the image is listed as 'uploading-<name>', and the upload request itself may end in a 502
     from HyperCore's nginx or no answer at all although the image arrived (seen on 9.8, 2026-11-22). So after the
@@ -442,12 +565,14 @@ def _disk_upload(hc, name: str, size: int):
     import requests
     try:
         r = hc.http().put(f'{hc.base}/VirtualDisk/upload', params={'filename': name, 'filesize': size},
-                          data=LengthStream(_body_chunks(size), size), timeout=(900, 120),
+                          data=LengthStream(_body_chunks(size, got), size), timeout=(900, 120),
                           headers={'Content-Type': 'application/octet-stream'})
         answered = r.status_code
         if not r.ok and r.status_code not in (502, 504):
             raise HyperCoreError(f'disk image upload failed ({r.status_code}): {r.text[:200]}')
     except requests.exceptions.ReadTimeout:
+        if got['n'] < size:
+            raise UploadInterrupted(f'the upload ended after {got["n"]} of {size} bytes') from None
         answered = None                                  # the body went through; the answer did not come
     except requests.exceptions.RequestException as e:
         raise HyperCoreError(f'disk image upload failed: {e}') from e
