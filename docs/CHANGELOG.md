@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.9.3]
 
 ### Fixed
 - **A dialog opened twice stopped working.** Clicking "Access" twice quickly (or a reopen racing the first one) left
