@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **A dialog opened twice stopped working.** Clicking "Access" twice quickly (or a reopen racing the first one) left
+  two copies of the user dialog on top of each other with the same fields. Everything then acted on the hidden copy:
+  choosing "One VM" or "VM tag" showed no VMs or tags, and Save read the fields of the copy underneath. A dialog
+  that is opened again now replaces the older copy. This applies to every dialog.
+
 ## [1.9.2]
 
 ### Fixed

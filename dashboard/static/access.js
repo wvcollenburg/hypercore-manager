@@ -60,6 +60,15 @@ function hcmModal({ title = '', body = '', buttons = [], closable = true, width 
   };
   handle.body.innerHTML = body;
   handle.setButtons(buttons);
+  // The same dialog opened twice (a double click, or a reopen racing the first fetch) would leave two copies
+  // with the same element ids: every lookup then finds the hidden one and the visible one stops working.
+  // The newest copy replaces the older one.
+  const ids = [...back.querySelectorAll('[id]')].map(e => e.id);
+  if (ids.length) {
+    for (const old of _hcmModals.slice()) {
+      if (ids.some(id => old.el.querySelector('#' + CSS.escape(id)))) old.close(null);
+    }
+  }
   if (closable) {
     back.querySelector('[data-x]').onclick = () => handle.close(null);
     back.addEventListener('mousedown', e => { if (e.target === back) handle.close(null); });
